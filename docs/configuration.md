@@ -17,6 +17,20 @@ Réglés dans l'interface, **Paramètres > Agent**, et stockés en base :
 | Vérification automatique des mises à jour | `12` h | Fréquence de l'`apt-get update` lancé sur les hôtes en ligne ; `0` désactive |
 | Mise à jour automatique des agents | activée | Un agent d'une autre version que celle du hub se met à jour seul |
 
+### Adresse des agents
+
+Dans **URL du hub**, saisir l'adresse de l'interface telle que les hôtes la joignent, en `http://` ou en `https://` : peu importe pour les agents. Le hub n'en garde que le **nom d'hôte** et donne aux agents `https://<nom d'hôte>:<Port TLS des agents>`. Le protocole et le port saisis ne servent qu'aux liens de Home Assistant.
+
+| URL du hub saisie | Adresse donnée aux agents |
+|---|---|
+| `http://192.168.1.10:3000` | `https://192.168.1.10:3443` |
+| `https://hm.lan` (reverse proxy) | `https://hm.lan:3443` |
+| vide | nom d'hôte utilisé dans le navigateur, port `3443` |
+
+- Le nom d'hôte doit mener à la machine où le port des agents du hub est publié. Si `hm.lan` pointe vers un reverse proxy installé sur une autre machine, saisir plutôt l'IP du hub (`http://192.168.1.10:3000`), ou faire passer le port `3443` par le proxy en TCP, sans terminaison TLS (voir [Derrière un reverse proxy](#derrière-un-reverse-proxy)).
+- Pour vérifier : la ligne **Adresse des agents** de **Paramètres > Agent** affiche l'adresse exacte utilisée dans les commandes d'installation.
+- Un agent garde l'adresse de son installation : après un changement, relancer sur l'hôte la commande de mise à jour manuelle (**Paramètres > Agent**).
+
 ## Variables d'environnement
 
 Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`make start PORT=4000 LOG=debug MONGO_URL=…`). Une variable vide équivaut à une variable absente.

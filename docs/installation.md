@@ -68,7 +68,7 @@ MongoDB 5 et plus demande un processeur avec les instructions AVX. Sur du matér
 :::
 
 :::tip Adresse utilisée par les agents
-Les agents joignent le hub en TLS sur le port `3443`, avec le nom d'hôte de l'adresse utilisée dans le navigateur. Si tu ouvres l'interface via un nom ou un reverse proxy que les hôtes ne savent pas joindre, renseigne **URL du hub** dans **Paramètres > Agent**. Si tu publies le port des agents sur un autre numéro, reporte-le dans **Port TLS des agents** (voir [Configuration](configuration.md)).
+Les agents joignent le hub en TLS sur le port `3443`, avec le nom d'hôte de l'adresse utilisée dans le navigateur. Si tu ouvres l'interface via un nom ou un reverse proxy que les hôtes ne savent pas joindre, renseigne **URL du hub** dans **Paramètres > Agent**, en `http://` ou `https://` (peu importe : seul son nom d'hôte sert aux agents). Si tu publies le port des agents sur un autre numéro, reporte-le dans **Port TLS des agents**. Détails et exemples : [Adresse des agents](configuration.md#adresse-des-agents).
 :::
 
 ### Mise à jour du hub
