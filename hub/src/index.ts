@@ -14,7 +14,12 @@ import { registerInstallRoutes } from './routes/install.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { startScheduler } from './scheduler.js';
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, trustProxy: config.trustProxy });
+// forceCloseConnections: app.close() also drops the hijacked SSE streams instead of waiting for clients.
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL || 'info' },
+  trustProxy: config.trustProxy,
+  forceCloseConnections: true,
+});
 
 await connectDb();
 await recoverJobs();
@@ -43,7 +48,10 @@ app.setNotFoundHandler((req, reply) => {
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
 
+let shuttingDown = false;
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   clearInterval(flushTimer);
   stopScheduler();
   await flushLogs().catch(() => {});

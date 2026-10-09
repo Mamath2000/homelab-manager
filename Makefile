@@ -1,13 +1,18 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
-.PHONY: help install dev start agent agent-all agent-run build lint fmt test check clean version \
+.PHONY: help install dev start stop agent agent-all agent-run build lint fmt test check clean version \
         mongo mongo-stop docker-build docker-up docker-down docker-logs \
         docker-release docker-release-minor docker-release-major
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
 GOARCH    := $(shell go env GOARCH 2>/dev/null || echo amd64)
-HUB       ?= http://localhost:3000
-LOAD_ENV  := set -a; [ -f .env ] && . ./.env; set +a;
+# Port du hub : HUB_PORT de la ligne de commande, de l'environnement, sinon de .env, sinon 3000.
+# Seule source du port : publié par docker compose, écouté par make dev / make start (PORT), visé par Vite et agent-run.
+ifndef HUB_PORT
+HUB_PORT  := $(shell set -a; [ -f .env ] && . ./.env; echo $${HUB_PORT:-3000})
+endif
+HUB       ?= http://localhost:$(HUB_PORT)
+LOAD_ENV  := set -a; [ -f .env ] && . ./.env; set +a; export PORT=$(HUB_PORT) HUB_URL=$(HUB);
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
@@ -32,13 +37,19 @@ mongo-stop: ## Arrête le MongoDB local de dev
 
 dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
 	@echo "hub : $(HUB)   ·   interface : http://localhost:5173"
-	@$(LOAD_ENV) trap 'kill 0' INT TERM; \
+	@$(LOAD_ENV) trap 'trap - INT TERM; kill 0' INT TERM; \
 		(cd hub && npm run dev) & \
 		(cd web && npm run dev) & \
 		wait
 
-start: build ## Build complet puis lance le hub comme en production (UI servie sur le port 3000)
+start: build ## Build complet puis lance le hub comme en production (UI servie sur le port HUB_PORT)
 	@$(LOAD_ENV) cd hub && NODE_ENV=production node dist/index.js
+
+stop: ## Arrête le hub et l'interface lancés par make dev / make start (processus node de hub/ et web/ de ce repo)
+	@pids=$$(for p in $$(pgrep -u "$$(id -u)" -x 'node|npm.*|esbuild'); do \
+		case "$$(readlink /proc/$$p/cwd 2>/dev/null)" in $(CURDIR)/hub|$(CURDIR)/web) echo $$p;; esac; \
+	done); \
+	if [ -z "$$pids" ]; then echo "Rien à arrêter"; else kill $$pids && echo "Arrêté :" $$pids; fi
 
 agent: ## Compile l'agent pour l'architecture locale (agent/dist)
 	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)-dev" \
@@ -84,9 +95,9 @@ clean: ## Supprime les artefacts de build
 docker-build: ## Construit l'image locale homelab-manager:latest (sans push)
 	bash docker-release.sh build
 
-docker-up: ## Lance hub + mongo avec l'image locale (après make docker-build), sur http://localhost:3000
+docker-up: ## Lance hub + mongo avec l'image locale (après make docker-build), sur le port HUB_PORT
 	HUB_IMAGE=homelab-manager:latest docker compose up -d
-	@echo "http://localhost:$${HUB_PORT:-3000}"
+	@echo "http://localhost:$(HUB_PORT)"
 
 docker-down: ## Arrête la stack docker compose
 	docker compose down
