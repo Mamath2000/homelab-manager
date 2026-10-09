@@ -104,6 +104,17 @@ test('autoremove entities appear only when the agent reports them', () => {
   assert.equal(states.get(`hm/${ROOT_ID}/hosts_to_clean/state`), '1');
 });
 
+test('reboot button only for agents able to reboot', () => {
+  const able = { ...host('able'), capabilities: ['reboot'] };
+  const old = host('old');
+  const { devices, commands } = build([{ host: able, online: true, busy: false }, { host: old, online: true, busy: false }], opts);
+  const comps = (h: HostDoc) => devices.find((d) => d.id === `hm_${h._id.toHexString()}`)!.discovery.components as Record<string, Record<string, unknown>>;
+  assert.equal(comps(able).reboot.device_class, 'restart');
+  assert.equal(comps(old).reboot, undefined);
+  const id = able._id.toHexString();
+  assert.deepEqual(commands.get(`hm/hm_${id}/reboot/set`), { payload: PRESS, action: 'reboot', hostIds: [id] });
+});
+
 test('testConnection reports broker availability and authentication', async () => {
   const broker = aedes();
   broker.authenticate = (_client, username, password, done) => done(null, username === 'ha' && password?.toString() === 'secret');

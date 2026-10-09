@@ -34,14 +34,16 @@ type HostInfo struct {
 
 // agent -> hub
 type Outbound struct {
-	Type     string     `json:"type"` // hello | apt_report | job_log | job_done
-	Version  string     `json:"version,omitempty"`
-	Info     *HostInfo  `json:"info,omitempty"`
-	Report   *AptReport `json:"report,omitempty"`
-	JobID    string     `json:"jobId,omitempty"`
-	Data     string     `json:"data,omitempty"`
-	ExitCode int        `json:"exitCode,omitempty"`
-	Error    string     `json:"error,omitempty"`
+	Type    string    `json:"type"` // hello | apt_report | job_log | job_done
+	Version string    `json:"version,omitempty"`
+	Info    *HostInfo `json:"info,omitempty"`
+	// actions this agent can run, so that the hub only offers those
+	Capabilities []string   `json:"capabilities,omitempty"`
+	Report       *AptReport `json:"report,omitempty"`
+	JobID        string     `json:"jobId,omitempty"`
+	Data         string     `json:"data,omitempty"`
+	ExitCode     int        `json:"exitCode,omitempty"`
+	Error        string     `json:"error,omitempty"`
 }
 
 // hub -> agent

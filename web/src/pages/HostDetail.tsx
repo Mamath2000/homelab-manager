@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, Cpu, History, KeyRound, Lock, Package, Pencil, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, Cpu, History, KeyRound, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
@@ -191,6 +191,7 @@ export function HostDetail() {
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [install, setInstall] = useState<{ command: string | null } | null>(null);
   const [confirmToken, setConfirmToken] = useState(false);
+  const [confirmReboot, setConfirmReboot] = useState(false);
 
   const shownJob = jobId ?? jobs?.[0]?.id ?? null;
   const running = useMemo(() => jobs?.some((j) => j.status === 'running'), [jobs]);
@@ -229,6 +230,16 @@ export function HostDetail() {
               Tout mettre à jour
             </Button>
             <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />
+            {host.capabilities.includes('reboot') && (
+              <Button
+                icon={Power}
+                variant={host.aptSummary?.rebootRequired ? 'danger' : 'secondary'}
+                disabled={!host.online || running}
+                onClick={() => setConfirmReboot(true)}
+              >
+                Redémarrer
+              </Button>
+            )}
             <Button icon={KeyRound} variant="ghost" title="Nouveau token" onClick={() => setConfirmToken(true)} />
             <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
           </>
@@ -295,6 +306,18 @@ export function HostDetail() {
       <ConfirmModal open={confirmUpgrade} onClose={() => setConfirmUpgrade(false)} title={`Mettre à jour ${host.name}`} confirmLabel="Lancer apt-get upgrade" loading={run.isPending} onConfirm={() => startJob('apt_upgrade')}>
         {host.aptSummary?.upgradable} paquet(s) vont être mis à jour, dont {host.aptSummary?.security} de sécurité. Les fichiers de configuration modifiés localement sont conservés.
         {!!host.aptSummary?.rebootPending && <p className="mt-3 text-amber-300">Un redémarrage sera nécessaire ensuite (noyau, microcode ou bibliothèques système).</p>}
+      </ConfirmModal>
+      <ConfirmModal
+        open={confirmReboot}
+        onClose={() => setConfirmReboot(false)}
+        title={`Redémarrer ${host.name}`}
+        confirmLabel="Redémarrer"
+        danger
+        loading={run.isPending}
+        onConfirm={() => run.mutate({ hostId: host.id, action: 'reboot' }, { onSuccess: (j) => { setJobId(j.id); setConfirmReboot(false); } })}
+      >
+        L'hôte redémarre dans les secondes qui suivent (<code className="text-zinc-100">systemctl reboot</code>). Il repasse « En ligne » dès que l'agent se reconnecte.
+        {host.info?.virt === 'none' || !host.info?.virt ? null : <p className="mt-2 text-xs text-muted">Virtualisation : {host.info.virt} (seul ce conteneur ou cette VM redémarre).</p>}
       </ConfirmModal>
       <ConfirmModal open={confirmToken} onClose={() => setConfirmToken(false)} title="Générer un nouveau token" confirmLabel="Générer" danger={c !== 'pending'} onConfirm={regenerate}>
         {c === 'pending' ? "Une nouvelle commande d'installation va être générée." : "L'agent actuel sera déconnecté et devra être réinstallé avec le nouveau token."}

@@ -37,4 +37,5 @@ export const actionLabel: Record<string, string> = {
   apt_update: 'Recherche de mises à jour',
   apt_upgrade: 'Mise à jour',
   apt_autoremove: 'Nettoyage des paquets',
+  reboot: 'Redémarrage',
 };

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
@@ -58,6 +59,8 @@ type session struct {
 	conn *websocket.Conn
 	mu   sync.Mutex // serialises writes
 }
+
+var capabilities = []string{"apt_report", "apt_update", "apt_upgrade", "apt_autoremove", "reboot"}
 
 // One job at a time per host, across reconnections.
 var jobLock sync.Mutex
@@ -120,6 +123,22 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			args = append(args, in.Packages...)
 		}
 		code, err = runStreaming(jctx, emit, "apt-get", args...)
+	case "reboot":
+		path, lerr := exec.LookPath("systemctl")
+		if lerr != nil {
+			done(-1, fmt.Errorf("systemctl not found"))
+			return
+		}
+		// report success first: the reboot stops this agent before it could answer
+		emit("rebooting in 3 seconds...\n")
+		done(0, nil)
+		go func() {
+			time.Sleep(3 * time.Second)
+			if out, err := exec.Command(path, "reboot").CombinedOutput(); err != nil {
+				log.Printf("reboot failed: %v: %s", err, out)
+			}
+		}()
+		return
 	case "apt_autoremove":
 		code, err = runStreaming(jctx, emit, "apt-get", "-y", "autoremove")
 	default:
@@ -132,7 +151,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 }
 
 func (s *session) loop(ctx context.Context) error {
-	if err := s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo()}); err != nil {
+	if err := s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities}); err != nil {
 		return err
 	}
 	go s.report(ctx)
@@ -146,7 +165,7 @@ func (s *session) loop(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				_ = s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo()})
+				_ = s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities})
 				s.report(ctx)
 			}
 		}

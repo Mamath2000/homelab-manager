@@ -120,6 +120,9 @@ export function registerHostRoutes(app: FastifyInstance) {
       const _id = parseId(req.params.id);
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (req.body.action === 'reboot' && !host.capabilities?.includes('reboot')) {
+        return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas redémarrer : mets-le à jour" });
+      }
       const packages = req.body.packages ?? [];
       if (!validPackages(packages)) return reply.code(400).send({ error: 'invalid package name' });
       const job = await createJob(host, req.body.action, packages, 'manual');

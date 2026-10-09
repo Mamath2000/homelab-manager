@@ -180,6 +180,9 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
     });
     d.binary('agent', 'Agent', isOnline, { device_class: 'connectivity' });
+    if (host.capabilities?.includes('reboot')) {
+      d.button('reboot', 'Redémarrer', { action: 'reboot', hostIds: [hid] }, { device_class: 'restart' });
+    }
     d.alerts(hostAlerts);
     d.sensor('os', 'Système', host.info?.osName ?? null, { icon: 'mdi:linux', ...diag });
     d.sensor('kernel', 'Noyau', host.info?.kernel ?? null, { icon: 'mdi:chip', ...diag });

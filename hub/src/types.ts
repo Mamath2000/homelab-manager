@@ -53,12 +53,14 @@ export interface HostDoc {
   lastSeenAt?: Date;
   lastAutoCheckAt?: Date;
   agentVersion?: string;
+  // actions announced by the agent (absent with old agents)
+  capabilities?: string[];
   info?: HostInfo;
   apt?: AptReport;
   aptSummary?: AptSummary;
 }
 
-export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;
+export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove', 'reboot'] as const;
 export type JobAction = (typeof JOB_ACTIONS)[number];
 export type JobStatus = 'running' | 'success' | 'failed';
 

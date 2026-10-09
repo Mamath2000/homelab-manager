@@ -60,6 +60,7 @@ Homelab Manager
 | Entité | Type |
 |---|---|
 | Agent | capteur binaire de connectivité (agent connecté au hub) |
+| Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
 | Système, Noyau, Adresse IP, Vu | diagnostic |
 
@@ -87,7 +88,7 @@ Homelab Manager
 | APT | avertissement | Redémarrage requis |
 | APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours |
 
-« Paquets à nettoyer » et « Nettoyer les paquets » n'apparaissent qu'avec un agent récent (0.1.1 et plus).
+« Paquets à nettoyer », « Nettoyer les paquets » et « Redémarrer » n'apparaissent qu'avec un agent récent (0.1.1 et plus) : l'agent annonce au hub les actions qu'il sait faire.
 
 Les prochains composants (Docker, sauvegardes…) s'ajouteront comme sous-composants de l'hôte, avec leurs propres alertes remontées de la même façon.
 

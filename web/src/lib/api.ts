@@ -46,12 +46,13 @@ export interface Host {
   lastSeenAt: string | null;
   online: boolean;
   agentVersion: string | null;
+  capabilities: string[];
   info: HostInfo | null;
   apt: AptReport | null;
   aptSummary: AptSummary | null;
 }
 
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {

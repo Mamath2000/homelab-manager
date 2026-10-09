@@ -23,6 +23,7 @@ export function hostDto(h: HostDoc) {
     lastSeenAt: h.lastSeenAt ?? null,
     online: isOnline(h._id.toHexString()),
     agentVersion: h.agentVersion ?? null,
+    capabilities: h.capabilities ?? [],
     info: h.info ?? null,
     // computed on read so that reports stored by older hub versions are covered too
     apt: h.apt ? { ...h.apt, upgradable: h.apt.upgradable.map((p) => ({ ...p, reboot: needsReboot(p.name) })) } : null,

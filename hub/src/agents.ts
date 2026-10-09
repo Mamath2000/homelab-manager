@@ -54,6 +54,7 @@ interface AgentMessage {
   type: string;
   version?: string;
   info?: HostInfo;
+  capabilities?: unknown;
   report?: unknown;
   jobId?: string;
   data?: string;
@@ -106,7 +107,14 @@ export function registerAgentSocket(app: FastifyInstance) {
             case 'hello':
               await hosts.updateOne(
                 { _id: host._id },
-                { $set: { info: msg.info, agentVersion: msg.version, lastSeenAt: new Date() } },
+                {
+                  $set: {
+                    info: msg.info,
+                    agentVersion: msg.version,
+                    capabilities: Array.isArray(msg.capabilities) ? msg.capabilities.filter((c) => typeof c === 'string') : [],
+                    lastSeenAt: new Date(),
+                  },
+                },
               );
               await emitHost(host._id);
               break;
