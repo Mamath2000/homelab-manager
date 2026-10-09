@@ -16,6 +16,7 @@ const DEFAULTS: HomeAssistantSettings = {
   password: '',
   topic: 'homelab-manager',
   discoveryPrefix: 'homeassistant',
+  publicUrl: '',
 };
 
 export async function loadHomeAssistantSettings() {
@@ -35,6 +36,7 @@ interface Body {
   password?: string; // absent: unchanged, "": cleared
   topic: string;
   discoveryPrefix: string;
+  publicUrl?: string;
 }
 
 const TOPIC = '^[A-Za-z0-9_\\-]+(/[A-Za-z0-9_\\-]+)*$';
@@ -49,6 +51,7 @@ const body = {
     password: { type: 'string', maxLength: 256 },
     topic: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
     discoveryPrefix: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
+    publicUrl: { type: 'string', maxLength: 256 },
   },
 } as const;
 
@@ -63,6 +66,8 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
       password: req.body.password ?? current.password,
       _id: 'homeassistant',
     };
+    next.publicUrl = next.publicUrl.trim().replace(/\/+$/, '');
+    if (next.publicUrl && !SAFE_URL.test(next.publicUrl)) return reply.code(400).send({ error: "URL de l'interface invalide (http(s)://hôte[:port][/chemin])" });
     if (next.enabled && !next.broker) return reply.code(400).send({ error: "l'adresse du broker est requise" });
     await settings.replaceOne({ _id: 'homeassistant' }, next, { upsert: true });
     await bridge.apply(next);

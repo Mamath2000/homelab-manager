@@ -118,6 +118,7 @@ export interface HomeAssistantSettings {
   hasPassword: boolean;
   topic: string;
   discoveryPrefix: string;
+  publicUrl: string;
   status: {
     state: 'disabled' | 'connecting' | 'connected' | 'error';
     error: string | null;
@@ -133,6 +134,7 @@ export interface HomeAssistantInput {
   password?: string;
   topic: string;
   discoveryPrefix: string;
+  publicUrl: string;
 }
 
 export interface AgentSettings {
