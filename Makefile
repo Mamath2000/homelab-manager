@@ -1,7 +1,7 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
         docker-build release-key \
-        docker-release docker-release-minor docker-release-major
+        docker-release docker-release-minor docker-release-major docker-direct
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
@@ -117,3 +117,6 @@ docker-release-minor: check ## Release : mineur +1, build remis à 0 (X.Y+1.0), 
 
 docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push, tag git
 	bash docker-release.sh release-major
+
+docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]
+	YES=$(YES) bash docker-release.sh direct
