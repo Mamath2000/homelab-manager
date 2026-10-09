@@ -19,8 +19,11 @@ Dans l'interface : **Paramètres → Home Assistant (MQTT)**.
 | Utilisateur / Mot de passe | Identifiants du broker (le mot de passe n'est jamais renvoyé par l'API) |
 | Préfixe des topics | Préfixe des états et commandes, `homelab-manager` par défaut |
 | Préfixe de découverte | `homeassistant` par défaut |
+| URL de l'interface | Lien « Visiter » des appareils dans Home Assistant (l'URL publique, par exemple) ; vide : URL du hub des paramètres Agent |
 
 **Tester la connexion** vérifie que le broker accepte les identifiants, sans rien publier. Une fois enregistrée, la carte d'état indique si le hub est connecté et combien d'appareils sont publiés.
+
+**Republier la découverte** (intégration connectée) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ».
 
 :::info Désactivation
 Désactiver l'intégration, ou changer de préfixe, **retire les appareils** de Home Assistant (configurations de découverte vidées).
@@ -47,21 +50,20 @@ Homelab Manager
 
 | Entité | Type |
 |---|---|
-| Hôtes, Hôtes en ligne | capteurs |
+| Hôtes, Hôtes hors ligne | capteurs |
 | Mises à jour disponibles, Mises à jour de sécurité | capteurs (totaux de tous les hôtes) |
 | Hôtes à mettre à jour, Hôtes à redémarrer, Hôtes à nettoyer | capteurs |
-| Agents à mettre à jour | capteur |
-| Mettre à jour les agents | bouton : met à jour les agents obsolètes en ligne |
+| Agents à mettre à jour | capteur (les agents se mettent à jour automatiquement, voir Paramètres → Agent) |
 | Alertes | capteur (nombre) ; attributs `critical` et `alerts` (niveau, hôte, composant, message) |
 | Problème | capteur binaire, allumé dès qu'une alerte existe |
 | Tout vérifier | bouton : `apt-get update` sur les hôtes en ligne |
-| Tout mettre à jour | bouton : mise à jour complète des hôtes en ligne qui en ont |
 
 ### Un appareil par hôte
 
 | Entité | Type |
 |---|---|
 | Agent | capteur binaire de connectivité (agent connecté au hub) |
+| Redémarrage requis | capteur binaire (problème), dès que l'hôte a remonté son état APT |
 | Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
 | Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
@@ -73,13 +75,13 @@ Homelab Manager
 |---|---|
 | Paquets système | entité `update` : version installée / disponible, résumé des paquets, **installable depuis Home Assistant** (mise à jour complète) |
 | Mises à jour, Mises à jour de sécurité | capteurs |
-| Redémarrage requis | capteur binaire (problème) |
-| Redémarrage après MAJ | capteur : paquets en attente qui demanderont un redémarrage |
 | Paquets à nettoyer | capteur : paquets supprimables par `apt autoremove` (liste en attribut `packages`) |
 | Nettoyer les paquets | bouton : `apt-get autoremove` |
 | Paquets bloqués, Dernière vérification | diagnostic |
 | Alertes, Problème | diagnostic : alertes propres aux paquets |
 | Rechercher les mises à jour | bouton : `apt-get update` |
+
+Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la disponibilité combine la LWT du hub et l'état de l'agent (`PREFIXE/hm_ID/agent/state`, `availability_mode: all`). Le résumé de l'entité `update` signale toujours les paquets qui demanderont un redémarrage.
 
 ### Alertes
 
@@ -107,4 +109,4 @@ Les prochains composants (Docker, sauvegardes…) s'ajouteront comme sous-compos
 
 Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte) et `hm_ID_apt`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
 
-Les valeurs ne sont publiées que lorsqu'elles changent ; tout est republié quand Home Assistant redémarre (`homeassistant/status`). Les tâches lancées depuis Home Assistant apparaissent dans l'activité avec la mention « Home Assistant ».
+Les valeurs ne sont publiées que lorsqu'elles changent ; tout est republié quand Home Assistant redémarre (`homeassistant/status`) ou avec « Republier la découverte ». Les états d'un appareil dont la découverte vient d'être (re)publiée sont renvoyés une seconde fois quelques secondes plus tard, le temps que Home Assistant crée ses entités. Les tâches lancées depuis Home Assistant apparaissent dans l'activité avec la mention « Home Assistant ».

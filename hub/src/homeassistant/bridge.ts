@@ -38,7 +38,12 @@ export class HomeAssistantBridge {
     const same =
       prev && next && prev.enabled === next.enabled && prev.broker === next.broker && prev.username === next.username &&
       prev.password === next.password && prev.topic === next.topic && prev.discoveryPrefix === next.discoveryPrefix;
-    if (same) return;
+    if (same) {
+      // only the link changed: republish the devices
+      this.settings = next;
+      if (prev.publicUrl !== next.publicUrl) this.refresh();
+      return;
+    }
     // devices are removed from Home Assistant when the integration is disabled or moved to other topics
     const removeDevices = !next?.enabled || prev?.topic !== next.topic || prev?.discoveryPrefix !== next.discoveryPrefix;
     await this.stop(removeDevices);
@@ -142,7 +147,7 @@ export class HomeAssistantBridge {
     const s = this.settings;
     if (!this.client?.connected || !s) return;
     const list = await hosts.find().sort({ name: 1 }).toArray();
-    const hubUrl = (await loadAgentSettings()).hubUrl || undefined;
+    const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
     const built = build(
       list.map((host) => {
         const id = host._id.toHexString();

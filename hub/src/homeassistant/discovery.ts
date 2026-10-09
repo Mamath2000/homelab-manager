@@ -52,7 +52,8 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   const origin = { name: 'Homelab Manager', sw_version: version, support_url: 'https://github.com/Mamath2000/homelab-manager' };
   const diag = { entity_category: 'diagnostic' };
 
-  function device(id: string, info: Record<string, unknown>) {
+  // extra: availability topics on top of the hub's (all must be available)
+  function device(id: string, info: Record<string, unknown>, extra: { topic: string; payload_available: string; payload_not_available: string }[] = []) {
     const t = (key: string, suffix = 'state') => `${topic}/${id}/${key}/${suffix}`;
     const components: Record<string, Component> = {};
     const states: [string, string][] = [];
@@ -101,7 +102,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
           discovery: {
             device: { identifiers: [id], manufacturer: 'Homelab Manager', ...info },
             origin,
-            availability,
+            ...(extra.length ? { availability: [...availability, ...extra], availability_mode: 'all' } : { availability }),
             components,
           },
           states,
@@ -118,7 +119,6 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   let toUpdate = 0;
   let toReboot = 0;
   let toClean = 0;
-  const outdatedAgents: string[] = [];
 
   for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion } of hosts) {
     const hid = host._id.toHexString();
@@ -135,9 +135,10 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       if (r.upgradable.length) toUpdate++;
       if (r.rebootRequired) toReboot++;
 
+      // unavailable while the agent is offline: its last report may be stale and commands would not run
       const d = device(`${hostId}_apt`, {
         name: `${host.name} · APT`, model: 'Paquets APT', via_device: hostId,
-      });
+      }, [{ topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }]);
       const os = host.info?.osName || 'Système';
       const names = r.upgradable.map((p) => p.name);
       const summary = names.length
@@ -152,8 +153,6 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       }, { action: 'apt_upgrade', hostIds: [hid] });
       d.sensor('updates', 'Mises à jour', r.upgradable.length, { icon: 'mdi:package-up', state_class: 'measurement' });
       d.sensor('security', 'Mises à jour de sécurité', sec, { icon: 'mdi:shield-alert-outline', state_class: 'measurement' });
-      d.binary('reboot_required', 'Redémarrage requis', r.rebootRequired, { device_class: 'problem', icon: 'mdi:restart-alert' });
-      d.sensor('reboot_pending', 'Redémarrage après MAJ', rebootPending, { icon: 'mdi:restart' });
       d.sensor('held', 'Paquets bloqués', r.held.length, { icon: 'mdi:package-variant-closed-remove', ...diag });
       d.sensor('last_check', 'Dernière vérification', r.listsUpdatedAt ? new Date(r.listsUpdatedAt).toISOString() : null, {
         device_class: 'timestamp', ...diag,
@@ -174,7 +173,6 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     // --- host: connectivity + alerts rolled up from the sub-components
     const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt];
     const selfUpdate = !!host.capabilities?.includes('agent_update');
-    if (agentOutdated && selfUpdate && isOnline) outdatedAgents.push(hid);
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 
     const d = device(hostId, {
@@ -196,6 +194,8 @@ export function build(hosts: HostState[], opts: BuildOptions) {
         in_progress: busy,
       }, { action: 'agent_update', hostIds: [hid] }, { entity_category: 'config' });
     }
+    // reported with the packages, but a reboot concerns the whole host
+    if (r) d.binary('reboot_required', 'Redémarrage requis', r.rebootRequired, { device_class: 'problem', icon: 'mdi:restart-alert' });
     if (host.capabilities?.includes('reboot')) {
       d.button('reboot', 'Redémarrer', { action: 'reboot', hostIds: [hid] }, { device_class: 'restart' });
     }
@@ -213,20 +213,15 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   });
   const ids = (list: HostState[]) => list.map((h) => h.host._id.toHexString());
   root.sensor('hosts', 'Hôtes', hosts.length, { icon: 'mdi:server' });
-  root.sensor('hosts_online', 'Hôtes en ligne', online.length, { icon: 'mdi:server-network' });
+  root.sensor('hosts_offline', 'Hôtes hors ligne', hosts.length - online.length, { icon: 'mdi:server-network-off' });
   root.sensor('updates', 'Mises à jour disponibles', updates, { icon: 'mdi:package-up' });
   root.sensor('security', 'Mises à jour de sécurité', security, { icon: 'mdi:shield-alert-outline' });
   root.sensor('hosts_to_update', 'Hôtes à mettre à jour', toUpdate, { icon: 'mdi:server-plus' });
   root.sensor('hosts_to_reboot', 'Hôtes à redémarrer', toReboot, { icon: 'mdi:restart-alert' });
   root.sensor('agents_outdated', 'Agents à mettre à jour', hosts.filter((h) => h.agentOutdated).length, { icon: 'mdi:update' });
-  root.button('update_agents', 'Mettre à jour les agents', { action: 'agent_update', hostIds: outdatedAgents }, { icon: 'mdi:update' });
   root.sensor('hosts_to_clean', 'Hôtes à nettoyer', toClean, { icon: 'mdi:broom' });
   root.alerts(allAlerts);
   root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online) }, { icon: 'mdi:refresh' });
-  root.button('update_all', 'Tout mettre à jour', {
-    action: 'apt_upgrade',
-    hostIds: ids(online.filter((h) => (h.host.apt?.upgradable.length ?? 0) > 0)),
-  }, { device_class: 'update' });
   root.finish();
 
   return { devices, commands };

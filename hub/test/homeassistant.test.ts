@@ -62,6 +62,7 @@ test('alerts roll up from the sub-component to the host and the root', () => {
   assert.equal(state(id(ok), 'problem'), 'OFF');
   assert.equal(state(id(off), 'agent'), 'OFF');
   assert.equal(state(id(off), 'problem'), 'ON');
+  assert.equal(state(ROOT_ID, 'hosts_offline'), '1');
   assert.equal(state(ROOT_ID, 'alerts'), '3');
   const attrs = JSON.parse(state(ROOT_ID, 'alerts', 'attributes')!);
   assert.equal(attrs.critical, 1);
@@ -81,11 +82,19 @@ test('update entity and commands map to jobs', () => {
   assert.notEqual(u.installed_version, u.latest_version);
   assert.equal(u.in_progress, true);
   assert.match(u.release_summary, /redémarrage à prévoir/);
+  // reboot flag on the host, not on its APT sub-component
+  const comps = (id: string) => devices.find((d) => d.id === id)!.discovery.components as Record<string, unknown>;
+  assert.ok(comps(`hm_${hid}`).reboot_required);
+  assert.equal(comps(`hm_${hid}_apt`).reboot_required, undefined);
+  // APT entities follow the agent connectivity
+  const apt = devices.find((d) => d.id === `hm_${hid}_apt`)!.discovery;
+  assert.equal(apt.availability_mode, 'all');
+  assert.deepEqual((apt.availability as { topic: string }[]).map((a) => a.topic), ['hm/lwt', `hm/hm_${hid}/agent/state`]);
 
   assert.deepEqual(commands.get(`hm/hm_${hid}_apt/system/set`), { payload: INSTALL, action: 'apt_upgrade', hostIds: [hid] });
   assert.deepEqual(commands.get(`hm/hm_${hid}_apt/check/set`), { payload: PRESS, action: 'apt_update', hostIds: [hid] });
   // root buttons only target online hosts
-  assert.deepEqual(commands.get(`hm/${ROOT_ID}/update_all/set`)!.hostIds, [hid]);
+  assert.equal(commands.get(`hm/${ROOT_ID}/update_all/set`), undefined);
   assert.deepEqual(commands.get(`hm/${ROOT_ID}/check_all/set`)!.hostIds, [hid]);
 });
 
@@ -130,7 +139,8 @@ test('outdated agents: update entity, alert and root counter', () => {
   assert.equal(states.get(`hm/hm_${old._id.toHexString()}/agent_update/state`), undefined);
   assert.equal(states.get(`hm/hm_${old._id.toHexString()}/alerts/state`), '1');
   assert.equal(states.get(`hm/${ROOT_ID}/agents_outdated/state`), '2');
-  assert.deepEqual(commands.get(`hm/${ROOT_ID}/update_agents/set`)!.hostIds, [id]);
+  // agents update themselves: no root button
+  assert.equal(commands.get(`hm/${ROOT_ID}/update_agents/set`), undefined);
 });
 
 test('testConnection reports broker availability and authentication', async () => {

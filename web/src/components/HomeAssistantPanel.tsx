@@ -37,7 +37,7 @@ export function HomeAssistantPanel() {
 
   if (!data) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
 
-  const form: HomeAssistantInput = draft ?? { enabled: data.enabled, broker: data.broker, username: data.username, topic: data.topic, discoveryPrefix: data.discoveryPrefix };
+  const form: HomeAssistantInput = draft ?? { enabled: data.enabled, broker: data.broker, username: data.username, topic: data.topic, discoveryPrefix: data.discoveryPrefix, publicUrl: data.publicUrl ?? '' };
   const input = (): HomeAssistantInput => ({
     ...form,
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
@@ -125,6 +125,9 @@ export function HomeAssistantPanel() {
             <Field label="Préfixe de découverte" hint="homeassistant par défaut">
               <input className="input" required value={form.discoveryPrefix} onChange={(e) => set({ discoveryPrefix: e.target.value })} />
             </Field>
+            <Field label="URL de l'interface" hint="Lien « Visiter » des appareils dans Home Assistant ; vide : URL du hub (Paramètres > Agent)">
+              <input className="input" value={form.publicUrl} onChange={(e) => set({ publicUrl: e.target.value })} placeholder="https://homelab-manager.example.org" />
+            </Field>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="submit" variant="primary" loading={busy === 'save'}>Enregistrer</Button>
@@ -158,9 +161,9 @@ export function HomeAssistantPanel() {
           <div className="text-xs leading-relaxed text-muted">
             <p className="mb-2 text-zinc-300">Appareils créés dans Home Assistant (découverte automatique) :</p>
             <ul className="space-y-1.5">
-              <li><span className="text-zinc-200">Homelab Manager</span> : totaux, alertes de tout le homelab, « Tout vérifier », « Tout mettre à jour ».</li>
-              <li className="pl-4">└ <span className="text-zinc-200">un appareil par hôte</span> : agent connecté, alertes de ses composants, infos système.</li>
-              <li className="pl-8">└ <span className="text-zinc-200">hôte · APT</span> : mise à jour installable, compteurs, redémarrage, bouton de vérification.</li>
+              <li><span className="text-zinc-200">Homelab Manager</span> : totaux, alertes de tout le homelab, « Tout vérifier ».</li>
+              <li className="pl-4">└ <span className="text-zinc-200">un appareil par hôte</span> : agent connecté, redémarrage requis, alertes de ses composants, infos système.</li>
+              <li className="pl-8">└ <span className="text-zinc-200">hôte · APT</span> : mise à jour installable, compteurs, bouton de vérification ; indisponible si l'agent est hors ligne.</li>
             </ul>
             <p className="mt-2">Désactiver l'intégration retire ces appareils de Home Assistant.</p>
           </div>

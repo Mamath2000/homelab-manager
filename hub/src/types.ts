@@ -154,4 +154,5 @@ export interface HomeAssistantSettings {
   password: string;
   topic: string; // prefix of the state / command topics
   discoveryPrefix: string;
+  publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
 }
