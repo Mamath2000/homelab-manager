@@ -57,8 +57,8 @@ Variables d'environnement, lues depuis `.env` par `docker compose`, `make dev` e
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
 | `MONGO_URL` | `mongodb://localhost:27017/homelab` | Base MongoDB |
-| `PORT` | `3000` | Port HTTP du hub |
-| `HUB_PORT` | `3000` | Port publié par `docker compose` |
+| `HUB_PORT` | `3000` | Port du hub : publié par `docker compose`, écouté par `make dev` / `make start` |
+| `PORT` | `3000` | Port d'écoute interne du hub (fixé à 3000 dans l'image, dérivé de `HUB_PORT` par le Makefile) |
 | `HUB_IMAGE` | `mathmath350/homelab-manager:latest` | Image utilisée par `docker compose` |
 | `PUBLIC_URL` | URL utilisée dans le navigateur | URL par laquelle les agents joignent le hub |
 | `CHECK_INTERVAL_HOURS` | `12` | Fréquence de l'`apt-get update` automatique (`0` = désactivé) |
