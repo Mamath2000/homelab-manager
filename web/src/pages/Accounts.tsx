@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { api, type Account, type AccountWithPassword, type Role } from '../lib/api';
@@ -22,22 +22,6 @@ const ERRORS: Record<string, string> = {
 };
 const message = (err: unknown) => ERRORS[(err as Error).message] ?? (err as Error).message;
 
-// Temporary password of a new or reset account, shown only once.
-function TemporaryPasswordModal({ result, onClose }: { result: AccountWithPassword | null; onClose: () => void }) {
-  return (
-    <Modal open={!!result} onClose={onClose} title={`Mot de passe temporaire de ${result?.user.username}`}>
-      <div className="space-y-3 text-sm">
-        <p className="text-zinc-300">À transmettre à l'utilisateur : il devra le remplacer à sa première connexion.</p>
-        {result && <CopyField value={result.temporaryPassword} />}
-        <p className="text-xs text-amber-300">Il ne sera plus affiché.</p>
-        <div className="flex justify-end">
-          <Button variant="primary" onClick={onClose}>J'ai noté le mot de passe</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // Create (account = null) or edit an account. New accounts get a temporary password.
 function AccountModal({ account, open, onClose, onCreated }: {
   account: Account | null;
@@ -48,14 +32,18 @@ function AccountModal({ account, open, onClose, onCreated }: {
   const qc = useQueryClient();
   const toast = useToast();
   const [username, setUsername] = useState(account?.username ?? '');
+  const [displayName, setDisplayName] = useState(account?.displayName ?? '');
   const [role, setRole] = useState<Role>(account?.role ?? 'viewer');
   const save = useMutation({
-    mutationFn: async () => (account ? (await api.updateUser(account.id, { username, role }), null) : api.createUser(username, role)),
+    mutationFn: async () =>
+      account
+        ? (await api.updateUser(account.id, { username, displayName, role }), null)
+        : api.createUser(username, displayName, role),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['users'] });
-      // own username may have changed
+      // own username / name may have changed
       if (account) qc.invalidateQueries({ queryKey: ['auth'] });
-      toast.success(account ? 'Compte modifié' : `Compte ${username} créé`);
+      toast.success(account ? 'Compte modifié' : `Compte ${username} créé : mot de passe temporaire dans le tableau`);
       onClose();
       if (created) onCreated(created);
     },
@@ -63,11 +51,15 @@ function AccountModal({ account, open, onClose, onCreated }: {
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={account ? `Modifier ${account.username}` : 'Nouveau compte'}>
+    <Modal open={open} onClose={onClose} title={account ? `Modifier ${account.displayName || account.username}` : 'Nouveau compte'}>
       <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Utilisateur</span>
-          <input className="input" autoFocus required maxLength={64} value={username} onChange={(e) => setUsername(e.target.value)} />
+          <span className="mb-1.5 block text-xs font-medium text-muted">Nom (facultatif)</span>
+          <input className="input" autoFocus maxLength={64} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Prénom Nom" />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-muted">Identifiant de connexion</span>
+          <input className="input" required maxLength={64} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
         </label>
         <fieldset className="space-y-2">
           <legend className="mb-1.5 text-xs font-medium text-muted">Rôle</legend>
@@ -96,16 +88,33 @@ export function Accounts() {
   const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: api.users });
   // undefined: closed, null: creating
   const [editing, setEditing] = useState<Account | null | undefined>(undefined);
-  const [resetting, setResetting] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
-  const [issued, setIssued] = useState<AccountWithPassword | null>(null);
+  // temporary passwords to hand over, shown in their row until hidden (account id -> password)
+  const [issued, setIssued] = useState<Record<string, string>>({});
+  // row whose reset waits for confirmation
+  const [confirming, setConfirming] = useState<string | null>(null);
+
+  const showIssued = (r: AccountWithPassword) => setIssued((m) => ({ ...m, [r.user.id]: r.temporaryPassword }));
+  const hideIssued = (id: string) =>
+    setIssued((m) => {
+      const next = { ...m };
+      delete next[id];
+      return next;
+    });
+
+  // an unconfirmed reset is dropped after a few seconds
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(null), 5000);
+    return () => clearTimeout(t);
+  }, [confirming]);
 
   const reset = useMutation({
     mutationFn: (a: Account) => api.resetPassword(a.id),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['users'] });
-      setResetting(null);
-      setIssued(r);
+      setConfirming(null);
+      showIssued(r);
     },
     onError: (err) => toast.error(message(err)),
   });
@@ -139,7 +148,7 @@ export function Accounts() {
           <table className="w-full min-w-[640px] text-sm">
             <thead className="border-b border-line">
               <tr className="text-left">
-                <th className="th">Utilisateur</th>
+                <th className="th">Compte</th>
                 <th className="th">Rôle</th>
                 <th className="th">Mot de passe</th>
                 <th className="th">Dernière connexion</th>
@@ -150,18 +159,47 @@ export function Accounts() {
             <tbody>
               {data?.map((a) => (
                 <tr key={a.id} className="border-b border-line/60 last:border-0">
-                  <td className="td font-medium text-zinc-100">
-                    {a.username}
-                    {a.username === me.username && <span className="ml-2 text-xs text-muted">(vous)</span>}
+                  <td className="td">
+                    <div className="font-medium text-zinc-100">
+                      {a.displayName || a.username}
+                      {a.username === me.username && <span className="ml-2 text-xs font-normal text-muted">(vous)</span>}
+                    </div>
+                    {a.displayName && <div className="font-mono text-xs text-muted">{a.username}</div>}
                   </td>
                   <td className="td"><Badge tone={a.role === 'admin' ? 'warn' : a.role === 'operator' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge></td>
-                  <td className="td text-xs">{a.mustChangePassword ? <span className="text-amber-300">temporaire, à changer à la connexion</span> : <span className="text-zinc-400">défini</span>}</td>
+                  <td className="td text-xs">
+                    {issued[a.id] ? (
+                      <div className="max-w-xs space-y-1.5">
+                        <CopyField value={issued[a.id]} />
+                        <p className="text-amber-300">
+                          Affiché une seule fois, à transmettre.{' '}
+                          <button className="text-muted underline hover:text-zinc-200" onClick={() => hideIssued(a.id)}>Masquer</button>
+                        </p>
+                      </div>
+                    ) : confirming === a.id ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button size="sm" variant="danger" icon={KeyRound} loading={reset.isPending} onClick={() => reset.mutate(a)}>
+                          Confirmer la réinitialisation
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>Annuler</Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3">
+                        {a.mustChangePassword ? <span className="text-amber-300">temporaire, à changer à la connexion</span> : <span className="text-zinc-400">défini</span>}
+                        {/* own password: changed from the key icon of the header */}
+                        {a.username !== me.username && (
+                          <Button size="sm" variant="ghost" icon={KeyRound} title="Génère un mot de passe temporaire et ferme les sessions du compte" onClick={() => setConfirming(a.id)}>
+                            Réinitialiser
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="td text-xs text-zinc-400">{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</td>
                   <td className="td text-xs text-zinc-400">{dateTime(a.createdAt)}</td>
                   <td className="td">
                     <div className="flex justify-end gap-1">
                       {!me.isSuperAdmin && <Button size="sm" variant="ghost" icon={Pencil} title="Modifier" onClick={() => setEditing(a)} />}
-                      <Button size="sm" variant="ghost" icon={KeyRound} title="Réinitialiser le mot de passe" onClick={() => setResetting(a)} />
                       {!me.isSuperAdmin && a.username !== me.username && (
                         <Button size="sm" variant="ghost" icon={Trash2} title="Supprimer" onClick={() => setDeleting(a)} />
                       )}
@@ -175,21 +213,8 @@ export function Accounts() {
       )}
 
       {editing !== undefined && (
-        <AccountModal key={editing?.id ?? 'new'} account={editing} open onClose={() => setEditing(undefined)} onCreated={setIssued} />
+        <AccountModal key={editing?.id ?? 'new'} account={editing} open onClose={() => setEditing(undefined)} onCreated={showIssued} />
       )}
-      <TemporaryPasswordModal result={issued} onClose={() => setIssued(null)} />
-      <ConfirmModal
-        open={!!resetting}
-        onClose={() => setResetting(null)}
-        onConfirm={() => resetting && reset.mutate(resetting)}
-        title="Réinitialiser le mot de passe"
-        confirmLabel="Réinitialiser"
-        danger
-        loading={reset.isPending}
-      >
-        Un nouveau mot de passe temporaire sera généré pour <strong>{resetting?.username}</strong> et ses sessions seront fermées.
-        Il devra le remplacer à sa prochaine connexion.
-      </ConfirmModal>
       <ConfirmModal
         open={!!deleting}
         onClose={() => setDeleting(null)}

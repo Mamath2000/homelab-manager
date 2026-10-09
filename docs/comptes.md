@@ -27,10 +27,16 @@ Sur une base vide, le hub crée le compte `superadmin` et écrit son mot de pass
 Ce mot de passe est valable 24 h et redonné à chaque redémarrage du hub tant qu'aucun compte n'existe
 (`docker compose restart hub` s'il a été perdu).
 
+## Nom et identifiant
+
+Chaque compte a un **identifiant de connexion** et, en option, un **nom** (« Prénom Nom ») affiché dans la page
+**Comptes** et dans l'en-tête. Les deux se modifient depuis la page **Comptes**.
+
 ## Mots de passe temporaires
 
-Créer un compte ou **réinitialiser son mot de passe** génère un mot de passe temporaire, affiché **une seule fois**
-à l'admin, qui le transmet. À la connexion avec ce mot de passe, l'utilisateur doit en choisir un nouveau avant
+Créer un compte ou **réinitialiser son mot de passe** (bouton « Réinitialiser » de la colonne *Mot de passe*, à
+confirmer dans la ligne) génère un mot de passe temporaire, affiché **une seule fois** dans la ligne du compte avec un
+bouton copier ; l'admin le transmet. À la connexion avec ce mot de passe, l'utilisateur doit en choisir un nouveau avant
 d'accéder au hub. Une réinitialisation ferme aussi les sessions ouvertes du compte.
 
 Garde-fous : on ne peut ni supprimer son propre compte, ni supprimer ou rétrograder le dernier `admin`.

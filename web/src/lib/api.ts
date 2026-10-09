@@ -78,6 +78,7 @@ export type Role = 'admin' | 'operator' | 'viewer';
 
 export interface Me {
   username: string;
+  displayName: string;
   role: Role | 'superadmin';
   // temporary password: it must be replaced before using the app
   mustChangePassword: boolean;
@@ -92,6 +93,7 @@ export interface AuthStatus {
 export interface Account {
   id: string;
   username: string;
+  displayName: string;
   role: Role;
   createdAt: string;
   lastLoginAt: string | null;
@@ -167,8 +169,10 @@ export const api = {
     request('POST', '/api/account/password', { currentPassword, newPassword }),
 
   users: () => request<Account[]>('GET', '/api/users'),
-  createUser: (username: string, role: Role) => request<AccountWithPassword>('POST', '/api/users', { username, role }),
-  updateUser: (id: string, patch: { username?: string; role?: Role }) => request<Account>('PATCH', `/api/users/${id}`, patch),
+  createUser: (username: string, displayName: string, role: Role) =>
+    request<AccountWithPassword>('POST', '/api/users', { username, displayName, role }),
+  updateUser: (id: string, patch: { username?: string; displayName?: string; role?: Role }) =>
+    request<Account>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
   resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
 

@@ -78,7 +78,12 @@ const loginSchema = {
 } as const;
 
 function me(user: UserDoc) {
-  return { username: user.username, role: user.role, mustChangePassword: !!user.mustChangePassword };
+  return {
+    username: user.username,
+    displayName: user.displayName ?? '',
+    role: user.role,
+    mustChangePassword: !!user.mustChangePassword,
+  };
 }
 
 async function checkPassword(user: UserDoc, password: string) {

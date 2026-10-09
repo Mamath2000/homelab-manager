@@ -163,7 +163,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
           )}
           <span className="hidden items-center gap-1.5 text-zinc-300 sm:flex" title={ROLE_LABELS[me.role]}>
             <User className="h-4 w-4" />
-            {me.username}
+            {me.displayName || me.username}
             <span className="text-xs text-muted">· {ROLE_LABELS[me.role]}</span>
           </span>
           {!me.isSuperAdmin && (

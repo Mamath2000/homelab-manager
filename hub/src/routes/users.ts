@@ -9,6 +9,7 @@ function dto(u: UserDoc) {
   return {
     id: u._id.toHexString(),
     username: u.username,
+    displayName: u.displayName ?? '',
     role: u.role,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt ?? null,
@@ -23,6 +24,7 @@ async function temporaryPassword() {
 }
 
 const username = { type: 'string', minLength: 1, maxLength: 64, pattern: '\\S' } as const;
+const displayName = { type: 'string', maxLength: 64 } as const;
 const role = { type: 'string', enum: ROLES } as const;
 
 function reserved(name: string) {
@@ -51,7 +53,7 @@ export function registerUserRoutes(app: FastifyInstance) {
   });
 
   // New accounts get a temporary password, returned once.
-  app.post<{ Body: { username: string; role: Role } }>(
+  app.post<{ Body: { username: string; displayName?: string; role: Role } }>(
     '/api/users',
     {
       schema: {
@@ -59,7 +61,7 @@ export function registerUserRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['username', 'role'],
           additionalProperties: false,
-          properties: { username, role },
+          properties: { username, displayName, role },
         },
       },
     },
@@ -67,7 +69,13 @@ export function registerUserRoutes(app: FastifyInstance) {
       const name = req.body.username.trim();
       if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
       const temp = await temporaryPassword();
-      const doc = { username: name, role: req.body.role, ...temp.fields, createdAt: new Date() };
+      const doc = {
+        username: name,
+        displayName: req.body.displayName?.trim() ?? '',
+        role: req.body.role,
+        ...temp.fields,
+        createdAt: new Date(),
+      };
       try {
         const { insertedId } = await users.insertOne(doc as UserDoc);
         return { user: dto({ ...doc, _id: insertedId }), temporaryPassword: temp.password };
@@ -78,11 +86,11 @@ export function registerUserRoutes(app: FastifyInstance) {
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { username?: string; role?: Role } }>(
+  app.patch<{ Params: { id: string }; Body: { username?: string; displayName?: string; role?: Role } }>(
     '/api/users/:id',
     {
       schema: {
-        body: { type: 'object', additionalProperties: false, properties: { username, role } },
+        body: { type: 'object', additionalProperties: false, properties: { username, displayName, role } },
       },
     },
     async (req, reply) => {
@@ -94,6 +102,7 @@ export function registerUserRoutes(app: FastifyInstance) {
         if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
         set.username = name;
       }
+      if (req.body.displayName !== undefined) set.displayName = req.body.displayName.trim();
       const roleChanged = req.body.role !== undefined && req.body.role !== user.role;
       if (roleChanged) {
         if (await lastAdmin(user)) return reply.code(409).send({ error: 'cannot demote the last admin' });

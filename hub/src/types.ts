@@ -99,6 +99,8 @@ export const SUPERADMIN = 'superadmin';
 export interface UserDoc {
   _id: ObjectId;
   username: string;
+  // optional full name shown in the UI; the username stays the login
+  displayName?: string;
   role: Role | typeof SUPERADMIN;
   passwordHash: string | null;
   // temporary password (new account or reset): everything but changing it is refused
