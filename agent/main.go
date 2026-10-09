@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -201,25 +202,36 @@ func (s *session) loop(ctx context.Context) error {
 	}
 }
 
+// Reconnection: slow exponential growth so a hub restart is caught within a few
+// seconds, with jitter so agents do not all reconnect at the same instant.
+const (
+	backoffMin    = time.Second
+	backoffMax    = 30 * time.Second
+	backoffFactor = 1.2
+	backoffJitter = 0.2 // ±20 %
+)
+
 func main() {
 	cfg := loadConfig()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	endpoint := wsURL(cfg.Hub)
-	backoff := time.Second
+	backoff := backoffMin
 	for ctx.Err() == nil {
 		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		conn, _, err := websocket.Dial(dctx, endpoint, &websocket.DialOptions{
 			HTTPHeader: http.Header{"Authorization": []string{"Bearer " + cfg.Token}},
 		})
 		cancel()
+		// jitter on the wait only, so the backoff progression itself does not drift
+		wait := time.Duration(float64(backoff) * (1 - backoffJitter + 2*backoffJitter*rand.Float64()))
 		if err != nil {
-			log.Printf("connect failed: %v (retry in %s)", err, backoff)
+			log.Printf("connect failed: %v (retry in %s)", err, wait.Round(100*time.Millisecond))
 		} else {
 			conn.SetReadLimit(1 << 20)
 			log.Printf("connected to %s", endpoint)
-			backoff = time.Second
+			backoff = backoffMin
 			s := &session{hub: cfg.Hub, conn: conn}
 			sctx, scancel := context.WithCancel(ctx)
 			err = s.loop(sctx)
@@ -229,10 +241,8 @@ func main() {
 		}
 		select {
 		case <-ctx.Done():
-		case <-time.After(backoff):
+		case <-time.After(wait):
 		}
-		if backoff < 30*time.Second {
-			backoff *= 2
-		}
+		backoff = min(time.Duration(float64(backoff)*backoffFactor), backoffMax)
 	}
 }
