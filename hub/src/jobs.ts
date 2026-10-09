@@ -28,6 +28,8 @@ export function jobDto(j: JobDoc, withLog = false) {
     hostName: j.hostName,
     action: j.action,
     packages: j.packages,
+    stack: j.stack ?? null,
+    service: j.service ?? null,
     trigger: j.trigger,
     status: j.status,
     createdAt: j.createdAt,
@@ -43,13 +45,20 @@ export function hasRunningJob(hostId: string) {
   return false;
 }
 
-export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger']) {
+export interface JobTarget {
+  stack?: string;
+  service?: string;
+}
+
+export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
   const job: JobDoc = {
     _id: new ObjectId(),
     hostId: host._id,
     hostName: host.name,
     action,
     packages,
+    ...(target.stack ? { stack: target.stack } : {}),
+    ...(target.service ? { service: target.service } : {}),
     trigger,
     status: 'running',
     createdAt: new Date(),
@@ -64,7 +73,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
   const bin = action === 'agent_update' ? agentBinary(host.info?.arch) : null;
   if (action === 'agent_update' && !bin) {
     await finishJob(id, hostId, -1, `pas de binaire de l'agent pour l'architecture ${host.info?.arch ?? 'inconnue'}`);
-  } else if (!sendToAgent(hostId, { type: 'run', jobId: id, action, packages, ...(bin ? { sha256: bin.sha256 } : {}) })) {
+  } else if (!sendToAgent(hostId, { type: 'run', jobId: id, action, packages, ...target, ...(bin ? { sha256: bin.sha256 } : {}) })) {
     await finishJob(id, hostId, -1, 'host is offline');
   } else {
     publish('job', jobDto(job));

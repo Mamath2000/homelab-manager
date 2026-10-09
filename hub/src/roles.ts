@@ -12,6 +12,8 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
   // agent settings only expose the distributed agent version (shown in the header)
   const settings = route.startsWith('/api/settings/') && route !== '/api/settings/agents';
   const ownPassword = method === 'POST' && route === '/api/account/password';
+  // container logs and compose files may hold secrets: not for read-only accounts
+  const stackDetails = route === '/api/hosts/:id/stacks/:stack/logs' || route === '/api/hosts/:id/stacks/:stack/compose';
   switch (role) {
     case 'admin':
       return true;
@@ -19,7 +21,7 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
       if (read) return !accounts && !settings;
       return ownPassword || (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk'));
     case 'viewer':
-      if (read) return !accounts && !settings;
+      if (read) return !accounts && !settings && !stackDetails;
       return ownPassword;
     case 'superadmin':
       return (

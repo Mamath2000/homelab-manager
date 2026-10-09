@@ -1,4 +1,5 @@
 import type { HostDoc } from '../types.js';
+import type { StackView } from '../docker.js';
 
 // Alerts are produced by each sub-component of a host (agent, apt, later docker, backups...)
 // and roll up: sub-component -> host -> Homelab Manager.
@@ -28,4 +29,9 @@ export function aptAlerts(h: HostDoc, now = Date.now()): Alert[] {
     out.push({ level: 'warning', source: 'apt', message: 'Listes de paquets non rafraîchies depuis plus de 2 jours' });
   }
   return out;
+}
+
+// Partial stack, unhealthy or restarting container. A stack stopped on purpose is not an alert.
+export function dockerAlerts(stack: Pick<StackView, 'name' | 'problems'>): Alert[] {
+  return stack.problems.map((p) => ({ level: 'warning', source: 'docker', message: `${stack.name} : ${p}` }));
 }

@@ -4,7 +4,8 @@ import { hosts } from './db.js';
 import { loadAgentSettings, maybeAutoUpdate } from './agentUpdate.js';
 import { createJob, hasRunningJob } from './jobs.js';
 
-// Asks every online agent to refresh its package lists when they are older than the interval.
+// Asks every online agent to refresh its package lists, and to check its Docker images, when
+// they are older than the interval.
 async function tick(log: FastifyBaseLogger) {
   for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) {
     if (await maybeAutoUpdate(h._id)) log.info({ host: h._id.toHexString() }, 'automatic agent update');
@@ -24,6 +25,19 @@ async function tick(log: FastifyBaseLogger) {
     log.info({ host: host.name }, 'scheduled apt update');
     await hosts.updateOne({ _id: host._id }, { $set: { lastAutoCheckAt: new Date() } });
     await createJob(host, 'apt_update', [], 'schedule');
+  }
+
+  // same interval for the registry check of the Docker images (one job at a time per host:
+  // a host that just got its apt-get update is checked at the next tick)
+  for (const host of await hosts.find({ capabilities: 'docker' }).toArray()) {
+    const id = host._id.toHexString();
+    if (!isOnline(id) || hasRunningJob(id)) continue;
+    const checked = host.dockerUpdates?.checkedAt ?? 0;
+    const lastAuto = host.lastDockerAutoCheckAt?.getTime() ?? 0;
+    if (checked > threshold || lastAuto > threshold) continue;
+    log.info({ host: host.name }, 'scheduled docker image check');
+    await hosts.updateOne({ _id: host._id }, { $set: { lastDockerAutoCheckAt: new Date() } });
+    await createJob(host, 'docker_check', [], 'schedule');
   }
 }
 

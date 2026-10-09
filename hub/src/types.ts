@@ -50,6 +50,53 @@ export interface AptSummary {
   autoremovable: number | null;
 }
 
+// Docker compose stacks reported by the agent (see agent/protocol.go).
+export interface DockerContainer {
+  id: string;
+  name: string;
+  state: string; // running, exited, restarting, paused, created, dead
+  status: string;
+  health?: string; // healthy, unhealthy, starting
+  imageId: string;
+}
+
+export interface DockerService {
+  name: string;
+  image: string;
+  containers: DockerContainer[];
+}
+
+export type StackStatus = 'running' | 'partial' | 'stopped' | 'down';
+
+export interface DockerStack {
+  name: string;
+  workingDir: string;
+  configFiles: string[];
+  envFiles: string[];
+  status: StackStatus;
+  services: DockerService[];
+}
+
+export interface DockerImage {
+  ref: string;
+  id: string; // image the tag points to locally
+  digest: string; // registry digest it was pulled from ("" for local builds)
+}
+
+export interface DockerReport {
+  checkedAt: number;
+  engine: string;
+  compose: string;
+  stacks: DockerStack[];
+  images: DockerImage[];
+}
+
+// Last registry check (docker_check): digest of each tag on its registry.
+export interface DockerUpdates {
+  checkedAt: number;
+  images: { ref: string; digest?: string; error?: string }[];
+}
+
 export interface HostDoc {
   _id: ObjectId;
   name: string;
@@ -77,9 +124,22 @@ export interface HostDoc {
   info?: HostInfo;
   apt?: AptReport;
   aptSummary?: AptSummary;
+  docker?: DockerReport;
+  dockerUpdates?: DockerUpdates;
+  lastDockerAutoCheckAt?: Date;
 }
 
-export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove', 'reboot', 'agent_update'] as const;
+export const DOCKER_ACTIONS = ['docker_up', 'docker_stop', 'docker_restart', 'docker_update'] as const;
+export const JOB_ACTIONS = [
+  'apt_report',
+  'apt_update',
+  'apt_upgrade',
+  'apt_autoremove',
+  'reboot',
+  'agent_update',
+  'docker_check',
+  ...DOCKER_ACTIONS,
+] as const;
 export type JobAction = (typeof JOB_ACTIONS)[number];
 export type JobStatus = 'running' | 'success' | 'failed';
 
@@ -89,6 +149,9 @@ export interface JobDoc {
   hostName: string;
   action: JobAction;
   packages: string[];
+  // docker actions: target stack, and service when the action is limited to one
+  stack?: string;
+  service?: string;
   trigger: 'manual' | 'schedule' | 'homeassistant';
   status: JobStatus;
   createdAt: Date;
