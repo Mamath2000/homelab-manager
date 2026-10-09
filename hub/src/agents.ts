@@ -5,6 +5,7 @@ import { hosts, parseId } from './db.js';
 import { publish } from './events.js';
 import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
+import { recentlyInstalled } from './installed.js';
 import { appendJobLog, failRunningJobs, finishJob } from './jobs.js';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
@@ -124,10 +125,20 @@ export function registerAgentSocket(app: FastifyInstance) {
               break;
             case 'apt_report':
               if (!isReport(msg.report)) return;
-              await hosts.updateOne(
-                { _id: host._id },
-                { $set: { apt: msg.report, aptSummary: summarize(msg.report), lastSeenAt: new Date() } },
-              );
+              {
+                const current = await hosts.findOne({ _id: host._id }, { projection: { apt: 1, recentlyInstalled: 1 } });
+                await hosts.updateOne(
+                  { _id: host._id },
+                  {
+                    $set: {
+                      apt: msg.report,
+                      aptSummary: summarize(msg.report),
+                      recentlyInstalled: recentlyInstalled(current?.apt, msg.report, current?.recentlyInstalled),
+                      lastSeenAt: new Date(),
+                    },
+                  },
+                );
+              }
               await emitHost(host._id);
               break;
             case 'job_log':

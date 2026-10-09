@@ -111,6 +111,10 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 		if b, err := os.ReadFile("/var/run/reboot-required.pkgs"); err == nil {
 			r.RebootPkgs = strings.Fields(string(b))
 		}
+	} else if k := newerKernel(runningKernel(), installedKernels()); k != "" {
+		// Debian / Raspberry Pi OS do not create /var/run/reboot-required for a new kernel
+		r.RebootRequired = true
+		r.RebootPkgs = []string{"linux-image-" + k}
 	}
 	return r, nil
 }

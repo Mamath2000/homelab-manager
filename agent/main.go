@@ -121,7 +121,9 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}
 		args := []string{"-y", "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"}
 		if len(in.Packages) == 0 {
-			args = append(args, "upgrade")
+			// like `apt upgrade`: a kernel update needs to install a new package, plain
+			// `apt-get upgrade` would keep it back
+			args = append(args, "upgrade", "--with-new-pkgs")
 		} else {
 			args = append(args, "install", "--only-upgrade")
 			args = append(args, in.Packages...)

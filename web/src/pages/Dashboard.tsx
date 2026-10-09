@@ -12,7 +12,7 @@ import { connection, connectionMeta, listsStale, osLabel, updateMeta, updateStat
 import type { Host } from '../lib/api';
 
 const connOrder = { offline: 0, pending: 1, online: 2 };
-const updOrder = { security: 0, updates: 1, unknown: 2, uptodate: 3 };
+const updOrder = { reboot: 0, security: 1, updates: 2, unknown: 3, uptodate: 4 };
 
 function HostTags({ h }: { h: Host }) {
   return (
@@ -100,8 +100,9 @@ export function Dashboard() {
               { label: 'À jour', value: count(updateState, 'uptodate'), tone: 'ok' },
               { label: 'Mises à jour', value: count(updateState, 'updates'), tone: 'warn' },
               { label: 'Sécurité', value: count(updateState, 'security'), tone: 'bad' },
+              { label: 'Reboot requis', value: count(updateState, 'reboot'), tone: 'info' },
               { label: 'Inconnu', value: count(updateState, 'unknown'), tone: 'unknown' },
-              { label: 'Reboot requis', value: hosts.filter((h) => h.aptSummary?.rebootRequired).length, tone: 'bad', ringless: true },
+
               { label: 'Reboot après MAJ', value: hosts.filter((h) => !h.aptSummary?.rebootRequired && h.aptSummary?.rebootPending).length, tone: 'warn', ringless: true },
               { label: 'À nettoyer', value: hosts.filter((h) => (h.aptSummary?.autoremovable ?? 0) > 0).length, tone: 'neutral', ringless: true },
             ]}

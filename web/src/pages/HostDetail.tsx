@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, Cpu, History, KeyRound, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
@@ -9,7 +9,7 @@ import { CleanupPanel } from '../components/CleanupPanel';
 import { AgentBadge, canSelfUpdate, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../components/Toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
-import { api, type Host } from '../lib/api';
+import { api, type Host, type Job } from '../lib/api';
 import { actionLabel, dateTime, timeAgo, uptime } from '../lib/format';
 import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { connection, connectionMeta, listsStale, osLabel } from '../lib/status';
@@ -67,11 +67,14 @@ function EditModal({ host, open, onClose }: { host: Host; open: boolean; onClose
   );
 }
 
-function PackagesPanel({ host }: { host: Host }) {
+function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undefined }) {
   const run = useRunJob();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState(false);
   const pkgs = host.apt?.upgradable ?? [];
+  const installed = host.recentlyInstalled;
+  // packages of the running upgrade job (all of them for a full upgrade)
+  const inProgress = (name: string) => !!upgrading && (upgrading.packages.length === 0 || upgrading.packages.includes(name));
   const rebootPkgs = pkgs.filter((p) => p.reboot).map((p) => p.name);
   const selectedReboot = rebootPkgs.filter((n) => selected.has(n));
 
@@ -91,7 +94,7 @@ function PackagesPanel({ host }: { host: Host }) {
 
   return (
     <Panel
-      title={<>Paquets à mettre à jour <span className="text-muted">({pkgs.length})</span></>}
+      title={<>Paquets à mettre à jour <span className="text-muted">({pkgs.length})</span>{installed.length > 0 && <span className="text-muted"> · {installed.length} installé(s) sur 24 h</span>}</>}
       icon={Package}
       bodyClassName=""
       actions={
@@ -102,14 +105,8 @@ function PackagesPanel({ host }: { host: Host }) {
         )
       }
     >
-      {(host.apt?.rebootRequired || rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
+      {(rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
         <div className="space-y-2 border-b border-line px-4 py-3 text-sm">
-          {host.apt?.rebootRequired && (
-            <p className="flex flex-wrap items-center gap-2 text-red-300">
-              <RotateCw className="h-4 w-4" /> Redémarrage requis
-              {host.apt.rebootPkgs.length > 0 && <span className="text-xs text-muted">({host.apt.rebootPkgs.join(', ')})</span>}
-            </p>
-          )}
           {rebootPkgs.length > 0 && (
             <p className="flex flex-wrap items-center gap-2 text-amber-300">
               <RotateCw className="h-4 w-4" /> Redémarrage à prévoir après la mise à jour de : {rebootPkgs.join(', ')}
@@ -130,21 +127,39 @@ function PackagesPanel({ host }: { host: Host }) {
       )}
       {!host.apt ? (
         <Empty icon={Package} title="Pas encore de relevé">L'agent n'a pas encore envoyé l'état des paquets.</Empty>
-      ) : pkgs.length === 0 ? (
+      ) : pkgs.length === 0 && installed.length === 0 ? (
         <Empty icon={Package} title="Tout est à jour">Dernière vérification {timeAgo(host.apt.listsUpdatedAt)}.</Empty>
       ) : (
         <div className="max-h-[480px] overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 border-b border-line bg-panel">
               <tr>
-                <th className="th w-10"><Checkbox label="Tout sélectionner" checked={all} indeterminate={selected.size > 0} onChange={(on) => setSelected(on ? new Set(pkgs.map((p) => p.name)) : new Set())} /></th>
+                <th className="th w-10">{pkgs.length > 0 && <Checkbox label="Tout sélectionner" checked={all} indeterminate={selected.size > 0} onChange={(on) => setSelected(on ? new Set(pkgs.map((p) => p.name)) : new Set())} />}</th>
                 <th className="th">Paquet</th>
                 <th className="th">Installé</th>
                 <th className="th">Disponible</th>
                 <th className="th">Dépôt</th>
+                <th className="th">État</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
+              {installed.map((p) => (
+                <tr key={`installed-${p.name}`} className="bg-emerald-500/[0.03]">
+                  <td className="td"><CheckCircle2 className="h-4 w-4 text-emerald-400" /></td>
+                  <td className="td">
+                    <span className="font-medium text-zinc-300">{p.name}</span>
+                  </td>
+                  <td className="td font-mono text-xs text-zinc-500 line-through">{p.from}</td>
+                  <td className="td font-mono text-xs text-emerald-300">{p.to}</td>
+                  <td className="td text-xs text-muted">{timeAgo(p.at)}</td>
+                  <td className="td">
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge tone="ok">Installé</Badge>
+                      {p.rebootRequired && <Badge tone="bad" className="gap-1"><RotateCw className="h-3 w-3" />redémarrage requis</Badge>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
               {pkgs.map((p) => (
                 <tr key={p.name} className="cursor-pointer hover:bg-raised/50" onClick={() => toggle(p.name, !selected.has(p.name))}>
                   <td className="td"><Checkbox label={p.name} checked={selected.has(p.name)} onChange={(on) => toggle(p.name, on)} /></td>
@@ -155,7 +170,14 @@ function PackagesPanel({ host }: { host: Host }) {
                   </td>
                   <td className="td font-mono text-xs text-zinc-500">{p.current}</td>
                   <td className="td font-mono text-xs text-emerald-300">{p.candidate}</td>
-                  <td className="td text-xs text-muted">{p.repo}</td>
+                  <td className="td max-w-[180px] truncate text-xs text-muted" title={p.repo}>{p.repo}</td>
+                  <td className="td">
+                    {inProgress(p.name) ? (
+                      <Badge tone="info" className="gap-1"><Loader2 className="h-3 w-3 animate-spin" />En cours</Badge>
+                    ) : (
+                      <span className="whitespace-nowrap text-xs text-muted">À installer</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -250,6 +272,18 @@ export function HostDetail() {
         {host.group && <Tag>{host.group}</Tag>}
       </PageHeader>
 
+      {host.aptSummary?.rebootRequired && (
+        <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
+          <RotateCw className="h-5 w-5 text-red-400" />
+          <span className="font-medium text-red-200">Redémarrage requis</span>
+          {(host.apt?.rebootPkgs.length ?? 0) > 0 && <span className="text-xs text-red-200/80">pour appliquer : {host.apt!.rebootPkgs.join(', ')}</span>}
+          {host.capabilities.includes('reboot') && (
+            <span className="ml-auto">
+              <Button size="sm" variant="danger" icon={Power} disabled={!host.online || running} onClick={() => setConfirmReboot(true)}>Redémarrer maintenant</Button>
+            </span>
+          )}
+        </div>
+      )}
       {host.agentOutdated && (
         <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
           <AgentBadge />
@@ -286,7 +320,7 @@ export function HostDetail() {
         </Panel>
         <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
         </div>
-        <PackagesPanel host={host} />
+        <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[340px_1fr]">

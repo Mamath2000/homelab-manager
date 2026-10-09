@@ -43,11 +43,13 @@ export const connectionMeta: Record<Connection, { label: string; tone: Tone }> =
   pending: { label: 'En attente', tone: 'unknown' },
 };
 
-export type UpdateState = 'security' | 'updates' | 'uptodate' | 'unknown';
+export type UpdateState = 'security' | 'reboot' | 'updates' | 'uptodate' | 'unknown';
 
 export function updateState(h: Host): UpdateState {
   const s = h.aptSummary;
   if (!s) return 'unknown';
+  // a pending reboot comes first: the updates already installed are not active yet
+  if (s.rebootRequired) return 'reboot';
   if (s.security > 0) return 'security';
   if (s.upgradable > 0) return 'updates';
   return 'uptodate';
@@ -57,6 +59,7 @@ export const updateMeta: Record<UpdateState, { label: string; tone: Tone }> = {
   uptodate: { label: 'À jour', tone: 'ok' },
   updates: { label: 'Mises à jour', tone: 'warn' },
   security: { label: 'Sécurité', tone: 'bad' },
+  reboot: { label: 'Reboot requis', tone: 'info' },
   unknown: { label: 'Inconnu', tone: 'unknown' },
 };
 

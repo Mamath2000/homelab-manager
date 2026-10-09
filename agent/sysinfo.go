@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 )
 
 func collectInfo() *HostInfo {
@@ -33,17 +32,7 @@ func collectInfo() *HostInfo {
 		f.Close()
 	}
 
-	var u syscall.Utsname
-	if syscall.Uname(&u) == nil {
-		b := make([]byte, 0, len(u.Release))
-		for _, c := range u.Release {
-			if c == 0 {
-				break
-			}
-			b = append(b, byte(c))
-		}
-		info.Kernel = string(b)
-	}
+	info.Kernel = runningKernel()
 
 	if b, err := os.ReadFile("/proc/uptime"); err == nil {
 		if f, _, ok := strings.Cut(string(b), "."); ok {

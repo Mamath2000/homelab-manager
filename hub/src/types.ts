@@ -10,6 +10,13 @@ export interface Package {
   reboot?: boolean;
 }
 
+export interface InstalledPackage {
+  name: string;
+  from: string;
+  to: string;
+  at: number; // unix ms
+}
+
 export interface AptReport {
   checkedAt: number;
   listsUpdatedAt: number;
@@ -58,6 +65,8 @@ export interface HostDoc {
   // sha256 of the agent binary, compared with the one the hub distributes
   agentHash?: string;
   lastAgentUpdateAt?: Date;
+  // packages upgraded during the last 24 h (see installed.ts)
+  recentlyInstalled?: InstalledPackage[];
   info?: HostInfo;
   apt?: AptReport;
   aptSummary?: AptSummary;

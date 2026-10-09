@@ -1,6 +1,7 @@
 import type { AptReport, AptSummary, HostDoc } from './types.js';
 import { isOnline } from './agents.js';
 import { needsReboot } from './reboot.js';
+import { INSTALLED_TTL_MS } from './installed.js';
 import { agentBinary, agentOutdated } from './agentBinaries.js';
 
 export function summarize(report: AptReport): AptSummary {
@@ -25,6 +26,10 @@ export function hostDto(h: HostDoc) {
     online: isOnline(h._id.toHexString()),
     agentVersion: h.agentVersion ?? null,
     capabilities: h.capabilities ?? [],
+    recentlyInstalled: (h.recentlyInstalled ?? [])
+      .filter((p) => Date.now() - p.at < INSTALLED_TTL_MS)
+      // still waiting for the reboot that makes it effective
+      .map((p) => ({ ...p, rebootRequired: !!h.apt?.rebootRequired && needsReboot(p.name) })),
     agentOutdated: agentOutdated(h),
     latestAgentVersion: agentBinary(h.info?.arch)?.version ?? null,
     info: h.info ?? null,

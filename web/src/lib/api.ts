@@ -47,6 +47,7 @@ export interface Host {
   online: boolean;
   agentVersion: string | null;
   capabilities: string[];
+  recentlyInstalled: { name: string; from: string; to: string; at: number; rebootRequired: boolean }[];
   // null: unknown (never connected, or no binary for its architecture)
   agentOutdated: boolean | null;
   latestAgentVersion: string | null;
