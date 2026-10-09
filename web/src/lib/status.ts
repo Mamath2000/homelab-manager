@@ -1,4 +1,4 @@
-import type { Host } from './api';
+import type { DockerStack, Host, ImageUpdate, StackStatus } from './api';
 
 // Shared colour vocabulary, Komodo-like: green ok, amber warning, red critical, violet unknown, sky in progress.
 export type Tone = 'ok' | 'warn' | 'bad' | 'unknown' | 'info' | 'neutral';
@@ -82,3 +82,30 @@ export const canSelfUpdate = (h: Host) => h.capabilities.includes('agent_update'
 export const needsReinstall = (h: Host) => h.agentAuth === 'legacy';
 // Enrolled once, but its certificate was revoked.
 export const agentRevoked = (h: Host) => h.agentAuth === 'none' && !!h.enrolledAt;
+
+export const stackMeta: Record<StackStatus, { label: string; tone: Tone }> = {
+  running: { label: 'En marche', tone: 'ok' },
+  partial: { label: 'Partielle', tone: 'warn' },
+  stopped: { label: 'Arrêtée', tone: 'neutral' },
+  down: { label: 'Down', tone: 'unknown' },
+};
+
+export const imageUpdateMeta: Record<ImageUpdate, { label: string; tone: Tone; hint: string }> = {
+  available: { label: 'Mise à jour', tone: 'warn', hint: 'Une image plus récente est disponible sur le registre' },
+  recreate: { label: 'À redéployer', tone: 'info', hint: "Nouvelle image déjà téléchargée, le conteneur tourne encore sur l'ancienne" },
+  uptodate: { label: 'À jour', tone: 'ok', hint: 'Image identique à celle du registre' },
+  unknown: { label: 'Inconnu', tone: 'unknown', hint: 'Jamais vérifiée, ou non vérifiable (image locale, digest épinglé, registre privé)' },
+};
+
+export interface HostStack extends DockerStack {
+  host: Host;
+}
+
+// Every stack of every host, for the Docker page and the dashboard.
+export function allStacks(hosts: Host[]): HostStack[] {
+  return hosts
+    .flatMap((host) => (host.docker?.stacks ?? []).map((st) => ({ ...st, host })))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.host.name.localeCompare(b.host.name));
+}
+
+export const stackPath = (hostId: string, stack: string) => `/docker/${hostId}/${encodeURIComponent(stack)}`;

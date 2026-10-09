@@ -6,11 +6,12 @@ import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
+import { DockerPanel } from '../components/Docker';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
-import { actionLabel, dateTime, timeAgo, uptime } from '../lib/format';
+import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { agentRevoked, connection, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
@@ -359,6 +360,12 @@ export function HostDetail() {
         <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
       </div>
 
+      {host.docker && (
+        <div className="mt-5">
+          <DockerPanel host={host} running={!!running} onStarted={setJobId} />
+        </div>
+      )}
+
       <div className="mt-5 grid gap-5 xl:grid-cols-[340px_1fr]">
         <Panel title="Historique" icon={History} bodyClassName="max-h-[420px] overflow-auto">
           {!jobs?.length ? (
@@ -370,7 +377,7 @@ export function HostDetail() {
                   <button onClick={() => setJobId(j.id)} className={clsx('flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition hover:bg-raised/50', shownJob === j.id && 'bg-raised')}>
                     <JobStatusIcon status={j.status} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-zinc-200">{actionLabel[j.action]}{j.packages.length > 0 && ` (${j.packages.length})`}</span>
+                      <span className="block truncate text-zinc-200">{jobTitle(j)}{j.packages.length > 0 && ` (${j.packages.length})`}</span>
                       <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}</span>
                     </span>
                   </button>

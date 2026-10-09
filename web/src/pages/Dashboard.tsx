@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { CircleArrowUp, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert, ShieldX } from 'lucide-react';
+import { CircleArrowUp, Container, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert, ShieldX } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
+import { ImageUpdateBadge } from '../components/Docker';
 import { JobStatusIcon } from '../components/JobConsole';
 import { RebootStatus } from '../components/Reboot';
 import { ItemCard, StatusSection } from '../components/StatusSection';
 import { Badge, Button, Empty, PageHeader, Spinner, Tag } from '../components/ui';
-import { actionLabel, timeAgo } from '../lib/format';
+import { jobTitle, timeAgo } from '../lib/format';
 import { useHosts, useJobs, useRunBulk } from '../lib/queries';
-import { connection, connectionMeta, listsStale, needsReinstall, osLabel, updateMeta, updateState } from '../lib/status';
+import { allStacks, connection, connectionMeta, listsStale, needsReinstall, osLabel, stackMeta, stackPath, updateMeta, updateState } from '../lib/status';
 import type { Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 
@@ -42,6 +43,10 @@ export function Dashboard() {
   const needsUpdate = hosts
     .filter((h) => (h.aptSummary?.upgradable ?? 0) > 0 || h.aptSummary?.rebootRequired)
     .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
+  const stacks = allStacks(hosts);
+  const stacksToHandle = stacks
+    .filter((s) => s.problems.length > 0 || s.updates > 0)
+    .sort((a, b) => b.problems.length - a.problems.length || b.updates - a.updates);
   const sortedHosts = [...hosts].sort((a, b) => connOrder[connection(a)] - connOrder[connection(b)] || a.name.localeCompare(b.name));
 
   const dayAgo = jobsAt - 24 * 3600 * 1000;
@@ -160,6 +165,34 @@ export function Dashboard() {
             })}
           </StatusSection>
 
+          {hosts.some((h) => h.docker) && (
+            <StatusSection
+              icon={Container}
+              title="Docker"
+              to="/docker"
+              stats={[
+                { label: 'En marche', value: stacks.filter((s) => s.status === 'running').length, tone: 'ok' },
+                { label: 'Partielles', value: stacks.filter((s) => s.status === 'partial').length, tone: 'warn' },
+                { label: 'Arrêtées', value: stacks.filter((s) => s.status === 'stopped' || s.status === 'down').length, tone: 'neutral' },
+                { label: 'À mettre à jour', value: stacks.filter((s) => s.updates > 0).length, tone: 'warn', ringless: true },
+                { label: 'Problèmes', value: stacks.filter((s) => s.problems.length > 0).length, tone: 'bad', ringless: true },
+              ]}
+              cardsTitle="Stacks à traiter"
+              cardsIcon={Container}
+              empty={stacksToHandle.length === 0 ? <p className="py-6 text-sm text-muted">Toutes les stacks tournent et sont à jour.</p> : undefined}
+            >
+              {stacksToHandle.slice(0, 12).map((s) => (
+                <ItemCard key={`${s.host.id}/${s.name}`} to={stackPath(s.host.id, s.name)} icon={Container}
+                  tone={s.problems.length ? 'bad' : 'warn'} title={s.name}
+                  right={s.status !== 'running' && <Badge tone={stackMeta[s.status].tone}>{stackMeta[s.status].label}</Badge>}>
+                  <Tag>{s.host.name}</Tag>
+                  {s.updates > 0 && <ImageUpdateBadge update={s.update} count={s.updates} />}
+                  {s.problems.map((p) => <Badge key={p} tone="bad">{p}</Badge>)}
+                </ItemCard>
+              ))}
+            </StatusSection>
+          )}
+
           <StatusSection
             icon={History}
             title="Activité"
@@ -176,7 +209,7 @@ export function Dashboard() {
             {(jobs ?? []).slice(0, 8).map((j) => (
               <ItemCard key={j.id} to={`/jobs/${j.id}`} icon={History}
                 tone={j.status === 'success' ? 'ok' : j.status === 'failed' ? 'bad' : 'info'}
-                title={actionLabel[j.action]} right={<JobStatusIcon status={j.status} />}>
+                title={jobTitle(j)} right={<JobStatusIcon status={j.status} />}>
                 <Tag>{j.hostName}</Tag>
                 <span className="self-center text-xs text-muted">{timeAgo(j.createdAt)}</span>
               </ItemCard>

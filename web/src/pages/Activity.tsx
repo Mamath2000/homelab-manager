@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router';
 import { History } from 'lucide-react';
 import { JobStatusIcon } from '../components/JobConsole';
 import { Badge, Empty, PageHeader, Spinner, Tag } from '../components/ui';
-import { actionLabel, dateTime, duration } from '../lib/format';
+import { jobTitle, dateTime, duration } from '../lib/format';
 import { useJobs } from '../lib/queries';
 
 export function Activity() {
@@ -32,7 +32,7 @@ export function Activity() {
                 <tr key={j.id} onClick={() => navigate(`/jobs/${j.id}`)} className="cursor-pointer hover:bg-raised/50">
                   <td className="td"><JobStatusIcon status={j.status} /></td>
                   <td className="td">
-                    <span className="text-zinc-100">{actionLabel[j.action]}</span>
+                    <span className="text-zinc-100">{jobTitle(j)}</span>
                     {j.packages.length > 0 && <span className="ml-2 text-xs text-muted">{j.packages.length > 3 ? `${j.packages.length} paquets` : j.packages.join(', ')}</span>}
                     {j.error && <span className="ml-2 text-xs text-red-400">{j.error}</span>}
                   </td>

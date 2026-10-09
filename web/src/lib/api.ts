@@ -37,6 +37,69 @@ export interface AptSummary {
   autoremovable?: number | null;
 }
 
+// Docker compose stacks (agent report + update state computed by the hub)
+export interface DockerContainer {
+  id: string;
+  name: string;
+  state: string; // running, exited, restarting, paused, created, dead
+  status: string;
+  health?: string; // healthy, unhealthy, starting
+  imageId: string;
+}
+
+// available: newer image on the registry; recreate: pulled, container not redeployed yet;
+// unknown: never checked or not checkable (local build, pinned digest, private registry...)
+export type ImageUpdate = 'available' | 'recreate' | 'uptodate' | 'unknown';
+export type StackStatus = 'running' | 'partial' | 'stopped' | 'down';
+
+export interface DockerService {
+  name: string;
+  image: string;
+  containers: DockerContainer[];
+  update: ImageUpdate;
+  localDigest: string | null;
+  remoteDigest: string | null;
+  checkError: string | null;
+}
+
+export interface DockerStack {
+  name: string;
+  workingDir: string;
+  configFiles: string[];
+  envFiles: string[];
+  status: StackStatus;
+  services: DockerService[];
+  running: number;
+  total: number;
+  update: ImageUpdate;
+  updates: number;
+  problems: string[];
+}
+
+export interface DockerView {
+  engine: string;
+  compose: string;
+  checkedAt: number;
+  updatesCheckedAt: number | null;
+  stacks: DockerStack[];
+}
+
+export interface DockerSummary {
+  stacks: number;
+  running: number;
+  partial: number;
+  stopped: number;
+  down: number;
+  updates: number;
+  problems: number;
+}
+
+export interface ComposeFile {
+  path: string;
+  content: string;
+  masked?: boolean;
+}
+
 export interface Host {
   id: string;
   name: string;
@@ -60,9 +123,12 @@ export interface Host {
   info: HostInfo | null;
   apt: AptReport | null;
   aptSummary: AptSummary | null;
+  docker: DockerView | null;
+  dockerSummary: DockerSummary | null;
 }
 
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update';
+export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction;
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -71,6 +137,8 @@ export interface Job {
   hostName: string;
   action: JobAction;
   packages: string[];
+  stack: string | null;
+  service: string | null;
   trigger: 'manual' | 'schedule' | 'homeassistant';
   status: JobStatus;
   createdAt: string;
@@ -219,7 +287,16 @@ export const api = {
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   job: (id: string) => request<Job>('GET', `/api/jobs/${id}`),
-  runJob: (hostId: string, action: JobAction, packages?: string[]) =>
-    request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action, packages }),
+  runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string }) =>
+    request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action, packages, ...target }),
+
+  stackLogs: (hostId: string, stack: string, service: string | undefined, tail: number) =>
+    request<{ logs: string }>(
+      'GET',
+      `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/logs?tail=${tail}${service ? `&service=${encodeURIComponent(service)}` : ''}`,
+    ),
+  stackCompose: (hostId: string, stack: string) =>
+    request<{ files: ComposeFile[] }>('GET', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/compose`),
+  forgetStack: (hostId: string, stack: string) => request<void>('DELETE', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}`),
   runBulk: (hostIds: string[], action: JobAction) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action }),
 };
