@@ -120,6 +120,8 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			args = append(args, in.Packages...)
 		}
 		code, err = runStreaming(jctx, emit, "apt-get", args...)
+	case "apt_autoremove":
+		code, err = runStreaming(jctx, emit, "apt-get", "-y", "autoremove")
 	default:
 		done(-1, fmt.Errorf("unknown action %q", in.Action))
 		return

@@ -9,6 +9,7 @@ export function summarize(report: AptReport): AptSummary {
     held: report.held.length,
     rebootRequired: report.rebootRequired,
     rebootPending: report.upgradable.filter((p) => needsReboot(p.name)).length,
+    autoremovable: report.autoremovable ? report.autoremovable.length : null,
   };
 }
 

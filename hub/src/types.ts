@@ -17,6 +17,8 @@ export interface AptReport {
   held: string[];
   rebootRequired: boolean;
   rebootPkgs: string[];
+  // absent with agents older than 0.1.1
+  autoremovable?: string[];
 }
 
 export interface HostInfo {
@@ -37,6 +39,8 @@ export interface AptSummary {
   rebootRequired: boolean;
   // pending upgrades that will require a reboot once installed
   rebootPending: number;
+  // packages apt-get autoremove would remove; null when the agent does not report it
+  autoremovable: number | null;
 }
 
 export interface HostDoc {
@@ -54,7 +58,7 @@ export interface HostDoc {
   aptSummary?: AptSummary;
 }
 
-export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade'] as const;
+export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;
 export type JobAction = (typeof JOB_ACTIONS)[number];
 export type JobStatus = 'running' | 'success' | 'failed';
 

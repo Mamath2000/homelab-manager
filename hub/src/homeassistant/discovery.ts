@@ -64,6 +64,9 @@ export function build(hosts: HostState[], opts: BuildOptions) {
         // an empty payload makes Home Assistant show "unknown"
         states.push([t(key), value === null ? '' : String(value)]);
       },
+      attributes(key: string, value: unknown) {
+        states.push([t(key, 'attributes'), JSON.stringify(value)]);
+      },
       binary(key: string, name: string, on: boolean, extra: Component = {}) {
         add(key, 'binary_sensor', name, { state_topic: t(key), payload_on: 'ON', payload_off: 'OFF', ...extra });
         states.push([t(key), on ? 'ON' : 'OFF']);
@@ -112,6 +115,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   let security = 0;
   let toUpdate = 0;
   let toReboot = 0;
+  let toClean = 0;
 
   for (const { host, online: isOnline, busy } of hosts) {
     const hid = host._id.toHexString();
@@ -151,6 +155,14 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       d.sensor('last_check', 'Dernière vérification', r.listsUpdatedAt ? new Date(r.listsUpdatedAt).toISOString() : null, {
         device_class: 'timestamp', ...diag,
       });
+      if (r.autoremovable) {
+        if (r.autoremovable.length) toClean++;
+        d.sensor('autoremovable', 'Paquets à nettoyer', r.autoremovable.length, {
+          icon: 'mdi:broom', json_attributes_topic: `${topic}/${hostId}_apt/autoremovable/attributes`,
+        });
+        d.attributes('autoremovable', { packages: r.autoremovable });
+        d.button('autoremove', 'Nettoyer les paquets', { action: 'apt_autoremove', hostIds: [hid] }, { icon: 'mdi:broom' });
+      }
       d.alerts(apt, diag);
       d.button('check', 'Rechercher les mises à jour', { action: 'apt_update', hostIds: [hid] }, { icon: 'mdi:refresh' });
       d.finish();
@@ -187,6 +199,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   root.sensor('security', 'Mises à jour de sécurité', security, { icon: 'mdi:shield-alert-outline' });
   root.sensor('hosts_to_update', 'Hôtes à mettre à jour', toUpdate, { icon: 'mdi:server-plus' });
   root.sensor('hosts_to_reboot', 'Hôtes à redémarrer', toReboot, { icon: 'mdi:restart-alert' });
+  root.sensor('hosts_to_clean', 'Hôtes à nettoyer', toClean, { icon: 'mdi:broom' });
   root.alerts(allAlerts);
   root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online) }, { icon: 'mdi:refresh' });
   root.button('update_all', 'Tout mettre à jour', {

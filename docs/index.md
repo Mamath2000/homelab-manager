@@ -18,6 +18,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Actions** : `apt-get update`, mise à jour complète ou de paquets choisis, sur un hôte ou plusieurs à la fois, avec les logs en direct.
 - **Vue par paquet** : voir sur quels hôtes un paquet est en retard et le mettre à jour partout en un clic.
 - **Vérification planifiée** : `apt-get update` automatique toutes les 12 h.
+- **Nettoyage** : paquets inutiles (anciens noyaux, dépendances orphelines) supprimables via `apt autoremove`.
 - **Historique** des tâches et de leurs sorties (90 jours).
 - **Home Assistant** (option) : appareils, alertes et mises à jour publiés via MQTT, avec découverte automatique.
 

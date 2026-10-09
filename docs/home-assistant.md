@@ -49,7 +49,7 @@ Homelab Manager
 |---|---|
 | Hôtes, Hôtes en ligne | capteurs |
 | Mises à jour disponibles, Mises à jour de sécurité | capteurs (totaux de tous les hôtes) |
-| Hôtes à mettre à jour, Hôtes à redémarrer | capteurs |
+| Hôtes à mettre à jour, Hôtes à redémarrer, Hôtes à nettoyer | capteurs |
 | Alertes | capteur (nombre) ; attributs `critical` et `alerts` (niveau, hôte, composant, message) |
 | Problème | capteur binaire, allumé dès qu'une alerte existe |
 | Tout vérifier | bouton : `apt-get update` sur les hôtes en ligne |
@@ -71,6 +71,8 @@ Homelab Manager
 | Mises à jour, Mises à jour de sécurité | capteurs |
 | Redémarrage requis | capteur binaire (problème) |
 | Redémarrage après MAJ | capteur : paquets en attente qui demanderont un redémarrage |
+| Paquets à nettoyer | capteur : paquets supprimables par `apt autoremove` (liste en attribut `packages`) |
+| Nettoyer les paquets | bouton : `apt-get autoremove` |
 | Paquets bloqués, Dernière vérification | diagnostic |
 | Alertes, Problème | diagnostic : alertes propres aux paquets |
 | Rechercher les mises à jour | bouton : `apt-get update` |
@@ -84,6 +86,8 @@ Homelab Manager
 | APT | avertissement | Mises à jour de sécurité disponibles |
 | APT | avertissement | Redémarrage requis |
 | APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours |
+
+« Paquets à nettoyer » et « Nettoyer les paquets » n'apparaissent qu'avec un agent récent (0.1.1 et plus).
 
 Les prochains composants (Docker, sauvegardes…) s'ajouteront comme sous-composants de l'hôte, avec leurs propres alertes remontées de la même façon.
 

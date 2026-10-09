@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowUpCircle, Cpu, History, KeyRound, Lock, Package, Pencil
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
+import { CleanupPanel } from '../components/CleanupPanel';
 import { useToast } from '../components/Toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host } from '../lib/api';
@@ -245,6 +246,7 @@ export function HostDetail() {
       )}
 
       <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
+        <div className="flex min-w-0 flex-col gap-5">
         <Panel title="Système" icon={Cpu}>
           <dl className="-my-2 divide-y divide-line">
             <InfoRow label="Hostname">{host.info?.hostname ?? '—'}</InfoRow>
@@ -259,6 +261,8 @@ export function HostDetail() {
             <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
           </dl>
         </Panel>
+        <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
+        </div>
         <PackagesPanel host={host} />
       </div>
 

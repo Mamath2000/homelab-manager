@@ -88,6 +88,7 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 		Upgradable:     parseUpgradable(out.String()),
 		Held:           []string{},
 		RebootPkgs:     []string{},
+		Autoremovable:  []string{},
 	}
 	if r.Upgradable == nil {
 		r.Upgradable = []Package{}
@@ -99,6 +100,12 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 			r.Held = append(r.Held, l)
 		}
 	}
+	// simulation only: nothing is removed, and it works without the dpkg lock
+	ac := exec.CommandContext(ctx, "apt-get", "-s", "autoremove")
+	ac.Env = aptEnv()
+	if b, err := ac.Output(); err == nil {
+		r.Autoremovable = parseAutoremove(string(b))
+	}
 	if _, err := os.Stat("/var/run/reboot-required"); err == nil {
 		r.RebootRequired = true
 		if b, err := os.ReadFile("/var/run/reboot-required.pkgs"); err == nil {
@@ -106,6 +113,21 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 		}
 	}
 	return r, nil
+}
+
+// "Remv linux-image-6.18.33+rpt-rpi-v8 [1:6.18.33-1+rpt1]" lines of `apt-get -s autoremove`
+var removeRe = regexp.MustCompile(`^Remv (\S+)`)
+
+func parseAutoremove(out string) []string {
+	pkgs := []string{}
+	sc := bufio.NewScanner(strings.NewReader(out))
+	for sc.Scan() {
+		if m := removeRe.FindStringSubmatch(sc.Text()); m != nil {
+			pkgs = append(pkgs, m[1])
+		}
+	}
+	sort.Strings(pkgs)
+	return pkgs
 }
 
 // runStreaming runs a command, forwarding each output line to emit.

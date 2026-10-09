@@ -14,6 +14,7 @@ export interface AptReport {
   held: string[];
   rebootRequired: boolean;
   rebootPkgs: string[];
+  autoremovable?: string[];
 }
 
 export interface HostInfo {
@@ -33,6 +34,7 @@ export interface AptSummary {
   held: number;
   rebootRequired: boolean;
   rebootPending?: number;
+  autoremovable?: number | null;
 }
 
 export interface Host {
@@ -49,7 +51,7 @@ export interface Host {
   aptSummary: AptSummary | null;
 }
 
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {

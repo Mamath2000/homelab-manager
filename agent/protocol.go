@@ -17,6 +17,8 @@ type AptReport struct {
 	Held           []string  `json:"held"`
 	RebootRequired bool      `json:"rebootRequired"`
 	RebootPkgs     []string  `json:"rebootPkgs"`
+	// packages "apt-get autoremove" would remove (no longer needed dependencies, old kernels)
+	Autoremovable []string `json:"autoremovable"`
 }
 
 type HostInfo struct {

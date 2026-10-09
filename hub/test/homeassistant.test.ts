@@ -89,6 +89,21 @@ test('update entity and commands map to jobs', () => {
   assert.deepEqual(commands.get(`hm/${ROOT_ID}/check_all/set`)!.hostIds, [hid]);
 });
 
+test('autoremove entities appear only when the agent reports them', () => {
+  const recent = host('new', { autoremovable: ['libyuv0', 'linux-image-6.18.33+rpt-rpi-v8'] });
+  const old = host('old', {});
+  const { devices, commands } = build([{ host: recent, online: true, busy: false }, { host: old, online: true, busy: false }], opts);
+  const comps = (h: HostDoc) => (devices.find((d) => d.id === `hm_${h._id.toHexString()}_apt`)!.discovery.components as Record<string, unknown>);
+  assert.ok(comps(recent).autoremovable && comps(recent).autoremove);
+  assert.equal(comps(old).autoremovable, undefined);
+  const rid = recent._id.toHexString();
+  assert.deepEqual(commands.get(`hm/hm_${rid}_apt/autoremove/set`), { payload: PRESS, action: 'apt_autoremove', hostIds: [rid] });
+  const states = new Map(devices.flatMap((d) => d.states));
+  assert.equal(states.get(`hm/hm_${rid}_apt/autoremovable/state`), '2');
+  assert.deepEqual(JSON.parse(states.get(`hm/hm_${rid}_apt/autoremovable/attributes`)!).packages.length, 2);
+  assert.equal(states.get(`hm/${ROOT_ID}/hosts_to_clean/state`), '1');
+});
+
 test('testConnection reports broker availability and authentication', async () => {
   const broker = aedes();
   broker.authenticate = (_client, username, password, done) => done(null, username === 'ha' && password?.toString() === 'secret');

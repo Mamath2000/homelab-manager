@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { ArrowUpCircle, Plus, RefreshCw, Search, Server } from 'lucide-react';
+import { ArrowUpCircle, Brush, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { RebootStatus } from '../components/Reboot';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
@@ -9,7 +9,7 @@ import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
 import { connection, connectionMeta, listsStale, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 
-type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot';
+type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup';
 
 const filters: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Tous' },
@@ -19,6 +19,7 @@ const filters: { key: Filter; label: string }[] = [
   { key: 'updates', label: 'Mises à jour' },
   { key: 'security', label: 'Sécurité' },
   { key: 'reboot', label: 'Reboot' },
+  { key: 'cleanup', label: 'À nettoyer' },
 ];
 
 export function Hosts() {
@@ -57,6 +58,8 @@ export function Hosts() {
           return (h.aptSummary?.upgradable ?? 0) > 0;
         case 'security':
           return updateState(h) === 'security';
+        case 'cleanup':
+          return (h.aptSummary?.autoremovable ?? 0) > 0;
         case 'reboot':
           return !!h.aptSummary?.rebootRequired || !!h.aptSummary?.rebootPending;
         default:
@@ -157,6 +160,9 @@ export function Hosts() {
                             {s.security > 0 && <Badge tone="bad">{s.security} sécu</Badge>}
                             <Badge tone="warn">{s.upgradable}</Badge>
                           </>
+                        )}
+                        {!!s?.autoremovable && (
+                          <Badge tone="neutral" className="gap-1"><Brush className="h-3 w-3" />{s.autoremovable} à nettoyer</Badge>
                         )}
                       </div>
                     </td>

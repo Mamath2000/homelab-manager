@@ -99,6 +99,7 @@ export function Dashboard() {
               { label: 'Inconnu', value: count(updateState, 'unknown'), tone: 'unknown' },
               { label: 'Reboot requis', value: hosts.filter((h) => h.aptSummary?.rebootRequired).length, tone: 'bad', ringless: true },
               { label: 'Reboot après MAJ', value: hosts.filter((h) => !h.aptSummary?.rebootRequired && h.aptSummary?.rebootPending).length, tone: 'warn', ringless: true },
+              { label: 'À nettoyer', value: hosts.filter((h) => (h.aptSummary?.autoremovable ?? 0) > 0).length, tone: 'neutral', ringless: true },
             ]}
             cardsTitle="À traiter"
             cardsIcon={ShieldAlert}
