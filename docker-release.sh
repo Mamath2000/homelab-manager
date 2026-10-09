@@ -6,6 +6,11 @@
 #                   — l'image X.Y.Z contient exactement ce commit
 #   release-minor : mineur +1, build remis à 0 (X.Y+1.0)
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
+#   direct        : contournement de Docker Hub : build amd64 sans identifiants (config Docker vide), image
+#                   transférée par ssh dans le CT du hub (docker save | docker load), puis compose up du service.
+#                   Rien n'est publié ni commité ; tags locaux latest et X.Y.Z-<ref git>.
+#                   Variables : DIRECT_SSH (pve1.lo), DIRECT_PCT (171, vide = hôte ssh lui-même),
+#                   DIRECT_DIR (/root/homelab-manager), DIRECT_SERVICE (hub), YES=1 (sans confirmation)
 # Les binaires de l'agent sont signés avec la clé de release (make release-key), passée en secret BuildKit :
 # obligatoire pour une release, facultative pour build (sans elle : agents de développement non signés).
 # Variables : DOCKER_USER (défaut mathmath350), PLATFORMS (défaut linux/amd64,linux/arm64),
@@ -57,9 +62,68 @@ if [ "$action" = "build" ]; then
     exit 0
 fi
 
+if [ "$action" = "direct" ]; then
+    DIRECT_SSH=${DIRECT_SSH:-"pve1.lo"}
+    DIRECT_PCT=${DIRECT_PCT-"171"}
+    DIRECT_DIR=${DIRECT_DIR:-"/root/homelab-manager"}
+    DIRECT_SERVICE=${DIRECT_SERVICE:-"hub"}
+    # commande exécutée sur la cible : dans le CT via pct exec, sinon sur l'hôte ssh
+    remote() {
+        if [ -n "$DIRECT_PCT" ]; then ssh "$DIRECT_SSH" "pct exec $DIRECT_PCT -- sh -c '$1'"
+        else ssh "$DIRECT_SSH" "sh -c '$1'"; fi
+    }
+    command -v go >/dev/null 2>&1 || { echo "❌ go est requis (vérification de la clé de release)."; exit 1; }
+    signing_args || { echo "❌ Clé de release absente ($RELEASE_KEY) : les agents de production doivent être signés."; exit 1; }
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "❌ Working directory non propre, commitez d'abord (l'image doit correspondre à un commit) :"
+        git status --short
+        exit 1
+    fi
+    GIT_REF=$(git rev-parse --short HEAD)
+    IMAGE="$DOCKER_USER/$APP_NAME"
+    TAG="$VERSION-$GIT_REF"
+    TARGET="$DIRECT_SSH${DIRECT_PCT:+ / CT $DIRECT_PCT}:$DIRECT_DIR (service $DIRECT_SERVICE)"
+
+    # config Docker vide : buildkit tire les images de base en anonyme, sans la session Docker Hub
+    DOCKER_CONFIG=$(mktemp -d)
+    export DOCKER_CONFIG
+    trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+    echo "🔨 Build $IMAGE:$TAG (linux/amd64, sans identifiants Docker Hub)"
+    docker buildx build \
+        --builder default \
+        --platform linux/amd64 \
+        --label "org.opencontainers.image.version=$VERSION" \
+        --label "org.opencontainers.image.revision=$GIT_REF" \
+        --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+        --label "org.opencontainers.image.source=https://github.com/Mamath2000/homelab-manager" \
+        -t "$IMAGE:latest" \
+        -t "$IMAGE:$TAG" \
+        "${SIGNING[@]}" \
+        --load \
+        .
+
+    echo "📤 Transfert vers $TARGET"
+    docker save "$IMAGE:latest" "$IMAGE:$TAG" | gzip -1 | remote "gunzip | docker load"
+
+    if [ "${YES:-}" != "1" ]; then
+        read -r -p "Recréer le service $DIRECT_SERVICE sur $TARGET avec $IMAGE:$TAG ? [o/N] " answer
+        case "$answer" in o|O|oui|y|Y) ;; *) echo "⏸️  Image chargée, service non redémarré (docker compose up -d $DIRECT_SERVICE dans $DIRECT_DIR)"; exit 0 ;; esac
+    fi
+    # pas de pull : compose prend l'image latest chargée localement
+    remote "cd $DIRECT_DIR && docker compose up -d --pull never $DIRECT_SERVICE"
+    sleep 5
+    remote "cd $DIRECT_DIR && docker compose ps $DIRECT_SERVICE"
+    # le conteneur doit tourner sur ce commit (label de révision ; les ID d'image changent selon le stockage)
+    labels=$(remote "docker inspect --format {{.Config.Labels}} \$(cd $DIRECT_DIR && docker compose ps -q $DIRECT_SERVICE)")
+    case "$labels" in *"org.opencontainers.image.revision:$GIT_REF"*) ;; *) echo "❌ Le conteneur ne tourne pas sur $IMAGE:$TAG"; exit 1 ;; esac
+    echo "✅ $IMAGE:$TAG déployée sur $TARGET (non publiée sur Docker Hub)"
+    echo "⚠️  Un docker compose pull / make apps-redeploy repasserait sur la latest de Docker Hub : faire la release Docker Hub dès que possible."
+    exit 0
+fi
+
 case "$action" in
     release|release-minor|release-major) ;;
-    *) echo "Usage: $0 [build|release|release-minor|release-major]"; exit 1 ;;
+    *) echo "Usage: $0 [build|release|release-minor|release-major|direct]"; exit 1 ;;
 esac
 
 command -v go >/dev/null 2>&1 || { echo "❌ go est requis (vérification de la clé de release)."; exit 1; }
