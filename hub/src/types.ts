@@ -6,6 +6,8 @@ export interface Package {
   candidate: string;
   repo: string;
   security: boolean;
+  // added by the hub: the upgrade will require a reboot
+  reboot?: boolean;
 }
 
 export interface AptReport {
@@ -33,6 +35,8 @@ export interface AptSummary {
   security: number;
   held: number;
   rebootRequired: boolean;
+  // pending upgrades that will require a reboot once installed
+  rebootPending: number;
 }
 
 export interface HostDoc {

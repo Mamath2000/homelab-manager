@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { JobStatusIcon } from '../components/JobConsole';
+import { RebootStatus } from '../components/Reboot';
 import { ItemCard, StatusSection } from '../components/StatusSection';
 import { Badge, Button, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { actionLabel, timeAgo } from '../lib/format';
@@ -96,7 +97,8 @@ export function Dashboard() {
               { label: 'Mises à jour', value: count(updateState, 'updates'), tone: 'warn' },
               { label: 'Sécurité', value: count(updateState, 'security'), tone: 'bad' },
               { label: 'Inconnu', value: count(updateState, 'unknown'), tone: 'unknown' },
-              { label: 'Reboot requis', value: hosts.filter((h) => h.aptSummary?.rebootRequired).length, tone: 'info', ringless: true },
+              { label: 'Reboot requis', value: hosts.filter((h) => h.aptSummary?.rebootRequired).length, tone: 'bad', ringless: true },
+              { label: 'Reboot après MAJ', value: hosts.filter((h) => !h.aptSummary?.rebootRequired && h.aptSummary?.rebootPending).length, tone: 'warn', ringless: true },
             ]}
             cardsTitle="À traiter"
             cardsIcon={ShieldAlert}
@@ -106,10 +108,10 @@ export function Dashboard() {
               const s = h.aptSummary!;
               return (
                 <ItemCard key={h.id} to={`/hosts/${h.id}`} icon={PackageCheck} tone={updateMeta[updateState(h)].tone} title={h.name}
-                  right={s.rebootRequired && <RotateCw className="h-4 w-4 text-sky-400" aria-label="Redémarrage requis" />}>
+                  right={(s.rebootRequired || !!s.rebootPending) && <RotateCw className={`h-4 w-4 ${s.rebootRequired ? 'text-red-400' : 'text-amber-400'}`} aria-label="Redémarrage" />}>
                   {s.security > 0 && <Badge tone="bad">{s.security} sécu</Badge>}
                   {s.upgradable > 0 && <Badge tone="warn">{s.upgradable} paquet{s.upgradable > 1 ? 's' : ''}</Badge>}
-                  {s.rebootRequired && <Badge tone="info">reboot</Badge>}
+                  <RebootStatus summary={s} compact />
                   {listsStale(h) && <Badge tone="unknown">listes périmées</Badge>}
                 </ItemCard>
               );

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
+import { RebootTag } from '../components/Reboot';
 import { useToast } from '../components/Toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
@@ -9,6 +10,7 @@ import { useHosts } from '../lib/queries';
 interface Row {
   name: string;
   security: boolean;
+  reboot: boolean;
   candidates: Set<string>;
   hosts: Host[];
 }
@@ -26,8 +28,9 @@ export function Updates() {
     const map = new Map<string, Row>();
     for (const h of hosts ?? []) {
       for (const p of h.apt?.upgradable ?? []) {
-        const r = map.get(p.name) ?? { name: p.name, security: false, candidates: new Set(), hosts: [] };
+        const r = map.get(p.name) ?? { name: p.name, security: false, reboot: false, candidates: new Set(), hosts: [] };
         r.security ||= p.security;
+        r.reboot ||= !!p.reboot;
         r.candidates.add(p.candidate);
         r.hosts.push(h);
         map.set(p.name, r);
@@ -105,6 +108,7 @@ export function Updates() {
                   <td className="td">
                     <span className="font-medium text-zinc-100">{r.name}</span>
                     {r.security && <Badge tone="bad" className="ml-2">sécurité</Badge>}
+                    {r.reboot && <RebootTag />}
                   </td>
                   <td className="td font-mono text-xs text-emerald-300">{[...r.candidates].join(', ')}</td>
                   <td className="td">
@@ -132,6 +136,7 @@ export function Updates() {
         <p>
           <code className="text-zinc-100">apt-get install --only-upgrade {target?.name}</code> sera lancé sur {target?.hosts.filter((h) => h.online).length} hôte(s) en ligne.
         </p>
+        {target?.reboot && <p className="mt-2 text-amber-300">Ces hôtes devront ensuite être redémarrés.</p>}
         {target?.hosts.some((h) => !h.online) && <p className="mt-2 text-xs text-muted">Les hôtes hors ligne sont ignorés.</p>}
       </ConfirmModal>
     </>

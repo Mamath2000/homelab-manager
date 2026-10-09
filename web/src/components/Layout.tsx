@@ -156,7 +156,7 @@ export function Layout({ user, live, onLogout }: { user: string; live: boolean; 
       )}
 
       <main className="px-4 py-6 md:ml-60 md:px-8">
-        <div className="mx-auto max-w-[1600px]">
+        <div>
           <Outlet />
         </div>
       </main>

@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, Cpu, History, KeyRound, Lock, Package, Pencil, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
+import { RebootTag } from '../components/Reboot';
 import { useToast } from '../components/Toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host } from '../lib/api';
@@ -69,6 +70,8 @@ function PackagesPanel({ host }: { host: Host }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState(false);
   const pkgs = host.apt?.upgradable ?? [];
+  const rebootPkgs = pkgs.filter((p) => p.reboot).map((p) => p.name);
+  const selectedReboot = rebootPkgs.filter((n) => selected.has(n));
 
   // drop selections that are no longer upgradable after a refresh
   useEffect(() => {
@@ -97,12 +100,17 @@ function PackagesPanel({ host }: { host: Host }) {
         )
       }
     >
-      {(host.apt?.rebootRequired || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
+      {(host.apt?.rebootRequired || rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
         <div className="space-y-2 border-b border-line px-4 py-3 text-sm">
           {host.apt?.rebootRequired && (
-            <p className="flex flex-wrap items-center gap-2 text-sky-300">
+            <p className="flex flex-wrap items-center gap-2 text-red-300">
               <RotateCw className="h-4 w-4" /> Redémarrage requis
               {host.apt.rebootPkgs.length > 0 && <span className="text-xs text-muted">({host.apt.rebootPkgs.join(', ')})</span>}
+            </p>
+          )}
+          {rebootPkgs.length > 0 && (
+            <p className="flex flex-wrap items-center gap-2 text-amber-300">
+              <RotateCw className="h-4 w-4" /> Redémarrage à prévoir après la mise à jour de : {rebootPkgs.join(', ')}
             </p>
           )}
           {(host.apt?.held.length ?? 0) > 0 && (
@@ -141,6 +149,7 @@ function PackagesPanel({ host }: { host: Host }) {
                   <td className="td">
                     <span className="font-medium text-zinc-100">{p.name}</span>
                     {p.security && <Badge tone="bad" className="ml-2">sécurité</Badge>}
+                    {p.reboot && <RebootTag />}
                   </td>
                   <td className="td font-mono text-xs text-zinc-500">{p.current}</td>
                   <td className="td font-mono text-xs text-emerald-300">{p.candidate}</td>
@@ -162,6 +171,7 @@ function PackagesPanel({ host }: { host: Host }) {
         }
       >
         <div className="flex flex-wrap gap-1.5">{[...selected].map((n) => <Tag key={n}>{n}</Tag>)}</div>
+        {selectedReboot.length > 0 && <p className="mt-3 text-amber-300">Redémarrage à prévoir ensuite ({selectedReboot.join(', ')}).</p>}
       </ConfirmModal>
     </Panel>
   );
@@ -280,6 +290,7 @@ export function HostDetail() {
       <EditModal host={host} open={editing} onClose={() => setEditing(false)} />
       <ConfirmModal open={confirmUpgrade} onClose={() => setConfirmUpgrade(false)} title={`Mettre à jour ${host.name}`} confirmLabel="Lancer apt-get upgrade" loading={run.isPending} onConfirm={() => startJob('apt_upgrade')}>
         {host.aptSummary?.upgradable} paquet(s) vont être mis à jour, dont {host.aptSummary?.security} de sécurité. Les fichiers de configuration modifiés localement sont conservés.
+        {!!host.aptSummary?.rebootPending && <p className="mt-3 text-amber-300">Un redémarrage sera nécessaire ensuite (noyau, microcode ou bibliothèques système).</p>}
       </ConfirmModal>
       <ConfirmModal open={confirmToken} onClose={() => setConfirmToken(false)} title="Générer un nouveau token" confirmLabel="Générer" danger={c !== 'pending'} onConfirm={regenerate}>
         {c === 'pending' ? "Une nouvelle commande d'installation va être générée." : "L'agent actuel sera déconnecté et devra être réinstallé avec le nouveau token."}

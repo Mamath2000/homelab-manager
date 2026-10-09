@@ -4,6 +4,7 @@ export interface Package {
   candidate: string;
   repo: string;
   security: boolean;
+  reboot?: boolean;
 }
 
 export interface AptReport {
@@ -31,6 +32,7 @@ export interface AptSummary {
   security: number;
   held: number;
   rebootRequired: boolean;
+  rebootPending?: number;
 }
 
 export interface Host {

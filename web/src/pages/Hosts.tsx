@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { ArrowUpCircle, Plus, RefreshCw, RotateCw, Search, Server } from 'lucide-react';
+import { ArrowUpCircle, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
+import { RebootStatus } from '../components/Reboot';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
@@ -57,7 +58,7 @@ export function Hosts() {
         case 'security':
           return updateState(h) === 'security';
         case 'reboot':
-          return !!h.aptSummary?.rebootRequired;
+          return !!h.aptSummary?.rebootRequired || !!h.aptSummary?.rebootPending;
         default:
           return true;
       }
@@ -116,7 +117,7 @@ export function Hosts() {
         {list.length === 0 ? (
           <Empty icon={Server} title={hosts.length ? 'Aucun hôte ne correspond' : 'Aucun hôte'} />
         ) : (
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="w-full min-w-[1000px] text-sm">
             <thead className="border-b border-line">
               <tr>
                 <th className="th w-10"><Checkbox label="Tout sélectionner" checked={allChecked} indeterminate={visibleSelected.length > 0} onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())} /></th>
@@ -124,6 +125,7 @@ export function Hosts() {
                 <th className="th">Système</th>
                 <th className="th">IP</th>
                 <th className="th">Mises à jour</th>
+                <th className="th">Redémarrage</th>
                 <th className="th">Dernière vérif.</th>
                 <th className="th">Vu</th>
                 <th className="th text-right">Actions</th>
@@ -156,8 +158,10 @@ export function Hosts() {
                             <Badge tone="warn">{s.upgradable}</Badge>
                           </>
                         )}
-                        {s?.rebootRequired && <Badge tone="info"><RotateCw className="h-3 w-3" />reboot</Badge>}
                       </div>
+                    </td>
+                    <td className="td" title={s?.rebootRequired ? "L'hôte attend un redémarrage" : s?.rebootPending ? 'Des mises à jour en attente nécessiteront un redémarrage' : undefined}>
+                      <RebootStatus summary={s} />
                     </td>
                     <td className={clsx('td text-xs', listsStale(h) ? 'text-violet-300' : 'text-zinc-400')}>{h.apt ? timeAgo(h.apt.listsUpdatedAt) : '—'}</td>
                     <td className="td text-xs text-zinc-400">{h.online ? 'maintenant' : timeAgo(h.lastSeenAt)}</td>
@@ -183,6 +187,11 @@ export function Hosts() {
       >
         <p className="mb-3"><code className="text-zinc-100">apt-get upgrade</code> va être lancé sur :</p>
         <div className="flex flex-wrap gap-1.5">{visibleSelected.map((h) => <Tag key={h.id}>{h.name}</Tag>)}</div>
+        {visibleSelected.some((h) => h.aptSummary?.rebootPending) && (
+          <p className="mt-3 text-sm text-amber-300">
+            Redémarrage à prévoir ensuite : {visibleSelected.filter((h) => h.aptSummary?.rebootPending).map((h) => h.name).join(', ')}.
+          </p>
+        )}
         <p className="mt-3 text-xs text-muted">Les configurations locales modifiées sont conservées (--force-confold). Aucun redémarrage n'est effectué.</p>
       </ConfirmModal>
       <AddHostModal open={adding} onClose={() => setAdding(false)} />
