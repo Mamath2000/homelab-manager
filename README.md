@@ -108,7 +108,7 @@ Prérequis : Node.js 22, Go 1.24, GNU Make, et Docker pour MongoDB et l'image. `
 
 ```sh
 make install            # dépendances hub + web + agent
-make mongo              # MongoDB local dans un conteneur (homelab-mongo)
+make mongo              # MongoDB de dev : réutilise celui déjà actif sur 27017, sinon conteneur homelab-mongo
 make dev                # hub (rechargement auto) + interface sur http://localhost:5173, Ctrl-C arrête tout
 make agent-run TOKEN=…  # agent local contre le hub (en root pour apt-get update / upgrade)
 ```
