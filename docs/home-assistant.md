@@ -6,7 +6,7 @@ sidebar_position: 3
 
 # Home Assistant
 
-Le hub peut publier l'état du homelab sur un broker MQTT, avec la **découverte automatique** de Home Assistant au format *device-based* : un seul message `homeassistant/device/ID/config` par appareil, qui décrit tous ses composants. Les mises à jour et les vérifications se déclenchent aussi depuis Home Assistant.
+Le hub peut publier l'état du homelab sur un broker MQTT, avec la **découverte automatique** de Home Assistant au format *device-based* : un seul message `homeassistant/device/homelab/OBJET/config` par appareil, qui décrit tous ses composants. Les mises à jour et les vérifications se déclenchent aussi depuis Home Assistant.
 
 ## Activer l'intégration
 
@@ -23,7 +23,7 @@ Dans l'interface : **Paramètres → Home Assistant (MQTT)**.
 
 **Tester la connexion** vérifie que le broker accepte les identifiants, sans rien publier. Une fois enregistrée, la carte d'état indique si le hub est connecté et combien d'appareils sont publiés.
 
-**Republier la découverte** (intégration connectée) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ».
+**Republier la découverte** (intégration connectée) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ». Les configurations obsolètes trouvées sur le broker (appareil disparu, ancien format de topic) sont supprimées au passage ; c'est aussi fait à chaque connexion au broker.
 
 :::info Désactivation
 Désactiver l'intégration, ou changer de préfixe, **retire les appareils** de Home Assistant (configurations de découverte vidées).
@@ -108,5 +108,7 @@ Les prochains composants (Docker, sauvegardes…) s'ajouteront comme sous-compos
 | `PREFIXE/APPAREIL/ENTITE/set` | commande : `PRESS` (bouton), `INSTALL` (update) |
 
 Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte) et `hm_ID_apt`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
+
+Topics de découverte, tous sous le *node id* `homelab` : `homeassistant/device/homelab/manager/config` (Homelab Manager), `homeassistant/device/homelab/hm_ID/config`, `homeassistant/device/homelab/hm_ID_apt/config`. Jusqu'à la 0.1.6, ils étaient publiés directement sous `homeassistant/device/<identifiant>/config` : le hub vide ces anciens topics à sa connexion et republie les appareils au nouvel emplacement.
 
 Les valeurs ne sont publiées que lorsqu'elles changent ; tout est republié quand Home Assistant redémarre (`homeassistant/status`) ou avec « Republier la découverte ». Les états d'un appareil dont la découverte vient d'être (re)publiée sont renvoyés une seconde fois quelques secondes plus tard, le temps que Home Assistant crée ses entités. Les tâches lancées depuis Home Assistant apparaissent dans l'activité avec la mention « Home Assistant ».

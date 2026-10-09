@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { Aedes } from 'aedes';
 import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
-import { build, INSTALL, PRESS, ROOT_ID, type HostState } from '../src/homeassistant/discovery.js';
+import { build, INSTALL, PRESS, ROOT_ID, parseDiscoveryTopic, type HostState } from '../src/homeassistant/discovery.js';
 import type { HostDoc } from '../src/types.js';
 
 const opts = { topic: 'hm', discoveryPrefix: 'homeassistant', version: '1.2.3' };
@@ -40,7 +40,14 @@ test('devices are nested root > host > sub-component', () => {
   assert.equal(byId.get(hid)!.via_device, ROOT_ID);
   assert.equal(byId.get(`${hid}_apt`)!.via_device, hid);
   assert.equal(byId.get(ROOT_ID)!.via_device, undefined);
-  for (const d of devices) assert.equal(d.discoveryTopic, `homeassistant/device/${d.id}/config`);
+  for (const d of devices) {
+    assert.equal(d.discoveryTopic, d.id === ROOT_ID ? 'homeassistant/device/homelab/manager/config' : `homeassistant/device/homelab/${d.id}/config`);
+    assert.deepEqual(parseDiscoveryTopic('homeassistant', d.discoveryTopic), { id: d.id, legacy: false });
+  }
+  // topics of 0.1.6 and earlier are recognised, other integrations are left alone
+  assert.deepEqual(parseDiscoveryTopic('homeassistant', `homeassistant/device/${hid}_apt/config`), { id: `${hid}_apt`, legacy: true });
+  assert.deepEqual(parseDiscoveryTopic('homeassistant', 'homeassistant/device/homelab_manager/config'), { id: ROOT_ID, legacy: true });
+  assert.equal(parseDiscoveryTopic('homeassistant', 'homeassistant/device/komodo/config'), null);
 });
 
 test('alerts roll up from the sub-component to the host and the root', () => {

@@ -13,6 +13,22 @@ import { agentAlerts, aptAlerts, type Alert } from './alerts.js';
 export const PRESS = 'PRESS';
 export const INSTALL = 'INSTALL';
 export const ROOT_ID = 'homelab_manager';
+// all the hub's configs under one node id: <prefix>/device/homelab/<object id>/config
+export const NODE_ID = 'homelab';
+
+export function discoveryTopic(prefix: string, id: string) {
+  return `${prefix}/device/${NODE_ID}/${id === ROOT_ID ? 'manager' : id}/config`;
+}
+
+// Device id behind a discovery topic of the hub, current or legacy (<prefix>/device/<id>/config, up to 0.1.6).
+export function parseDiscoveryTopic(prefix: string, topic: string): { id: string; legacy: boolean } | null {
+  const base = `${prefix}/device/`;
+  if (!topic.startsWith(base) || !topic.endsWith('/config')) return null;
+  const path = topic.slice(base.length, -'/config'.length).split('/');
+  if (path.length === 2 && path[0] === NODE_ID) return { id: path[1] === 'manager' ? ROOT_ID : path[1], legacy: false };
+  if (path.length === 1 && /^(homelab_manager|hm_[0-9a-f]{24}(_[a-z]+)?)$/.test(path[0])) return { id: path[0], legacy: true };
+  return null;
+}
 
 export interface HostState {
   host: HostDoc;
@@ -98,7 +114,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       finish() {
         devices.push({
           id,
-          discoveryTopic: `${discoveryPrefix}/device/${id}/config`,
+          discoveryTopic: discoveryTopic(discoveryPrefix, id),
           discovery: {
             device: { identifiers: [id], manufacturer: 'Homelab Manager', ...info },
             origin,
