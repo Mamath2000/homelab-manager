@@ -13,7 +13,7 @@ export interface Stat {
   ringless?: boolean;
 }
 
-// Dashboard row: counters + ring on the left, cards on the right.
+// Dashboard row: cards on the left, counters + ring on the right (on top on mobile).
 export function StatusSection({ icon: Icon, title, to, stats, cardsTitle, cardsIcon: CardsIcon, children, empty }: {
   icon: LucideIcon;
   title: string;
@@ -25,8 +25,8 @@ export function StatusSection({ icon: Icon, title, to, stats, cardsTitle, cardsI
   empty?: ReactNode;
 }) {
   return (
-    <section className="panel grid overflow-hidden md:grid-cols-[288px_1fr]">
-      <Link to={to} className="flex items-center justify-between gap-4 border-b border-line p-5 transition hover:bg-raised/40 md:border-b-0 md:border-r">
+    <section className="panel grid overflow-hidden md:grid-cols-[1fr_288px]">
+      <Link to={to} className="flex items-center justify-between gap-4 border-b border-line p-5 transition hover:bg-raised/40 md:order-last md:border-b-0 md:border-l">
         <div className="min-w-0">
           <h2 className="mb-4 flex items-center gap-2 whitespace-nowrap text-sm font-medium text-zinc-100">
             <Icon className="h-4 w-4 text-zinc-300" />

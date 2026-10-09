@@ -5,7 +5,7 @@ export interface Segment {
   value: number;
 }
 
-// Donut made of one arc per segment, as on Komodo's dashboard.
+// Donut made of one arc per segment.
 export function StatusRing({ segments, size = 104 }: { segments: Segment[]; size?: number }) {
   const r = 40;
   const c = 2 * Math.PI * r;
