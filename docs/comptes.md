@@ -10,7 +10,7 @@ sidebar_position: 4
 
 | Rôle | Droits |
 |---|---|
-| `admin` | Tout : hôtes (ajout, modification, suppression, tokens), mises à jour, paramètres, comptes |
+| `admin` | Tout : hôtes (ajout, modification, suppression, commandes d'installation, révocation des agents), mises à jour, paramètres, comptes |
 | `operator` | Voit tout et lance les actions : vérifications, mises à jour, nettoyages, redémarrages, mises à jour d'agents. Ne gère ni les hôtes, ni les paramètres, ni les comptes |
 | `viewer` | Lecture seule |
 

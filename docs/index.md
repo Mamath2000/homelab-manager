@@ -27,9 +27,12 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Réseau local uniquement** : rien n'est exposé sur Internet, aucun port à ouvrir sur les hôtes (l'agent se connecte au hub, pas l'inverse).
 - **Déploiement simple** : un `docker compose` pour le hub, une commande à copier pour chaque agent.
 - **Pas de commande arbitraire** : l'agent n'exécute qu'une liste fixe d'actions.
+- **Échanges protégés** : connexion des agents en TLS avec un certificat par agent, commande d'installation à usage unique, agents signés (voir [Sécurité](securite.md)).
 
 ## Pages
 
 - [Installation](installation.md) : hub et agents.
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
 - [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.
+- [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe.
+- [Sécurité](securite.md) : connexion des agents, enrôlement, révocation, signature des binaires.
