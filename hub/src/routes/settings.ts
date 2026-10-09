@@ -69,6 +69,11 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
     return dto(next, bridge);
   });
 
+  app.post('/api/settings/homeassistant/republish', async (_req, reply) => {
+    if (!bridge.republish()) return reply.code(409).send({ error: "l'intégration n'est pas connectée au broker" });
+    return { ok: true };
+  });
+
   app.post<{ Body: Body }>('/api/settings/homeassistant/test', { schema: { body } }, async (req, reply) => {
     if (!req.body.broker) return reply.code(400).send({ error: "l'adresse du broker est requise" });
     const current = await loadHomeAssistantSettings();

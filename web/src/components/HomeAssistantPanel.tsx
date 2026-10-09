@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Home, PlugZap } from 'lucide-react';
+import { Home, PlugZap, RefreshCw } from 'lucide-react';
 import { api, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
@@ -33,7 +33,7 @@ export function HomeAssistantPanel() {
   const [draft, setDraft] = useState<HomeAssistantInput | null>(null);
   const [password, setPassword] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
-  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'test' | 'republish' | null>(null);
 
   if (!data) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
 
@@ -66,6 +66,18 @@ export function HomeAssistantPanel() {
       const r = await api.testHomeAssistant(input());
       if (r.ok) toast.success('Connexion au broker réussie');
       else toast.error(`Connexion impossible : ${r.error}`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const republish = async () => {
+    setBusy('republish');
+    try {
+      await api.republishHomeAssistant();
+      toast.success('Découverte et états republiés');
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -117,6 +129,16 @@ export function HomeAssistantPanel() {
           <div className="flex flex-wrap gap-2">
             <Button type="submit" variant="primary" loading={busy === 'save'}>Enregistrer</Button>
             <Button type="button" icon={PlugZap} loading={busy === 'test'} disabled={!form.broker} onClick={test}>Tester la connexion</Button>
+            <Button
+              type="button"
+              icon={RefreshCw}
+              loading={busy === 'republish'}
+              disabled={st.state !== 'connected'}
+              title="Renvoie toutes les configurations de découverte et tous les états"
+              onClick={republish}
+            >
+              Republier la découverte
+            </Button>
           </div>
         </form>
 
