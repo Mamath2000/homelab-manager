@@ -126,35 +126,43 @@ export function AgentHubSettings() {
   );
 }
 
-// Pinned keys of the agent server, to check the install command by hand, and the manual commands.
+// Pinned keys of the agent server, to check the install command by hand.
 export function AgentTlsInfo() {
   const tls = useAgentTls();
   if (!tls) return null;
   return (
+    <div className="rounded-md border border-line bg-raised/40 p-4">
+      <p className="mb-2 flex items-center gap-2 font-medium text-zinc-100">
+        <Lock className="h-4 w-4 text-emerald-400" /> Connexion des agents
+      </p>
+      <p className="mb-3 text-xs text-muted">
+        Chiffrée en TLS, avec un certificat par agent émis par l'autorité interne du hub. La commande d'installation épingle la clé du serveur ; l'agent
+        n'accepte ensuite que les certificats de cette autorité.
+      </p>
+      <dl className="space-y-2 text-xs">
+        <div>
+          <dt className="text-muted">Adresse des agents</dt>
+          <dd className="font-mono text-zinc-200">{tls.agentUrl ?? <span className="text-red-400">URL du hub invalide</span>}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Clé épinglée du serveur (SHA-256 de la clé publique, base64)</dt>
+          <dd className="font-mono break-all text-zinc-200">{tls.serverPin}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Empreinte de l'autorité de certification (SHA-256)</dt>
+          <dd className="font-mono break-all text-zinc-200">{tls.caFingerprint.match(/../g)?.join(':').toUpperCase()}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+// Manual upgrade and uninstall commands, to run as root on a host.
+export function AgentManualCommands() {
+  const tls = useAgentTls();
+  if (!tls) return null;
+  return (
     <div className="space-y-4">
-      <div className="rounded-md border border-line bg-raised/40 p-4">
-        <p className="mb-2 flex items-center gap-2 font-medium text-zinc-100">
-          <Lock className="h-4 w-4 text-emerald-400" /> Connexion des agents
-        </p>
-        <p className="mb-3 text-xs text-muted">
-          Chiffrée en TLS, avec un certificat par agent émis par l'autorité interne du hub. La commande d'installation épingle la clé du serveur ; l'agent
-          n'accepte ensuite que les certificats de cette autorité.
-        </p>
-        <dl className="space-y-2 text-xs">
-          <div>
-            <dt className="text-muted">Adresse des agents</dt>
-            <dd className="font-mono text-zinc-200">{tls.agentUrl ?? <span className="text-red-400">URL du hub invalide</span>}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Clé épinglée du serveur (SHA-256 de la clé publique, base64)</dt>
-            <dd className="font-mono break-all text-zinc-200">{tls.serverPin}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Empreinte de l'autorité de certification (SHA-256)</dt>
-            <dd className="font-mono break-all text-zinc-200">{tls.caFingerprint.match(/../g)?.join(':').toUpperCase()}</dd>
-          </div>
-        </dl>
-      </div>
       {tls.upgradeCommand && (
         <div>
           <p className="mb-2 text-zinc-300">Mettre à jour un agent à la main, en root sur l'hôte (son certificat est conservé) :</p>

@@ -105,6 +105,33 @@ export function Panel({ title, icon: Icon, actions, children, className, bodyCla
   );
 }
 
+export function Tabs<T extends string>({ tabs, value, onChange }: {
+  tabs: { id: T; label: string; icon?: LucideIcon }[];
+  value: T;
+  onChange: (id: T) => void;
+}) {
+  return (
+    <div role="tablist" className="mb-5 flex gap-1 overflow-x-auto border-b border-line pb-2">
+      {tabs.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={id === value}
+          onClick={() => onChange(id)}
+          className={clsx(
+            'flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition',
+            id === value ? 'bg-raised text-zinc-50 ring-1 ring-inset ring-line' : 'text-zinc-400 hover:bg-raised/60 hover:text-zinc-100',
+          )}
+        >
+          {Icon && <Icon className="h-4 w-4" />}
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={clsx('h-5 w-5 animate-spin text-muted', className)} />;
 }

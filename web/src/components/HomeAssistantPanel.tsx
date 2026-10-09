@@ -87,7 +87,7 @@ export function HomeAssistantPanel() {
 
   const st = data.status;
   return (
-    <Panel title="Home Assistant (MQTT)" icon={Home} className="xl:col-span-2">
+    <Panel title="Home Assistant (MQTT)" icon={Home}>
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <form onSubmit={save} className="space-y-4">
           <label className="flex cursor-pointer items-center gap-3">
