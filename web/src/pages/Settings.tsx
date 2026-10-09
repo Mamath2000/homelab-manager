@@ -23,14 +23,14 @@ export function Settings() {
       <PageHeader icon={SettingsIcon} title="Paramètres" />
       <Tabs tabs={[...tabs]} value={tab} onChange={(id) => setParams({ tab: id }, { replace: true })} />
       {tab === 'hub' && (
-        <Panel title="Hub" icon={Server} className="max-w-3xl">
+        <Panel title="Hub" icon={Server}>
           <div className="text-sm">
             <AgentHubSettings />
           </div>
         </Panel>
       )}
       {tab === 'agents' && (
-        <Panel title="Agents" icon={Terminal} className="max-w-3xl">
+        <Panel title="Agents" icon={Terminal}>
           <div className="space-y-4 text-sm">
             <AgentAutoUpdate />
             <AgentManualCommands />
@@ -42,7 +42,7 @@ export function Settings() {
         </Panel>
       )}
       {tab === 'security' && (
-        <Panel title="Sécurité" icon={Lock} className="max-w-3xl">
+        <Panel title="Sécurité" icon={Lock}>
           <div className="text-sm">
             <AgentTlsInfo />
           </div>
