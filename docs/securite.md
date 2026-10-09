@@ -1,7 +1,7 @@
 ---
 title: Sécurité
 description: Connexion chiffrée et authentifiée entre le hub et les agents, signature des binaires de l'agent
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Sécurité

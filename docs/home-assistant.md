@@ -1,7 +1,7 @@
 ---
 title: Home Assistant
 description: Publier le homelab dans Home Assistant via MQTT (découverte automatique device-based)
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 # Home Assistant
@@ -41,8 +41,10 @@ Les appareils sont organisés en hiérarchie (`via_device`) : les **alertes remo
 Homelab Manager
 ├── pve1                      (un appareil par hôte)
 │   └── pve1 · APT            (sous-composant : paquets système)
-├── pbs+omada
-│   └── pbs+omada · APT
+├── docker-01
+│   ├── docker-01 · APT
+│   ├── docker-01 · media     (sous-composant : une stack docker compose)
+│   └── docker-01 · traefik
 └── …
 ```
 
@@ -57,6 +59,7 @@ Homelab Manager
 | Alertes | capteur (nombre) ; attributs `critical` et `alerts` (niveau, hôte, composant, message) |
 | Problème | capteur binaire, allumé dès qu'une alerte existe |
 | Tout vérifier | bouton : `apt-get update` sur les hôtes en ligne |
+| Stacks Docker, Stacks à mettre à jour | capteurs, présents dès qu'un hôte a Docker |
 
 ### Un appareil par hôte
 
@@ -66,6 +69,7 @@ Homelab Manager
 | Redémarrage requis | capteur binaire (problème), dès que l'hôte a remonté son état APT |
 | Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
 | Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA |
+| Vérifier les images Docker | bouton (hôtes avec Docker) : compare les images des stacks à leur registre |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
 | Système, Noyau, Adresse IP, Vu | diagnostic |
 
@@ -83,6 +87,18 @@ Homelab Manager
 
 Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la disponibilité combine la LWT du hub et l'état de l'agent (`PREFIXE/hm_ID/agent/state`, `availability_mode: all`). Le résumé de l'entité `update` signale toujours les paquets qui demanderont un redémarrage.
 
+### Sous-composant Docker (un par stack)
+
+| Entité | Type |
+|---|---|
+| État | capteur : En marche, Partielle, Arrêtée, Down ; services, images et conteneurs en attribut |
+| Conteneurs | capteur : conteneurs en marche / total (`2/3`) |
+| Images | entité `update` : « N mise(s) à jour » quand une image plus récente est publiée ou téléchargée sans être redéployée, **installable depuis Home Assistant** (`docker compose pull` + `up -d`) |
+| Démarrer, Arrêter, Redémarrer | boutons (`docker compose up -d`, `stop`, `restart`) |
+| Alertes, Problème | diagnostic : alertes propres à la stack |
+
+Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker](docker.md).
+
 ### Alertes
 
 | Composant | Niveau | Alerte |
@@ -93,10 +109,13 @@ Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la
 | APT | avertissement | Mises à jour de sécurité disponibles |
 | APT | avertissement | Redémarrage requis |
 | APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours |
+| Docker | avertissement | Stack partielle (une partie des conteneurs seulement tourne) |
+| Docker | avertissement | Conteneur en mauvaise santé (`unhealthy`) |
+| Docker | avertissement | Conteneur qui redémarre en boucle |
 
 « Paquets à nettoyer », « Nettoyer les paquets » et « Redémarrer » n'apparaissent qu'avec un agent récent (0.1.1 et plus) : l'agent annonce au hub les actions qu'il sait faire.
 
-Les prochains composants (Docker, sauvegardes…) s'ajouteront comme sous-composants de l'hôte, avec leurs propres alertes remontées de la même façon.
+Une stack arrêtée volontairement ne déclenche pas d'alerte. Les prochains composants (sauvegardes…) s'ajouteront comme sous-composants de l'hôte, avec leurs propres alertes remontées de la même façon.
 
 ## Topics MQTT
 
@@ -107,6 +126,6 @@ Les prochains composants (Docker, sauvegardes…) s'ajouteront comme sous-compos
 | `PREFIXE/APPAREIL/alerts/attributes` | JSON : `critical` et les 20 premières alertes |
 | `PREFIXE/APPAREIL/ENTITE/set` | commande : `PRESS` (bouton), `INSTALL` (update) |
 
-Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte) et `hm_ID_apt`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
+Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte), `hm_ID_apt` et `hm_ID_docker_STACK`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
 
 Les valeurs ne sont publiées que lorsqu'elles changent ; tout est republié quand Home Assistant redémarre (`homeassistant/status`) ou avec « Republier la découverte ». Les états d'un appareil dont la découverte vient d'être (re)publiée sont renvoyés une seconde fois quelques secondes plus tard, le temps que Home Assistant crée ses entités. Les tâches lancées depuis Home Assistant apparaissent dans l'activité avec la mention « Home Assistant ».

@@ -1,6 +1,6 @@
 # Homelab Manager
 
-Administration d'un homelab (une vingtaine de serveurs, VM et LXC) depuis une seule interface : état des hôtes, mises à jour système (APT), et bientôt stacks Docker, sauvegardes et standardisation des hôtes.
+Administration d'un homelab (une vingtaine de serveurs, VM et LXC) depuis une seule interface : état des hôtes, mises à jour système (APT), stacks Docker, et bientôt sauvegardes et standardisation des hôtes.
 
 Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, aucun port à ouvrir sur les hôtes.
 
@@ -17,6 +17,7 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 - **Mise à jour automatique des agents** : chaque agent obsolète (empreinte différente du binaire distribué par le hub) est signalé et se met à jour seul, après vérification de la signature du binaire.
 - **Échanges sécurisés** avec les agents : TLS avec la clé du hub épinglée, commande d'installation à usage unique, un certificat par agent, révocation en un clic. Voir [docs/securite.md](docs/securite.md).
 - **Nettoyage** : paquets devenus inutiles (anciens noyaux, dépendances orphelines) détectés par simulation d'`apt autoremove`, supprimables depuis l'interface ou Home Assistant.
+- **Docker** : stacks compose des hôtes découvertes automatiquement, état des conteneurs et santé, images à mettre à jour (vérifiées auprès du registre sans rien télécharger), démarrer / arrêter / redémarrer / mettre à jour une stack ou un service, logs et fichiers compose (`.env` masqué). Voir [docs/docker.md](docs/docker.md).
 - **Historique** des tâches avec leurs sorties (conservé 90 jours).
 - **Home Assistant** (option, dans les Paramètres) : publication MQTT avec découverte automatique *device-based*. Hiérarchie Homelab Manager > hôtes > composants (APT…), alertes remontées vers l'hôte puis la racine, mises à jour installables depuis HA. Voir [docs/home-assistant.md](docs/home-assistant.md).
 - Interface **dark**, en français, utilisable sur mobile.
@@ -110,7 +111,10 @@ Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL
 | `PATCH` / `DELETE` | `/api/hosts/:id` | Modifie / supprime un hôte |
 | `POST` | `/api/hosts/:id/enroll` | Nouvelle commande d'installation (annule la précédente) |
 | `POST` | `/api/hosts/:id/revoke` | Révoque l'agent : déconnexion, certificat refusé |
-| `POST` | `/api/hosts/:id/jobs` | Lance `apt_update` / `apt_upgrade` (avec `packages` optionnel) |
+| `POST` | `/api/hosts/:id/jobs` | Lance `apt_update` / `apt_upgrade` (avec `packages` optionnel), `docker_check`, ou `docker_up` / `docker_stop` / `docker_restart` / `docker_update` avec `stack` (et `service` optionnel) |
+| `GET` | `/api/hosts/:id/stacks/:stack/logs` | Dernières lignes des logs d'une stack (`service`, `tail`) |
+| `GET` | `/api/hosts/:id/stacks/:stack/compose` | Fichiers compose de la stack (`.env` masqué) |
+| `DELETE` | `/api/hosts/:id/stacks/:stack` | Oublie une stack sans conteneur |
 | `POST` | `/api/jobs/bulk` | Même action sur plusieurs hôtes |
 | `GET` | `/api/jobs`, `/api/jobs/:id` | Historique, détail avec logs |
 | `GET` | `/api/events` | Flux SSE (`host`, `job`, `job.log`) |
@@ -171,7 +175,8 @@ L'agent a sa propre version, `agent/VERSION` (X.Y.Z), indépendante de celle de 
 ## Feuille de route
 
 - [x] Hub, agents, inventaire et mises à jour APT
-- [ ] Docker : état des conteneurs, stacks compose synchronisées hôte ↔ hub (détection de dérive, push, rollback)
+- [x] Docker : état des stacks compose et des conteneurs, mises à jour des images, actions, logs
+- [ ] Docker : stacks synchronisées hôte ↔ hub (édition, détection de dérive, push, rollback)
 - [ ] Alertes (ntfy, MQTT, Telegram…)
 - [ ] Suivi des sauvegardes (heartbeats, alertes en cas d'échec ou d'absence)
 - [ ] Standardisation : profils de paquets, clés SSH, accès

@@ -1,7 +1,7 @@
 ---
 title: Comptes et rôles
 description: Premier démarrage, rôles admin / operator / viewer, mots de passe temporaires et compte superadmin
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 # Comptes et rôles
