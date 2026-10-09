@@ -134,10 +134,10 @@ func parseAutoremove(out string) []string {
 	return pkgs
 }
 
-// runStreaming runs a command, forwarding each output line to emit.
-func runStreaming(ctx context.Context, emit func(string), name string, args ...string) (int, error) {
+// runStreaming runs a command with the given environment, forwarding each output line to emit.
+func runStreaming(ctx context.Context, env []string, emit func(string), name string, args ...string) (int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = aptEnv()
+	cmd.Env = env
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
@@ -147,7 +147,7 @@ func runStreaming(ctx context.Context, emit func(string), name string, args ...s
 		sc := bufio.NewScanner(pr)
 		sc.Buffer(make([]byte, 64*1024), 1024*1024)
 		for sc.Scan() {
-			// apt redraws progress with carriage returns: keep only the final state of the line
+			// apt and docker redraw progress with carriage returns: keep only the final state of the line
 			line := strings.TrimRight(sc.Text(), "\r")
 			if i := strings.LastIndexByte(line, '\r'); i >= 0 {
 				line = line[i+1:]
