@@ -1,10 +1,11 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { settings } from '../db.js';
 import { testConnection, type HomeAssistantBridge } from '../homeassistant/bridge.js';
 import { AGENT_ARCHES, agentBinary } from '../agentBinaries.js';
 import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
 import { hosts } from '../db.js';
-import { SAFE_URL } from '../hubUrl.js';
+import { SAFE_URL, agentCommands } from '../hubUrl.js';
+import { loadPki } from '../pkiStore.js';
 import type { HomeAssistantSettings } from '../types.js';
 
 const DEFAULTS: HomeAssistantSettings = {
@@ -85,6 +86,7 @@ interface AgentBody {
   autoUpdate?: boolean;
   hubUrl?: string;
   checkIntervalHours?: number;
+  agentPort?: number;
 }
 
 const agentBody = {
@@ -95,16 +97,30 @@ const agentBody = {
     autoUpdate: { type: 'boolean' },
     hubUrl: { type: 'string', maxLength: 256 },
     checkIntervalHours: { type: 'integer', minimum: 0, maximum: 720 },
+    agentPort: { type: 'integer', minimum: 1, maximum: 65535 },
   },
 } as const;
 
 export function registerAgentSettingsRoutes(app: FastifyInstance, bridge: HomeAssistantBridge) {
-  const dto = async () => {
+  const dto = async (req: FastifyRequest) => {
     const { _id, ...s } = await loadAgentSettings();
-    return { ...s, binaries: AGENT_ARCHES.map((a) => agentBinary(a)).filter((b) => b !== null) };
+    const pki = await loadPki();
+    const cmd = await agentCommands(req);
+    return {
+      ...s,
+      binaries: AGENT_ARCHES.map((a) => agentBinary(a)).filter((b) => b !== null),
+      // what an admin needs to check the pinned certificates by hand
+      tls: {
+        agentUrl: cmd?.url ?? null,
+        serverPin: pki.serverPin,
+        caFingerprint: pki.caFingerprint,
+        upgradeCommand: cmd?.upgrade ?? null,
+        uninstallCommand: cmd?.uninstall ?? null,
+      },
+    };
   };
 
-  app.get('/api/settings/agents', dto);
+  app.get('/api/settings/agents', (req) => dto(req));
 
   app.put<{ Body: AgentBody }>('/api/settings/agents', { schema: { body: agentBody } }, async (req, reply) => {
     const current = await loadAgentSettings();
@@ -116,6 +132,6 @@ export function registerAgentSettingsRoutes(app: FastifyInstance, bridge: HomeAs
     if (next.autoUpdate && !current.autoUpdate) {
       for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) await maybeAutoUpdate(h._id);
     }
-    return dto();
+    return dto(req);
   });
 }

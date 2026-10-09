@@ -23,23 +23,40 @@ import (
 var version = "dev"
 
 type config struct {
-	Hub   string // http(s)://host:port
-	Token string // <hostId>.<secret>
+	Hub string // https://host:port of the agent TLS server
+	Dir string // CA, key and certificate of the agent
 }
 
-func loadConfig() config {
-	hub := flag.String("hub", os.Getenv("HUB_URL"), "hub URL, e.g. http://hub:3000")
-	token := flag.String("token", os.Getenv("AGENT_TOKEN"), "agent token")
-	ver := flag.Bool("version", false, "print version")
-	flag.Parse()
+const defaultDir = "/etc/homelab-agent"
+
+func env(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// usage:
+//
+//	homelab-agent [-hub URL] [-dir DIR]          run (HUB_URL / AGENT_DIR in the environment)
+//	homelab-agent enroll -hub URL -code CODE      exchange an install code for a certificate
+//	homelab-agent -version
+func loadConfig(args []string) (config, string) {
+	fs := flag.NewFlagSet("homelab-agent", flag.ExitOnError)
+	hub := fs.String("hub", os.Getenv("HUB_URL"), "agent URL of the hub, e.g. https://hub:3443")
+	dir := fs.String("dir", env("AGENT_DIR", defaultDir), "directory of the agent identity")
+	code := fs.String("code", "", "enroll: single-use code of the install command")
+	ver := fs.Bool("version", false, "print version")
+	_ = fs.Parse(args)
 	if *ver {
 		fmt.Println(version)
 		os.Exit(0)
 	}
-	if *hub == "" || *token == "" {
-		log.Fatal("HUB_URL and AGENT_TOKEN are required (flags -hub / -token or environment)")
+	cfg := config{Hub: strings.TrimRight(*hub, "/"), Dir: *dir}
+	if !strings.HasPrefix(cfg.Hub, "https://") {
+		log.Fatal("HUB_URL must be the https:// agent address of the hub (flag -hub or environment)")
 	}
-	return config{Hub: strings.TrimRight(*hub, "/"), Token: *token}
+	return cfg, *code
 }
 
 func wsURL(hub string) string {
@@ -56,8 +73,21 @@ func wsURL(hub string) string {
 	return u.String()
 }
 
+func runEnroll(ctx context.Context, args []string) {
+	cfg, code := loadConfig(args)
+	if code == "" {
+		log.Fatal("usage: homelab-agent enroll -hub https://hub:3443 -code CODE")
+	}
+	id, err := enroll(ctx, cfg.Hub, code, cfg.Dir)
+	if err != nil {
+		log.Fatalf("enrollment failed: %v", err)
+	}
+	fmt.Printf("enrolled as host %s\n", id)
+}
+
 type session struct {
 	hub  string
+	http *http.Client // pinned TLS + client certificate, for downloads from the hub
 	conn *websocket.Conn
 	mu   sync.Mutex // serialises writes
 }
@@ -146,7 +176,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}()
 		return
 	case "agent_update":
-		if err := selfUpdate(jctx, s.hub, in.Sha256, emit); err != nil {
+		if err := selfUpdate(jctx, s.http, s.hub, in.Sha256, emit); err != nil {
 			done(-1, err)
 			return
 		}
@@ -214,17 +244,25 @@ const (
 )
 
 func main() {
-	cfg := loadConfig()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if len(os.Args) > 1 && os.Args[1] == "enroll" {
+		runEnroll(ctx, os.Args[2:])
+		return
+	}
+	cfg, _ := loadConfig(os.Args[1:])
+	roots, cert, err := identity(cfg.Dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	client := httpClient(tlsConfig(roots, cert))
 
 	endpoint := wsURL(cfg.Hub)
 	backoff := backoffMin
 	for ctx.Err() == nil {
 		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		conn, _, err := websocket.Dial(dctx, endpoint, &websocket.DialOptions{
-			HTTPHeader: http.Header{"Authorization": []string{"Bearer " + cfg.Token}},
-		})
+		// mutual TLS: the hub knows the agent by its certificate, no secret is sent
+		conn, _, err := websocket.Dial(dctx, endpoint, &websocket.DialOptions{HTTPClient: client})
 		cancel()
 		// jitter on the wait only, so the backoff progression itself does not drift
 		wait := time.Duration(float64(backoff) * (1 - backoffJitter + 2*backoffJitter*rand.Float64()))
@@ -234,7 +272,7 @@ func main() {
 			conn.SetReadLimit(1 << 20)
 			log.Printf("connected to %s", endpoint)
 			backoff = backoffMin
-			s := &session{hub: cfg.Hub, conn: conn}
+			s := &session{hub: cfg.Hub, http: client, conn: conn}
 			sctx, scancel := context.WithCancel(ctx)
 			err = s.loop(sctx)
 			scancel()

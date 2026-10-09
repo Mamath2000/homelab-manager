@@ -4,14 +4,14 @@ import clsx from 'clsx';
 import { ArrowUpCircle, Brush, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { RebootStatus } from '../components/Reboot';
-import { AgentBadge, UpdateAgentsModal } from '../components/Agent';
+import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
-import { connection, connectionMeta, listsStale, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
+import { connection, connectionMeta, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 import { useMe } from '../lib/auth';
 
-type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent';
+type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent' | 'reinstall';
 
 const filters: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Tous' },
@@ -23,6 +23,7 @@ const filters: { key: Filter; label: string }[] = [
   { key: 'reboot', label: 'Reboot' },
   { key: 'cleanup', label: 'À nettoyer' },
   { key: 'agent', label: 'Agent obsolète' },
+  { key: 'reinstall', label: 'À réinstaller' },
 ];
 
 export function Hosts() {
@@ -65,6 +66,8 @@ export function Hosts() {
           return updateState(h) === 'security';
         case 'agent':
           return !!h.agentOutdated;
+        case 'reinstall':
+          return needsReinstall(h);
         case 'cleanup':
           return (h.aptSummary?.autoremovable ?? 0) > 0;
         case 'reboot':
@@ -103,7 +106,8 @@ export function Hosts() {
           </select>
         )}
         <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
-          {filters.map((f) => (
+          {/* the reinstall filter only matters while old agents remain */}
+          {filters.filter((f) => f.key !== 'reinstall' || filter === 'reinstall' || hosts?.some(needsReinstall)).map((f) => (
             <button key={f.key} onClick={() => setParam('f', f.key === 'all' ? '' : f.key)}
               className={clsx('rounded-sm px-2.5 py-1 text-xs font-medium transition', filter === f.key ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200')}>
               {f.label}
@@ -185,6 +189,7 @@ export function Hosts() {
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
                         {h.agentOutdated && <AgentBadge short />}
+                        {needsReinstall(h) && <ReinstallBadge short />}
                       </div>
                     </td>
                     <td className="td text-xs text-zinc-400">{h.online ? 'maintenant' : timeAgo(h.lastSeenAt)}</td>

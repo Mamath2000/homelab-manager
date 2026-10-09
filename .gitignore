@@ -4,3 +4,4 @@ dist/
 .env
 .env.*
 agent/.build-hash
+agent/.dev/

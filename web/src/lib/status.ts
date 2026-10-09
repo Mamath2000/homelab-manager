@@ -77,3 +77,8 @@ export function osLabel(h: Host) {
 }
 
 export const canSelfUpdate = (h: Host) => h.capabilities.includes('agent_update');
+
+// Agent still on the plain-text token of the first versions: refused by the hub, to reinstall.
+export const needsReinstall = (h: Host) => h.agentAuth === 'legacy';
+// Enrolled once, but its certificate was revoked.
+export const agentRevoked = (h: Host) => h.agentAuth === 'none' && !!h.enrolledAt;

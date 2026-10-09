@@ -1,11 +1,11 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { disconnectAgent } from '../agents.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { hosts, jobs, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
-import { hubUrl, installCommand } from '../hubUrl.js';
+import { agentCommands } from '../hubUrl.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
 import { JOB_ACTIONS, type HostDoc, type JobAction } from '../types.js';
 
@@ -28,9 +28,18 @@ const jobBody = {
   },
 } as const;
 
-function newToken(id: ObjectId) {
-  const secret = randomToken();
-  return { token: `${id.toHexString()}.${secret}`, tokenHash: sha256(secret) };
+export const ENROLL_VALIDITY_MS = 24 * 3600 * 1000;
+
+// Single-use code of the install command; only its hash is stored.
+function newEnrollCode() {
+  const code = randomToken(24);
+  const expiresAt = new Date(Date.now() + ENROLL_VALIDITY_MS);
+  return { code, expiresAt, fields: { enrollCodeHash: sha256(code), enrollExpiresAt: expiresAt } };
+}
+
+async function installInfo(req: FastifyRequest, code: string, expiresAt: Date) {
+  const cmd = await agentCommands(req);
+  return { installCommand: cmd ? cmd.install(code) : null, expiresAt };
 }
 
 export function registerHostRoutes(app: FastifyInstance) {
@@ -43,21 +52,19 @@ export function registerHostRoutes(app: FastifyInstance) {
     '/api/hosts',
     { schema: { body: { ...hostBody, required: ['name'] } } },
     async (req, reply) => {
-      const _id = new ObjectId();
-      const { token, tokenHash } = newToken(_id);
+      const enroll = newEnrollCode();
       const doc: HostDoc = {
-        _id,
+        _id: new ObjectId(),
         name: req.body.name.trim(),
         group: req.body.group?.trim() || undefined,
-        tokenHash,
+        ...enroll.fields,
         createdAt: new Date(),
       };
       await hosts.insertOne(doc);
       const dto = hostDto(doc);
       publish('host', dto);
-      const url = await hubUrl(req);
       reply.code(201);
-      return { host: dto, token, installCommand: url ? installCommand(url, token) : null };
+      return { host: dto, ...(await installInfo(req, enroll.code, enroll.expiresAt)) };
     },
   );
 
@@ -94,16 +101,33 @@ export function registerHostRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  // Issue a new agent token; the previous one stops working immediately.
-  app.post<{ Params: { id: string } }>('/api/hosts/:id/token', async (req, reply) => {
+  // New install command (single-use code, 24 h). The current agent keeps working until the
+  // new installation enrolls and replaces its certificate.
+  app.post<{ Params: { id: string } }>('/api/hosts/:id/enroll', async (req, reply) => {
     const _id = parseId(req.params.id);
     if (!_id) return reply.code(404).send({ error: 'host not found' });
-    const { token, tokenHash } = newToken(_id);
-    const res = await hosts.updateOne({ _id }, { $set: { tokenHash } });
-    if (res.matchedCount === 0) return reply.code(404).send({ error: 'host not found' });
+    const enroll = newEnrollCode();
+    const updated = await hosts.findOneAndUpdate({ _id }, { $set: enroll.fields }, { returnDocument: 'after' });
+    if (!updated) return reply.code(404).send({ error: 'host not found' });
+    publish('host', hostDto(updated));
+    return installInfo(req, enroll.code, enroll.expiresAt);
+  });
+
+  // Revokes the agent: its certificate (or legacy token) and pending code stop working at once.
+  app.post<{ Params: { id: string } }>('/api/hosts/:id/revoke', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    if (!_id) return reply.code(404).send({ error: 'host not found' });
+    const updated = await hosts.findOneAndUpdate(
+      { _id },
+      { $unset: { certFingerprint: '', certIssuedAt: '', tokenHash: '', enrollCodeHash: '', enrollExpiresAt: '' } },
+      { returnDocument: 'after' },
+    );
+    if (!updated) return reply.code(404).send({ error: 'host not found' });
     disconnectAgent(req.params.id);
-    const url = await hubUrl(req);
-    return { token, installCommand: url ? installCommand(url, token) : null };
+    // the socket closes asynchronously
+    const dto = { ...hostDto(updated), online: false };
+    publish('host', dto);
+    return dto;
   });
 
   app.get<{ Params: { id: string } }>('/api/hosts/:id/jobs', async (req, reply) => {

@@ -34,7 +34,7 @@ func selfHash() string {
 // selfUpdate downloads the agent binary from the hub, checks it against the hash sent by the hub
 // and atomically replaces the running executable. The caller exits afterwards: systemd
 // (Restart=always) starts the new binary.
-func selfUpdate(ctx context.Context, hub, expected string, emit func(string)) error {
+func selfUpdate(ctx context.Context, client *http.Client, hub, expected string, emit func(string)) error {
 	if len(expected) != 64 {
 		return fmt.Errorf("missing or invalid expected sha256")
 	}
@@ -51,7 +51,7 @@ func selfUpdate(ctx context.Context, hub, expected string, emit func(string)) er
 	if err != nil {
 		return err
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}

@@ -45,9 +45,10 @@ export function agentBinary(arch: string | undefined): AgentBinary | null {
   return { arch, sha256: c.sha256, version: binariesVersion() };
 }
 
-// null: unknown (never connected, or no binary for this architecture on the hub)
+// null: unknown (never connected, or no binary for this architecture on the hub), or an agent
+// without certificate: it can't connect any more and its reinstallation brings the current binary
 export function agentOutdated(h: HostDoc): boolean | null {
-  if (!h.enrolledAt || !h.info) return null;
+  if (!h.enrolledAt || !h.info || !h.certFingerprint) return null;
   const bin = agentBinary(h.info.arch);
   if (!bin) return null;
   // agents older than the self-update feature do not report their hash

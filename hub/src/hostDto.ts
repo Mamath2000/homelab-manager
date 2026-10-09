@@ -25,6 +25,10 @@ export function hostDto(h: HostDoc) {
     lastSeenAt: h.lastSeenAt ?? null,
     online: isOnline(h._id.toHexString()),
     agentVersion: h.agentVersion ?? null,
+    // cert: TLS client certificate; legacy: plain-text token of the first versions, to reinstall
+    agentAuth: h.certFingerprint ? 'cert' : h.tokenHash ? 'legacy' : 'none',
+    certIssuedAt: h.certIssuedAt ?? null,
+    enrollExpiresAt: h.enrollExpiresAt && h.enrollExpiresAt > new Date() ? h.enrollExpiresAt : null,
     capabilities: h.capabilities ?? [],
     recentlyInstalled: (h.recentlyInstalled ?? [])
       .filter((p) => Date.now() - p.at < INSTALLED_TTL_MS)

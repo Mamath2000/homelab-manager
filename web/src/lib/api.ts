@@ -46,6 +46,12 @@ export interface Host {
   lastSeenAt: string | null;
   online: boolean;
   agentVersion: string | null;
+  // cert: TLS client certificate; legacy: plain-text token of the first versions, reinstall needed;
+  // none: not enrolled yet, or revoked
+  agentAuth: 'cert' | 'legacy' | 'none';
+  certIssuedAt: string | null;
+  // pending install command (single-use code), null once used or expired
+  enrollExpiresAt: string | null;
   capabilities: string[];
   recentlyInstalled: { name: string; from: string; to: string; at: number; rebootRequired: boolean }[];
   // null: unknown (never connected, or no binary for its architecture)
@@ -133,7 +139,20 @@ export interface AgentSettings {
   autoUpdate: boolean;
   hubUrl: string; // empty: the address used in the browser
   checkIntervalHours: number;
+  agentPort: number; // TLS port given to the agents (published port of the hub)
   binaries: { arch: string; sha256: string; version: string | null }[];
+  tls: {
+    agentUrl: string | null; // null: invalid hub URL
+    serverPin: string;
+    caFingerprint: string;
+    upgradeCommand: string | null;
+    uninstallCommand: string | null;
+  };
+}
+
+export interface InstallInfo {
+  installCommand: string | null; // null: invalid hub URL
+  expiresAt: string;
 }
 
 export class ApiError extends Error {
@@ -178,11 +197,11 @@ export const api = {
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
   createHost: (name: string, group: string) =>
-    request<{ host: Host; token: string; installCommand: string | null }>('POST', '/api/hosts', { name, group }),
+    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group }),
   updateHost: (id: string, patch: { name?: string; group?: string }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
-  regenerateToken: (id: string) =>
-    request<{ token: string; installCommand: string | null }>('POST', `/api/hosts/${id}/token`),
+  enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
+  revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),
 
   homeAssistant: () => request<HomeAssistantSettings>('GET', '/api/settings/homeassistant'),
   saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),
@@ -190,7 +209,7 @@ export const api = {
     request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
-  saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours'>>) =>
+  saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours' | 'agentPort'>>) =>
     request<AgentSettings>('PUT', '/api/settings/agents', patch),
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
