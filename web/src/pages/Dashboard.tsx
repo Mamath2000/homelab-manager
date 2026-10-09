@@ -108,8 +108,23 @@ export function Dashboard() {
             ]}
             cardsTitle="À traiter"
             cardsIcon={ShieldAlert}
-            empty={needsUpdate.length === 0 ? <p className="py-6 text-sm text-muted">Tout est à jour. 🎉</p> : undefined}
+            empty={needsUpdate.length === 0 && outdated.length === 0 ? <p className="py-6 text-sm text-muted">Tout est à jour. 🎉</p> : undefined}
           >
+            {outdated.length > 0 && (
+              <div className="flex min-w-0 flex-col gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-3.5">
+                <span className="flex items-center gap-2.5 text-sm font-medium text-amber-200">
+                  <CircleArrowUp className="h-4 w-4 shrink-0 text-amber-400" />
+                  Agents à mettre à jour ({outdated.length})
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {outdated.slice(0, 6).map((h) => <Tag key={h.id}>{h.name}</Tag>)}
+                  {outdated.length > 6 && <span className="self-center text-xs text-muted">+{outdated.length - 6}</span>}
+                </div>
+                <div>
+                  <UpdateAgentButton hosts={outdated} label="Mettre à jour" />
+                </div>
+              </div>
+            )}
             {needsUpdate.map((h) => {
               const s = h.aptSummary!;
               return (
@@ -135,23 +150,8 @@ export function Dashboard() {
             ]}
             cardsTitle="Dernières tâches · compteurs sur 24 h"
             cardsIcon={History}
-            empty={!jobs?.length && !outdated.length ? <p className="py-6 text-sm text-muted">Aucune tâche pour le moment.</p> : undefined}
+            empty={!jobs?.length ? <p className="py-6 text-sm text-muted">Aucune tâche pour le moment.</p> : undefined}
           >
-            {outdated.length > 0 && (
-              <div className="flex min-w-0 flex-col gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-3.5">
-                <span className="flex items-center gap-2.5 text-sm font-medium text-amber-200">
-                  <CircleArrowUp className="h-4 w-4 shrink-0 text-amber-400" />
-                  Agents à mettre à jour ({outdated.length})
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {outdated.slice(0, 6).map((h) => <Tag key={h.id}>{h.name}</Tag>)}
-                  {outdated.length > 6 && <span className="self-center text-xs text-muted">+{outdated.length - 6}</span>}
-                </div>
-                <div>
-                  <UpdateAgentButton hosts={outdated} label="Mettre à jour" />
-                </div>
-              </div>
-            )}
             {(jobs ?? []).slice(0, 8).map((j) => (
               <ItemCard key={j.id} to={`/jobs/${j.id}`} icon={History}
                 tone={j.status === 'success' ? 'ok' : j.status === 'failed' ? 'bad' : 'info'}
