@@ -14,7 +14,7 @@ import { registerInstallRoutes } from './routes/install.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { startScheduler } from './scheduler.js';
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, trustProxy: config.trustProxy });
+const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, trustProxy: config.trustProxy });
 
 await connectDb();
 await recoverJobs();
@@ -28,7 +28,7 @@ registerHostRoutes(app);
 registerJobRoutes(app);
 registerInstallRoutes(app);
 registerAgentSocket(app);
-app.get('/api/health', async () => ({ ok: true }));
+app.get('/api/health', async () => ({ ok: true, version: config.version }));
 
 // Serve the built React UI, with SPA fallback for client-side routes.
 const hasWeb = existsSync(config.webDir);

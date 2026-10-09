@@ -24,34 +24,14 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 
 ### 1. Le hub
 
-```yaml
-# compose.yml
-services:
-  hub:
-    image: ghcr.io/mamath2000/homelab-manager:latest
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      MONGO_URL: mongodb://mongo:27017/homelab
-      # PUBLIC_URL: http://192.168.1.10:3000
-      CHECK_INTERVAL_HOURS: 12
-    depends_on:
-      - mongo
-  mongo:
-    image: mongo:7          # mongo:4.4 sur un CPU sans AVX
-    restart: unless-stopped
-    volumes:
-      - mongo-data:/data/db
-volumes:
-  mongo-data:
-```
+Récupère [`compose.yml`](compose.yml) et [`.env.example`](.env.example), puis :
 
 ```sh
+cp .env.example .env      # optionnel : PUBLIC_URL, CHECK_INTERVAL_HOURS, HUB_PORT…
 docker compose up -d
 ```
 
-Ouvre `http://<ip-du-hub>:3000`. Au premier lancement, l'interface te demande de créer le compte administrateur.
+L'image `mathmath350/homelab-manager` est multi-arch (amd64, arm64). Ouvre `http://<ip-du-hub>:3000` : au premier lancement, l'interface te demande de créer le compte administrateur.
 
 ### 2. Les agents
 
@@ -72,10 +52,14 @@ Prérequis côté hôte : Debian ou Ubuntu, systemd, `curl` ou `wget`.
 
 ## Configuration du hub
 
+Variables d'environnement, lues depuis `.env` par `docker compose`, `make dev` et `make start` :
+
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
 | `MONGO_URL` | `mongodb://localhost:27017/homelab` | Base MongoDB |
-| `PORT` | `3000` | Port HTTP |
+| `PORT` | `3000` | Port HTTP du hub |
+| `HUB_PORT` | `3000` | Port publié par `docker compose` |
+| `HUB_IMAGE` | `mathmath350/homelab-manager:latest` | Image utilisée par `docker compose` |
 | `PUBLIC_URL` | URL utilisée dans le navigateur | URL par laquelle les agents joignent le hub |
 | `CHECK_INTERVAL_HOURS` | `12` | Fréquence de l'`apt-get update` automatique (`0` = désactivé) |
 | `SESSION_DAYS` | `30` | Durée des sessions |
@@ -120,30 +104,45 @@ Prérequis côté hôte : Debian ou Ubuntu, systemd, `curl` ou `wget`.
 
 ## Développement
 
-Prérequis : Node.js 22, Go 1.24 et un MongoDB local.
+Prérequis : Node.js 22, Go 1.24, GNU Make, et Docker pour MongoDB et l'image. `make` (ou `make help`) liste toutes les commandes.
 
 ```sh
-# hub (http://localhost:3000)
-cd hub && npm install && npm run dev
-
-# interface (http://localhost:5173, proxy vers le hub)
-cd web && npm install && npm run dev
-
-# agent : à lancer en root sur une machine Debian/Ubuntu
-cd agent && go run . -hub http://localhost:3000 -token <token>
-# pour que le hub serve le binaire aux scripts d'installation :
-CGO_ENABLED=0 go build -o dist/homelab-agent-linux-amd64 .
+make install            # dépendances hub + web + agent
+make mongo              # MongoDB local dans un conteneur (homelab-mongo)
+make dev                # hub (rechargement auto) + interface sur http://localhost:5173, Ctrl-C arrête tout
+make agent-run TOKEN=…  # agent local contre le hub (en root pour apt-get update / upgrade)
 ```
 
-Vérifications (aussi lancées par la CI) :
+| Commande | Rôle |
+| --- | --- |
+| `make start` | Build complet puis hub en mode production (UI servie sur le port 3000) |
+| `make lint` | gofmt, go vet, typage du hub, eslint de l'interface |
+| `make test` | Tests unitaires agent + hub |
+| `make build` | Agent (amd64 + arm64), hub et interface |
+| `make check` | lint + test + build : ce que lance la CI |
+| `make docker-build` | Image locale `homelab-manager:latest` |
+| `make docker-up` / `docker-down` / `docker-logs` | Stack compose avec l'image locale |
+
+La configuration locale se met dans `.env` (voir `.env.example`), comme en production.
+
+### Release
+
+Les releases se font en local et publient sur Docker Hub, comme pour komodo2mqtt :
 
 ```sh
-cd agent && go vet ./... && go test ./...
-cd hub && npm run typecheck && npm test
-cd web && npm run lint && npm run build
+docker login
+make docker-release         # X.Y.Z → X.Y.Z+1
+make docker-release-minor   # X.Y.Z → X.Y+1.0
+make docker-release-major   # X.Y.Z → X+1.0.0
+git push origin main --tags
 ```
 
-À chaque push sur `main`, la CI publie l'image multi-arch `ghcr.io/mamath2000/homelab-manager`.
+Une release lance d'abord `make check`. Elle refuse un arbre de travail non commité. Ensuite elle :
+1. met à jour la version (`VERSION`, `hub/` et `web/package.json`) et la commite (« 🔖 Release X.Y.Z ») ;
+2. construit l'image amd64 + arm64 et la pousse sous les tags `latest`, `X.Y.Z` et le hash du commit ;
+3. crée le tag git `vX.Y.Z`.
+
+`DOCKER_USER` (défaut `mathmath350`) et `PLATFORMS` (défaut `linux/amd64,linux/arm64`) sont surchargeables.
 
 ## Feuille de route
 

@@ -1,23 +1,22 @@
 services:
   hub:
-    image: ghcr.io/mamath2000/homelab-manager:latest
-    # build: .   # to build the image locally instead
+    image: ${HUB_IMAGE:-mathmath350/homelab-manager:latest}
+    container_name: homelab-manager
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${HUB_PORT:-3000}:3000"
+    env_file:
+      - path: .env          # optionnel, voir .env.example
+        required: false
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
-      # URL the agents use to reach the hub. Defaults to the address you open the UI with.
-      # PUBLIC_URL: http://192.168.1.10:3000
-      # How often agents refresh their package lists (apt-get update), 0 disables it.
-      CHECK_INTERVAL_HOURS: 12
-      TZ: Europe/Paris
     depends_on:
       - mongo
 
   mongo:
     # MongoDB 5+ needs a CPU with AVX; use mongo:4.4 on older hardware.
     image: mongo:7
+    container_name: homelab-manager-mongo
     restart: unless-stopped
     volumes:
       - mongo-data:/data/db
