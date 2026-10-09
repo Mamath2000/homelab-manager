@@ -105,10 +105,11 @@ export function Panel({ title, icon: Icon, actions, children, className, bodyCla
   );
 }
 
-export function Tabs<T extends string>({ tabs, value, onChange }: {
+export function Tabs<T extends string>({ tabs, value, onChange, actions }: {
   tabs: { id: T; label: string; icon?: LucideIcon }[];
   value: T;
   onChange: (id: T) => void;
+  actions?: ReactNode; // right of the tabs
 }) {
   return (
     <div role="tablist" className="mb-5 flex gap-1 overflow-x-auto border-b border-line pb-2">
@@ -128,6 +129,7 @@ export function Tabs<T extends string>({ tabs, value, onChange }: {
           {label}
         </button>
       ))}
+      {actions && <div className="ml-auto flex shrink-0 items-center gap-2 pl-2">{actions}</div>}
     </div>
   );
 }
