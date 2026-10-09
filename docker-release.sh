@@ -34,7 +34,7 @@ done
 VERSION=$(cat VERSION)
 
 if [ "$action" = "build" ]; then
-    docker build --build-arg VERSION="$VERSION-dev" -t "$APP_NAME:latest" .
+    docker build -t "$APP_NAME:latest" .
     echo "✅ Image locale $APP_NAME:latest construite (aucun push)"
     exit 0
 fi
@@ -74,7 +74,6 @@ docker buildx inspect "$BUILDER" >/dev/null 2>&1 || docker buildx create --name 
 docker buildx build \
     --builder "$BUILDER" \
     --platform "$PLATFORMS" \
-    --build-arg VERSION="$NEW_VERSION" \
     --label "org.opencontainers.image.version=$NEW_VERSION" \
     --label "org.opencontainers.image.revision=$GIT_REF" \
     --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \

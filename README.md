@@ -83,7 +83,7 @@ Variables d'environnement, lues depuis `.env` par `docker compose`, `make dev` e
 └──────────┘                     └─────────┘
 ```
 
-- **`agent/`** (Go, binaire statique d'environ 6 Mo). Il ouvre une connexion WebSocket **sortante** vers le hub et se reconnecte tout seul. Il remonte l'état du système et des paquets, et exécute uniquement une liste blanche d'actions (`apt_report`, `apt_update`, `apt_upgrade`). Il n'exécute jamais de commande arbitraire, et les noms de paquets sont validés des deux côtés.
+- **`agent/`** (Go, binaire statique d'environ 6 Mo). Il ouvre une connexion WebSocket **sortante** vers le hub et se reconnecte tout seul : le délai entre deux essais part de 1 s et augmente de 20 % à chaque échec, jusqu'à 30 s, avec un aléa de ±20 % pour que les agents ne reviennent pas tous en même temps. Un redémarrage du hub est donc rattrapé en quelques secondes. Il remonte l'état du système et des paquets, et exécute uniquement une liste blanche d'actions (`apt_report`, `apt_update`, `apt_upgrade`). Il n'exécute jamais de commande arbitraire, et les noms de paquets sont validés des deux côtés.
 - **`hub/`** (Node.js, Fastify, TypeScript). API REST sous `/api`, flux temps réel pour l'UI (Server-Sent Events sur `/api/events`), WebSocket des agents sur `/agent/ws`, script d'installation et binaires de l'agent.
 - **`web/`** (React, Vite, Tailwind, TanStack Query). Servi par le hub en production.
 
@@ -122,6 +122,8 @@ make agent-run TOKEN=…  # agent local contre le hub (en root pour apt-get upda
 | `make start` | Build complet puis hub en mode production (UI servie sur le port 3000) |
 | `make lint` | gofmt, go vet, typage du hub, eslint de l'interface |
 | `make test` | Tests unitaires agent + hub |
+| `make agent` | Agent amd64 + arm64 dans `agent/dist` (servi par le hub) ; build de la version de l'agent +1 si ses sources ont changé |
+| `make agent-minor` / `agent-major` | Version de l'agent X.Y+1.0 / X+1.0.0, puis compile |
 | `make build` | Agent (amd64 + arm64), hub et interface |
 | `make check` | lint + test + build : ce que lance la CI |
 | `make docker-build` | Image locale `homelab-manager:latest` |
@@ -147,6 +149,15 @@ Une release lance d'abord `make check`. Elle refuse un arbre de travail non comm
 3. crée le tag git `vX.Y.Z`.
 
 `DOCKER_USER` (défaut `mathmath350`) et `PLATFORMS` (défaut `linux/amd64,linux/arm64`) sont surchargeables.
+
+### Version de l'agent
+
+L'agent a sa propre version, `agent/VERSION` (X.Y.Z), indépendante de celle de l'application ; une release ne la modifie pas, l'image embarque les binaires compilés avec la version commitée.
+
+- `make agent` (lancé aussi par `make dev` et `make build`) incrémente le build (X.Y.Z+1) seulement si les sources de l'agent (`*.go` hors tests, `go.mod`, `go.sum`) ont changé depuis le dernier build ; sinon il ne recompile rien. L'empreinte du dernier build est dans `agent/.build-hash` (non versionné ; absent, la version courante est compilée sans incrément).
+- `make agent-minor` / `make agent-major` pour un changement de mineur ou de majeur.
+- `agent/VERSION` modifié se commite avec le code de l'agent.
+- Les binaires sont reproductibles (`-trimpath -buildvcs=false`) : le hub détecte un agent obsolète par l'empreinte de son binaire, un commit qui ne touche pas l'agent ne doit donc pas la changer.
 
 ## Feuille de route
 

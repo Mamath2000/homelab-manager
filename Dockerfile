@@ -6,11 +6,11 @@ WORKDIR /src
 COPY agent/go.mod agent/go.sum ./
 RUN go mod download
 COPY agent/ ./
-ARG VERSION=dev
-RUN for arch in amd64 arm64; do \
-      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-        -ldflags "-s -w -X main.version=${VERSION}" -o /out/homelab-agent-linux-$arch . ; \
-    done && echo "${VERSION}" > /out/VERSION
+# The agent has its own version (agent/VERSION), independent of the application's.
+RUN version=$(cat VERSION) && for arch in amd64 arm64; do \
+      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
+        -ldflags "-s -w -X main.version=$version" -o /out/homelab-agent-linux-$arch . ; \
+    done && echo "$version" > /out/VERSION
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src

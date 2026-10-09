@@ -104,7 +104,8 @@ Le hub distribue les binaires de l'agent livrés avec son image : mettre à jour
 - Chaque agent envoie au hub l'empreinte SHA-256 de son binaire ; s'il diffère de celui du hub pour son architecture, l'agent est signalé **« Agent à mettre à jour »** (cartes et liste des hôtes, fiche de l'hôte, tâche dans le bloc Activité du tableau de bord, Home Assistant).
 - Avec **Paramètres → Agent → Mettre à jour les agents automatiquement** (activé par défaut), le hub lance la mise à jour dès qu'un agent obsolète se connecte. Sinon, un bouton « Mettre à jour » est proposé.
 - L'agent télécharge le nouveau binaire depuis le hub, vérifie son empreinte, remplace `/usr/local/bin/homelab-agent` puis s'arrête : systemd le relance aussitôt avec la nouvelle version. En cas d'échec, un nouvel essai automatique a lieu au plus une fois par heure.
-- L'en-tête de l'interface affiche la version du hub et celle de l'agent qu'il distribue.
+- L'en-tête de l'interface affiche la version du hub et celle de l'agent qu'il distribue. L'agent a sa propre version (X.Y.Z), indépendante de celle du hub.
+- Après un redémarrage du hub, les agents se reconnectent seuls en quelques secondes : délai de 1 s augmenté de 20 % à chaque échec, plafonné à 30 s, avec un aléa de ±20 %.
 
 :::warning Agents installés avant la mise à jour automatique
 Les agents de la toute première version ne savent pas se mettre à jour seuls : ils sont signalés comme les autres, mais doivent être réinstallés **une fois** avec la commande ci-dessous. Ensuite, tout est automatique.

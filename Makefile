@@ -1,11 +1,10 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
-.PHONY: help install dev start stop agent agent-all agent-run build lint fmt test check clean version \
+.PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
         mongo mongo-stop docker-build docker-up docker-down docker-logs \
         docker-release docker-release-minor docker-release-major
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
-GOARCH    := $(shell go env GOARCH 2>/dev/null || echo amd64)
 # Port du hub : HUB_PORT de la ligne de commande, de l'environnement, sinon de .env, sinon 3000.
 # Seule source du port : publié par docker compose, écouté par make dev / make start (PORT), visé par Vite et agent-run.
 ifndef HUB_PORT
@@ -40,7 +39,7 @@ mongo-stop: ## Arrête le conteneur homelab-mongo s'il a été lancé par make m
 	@if docker ps -q --filter name='^homelab-mongo$$' | grep -q .; then docker stop homelab-mongo; \
 	else echo "homelab-mongo non lancé : rien à arrêter"; fi
 
-dev: agent-all ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
+dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
 	@echo "hub : $(HUB)   ·   interface : http://localhost:5173"
 	@$(LOAD_ENV) trap 'trap - INT TERM; kill 0' INT TERM; \
 		(cd hub && npm run dev) & \
@@ -64,22 +63,18 @@ stop: ## Arrête le hub et l'interface lancés par make dev / make start (proces
 	[ -z "$$forced" ] || echo "Tué de force (SIGTERM ignoré pendant 6 s) :" $$forced; \
 	left=$$(alive); [ -z "$$left" ] || { echo "Toujours actif :" $$left; exit 1; }
 
-agent: ## Compile l'agent pour l'architecture locale (agent/dist)
-	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)-dev" \
-		-o dist/homelab-agent-linux-$(GOARCH) .
-	@echo "$(VERSION)-dev" > agent/dist/VERSION
+agent: ## Compile l'agent (amd64 + arm64, agent/dist) ; version agent/VERSION, build +1 si les sources ont changé
+	@./agent/build.sh
 
-agent-all: ## Compile l'agent pour amd64 et arm64 (servis par le hub au script d'installation)
-	@for arch in amd64 arm64; do \
-		echo "agent linux/$$arch"; \
-		(cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath \
-			-ldflags "-s -w -X main.version=$(VERSION)-dev" -o dist/homelab-agent-linux-$$arch .) || exit 1; \
-	done
-	@echo "$(VERSION)-dev" > agent/dist/VERSION
+agent-minor: ## Version mineure de l'agent +1 (X.Y+1.0), puis compile
+	@./agent/build.sh minor
+
+agent-major: ## Version majeure de l'agent +1 (X+1.0.0), puis compile
+	@./agent/build.sh major
 
 agent-run: ## Lance l'agent en local contre le hub : make agent-run TOKEN=<token> [HUB=url] (root pour apt-get)
 	@[ -n "$(TOKEN)" ] || { echo "Usage : make agent-run TOKEN=<token> [HUB=$(HUB)]"; exit 1; }
-	cd agent && go run -ldflags "-X main.version=$(VERSION)-dev" . -hub $(HUB) -token $(TOKEN)
+	cd agent && go run -ldflags "-X main.version=$$(cat VERSION)-dev" . -hub $(HUB) -token $(TOKEN)
 
 # --- Qualité -------------------------------------------------------------------
 
@@ -96,7 +91,7 @@ test: ## Tests unitaires (agent + hub)
 	cd agent && go test ./...
 	cd hub && npm test
 
-build: agent-all ## Build complet : agent (amd64 + arm64), hub, interface
+build: agent ## Build complet : agent (amd64 + arm64), hub, interface
 	cd hub && npm run build
 	cd web && npm run build
 
