@@ -114,6 +114,15 @@ export class HomeAssistantBridge {
     if (this.client) this.schedule(0);
   }
 
+  // forgets what was sent: discovery configs and states all go out again
+  republish() {
+    if (!this.client?.connected) return false;
+    this.log.info('Home Assistant: publishing everything again (requested)');
+    this.sent.clear();
+    this.schedule(0);
+    return true;
+  }
+
   private schedule(delay: number) {
     if (this.debounce) return;
     this.debounce = setTimeout(() => {
@@ -123,9 +132,10 @@ export class HomeAssistantBridge {
   }
 
   private pub(topic: string, value: string) {
-    if (this.sent.get(topic) === value) return;
+    if (this.sent.get(topic) === value) return false;
     this.sent.set(topic, value);
     this.client?.publish(topic, value, { qos: 1, retain: true });
+    return true;
   }
 
   private async render() {
@@ -149,7 +159,7 @@ export class HomeAssistantBridge {
     );
     this.commands = built.commands;
     const ids = new Set(built.devices.map((d) => d.id));
-    for (const d of built.devices) this.pub(d.discoveryTopic, JSON.stringify(d.discovery));
+    const announced = built.devices.filter((d) => this.pub(d.discoveryTopic, JSON.stringify(d.discovery)));
     for (const id of this.known) {
       if (!ids.has(id)) {
         this.pub(`${s.discoveryPrefix}/device/${id}/config`, '');
@@ -157,6 +167,11 @@ export class HomeAssistantBridge {
       }
     }
     for (const d of built.devices) for (const [t, v] of d.states) this.pub(t, v);
+    // Home Assistant may miss the states of a device it is still setting up: send them again a bit later
+    if (announced.length) {
+      for (const d of announced) for (const [t] of d.states) this.sent.delete(t);
+      this.schedule(5000);
+    }
     for (const id of ids) if (!this.known.has(id)) this.log.info({ device: id }, 'Home Assistant: device announced');
     this.known = ids;
     this.lastPublishAt = new Date();

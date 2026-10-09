@@ -208,6 +208,7 @@ export const api = {
   saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),
   testHomeAssistant: (s: HomeAssistantInput) =>
     request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
+  republishHomeAssistant: () => request<{ ok: boolean }>('POST', '/api/settings/homeassistant/republish'),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
   saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours' | 'agentPort'>>) =>
