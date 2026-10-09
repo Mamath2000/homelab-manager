@@ -31,13 +31,9 @@ func selfHash() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// selfUpdate downloads the agent binary from the hub, checks it against the hash sent by the hub
-// and atomically replaces the running executable. The caller exits afterwards: systemd
-// (Restart=always) starts the new binary.
+// selfUpdate downloads the agent binary from the hub, checks it and atomically replaces the running
+// executable. The caller exits afterwards: systemd (Restart=always) starts the new binary.
 func selfUpdate(ctx context.Context, client *http.Client, hub, expected string, emit func(string)) error {
-	if len(expected) != 64 {
-		return fmt.Errorf("missing or invalid expected sha256")
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -45,46 +41,94 @@ func selfUpdate(ctx context.Context, client *http.Client, hub, expected string, 
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return err
 	}
-	url := fmt.Sprintf("%s/agent/download/%s", hub, runtime.GOARCH)
-	emit(fmt.Sprintf("downloading %s\n", url))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: HTTP %d", res.StatusCode)
-	}
-
 	// same directory as the binary so that the final rename is atomic
-	tmp, err := os.CreateTemp(filepath.Dir(exe), ".homelab-agent-*")
+	tmp, err := fetchBinary(ctx, client, hub, expected, filepath.Dir(exe), emit)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name()) // no-op once renamed
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, h), res.Body)
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return err
-	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if got != expected {
-		return fmt.Errorf("checksum mismatch: got %s, expected %s", got, expected)
-	}
-	emit(fmt.Sprintf("downloaded %d bytes, checksum ok\n", n))
-	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp.Name(), exe); err != nil {
+	defer os.Remove(tmp) // no-op once renamed
+	if err := os.Rename(tmp, exe); err != nil {
 		return err
 	}
 	emit(fmt.Sprintf("%s replaced, restarting\n", exe))
 	return nil
+}
+
+// fetchBinary downloads the binary into dir and checks it against the sha256 sent by the hub and,
+// in release builds, against its signature by the release key: a hub (or anyone in its place)
+// cannot push a binary that was not built and signed by the release process.
+func fetchBinary(ctx context.Context, client *http.Client, hub, expected, dir string, emit func(string)) (string, error) {
+	if len(expected) != 64 {
+		return "", fmt.Errorf("missing or invalid expected sha256")
+	}
+	url := fmt.Sprintf("%s/agent/download/%s", hub, runtime.GOARCH)
+	emit(fmt.Sprintf("downloading %s\n", url))
+	body, err := get(ctx, client, url)
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+
+	tmp, err := os.CreateTemp(dir, ".homelab-agent-*")
+	if err != nil {
+		return "", err
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			os.Remove(tmp.Name())
+		}
+	}()
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), body)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if got != expected {
+		return "", fmt.Errorf("checksum mismatch: got %s, expected %s", got, expected)
+	}
+	emit(fmt.Sprintf("downloaded %d bytes, checksum ok\n", n))
+
+	if releasePubKey == "" {
+		emit("development build: signature not checked\n")
+	} else {
+		sig, err := get(ctx, client, url+".sig")
+		if err != nil {
+			return "", fmt.Errorf("signature: %w", err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(sig, 1024))
+		sig.Close()
+		if err != nil {
+			return "", fmt.Errorf("signature: %w", err)
+		}
+		if err := verifySignature(releasePubKey, got, raw); err != nil {
+			return "", err
+		}
+		emit("signature ok\n")
+	}
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		return "", err
+	}
+	ok = true
+	return tmp.Name(), nil
+}
+
+func get(ctx context.Context, client *http.Client, url string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != http.StatusOK {
+		res.Body.Close()
+		return nil, fmt.Errorf("download of %s failed: HTTP %d", url, res.StatusCode)
+	}
+	return res.Body, nil
 }

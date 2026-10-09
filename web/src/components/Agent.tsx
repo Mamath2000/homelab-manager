@@ -41,7 +41,7 @@ export function UpdateAgentsModal({ hosts, open, onClose }: { hosts: Host[]; ope
         bulk.mutate({ hostIds: auto.map((h) => h.id), action: 'agent_update' }, { onSuccess: onClose });
       }}
     >
-      <p className="mb-2">L'agent télécharge la nouvelle version depuis le hub, vérifie son empreinte puis redémarre (quelques secondes) :</p>
+      <p className="mb-2">L'agent télécharge la nouvelle version depuis le hub, vérifie son empreinte et sa signature puis redémarre (quelques secondes) :</p>
       <div className="flex flex-wrap gap-1.5">{auto.map((h) => <Tag key={h.id}>{h.name}</Tag>)}</div>
     </ConfirmModal>
   );

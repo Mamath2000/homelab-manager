@@ -6,7 +6,10 @@
 #                   — l'image X.Y.Z contient exactement ce commit
 #   release-minor : mineur +1, build remis à 0 (X.Y+1.0)
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
-# Variables : DOCKER_USER (défaut mathmath350), PLATFORMS (défaut linux/amd64,linux/arm64)
+# Les binaires de l'agent sont signés avec la clé de release (make release-key), passée en secret BuildKit :
+# obligatoire pour une release, facultative pour build (sans elle : agents de développement non signés).
+# Variables : DOCKER_USER (défaut mathmath350), PLATFORMS (défaut linux/amd64,linux/arm64),
+#             RELEASE_KEY (défaut ~/.config/homelab-manager/release.key)
 set -e
 cd "$(dirname "$0")"
 
@@ -32,9 +35,24 @@ for cmd in docker git npm; do
 done
 
 VERSION=$(cat VERSION)
+RELEASE_KEY=${RELEASE_KEY:-"$HOME/.config/homelab-manager/release.key"}
+
+# Arguments de build pour signer les binaires de l'agent, après vérification de la clé.
+signing_args() {
+    [ -f "$RELEASE_KEY" ] && [ -f agent/release.pub ] || return 1
+    local pub
+    pub=$(cat agent/release.pub)
+    [ "$(cd agent && go run ./cmd/hm-sign pub -key "$RELEASE_KEY")" = "$pub" ] || {
+        echo "❌ $RELEASE_KEY ne correspond pas à agent/release.pub" >&2
+        exit 1
+    }
+    SIGNING=(--secret "id=release_key,src=$RELEASE_KEY" --build-arg "RELEASE_PUB=$pub")
+}
 
 if [ "$action" = "build" ]; then
-    docker build -t "$APP_NAME:latest" .
+    SIGNING=()
+    signing_args || echo "⚠️  Pas de clé de release ($RELEASE_KEY) : agents de développement non signés"
+    docker build "${SIGNING[@]}" -t "$APP_NAME:latest" .
     echo "✅ Image locale $APP_NAME:latest construite (aucun push)"
     exit 0
 fi
@@ -44,6 +62,12 @@ case "$action" in
     *) echo "Usage: $0 [build|release|release-minor|release-major]"; exit 1 ;;
 esac
 
+command -v go >/dev/null 2>&1 || { echo "❌ go est requis (vérification de la clé de release)."; exit 1; }
+signing_args || {
+    echo "❌ Clé de release absente : $RELEASE_KEY et agent/release.pub sont requis pour signer les agents."
+    echo "   Première fois : make release-key, puis commite agent/release.pub (et sauvegarde la clé privée)."
+    exit 1
+}
 docker buildx version >/dev/null 2>&1 || { echo "❌ docker buildx est requis."; exit 1; }
 docker info 2>/dev/null | grep -q Username || { echo "❌ Non connecté à Docker Hub (docker login)."; exit 1; }
 if [ -n "$(git status --porcelain)" ]; then
@@ -81,6 +105,7 @@ docker buildx build \
     -t "$DOCKER_USER/$APP_NAME:latest" \
     -t "$DOCKER_USER/$APP_NAME:$NEW_VERSION" \
     -t "$DOCKER_USER/$APP_NAME:$GIT_REF" \
+    "${SIGNING[@]}" \
     --push \
     .
 git tag "v$NEW_VERSION"

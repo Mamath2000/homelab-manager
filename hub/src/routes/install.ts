@@ -20,10 +20,14 @@ export function registerInstallRoutes(app: FastifyInstance) {
     return template.replaceAll('__HUB_URL__', url).replaceAll('__PIN__', pki.serverPin).replaceAll('__CA_PEM__', pki.caCert.trim());
   });
 
-  app.get<{ Params: { arch: string } }>('/agent/download/:arch', async (req, reply) => {
-    if (!ARCHES.has(req.params.arch)) return reply.code(404).send({ error: 'unsupported architecture' });
-    const file = join(config.agentBinDir, `homelab-agent-linux-${req.params.arch}`);
-    if (!existsSync(file)) return reply.code(404).send({ error: 'agent binary not built' });
+  // <arch>: the binary; <arch>.sig: its release signature, checked by the agents on self-update
+  app.get<{ Params: { file: string } }>('/agent/download/:file', async (req, reply) => {
+    const sig = req.params.file.endsWith('.sig');
+    const arch = sig ? req.params.file.slice(0, -4) : req.params.file;
+    if (!ARCHES.has(arch)) return reply.code(404).send({ error: 'unsupported architecture' });
+    const file = join(config.agentBinDir, `homelab-agent-linux-${arch}${sig ? '.sig' : ''}`);
+    if (!existsSync(file)) return reply.code(404).send({ error: sig ? 'agent binary not signed' : 'agent binary not built' });
+    if (sig) return reply.type('text/plain').send(readFileSync(file, 'utf8'));
     reply.type('application/octet-stream');
     reply.header('Content-Disposition', 'attachment; filename="homelab-agent"');
     return reply.send(createReadStream(file));

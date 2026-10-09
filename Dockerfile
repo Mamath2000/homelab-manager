@@ -7,10 +7,24 @@ COPY agent/go.mod agent/go.sum ./
 RUN go mod download
 COPY agent/ ./
 # The agent has its own version (agent/VERSION), independent of the application's.
-RUN version=$(cat VERSION) && for arch in amd64 arm64; do \
+# Release (RELEASE_PUB = agent/release.pub): each binary is signed with the release key, a BuildKit
+# secret that never ends up in the image, and embeds the public key, so the agents refuse unsigned
+# updates. RELEASE_PUB is also part of the cache key: an unsigned layer is never reused for a release.
+# Without it (local docker build): unsigned development agents.
+ARG RELEASE_PUB=""
+RUN --mount=type=secret,id=release_key \
+    version=$(cat VERSION) && \
+    if [ -n "$RELEASE_PUB" ]; then \
+      [ -s /run/secrets/release_key ] || { echo "RELEASE_PUB set but no release_key secret" >&2; exit 1; }; \
+      CGO_ENABLED=0 go build -o /usr/local/bin/hm-sign ./cmd/hm-sign && \
+      [ "$(hm-sign pub -key /run/secrets/release_key)" = "$RELEASE_PUB" ] || { echo "release key does not match agent/release.pub" >&2; exit 1; }; \
+    else echo "warning: unsigned development agents (no RELEASE_PUB)" >&2; fi && \
+    for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
-        -ldflags "-s -w -X main.version=$version" -o /out/homelab-agent-linux-$arch . ; \
-    done && echo "$version" > /out/VERSION
+        -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB" -o /out/homelab-agent-linux-$arch . ; \
+    done && \
+    if [ -n "$RELEASE_PUB" ]; then hm-sign sign -key /run/secrets/release_key /out/homelab-agent-linux-*; fi && \
+    echo "$version" > /out/VERSION
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src
