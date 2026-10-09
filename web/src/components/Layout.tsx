@@ -3,7 +3,9 @@ import { api } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
-import { History, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, type LucideIcon } from 'lucide-react';
+import { History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { ROLE_LABELS, useMe } from '../lib/auth';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import { StatusDot } from './ui';
 
 interface NavItem {
@@ -61,9 +63,10 @@ function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
 }
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const me = useMe();
   return (
     <nav className="flex h-full flex-col gap-1 p-4">
-      {sections.map((s, i) => (
+      {!me.isSuperAdmin && sections.map((s, i) => (
         <div key={i} className="flex flex-col gap-1">
           {s.title && (
             <div className="mb-1 mt-3 flex items-center gap-2 px-1 text-[11px] uppercase tracking-wider text-zinc-500">
@@ -77,16 +80,20 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           ))}
         </div>
       ))}
-      <div className="mt-auto border-t border-line pt-3">
-        <SideLink item={{ to: '/settings', label: 'Paramètres', icon: Settings }} onClick={onNavigate} />
-      </div>
+      {(me.canAccounts || me.canSettings) && (
+        <div className="mt-auto flex flex-col gap-1 border-t border-line pt-3">
+          {me.canAccounts && <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} />}
+          {me.canSettings && <SideLink item={{ to: '/settings', label: 'Paramètres', icon: Settings }} onClick={onNavigate} />}
+        </div>
+      )}
     </nav>
   );
 }
 
 // Hub version and the agent version it distributes (what agents are updated to).
 function Versions() {
-  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, staleTime: 60_000 });
+  const { canSettings } = useMe();
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, staleTime: 60_000, enabled: canSettings });
   const agent = data?.binaries.find((b) => b.version)?.version;
   return (
     <span className="hidden items-center gap-3 text-xs text-muted lg:flex">
@@ -128,7 +135,9 @@ function SearchBox() {
   );
 }
 
-export function Layout({ user, live, onLogout }: { user: string; live: boolean; onLogout: () => void }) {
+export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void }) {
+  const me = useMe();
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const { pathname } = useLocation();
   // drawer is open for the path it was opened on: any navigation closes it
   const [drawerPath, setDrawerPath] = useState<string | null>(null);
@@ -144,16 +153,24 @@ export function Layout({ user, live, onLogout }: { user: string; live: boolean; 
           </button>
           <Logo />
         </div>
-        <SearchBox />
+        {!me.isSuperAdmin && <SearchBox />}
         <div className="flex items-center gap-4 text-sm">
           <Versions />
-          <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
-            <StatusDot tone={live ? 'ok' : 'bad'} />
-          </span>
-          <span className="hidden items-center gap-1.5 text-zinc-300 sm:flex">
+          {!me.isSuperAdmin && (
+            <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
+              <StatusDot tone={live ? 'ok' : 'bad'} />
+            </span>
+          )}
+          <span className="hidden items-center gap-1.5 text-zinc-300 sm:flex" title={ROLE_LABELS[me.role]}>
             <User className="h-4 w-4" />
-            {user}
+            {me.username}
+            <span className="text-xs text-muted">· {ROLE_LABELS[me.role]}</span>
           </span>
+          {!me.isSuperAdmin && (
+            <button onClick={() => setPasswordOpen(true)} title="Changer mon mot de passe" className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
+              <KeyRound className="h-4 w-4" />
+            </button>
+          )}
           <button onClick={onLogout} title="Se déconnecter" className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
             <LogOut className="h-4 w-4" />
           </button>
@@ -170,6 +187,8 @@ export function Layout({ user, live, onLogout }: { user: string; live: boolean; 
           </aside>
         </div>
       )}
+
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
 
       <main className="px-4 py-6 md:ml-60 md:px-8">
         <div>

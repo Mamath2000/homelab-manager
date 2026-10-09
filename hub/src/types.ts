@@ -91,10 +91,19 @@ export interface JobDoc {
   log: string;
 }
 
+export const ROLES = ['admin', 'monitor', 'viewer'] as const;
+export type Role = (typeof ROLES)[number];
+// built-in recovery account, see hub/src/cli.ts
+export const SUPERADMIN = 'superadmin';
+
 export interface UserDoc {
   _id: ObjectId;
   username: string;
-  passwordHash: string;
+  role: Role | typeof SUPERADMIN;
+  // null: the user chooses a new password at the next login (new account or reset)
+  passwordHash: string | null;
+  // superadmin only: the one-time password is refused after this date
+  passwordExpiresAt?: Date;
   createdAt: Date;
 }
 

@@ -3,8 +3,10 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { Spinner } from './components/ui';
-import { api } from './lib/api';
+import { api, type Me } from './lib/api';
+import { MeContext, rights } from './lib/auth';
 import { useLiveEvents } from './lib/live';
+import { Accounts } from './pages/Accounts';
 import { Activity } from './pages/Activity';
 import { Dashboard } from './pages/Dashboard';
 import { HostDetail } from './pages/HostDetail';
@@ -17,17 +19,18 @@ import { Updates } from './pages/Updates';
 export default function App() {
   const qc = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.authStatus, staleTime: Infinity });
-  const user = auth.data?.user?.username;
-  const live = useLiveEvents(!!user);
+  const user = auth.data?.user ?? null;
+  // the superadmin may only use the accounts page, not the live feed
+  const live = useLiveEvents(!!user && user.role !== 'superadmin');
 
   // Switch user state without detaching the ['auth'] observer (qc.clear() would).
-  const setUser = (username: string | null) => {
+  const setUser = (me: Me | null) => {
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-    qc.setQueryData(['auth'], { setupRequired: false, user: username ? { username } : null });
+    qc.setQueryData(['auth'], { noAccounts: false, user: me });
   };
 
   useEffect(() => {
-    const onUnauthorized = () => qc.setQueryData(['auth'], { setupRequired: false, user: null });
+    const onUnauthorized = () => qc.setQueryData(['auth'], { noAccounts: false, user: null });
     window.addEventListener('hm:unauthorized', onUnauthorized);
     return () => window.removeEventListener('hm:unauthorized', onUnauthorized);
   }, [qc]);
@@ -38,7 +41,7 @@ export default function App() {
   if (!user) {
     return (
       <Login
-        setup={auth.data!.setupRequired}
+        noAccounts={auth.data!.noAccounts}
         onDone={setUser}
       />
     );
@@ -49,20 +52,34 @@ export default function App() {
     setUser(null);
   };
 
+  const me = rights(user);
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout user={user} live={live} onLogout={logout} />}>
-          <Route index element={<Dashboard />} />
-          <Route path="hosts" element={<Hosts />} />
-          <Route path="hosts/:id" element={<HostDetail />} />
-          <Route path="updates" element={<Updates />} />
-          <Route path="activity" element={<Activity />} />
-          <Route path="jobs/:id" element={<JobDetail />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <MeContext.Provider value={me}>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout live={live} onLogout={logout} />}>
+            {me.isSuperAdmin ? (
+              <>
+                <Route path="accounts" element={<Accounts />} />
+                <Route path="*" element={<Navigate to="/accounts" replace />} />
+              </>
+            ) : (
+              <>
+                <Route index element={<Dashboard />} />
+                <Route path="hosts" element={<Hosts />} />
+                <Route path="hosts/:id" element={<HostDetail />} />
+                <Route path="updates" element={<Updates />} />
+                <Route path="activity" element={<Activity />} />
+                <Route path="jobs/:id" element={<JobDetail />} />
+                {me.canAccounts && <Route path="accounts" element={<Accounts />} />}
+                {me.canSettings && <Route path="settings" element={<Settings />} />}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </>
+            )}
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </MeContext.Provider>
   );
 }

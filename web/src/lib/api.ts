@@ -74,9 +74,25 @@ export interface Job {
   log?: string;
 }
 
+export type Role = 'admin' | 'monitor' | 'viewer';
+
+export interface Me {
+  username: string;
+  role: Role | 'superadmin';
+}
+
 export interface AuthStatus {
-  setupRequired: boolean;
-  user: { username: string } | null;
+  // fresh install: the first admin is created with `hm-admin create-admin`
+  noAccounts: boolean;
+  user: Me | null;
+}
+
+export interface Account {
+  id: string;
+  username: string;
+  role: Role;
+  createdAt: string;
+  passwordPending: boolean;
 }
 
 export interface HomeAssistantSettings {
@@ -136,11 +152,19 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
-  setup: (username: string, password: string) => request('POST', '/api/auth/setup', { username, password }),
-  login: (username: string, password: string) => request('POST', '/api/auth/login', { username, password }),
+  login: (username: string, password: string) =>
+    request<Me | { passwordSetupRequired: true }>('POST', '/api/auth/login', { username, password }),
+  setPassword: (username: string, newPassword: string) =>
+    request<Me>('POST', '/api/auth/set-password', { username, newPassword }),
   logout: () => request('POST', '/api/auth/logout'),
   changePassword: (currentPassword: string, newPassword: string) =>
     request('POST', '/api/account/password', { currentPassword, newPassword }),
+
+  users: () => request<Account[]>('GET', '/api/users'),
+  createUser: (username: string, role: Role) => request<Account>('POST', '/api/users', { username, role }),
+  updateUser: (id: string, patch: { username?: string; role?: Role }) => request<Account>('PATCH', `/api/users/${id}`, patch),
+  deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
+  resetPassword: (id: string) => request<Account>('POST', `/api/users/${id}/reset-password`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
   createHost: (name: string, group: string) =>

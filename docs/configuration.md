@@ -44,6 +44,6 @@ Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse 
 | `settings` | paramètres de l'application (agents, Home Assistant) |
 | `hosts` | hôtes, hash du token, dernier état système et APT |
 | `jobs` | tâches et leurs sorties, supprimées après 90 jours |
-| `users`, `sessions` | compte administrateur et sessions |
+| `users`, `sessions` | comptes utilisateurs et sessions |
 
 Sauvegarder le volume `mongo-data` (ou `mongodump`) suffit pour tout restaurer.

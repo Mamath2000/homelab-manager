@@ -34,7 +34,13 @@ Récupère [`compose.yml`](compose.yml), ajuste-le si besoin (port publié, nive
 docker compose up -d
 ```
 
-L'image `mathmath350/homelab-manager` est multi-arch (amd64, arm64). Ouvre `http://<ip-du-hub>:3000` : au premier lancement, l'interface te demande de créer le compte administrateur.
+L'image `mathmath350/homelab-manager` est multi-arch (amd64, arm64). Crée le premier compte administrateur, puis ouvre `http://<ip-du-hub>:3000` et connecte-toi avec ce nom **sans mot de passe** pour choisir le tien :
+
+```sh
+docker compose exec hub hm-admin create-admin <nom>
+```
+
+Gestion des comptes, rôles et récupération d'accès : voir [docs/comptes.md](docs/comptes.md).
 
 ### 2. Les agents
 
@@ -86,7 +92,7 @@ Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL
 
 ### Sécurité
 
-- Un seul compte admin. Mot de passe haché en scrypt, session en cookie `HttpOnly` / `SameSite=Strict`, limitation des tentatives de connexion.
+- Comptes avec trois rôles (`admin`, `monitor`, `viewer`) vérifiés côté hub, plus un compte de secours `superadmin` à mot de passe à usage unique obtenu par `hm-admin` dans le conteneur ([docs/comptes.md](docs/comptes.md)). Mots de passe hachés en scrypt, session en cookie `HttpOnly` / `SameSite=Strict`, limitation des tentatives de connexion.
 - Un token par agent, de la forme `<hostId>.<secret>`. Seul le hash du secret est stocké, et régénérer le token déconnecte immédiatement l'ancien agent.
 - Conçu pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy HTTPS et authentification supplémentaire.
 
@@ -102,6 +108,9 @@ Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL
 | `POST` | `/api/jobs/bulk` | Même action sur plusieurs hôtes |
 | `GET` | `/api/jobs`, `/api/jobs/:id` | Historique, détail avec logs |
 | `GET` | `/api/events` | Flux SSE (`host`, `job`, `job.log`) |
+| `GET` / `POST` | `/api/users` | Liste / crée un compte (admin) |
+| `PATCH` / `DELETE` | `/api/users/:id` | Modifie / supprime un compte (admin) |
+| `POST` | `/api/users/:id/reset-password` | Efface le mot de passe : l'utilisateur en choisit un nouveau à la connexion |
 
 ## Développement
 

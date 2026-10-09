@@ -6,6 +6,7 @@ import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
 import { useHosts } from '../lib/queries';
+import { useMe } from '../lib/auth';
 
 interface Row {
   name: string;
@@ -19,6 +20,7 @@ interface Row {
 export function Updates() {
   const { data: hosts, isLoading } = useHosts();
   const toast = useToast();
+  const { canWrite } = useMe();
   const [q, setQ] = useState('');
   const [securityOnly, setSecurityOnly] = useState(false);
   const [target, setTarget] = useState<Row | null>(null);
@@ -121,9 +123,9 @@ export function Updates() {
                     </div>
                   </td>
                   <td className="td text-right">
-                    <Button size="sm" icon={ArrowUpCircle} disabled={!r.hosts.some((h) => h.online)} onClick={() => setTarget(r)}>
+                    {canWrite && <Button size="sm" icon={ArrowUpCircle} disabled={!r.hosts.some((h) => h.online)} onClick={() => setTarget(r)}>
                       Mettre à jour ({r.hosts.filter((h) => h.online).length})
-                    </Button>
+                    </Button>}
                   </td>
                 </tr>
               ))}

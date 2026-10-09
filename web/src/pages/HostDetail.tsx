@@ -13,6 +13,7 @@ import { api, type Host, type Job } from '../lib/api';
 import { actionLabel, dateTime, timeAgo, uptime } from '../lib/format';
 import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { canSelfUpdate, connection, connectionMeta, listsStale, osLabel } from '../lib/status';
+import { useMe } from '../lib/auth';
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -64,6 +65,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
 
 function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undefined }) {
   const run = useRunJob();
+  const { canWrite } = useMe();
   const [picked, setSelected] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState(false);
   const pkgs = host.apt?.upgradable ?? [];
@@ -90,7 +92,7 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
       icon={Package}
       bodyClassName=""
       actions={
-        selected.size > 0 && (
+        canWrite && selected.size > 0 && (
           <Button size="sm" variant="primary" icon={ArrowUpCircle} disabled={!host.online} onClick={() => setConfirm(true)}>
             Mettre à jour la sélection ({selected.size})
           </Button>
@@ -198,6 +200,7 @@ export function HostDetail() {
   const { data: host, isLoading } = useHost(id);
   const { data: jobs } = useHostJobs(id);
   const run = useRunJob();
+  const { canWrite } = useMe();
   const navigate = useNavigate();
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -237,7 +240,7 @@ export function HostDetail() {
         icon={Server}
         title={host.name}
         actions={
-          <>
+          canWrite && <>
             <Button icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => startJob('apt_update')}>
               Rechercher les MAJ
             </Button>
@@ -269,7 +272,7 @@ export function HostDetail() {
           <RotateCw className="h-5 w-5 text-red-400" />
           <span className="font-medium text-red-200">Redémarrage requis</span>
           {(host.apt?.rebootPkgs.length ?? 0) > 0 && <span className="text-xs text-red-200/80">pour appliquer : {host.apt!.rebootPkgs.join(', ')}</span>}
-          {host.capabilities.includes('reboot') && (
+          {canWrite && host.capabilities.includes('reboot') && (
             <span className="ml-auto">
               <Button size="sm" variant="danger" icon={Power} disabled={!host.online || running} onClick={() => setConfirmReboot(true)}>Redémarrer maintenant</Button>
             </span>
@@ -287,7 +290,7 @@ export function HostDetail() {
           <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
         </div>
       )}
-      {c === 'pending' && (
+      {canWrite && c === 'pending' && (
         <Panel title="Installer l'agent" icon={Terminal} className="mb-5">
           <p className="mb-3 text-sm text-zinc-300">Cet hôte n'a encore jamais contacté le hub. Le token n'étant affiché qu'à la création, génère une nouvelle commande si besoin.</p>
           <Button icon={KeyRound} onClick={regenerate}>Générer la commande d'installation</Button>

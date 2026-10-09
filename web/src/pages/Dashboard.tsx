@@ -10,6 +10,7 @@ import { actionLabel, timeAgo } from '../lib/format';
 import { useHosts, useJobs, useRunBulk } from '../lib/queries';
 import { connection, connectionMeta, listsStale, osLabel, updateMeta, updateState } from '../lib/status';
 import type { Host } from '../lib/api';
+import { useMe } from '../lib/auth';
 
 const connOrder = { offline: 0, pending: 1, online: 2 };
 const updOrder = { reboot: 0, security: 1, updates: 2, unknown: 3, uptodate: 4 };
@@ -28,6 +29,7 @@ export function Dashboard() {
   const { data: hosts, isLoading } = useHosts();
   const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
   const bulk = useRunBulk();
+  const { canWrite } = useMe();
   const [adding, setAdding] = useState(false);
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
@@ -49,7 +51,7 @@ export function Dashboard() {
         icon={LayoutDashboard}
         title="Tableau de bord"
         actions={
-          <>
+          canWrite && <>
             <Button icon={RefreshCw} loading={bulk.isPending} disabled={!online.length} onClick={() => bulk.mutate({ hostIds: online.map((h) => h.id), action: 'apt_update' })}>
               Tout vérifier
             </Button>
@@ -62,7 +64,7 @@ export function Dashboard() {
         <div className="panel">
           <Empty icon={Server} title="Aucun hôte pour l'instant">
             Ajoute ton premier serveur ou LXC : une commande à copier, et l'agent remonte son état en quelques secondes.
-            <div className="mt-4"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button></div>
+            {canWrite && <div className="mt-4"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button></div>}
           </Empty>
         </div>
       ) : (

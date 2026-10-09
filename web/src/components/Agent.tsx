@@ -4,6 +4,7 @@ import type { Host } from '../lib/api';
 import { useRunBulk } from '../lib/queries';
 import { canSelfUpdate } from '../lib/status';
 import { Badge, Button, ConfirmModal, CopyField, Tag } from './ui';
+import { useMe } from '../lib/auth';
 
 export function AgentBadge({ short }: { short?: boolean }) {
   return (
@@ -52,6 +53,7 @@ export function UpdateAgentsModal({ hosts, open, onClose }: { hosts: Host[]; ope
 
 export function UpdateAgentButton({ hosts, label }: { hosts: Host[]; label?: string }) {
   const [open, setOpen] = useState(false);
+  if (!useMe().canWrite) return null;
   return (
     <>
       <Button size="sm" icon={CircleArrowUp} onClick={(e) => { e.preventDefault(); setOpen(true); }}>

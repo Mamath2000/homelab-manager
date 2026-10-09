@@ -3,10 +3,12 @@ import { Brush } from 'lucide-react';
 import type { Host } from '../lib/api';
 import { useRunJob } from '../lib/queries';
 import { Button, ConfirmModal, Panel, Tag } from './ui';
+import { useMe } from '../lib/auth';
 
 // Packages `apt-get autoremove` would remove: dependencies no longer needed, old kernels.
 export function CleanupPanel({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
   const run = useRunJob();
+  const { canWrite } = useMe();
   const [confirm, setConfirm] = useState(false);
   const pkgs = host.apt?.autoremovable;
   if (!host.apt) return null;
@@ -16,7 +18,7 @@ export function CleanupPanel({ host, running, onStarted }: { host: Host; running
       title={<>Nettoyage{pkgs && <span className="text-muted"> ({pkgs.length})</span>}</>}
       icon={Brush}
       actions={
-        pkgs && pkgs.length > 0 && (
+        canWrite && pkgs && pkgs.length > 0 && (
           <Button size="sm" icon={Brush} disabled={!host.online || running} onClick={() => setConfirm(true)}>
             Nettoyer
           </Button>

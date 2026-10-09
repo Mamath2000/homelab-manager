@@ -42,7 +42,13 @@ volumes:
   mongo-data:
 ```
 
-Ouvrir ensuite `http://IP_DU_HUB:3000`. Au premier lancement, l'interface demande de créer le compte administrateur (mot de passe de 8 caractères minimum).
+Créer ensuite le premier compte administrateur :
+
+```bash
+docker compose exec hub hm-admin create-admin <nom>
+```
+
+Ouvrir `http://IP_DU_HUB:3000` et se connecter avec ce nom en laissant le mot de passe vide : l'interface demande d'en choisir un (8 caractères minimum). Voir [Comptes et rôles](comptes.md).
 
 :::warning MongoDB et CPU anciens
 MongoDB 5 et plus demande un processeur avec les instructions AVX. Sur du matériel ancien (ou une VM sans AVX exposé), utiliser `image: mongo:4.4`.
@@ -58,7 +64,7 @@ Par défaut, la commande d'installation des agents reprend l'adresse utilisée d
 docker compose pull && docker compose up -d
 ```
 
-Les données (hôtes, historique, compte) sont dans le volume `mongo-data`.
+Les données (hôtes, historique, comptes) sont dans le volume `mongo-data`.
 
 ## Les agents
 

@@ -9,6 +9,7 @@ import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, Stat
 import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
 import { connection, connectionMeta, listsStale, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
+import { useMe } from '../lib/auth';
 
 type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent';
 
@@ -36,6 +37,7 @@ export function Hosts() {
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [agentModal, setAgentModal] = useState(false);
   const bulk = useRunBulk();
+  const { canWrite } = useMe();
   const run = useRunJob();
 
   const setParam = (k: string, v: string) => {
@@ -87,7 +89,7 @@ export function Hosts() {
 
   return (
     <>
-      <PageHeader icon={Server} title="Hôtes" actions={<Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>} />
+      <PageHeader icon={Server} title="Hôtes" actions={canWrite && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
@@ -110,7 +112,7 @@ export function Hosts() {
         </div>
       </div>
 
-      {visibleSelected.length > 0 && (
+      {canWrite && visibleSelected.length > 0 && (
         <div className="panel mb-3 flex flex-wrap items-center gap-3 border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5 text-sm">
           <span className="text-zinc-200">{visibleSelected.length} sélectionné(s)</span>
           <Button size="sm" icon={RefreshCw} loading={bulk.isPending} onClick={() => bulk.mutate({ hostIds: visibleSelected.map((h) => h.id), action: 'apt_update' })}>
@@ -131,7 +133,7 @@ export function Hosts() {
           <table className="w-full min-w-[1100px] text-sm">
             <thead className="border-b border-line">
               <tr>
-                <th className="th w-10"><Checkbox label="Tout sélectionner" checked={allChecked} indeterminate={visibleSelected.length > 0} onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())} /></th>
+                {canWrite && <th className="th w-10"><Checkbox label="Tout sélectionner" checked={allChecked} indeterminate={visibleSelected.length > 0} onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())} /></th>}
                 <th className="th">Hôte</th>
                 <th className="th">Système</th>
                 <th className="th">IP</th>
@@ -149,7 +151,7 @@ export function Hosts() {
                 const s = h.aptSummary;
                 return (
                   <tr key={h.id} onClick={() => navigate(`/hosts/${h.id}`)} className="cursor-pointer transition hover:bg-raised/50">
-                    <td className="td"><Checkbox label={`Sélectionner ${h.name}`} checked={selected.has(h.id)} onChange={(on) => toggle(h.id, on)} /></td>
+                    {canWrite && <td className="td"><Checkbox label={`Sélectionner ${h.name}`} checked={selected.has(h.id)} onChange={(on) => toggle(h.id, on)} /></td>}
                     <td className="td">
                       <div className="flex items-center gap-2.5">
                         <StatusDot tone={connectionMeta[c].tone} />
@@ -187,8 +189,8 @@ export function Hosts() {
                     </td>
                     <td className="td text-xs text-zinc-400">{h.online ? 'maintenant' : timeAgo(h.lastSeenAt)}</td>
                     <td className="td text-right" onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!h.online} title="Rechercher les mises à jour"
-                        onClick={() => run.mutate({ hostId: h.id, action: 'apt_update' })} />
+                      {canWrite && <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!h.online} title="Rechercher les mises à jour"
+                        onClick={() => run.mutate({ hostId: h.id, action: 'apt_update' })} />}
                     </td>
                   </tr>
                 );

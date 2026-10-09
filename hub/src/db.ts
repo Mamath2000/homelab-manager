@@ -27,6 +27,9 @@ export async function connectDb() {
     jobs.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 3600, name: 'jobs_ttl' }),
     users.createIndex({ username: 1 }, { unique: true }),
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+    sessions.createIndex({ userId: 1 }),
+    // accounts created before roles existed keep full access
+    users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
   ]);
 }
 

@@ -39,6 +39,8 @@ COPY --from=hub /src/node_modules ./node_modules
 COPY --from=hub /src/dist ./dist
 COPY --from=web /src/dist /app/web
 COPY --from=agent /out /app/agent
+# account recovery: docker compose exec hub hm-admin
+RUN printf '#!/bin/sh\nexec node /app/hub/dist/cli.js "$@"\n' > /usr/local/bin/hm-admin && chmod +x /usr/local/bin/hm-admin
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
