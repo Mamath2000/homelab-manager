@@ -40,7 +40,7 @@ mongo-stop: ## Arrête le conteneur homelab-mongo s'il a été lancé par make m
 	@if docker ps -q --filter name='^homelab-mongo$$' | grep -q .; then docker stop homelab-mongo; \
 	else echo "homelab-mongo non lancé : rien à arrêter"; fi
 
-dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
+dev: agent-all ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
 	@echo "hub : $(HUB)   ·   interface : http://localhost:5173"
 	@$(LOAD_ENV) trap 'trap - INT TERM; kill 0' INT TERM; \
 		(cd hub && npm run dev) & \
