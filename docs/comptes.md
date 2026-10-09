@@ -1,6 +1,6 @@
 ---
 title: Comptes et rôles
-description: Rôles admin / monitor / viewer, réinitialisation des mots de passe et compte de secours superadmin
+description: Premier démarrage, rôles admin / operator / viewer, mots de passe temporaires et compte superadmin
 sidebar_position: 4
 ---
 
@@ -10,50 +10,42 @@ sidebar_position: 4
 
 | Rôle | Droits |
 |---|---|
-| `admin` | Tout, en lecture et en écriture, y compris la page **Comptes** |
-| `monitor` | Tout sauf la gestion des comptes (hôtes, mises à jour, paramètres…) |
-| `viewer` | Lecture seule ; ne voit ni **Paramètres** ni **Comptes** |
+| `admin` | Tout : hôtes (ajout, modification, suppression, tokens), mises à jour, paramètres, comptes |
+| `operator` | Voit tout et lance les actions : vérifications, mises à jour, nettoyages, redémarrages, mises à jour d'agents. Ne gère ni les hôtes, ni les paramètres, ni les comptes |
+| `viewer` | Lecture seule |
 
 Les droits sont vérifiés par le hub sur chaque requête : l'interface ne fait que masquer ce qui n'est pas autorisé.
 Chacun peut changer son propre mot de passe depuis l'icône clé de l'en-tête.
 
 Les comptes existant avant l'introduction des rôles deviennent `admin`.
 
-## Gestion des comptes
+## Premier démarrage
 
-La page **Comptes** (réservée aux `admin`) permet de créer, renommer, changer le rôle et supprimer des comptes.
-Un compte nouvellement créé n'a pas de mot de passe : l'utilisateur se connecte avec son nom **en laissant le mot
-de passe vide**, puis choisit le sien.
+Sur une base vide, le hub crée le compte `superadmin` et écrit son mot de passe **à usage unique** dans ses logs
+(`docker compose logs hub`). On se connecte avec, puis on crée les comptes depuis la page **Comptes**.
 
-**Réinitialiser le mot de passe** efface le mot de passe du compte et ferme ses sessions. À la connexion suivante,
-l'utilisateur procède de la même façon : nom seul, puis nouveau mot de passe.
+Ce mot de passe est valable 24 h et redonné à chaque redémarrage du hub tant qu'aucun compte n'existe
+(`docker compose restart hub` s'il a été perdu).
+
+## Mots de passe temporaires
+
+Créer un compte ou **réinitialiser son mot de passe** génère un mot de passe temporaire, affiché **une seule fois**
+à l'admin, qui le transmet. À la connexion avec ce mot de passe, l'utilisateur doit en choisir un nouveau avant
+d'accéder au hub. Une réinitialisation ferme aussi les sessions ouvertes du compte.
 
 Garde-fous : on ne peut ni supprimer son propre compte, ni supprimer ou rétrograder le dernier `admin`.
 Changer le rôle d'un compte le déconnecte.
 
-## Premier compte
+## Compte `superadmin`
 
-Il n'y a pas d'écran de création dans l'interface. Sur une installation neuve :
+Le compte `superadmin` ne gère que les comptes : il peut **les lister, en créer et réinitialiser leurs mots de passe**,
+sans accès aux hôtes ni aux paramètres. Son mot de passe est à usage unique et sa session dure 15 minutes.
 
-```bash
-docker compose exec hub hm-admin create-admin <nom>
-```
-
-## Compte de secours `superadmin`
-
-Si plus personne ne peut se connecter en admin, générer un mot de passe de secours :
+En dehors du premier démarrage, il sert d'accès de secours si plus personne ne peut se connecter en admin :
 
 ```bash
 docker compose exec hub hm-admin superadmin
 ```
 
-- le mot de passe est **à usage unique** et valable **15 minutes** ; la session ouverte avec dure 15 minutes ;
-- le compte `superadmin` peut uniquement **lister les comptes et réinitialiser leur mot de passe** : il n'a accès ni
-  aux hôtes, ni aux paramètres, ni à la création / suppression de comptes ;
-- relancer la commande invalide le mot de passe précédent et ferme une éventuelle session `superadmin` en cours.
-
-:::note Sécurité
-Pendant qu'un compte est en attente de mot de passe, n'importe qui pouvant joindre l'interface peut le définir en
-connaissant le nom d'utilisateur. Le hub est prévu pour rester derrière un reverse proxy authentifié (Authelia…)
-ou sur le LAN.
-:::
+Le mot de passe affiché est valable 15 minutes ; relancer la commande invalide le précédent et ferme une éventuelle
+session `superadmin` en cours.

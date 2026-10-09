@@ -91,7 +91,7 @@ export interface JobDoc {
   log: string;
 }
 
-export const ROLES = ['admin', 'monitor', 'viewer'] as const;
+export const ROLES = ['admin', 'operator', 'viewer'] as const;
 export type Role = (typeof ROLES)[number];
 // built-in recovery account, see hub/src/cli.ts
 export const SUPERADMIN = 'superadmin';
@@ -100,11 +100,13 @@ export interface UserDoc {
   _id: ObjectId;
   username: string;
   role: Role | typeof SUPERADMIN;
-  // null: the user chooses a new password at the next login (new account or reset)
   passwordHash: string | null;
+  // temporary password (new account or reset): everything but changing it is refused
+  mustChangePassword?: boolean;
   // superadmin only: the one-time password is refused after this date
   passwordExpiresAt?: Date;
   createdAt: Date;
+  lastLoginAt?: Date;
 }
 
 export interface SessionDoc {

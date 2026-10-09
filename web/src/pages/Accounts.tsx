@@ -1,16 +1,16 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Pencil, Plus, Trash2, Users } from 'lucide-react';
-import { api, type Account, type Role } from '../lib/api';
+import { api, type Account, type AccountWithPassword, type Role } from '../lib/api';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Badge, Button, ConfirmModal, Modal, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, PageHeader, Spinner } from '../components/ui';
 
 const ROLES: { value: Role; hint: string }[] = [
-  { value: 'admin', hint: 'tout, y compris les comptes' },
-  { value: 'monitor', hint: 'tout sauf les comptes' },
-  { value: 'viewer', hint: 'lecture seule, sans paramètres ni comptes' },
+  { value: 'admin', hint: 'tout : hôtes, paramètres, comptes' },
+  { value: 'operator', hint: 'lance les vérifications, mises à jour, nettoyages et redémarrages' },
+  { value: 'viewer', hint: 'lecture seule' },
 ];
 
 const ERRORS: Record<string, string> = {
@@ -22,21 +22,42 @@ const ERRORS: Record<string, string> = {
 };
 const message = (err: unknown) => ERRORS[(err as Error).message] ?? (err as Error).message;
 
-// Create (account = null) or edit an account. New accounts choose their password at the first login.
-function AccountModal({ account, open, onClose }: { account: Account | null; open: boolean; onClose: () => void }) {
+// Temporary password of a new or reset account, shown only once.
+function TemporaryPasswordModal({ result, onClose }: { result: AccountWithPassword | null; onClose: () => void }) {
+  return (
+    <Modal open={!!result} onClose={onClose} title={`Mot de passe temporaire de ${result?.user.username}`}>
+      <div className="space-y-3 text-sm">
+        <p className="text-zinc-300">À transmettre à l'utilisateur : il devra le remplacer à sa première connexion.</p>
+        {result && <CopyField value={result.temporaryPassword} />}
+        <p className="text-xs text-amber-300">Il ne sera plus affiché.</p>
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={onClose}>J'ai noté le mot de passe</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Create (account = null) or edit an account. New accounts get a temporary password.
+function AccountModal({ account, open, onClose, onCreated }: {
+  account: Account | null;
+  open: boolean;
+  onClose: () => void;
+  onCreated: (r: AccountWithPassword) => void;
+}) {
   const qc = useQueryClient();
   const toast = useToast();
   const [username, setUsername] = useState(account?.username ?? '');
   const [role, setRole] = useState<Role>(account?.role ?? 'viewer');
   const save = useMutation({
-    mutationFn: () =>
-      account ? api.updateUser(account.id, { username, role }) : api.createUser(username, role),
-    onSuccess: () => {
+    mutationFn: async () => (account ? (await api.updateUser(account.id, { username, role }), null) : api.createUser(username, role)),
+    onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['users'] });
       // own username may have changed
-      qc.invalidateQueries({ queryKey: ['auth'] });
-      toast.success(account ? 'Compte modifié' : `Compte créé : ${username} choisira son mot de passe à la première connexion`);
+      if (account) qc.invalidateQueries({ queryKey: ['auth'] });
+      toast.success(account ? 'Compte modifié' : `Compte ${username} créé`);
       onClose();
+      if (created) onCreated(created);
     },
     onError: (err) => toast.error(message(err)),
   });
@@ -58,7 +79,7 @@ function AccountModal({ account, open, onClose }: { account: Account | null; ope
             </label>
           ))}
         </fieldset>
-        {!account && <p className="text-xs text-muted">L'utilisateur choisira son mot de passe à sa première connexion (champ mot de passe laissé vide).</p>}
+        {!account && <p className="text-xs text-muted">Un mot de passe temporaire sera généré ; l'utilisateur le remplacera à sa première connexion.</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" variant="primary" loading={save.isPending}>{account ? 'Enregistrer' : 'Créer'}</Button>
@@ -77,13 +98,14 @@ export function Accounts() {
   const [editing, setEditing] = useState<Account | null | undefined>(undefined);
   const [resetting, setResetting] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
+  const [issued, setIssued] = useState<AccountWithPassword | null>(null);
 
   const reset = useMutation({
     mutationFn: (a: Account) => api.resetPassword(a.id),
-    onSuccess: (_, a) => {
+    onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['users'] });
-      toast.success(`${a.username} choisira un nouveau mot de passe à sa prochaine connexion`);
       setResetting(null);
+      setIssued(r);
     },
     onError: (err) => toast.error(message(err)),
   });
@@ -102,10 +124,13 @@ export function Accounts() {
       <PageHeader
         icon={Users}
         title="Comptes"
-        actions={!me.isSuperAdmin && <Button icon={Plus} variant="primary" onClick={() => setEditing(null)}>Nouveau compte</Button>}
+        actions={<Button icon={Plus} variant="primary" onClick={() => setEditing(null)}>Nouveau compte</Button>}
       />
       {me.isSuperAdmin && (
-        <p className="mb-4 text-sm text-muted">Session de secours : vous pouvez uniquement réinitialiser les mots de passe. Elle expire au bout de 15 minutes.</p>
+        <p className="mb-4 text-sm text-muted">
+          Session <strong className="text-zinc-300">superadmin</strong> : vous pouvez créer des comptes et réinitialiser leurs mots de passe.
+          Elle expire au bout de 15 minutes ; déconnectez-vous ensuite et connectez-vous avec un compte admin.
+        </p>
       )}
       {isLoading ? (
         <Spinner />
@@ -117,6 +142,7 @@ export function Accounts() {
                 <th className="th">Utilisateur</th>
                 <th className="th">Rôle</th>
                 <th className="th">Mot de passe</th>
+                <th className="th">Dernière connexion</th>
                 <th className="th">Créé le</th>
                 <th className="th text-right">Actions</th>
               </tr>
@@ -128,8 +154,9 @@ export function Accounts() {
                     {a.username}
                     {a.username === me.username && <span className="ml-2 text-xs text-muted">(vous)</span>}
                   </td>
-                  <td className="td"><Badge tone={a.role === 'admin' ? 'warn' : a.role === 'monitor' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge></td>
-                  <td className="td text-xs">{a.passwordPending ? <span className="text-amber-300">à définir à la prochaine connexion</span> : <span className="text-zinc-400">défini</span>}</td>
+                  <td className="td"><Badge tone={a.role === 'admin' ? 'warn' : a.role === 'operator' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge></td>
+                  <td className="td text-xs">{a.mustChangePassword ? <span className="text-amber-300">temporaire, à changer à la connexion</span> : <span className="text-zinc-400">défini</span>}</td>
+                  <td className="td text-xs text-zinc-400">{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</td>
                   <td className="td text-xs text-zinc-400">{dateTime(a.createdAt)}</td>
                   <td className="td">
                     <div className="flex justify-end gap-1">
@@ -147,7 +174,10 @@ export function Accounts() {
         </div>
       )}
 
-      {editing !== undefined && <AccountModal key={editing?.id ?? 'new'} account={editing} open onClose={() => setEditing(undefined)} />}
+      {editing !== undefined && (
+        <AccountModal key={editing?.id ?? 'new'} account={editing} open onClose={() => setEditing(undefined)} onCreated={setIssued} />
+      )}
+      <TemporaryPasswordModal result={issued} onClose={() => setIssued(null)} />
       <ConfirmModal
         open={!!resetting}
         onClose={() => setResetting(null)}
@@ -157,8 +187,8 @@ export function Accounts() {
         danger
         loading={reset.isPending}
       >
-        Le mot de passe de <strong>{resetting?.username}</strong> sera effacé et ses sessions fermées. À sa prochaine connexion, il
-        saisira son nom d'utilisateur sans mot de passe puis en choisira un nouveau.
+        Un nouveau mot de passe temporaire sera généré pour <strong>{resetting?.username}</strong> et ses sessions seront fermées.
+        Il devra le remplacer à sa prochaine connexion.
       </ConfirmModal>
       <ConfirmModal
         open={!!deleting}

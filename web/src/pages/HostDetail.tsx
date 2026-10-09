@@ -200,7 +200,7 @@ export function HostDetail() {
   const { data: host, isLoading } = useHost(id);
   const { data: jobs } = useHostJobs(id);
   const run = useRunJob();
-  const { canWrite } = useMe();
+  const { canWrite, canManage } = useMe();
   const navigate = useNavigate();
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -247,7 +247,7 @@ export function HostDetail() {
             <Button icon={ArrowUpCircle} variant="primary" disabled={!host.online || running || !host.aptSummary?.upgradable} onClick={() => setConfirmUpgrade(true)}>
               Tout mettre à jour
             </Button>
-            <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />
+            {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
             {host.capabilities.includes('reboot') && (
               <Button
                 icon={Power}
@@ -258,8 +258,12 @@ export function HostDetail() {
                 Redémarrer
               </Button>
             )}
-            <Button icon={KeyRound} variant="ghost" title="Nouveau token" onClick={() => setConfirmToken(true)} />
-            <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
+            {canManage && (
+              <>
+                <Button icon={KeyRound} variant="ghost" title="Nouveau token" onClick={() => setConfirmToken(true)} />
+                <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
+              </>
+            )}
           </>
         }
       >
@@ -290,7 +294,7 @@ export function HostDetail() {
           <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
         </div>
       )}
-      {canWrite && c === 'pending' && (
+      {canManage && c === 'pending' && (
         <Panel title="Installer l'agent" icon={Terminal} className="mb-5">
           <p className="mb-3 text-sm text-zinc-300">Cet hôte n'a encore jamais contacté le hub. Le token n'étant affiché qu'à la création, génère une nouvelle commande si besoin.</p>
           <Button icon={KeyRound} onClick={regenerate}>Générer la commande d'installation</Button>

@@ -92,8 +92,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
 // Hub version and the agent version it distributes (what agents are updated to).
 function Versions() {
-  const { canSettings } = useMe();
-  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, staleTime: 60_000, enabled: canSettings });
+  const { isSuperAdmin } = useMe();
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, staleTime: 60_000, enabled: !isSuperAdmin });
   const agent = data?.binaries.find((b) => b.version)?.version;
   return (
     <span className="hidden items-center gap-3 text-xs text-muted lg:flex">

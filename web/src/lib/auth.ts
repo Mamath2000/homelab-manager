@@ -6,8 +6,11 @@ export function rights(me: Me) {
   return {
     ...me,
     isSuperAdmin: me.role === 'superadmin',
-    canWrite: me.role === 'admin' || me.role === 'monitor',
-    canSettings: me.role === 'admin' || me.role === 'monitor',
+    // run jobs: checks, updates, cleanup, reboot, agent updates
+    canWrite: me.role === 'admin' || me.role === 'operator',
+    // add / edit / delete hosts, agent tokens
+    canManage: me.role === 'admin',
+    canSettings: me.role === 'admin',
     canAccounts: me.role === 'admin' || me.role === 'superadmin',
   };
 }
@@ -24,7 +27,7 @@ export function useMe() {
 
 export const ROLE_LABELS: Record<Me['role'], string> = {
   admin: 'Admin',
-  monitor: 'Monitor',
-  viewer: 'Viewer',
+  operator: 'Opérateur',
+  viewer: 'Lecture',
   superadmin: 'Super admin',
 };

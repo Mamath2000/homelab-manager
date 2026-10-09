@@ -74,15 +74,17 @@ export interface Job {
   log?: string;
 }
 
-export type Role = 'admin' | 'monitor' | 'viewer';
+export type Role = 'admin' | 'operator' | 'viewer';
 
 export interface Me {
   username: string;
   role: Role | 'superadmin';
+  // temporary password: it must be replaced before using the app
+  mustChangePassword: boolean;
 }
 
 export interface AuthStatus {
-  // fresh install: the first admin is created with `hm-admin create-admin`
+  // fresh install: log in as superadmin with the password printed in the hub logs
   noAccounts: boolean;
   user: Me | null;
 }
@@ -92,7 +94,13 @@ export interface Account {
   username: string;
   role: Role;
   createdAt: string;
-  passwordPending: boolean;
+  lastLoginAt: string | null;
+  mustChangePassword: boolean;
+}
+
+export interface AccountWithPassword {
+  user: Account;
+  temporaryPassword: string;
 }
 
 export interface HomeAssistantSettings {
@@ -153,18 +161,16 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
   login: (username: string, password: string) =>
-    request<Me | { passwordSetupRequired: true }>('POST', '/api/auth/login', { username, password }),
-  setPassword: (username: string, newPassword: string) =>
-    request<Me>('POST', '/api/auth/set-password', { username, newPassword }),
+    request<Me>('POST', '/api/auth/login', { username, password }),
   logout: () => request('POST', '/api/auth/logout'),
-  changePassword: (currentPassword: string, newPassword: string) =>
+  changePassword: (currentPassword: string | undefined, newPassword: string) =>
     request('POST', '/api/account/password', { currentPassword, newPassword }),
 
   users: () => request<Account[]>('GET', '/api/users'),
-  createUser: (username: string, role: Role) => request<Account>('POST', '/api/users', { username, role }),
+  createUser: (username: string, role: Role) => request<AccountWithPassword>('POST', '/api/users', { username, role }),
   updateUser: (id: string, patch: { username?: string; role?: Role }) => request<Account>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
-  resetPassword: (id: string) => request<Account>('POST', `/api/users/${id}/reset-password`),
+  resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
   createHost: (name: string, group: string) =>

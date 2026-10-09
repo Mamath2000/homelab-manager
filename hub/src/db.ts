@@ -30,6 +30,8 @@ export async function connectDb() {
     sessions.createIndex({ userId: 1 }),
     // accounts created before roles existed keep full access
     users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
+    // "monitor" was renamed "operator" (and lost the settings)
+    users.updateMany({ role: 'monitor' as never }, { $set: { role: 'operator' } }),
   ]);
 }
 

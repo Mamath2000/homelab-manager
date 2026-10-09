@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { MongoServerError } from 'mongodb';
 import { revokeSessions } from '../auth.js';
+import { hashPassword, randomToken } from '../crypto.js';
 import { parseId, users } from '../db.js';
 import { ROLES, SUPERADMIN, type Role, type UserDoc } from '../types.js';
 
@@ -10,8 +11,15 @@ function dto(u: UserDoc) {
     username: u.username,
     role: u.role,
     createdAt: u.createdAt,
-    passwordPending: u.passwordHash === null,
+    lastLoginAt: u.lastLoginAt ?? null,
+    mustChangePassword: !!u.mustChangePassword,
   };
+}
+
+// Shown once to the admin, to be handed over; the user must replace it at the first login.
+async function temporaryPassword() {
+  const password = randomToken(9);
+  return { password, fields: { passwordHash: await hashPassword(password), mustChangePassword: true } };
 }
 
 const username = { type: 'string', minLength: 1, maxLength: 64, pattern: '\\S' } as const;
@@ -25,7 +33,7 @@ function duplicate(err: unknown) {
   return err instanceof MongoServerError && err.code === 11000;
 }
 
-// Only admins reach these routes, except the listing and the reset that the superadmin may use (roles.ts).
+// Only admins reach these routes, except listing, creation and reset, also open to the superadmin (roles.ts).
 export function registerUserRoutes(app: FastifyInstance) {
   // the superadmin account is managed with `hm-admin` only, never through the API
   async function target(id: string) {
@@ -42,7 +50,7 @@ export function registerUserRoutes(app: FastifyInstance) {
     return list.map(dto);
   });
 
-  // New accounts have no password: the user chooses it at the first login.
+  // New accounts get a temporary password, returned once.
   app.post<{ Body: { username: string; role: Role } }>(
     '/api/users',
     {
@@ -58,10 +66,11 @@ export function registerUserRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const name = req.body.username.trim();
       if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
-      const doc = { username: name, role: req.body.role, passwordHash: null, createdAt: new Date() };
+      const temp = await temporaryPassword();
+      const doc = { username: name, role: req.body.role, ...temp.fields, createdAt: new Date() };
       try {
         const { insertedId } = await users.insertOne(doc as UserDoc);
-        return dto({ ...doc, _id: insertedId });
+        return { user: dto({ ...doc, _id: insertedId }), temporaryPassword: temp.password };
       } catch (err) {
         if (duplicate(err)) return reply.code(409).send({ error: 'username already taken' });
         throw err;
@@ -113,12 +122,13 @@ export function registerUserRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  // The password is cleared: the user chooses a new one at the next login.
+  // New temporary password, returned once; the user's sessions are closed.
   app.post<{ Params: { id: string } }>('/api/users/:id/reset-password', async (req, reply) => {
     const user = await target(req.params.id);
     if (!user) return reply.code(404).send({ error: 'user not found' });
-    await users.updateOne({ _id: user._id }, { $set: { passwordHash: null } });
+    const temp = await temporaryPassword();
+    await users.updateOne({ _id: user._id }, { $set: temp.fields });
     await revokeSessions(user);
-    return dto({ ...user, passwordHash: null });
+    return { user: dto({ ...user, ...temp.fields }), temporaryPassword: temp.password };
   });
 }

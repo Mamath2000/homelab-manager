@@ -29,7 +29,7 @@ export function Dashboard() {
   const { data: hosts, isLoading } = useHosts();
   const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
   const bulk = useRunBulk();
-  const { canWrite } = useMe();
+  const { canWrite, canManage } = useMe();
   const [adding, setAdding] = useState(false);
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
@@ -51,11 +51,13 @@ export function Dashboard() {
         icon={LayoutDashboard}
         title="Tableau de bord"
         actions={
-          canWrite && <>
-            <Button icon={RefreshCw} loading={bulk.isPending} disabled={!online.length} onClick={() => bulk.mutate({ hostIds: online.map((h) => h.id), action: 'apt_update' })}>
-              Tout vérifier
-            </Button>
-            <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>
+          <>
+            {canWrite && (
+              <Button icon={RefreshCw} loading={bulk.isPending} disabled={!online.length} onClick={() => bulk.mutate({ hostIds: online.map((h) => h.id), action: 'apt_update' })}>
+                Tout vérifier
+              </Button>
+            )}
+            {canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>}
           </>
         }
       />
@@ -64,7 +66,7 @@ export function Dashboard() {
         <div className="panel">
           <Empty icon={Server} title="Aucun hôte pour l'instant">
             Ajoute ton premier serveur ou LXC : une commande à copier, et l'agent remonte son état en quelques secondes.
-            {canWrite && <div className="mt-4"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button></div>}
+            {canManage && <div className="mt-4"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button></div>}
           </Empty>
         </div>
       ) : (

@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { closeDb, connectDb } from './db.js';
 import { registerEvents } from './events.js';
 import { flushLogs, recoverJobs } from './jobs.js';
+import { bootstrapSuperadmin } from './superadmin.js';
 import { registerHostRoutes } from './routes/hosts.js';
 import { registerInstallRoutes } from './routes/install.js';
 import { registerJobRoutes } from './routes/jobs.js';
@@ -26,6 +27,7 @@ const app = Fastify({
 
 await connectDb();
 await recoverJobs();
+await bootstrapSuperadmin();
 
 await app.register(cookie);
 await app.register(websocket, { options: { maxPayload: 1 << 20 } });

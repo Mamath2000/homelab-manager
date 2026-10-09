@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 import { hashPassword, randomToken, sha256, verifyPassword } from './crypto.js';
 import { sessions, users } from './db.js';
-import { authorize } from './roles.js';
+import { allowedBeforePasswordChange, authorize } from './roles.js';
 import { SUPERADMIN, type UserDoc } from './types.js';
 
 const COOKIE = 'hm_session';
@@ -68,30 +68,17 @@ export function revokeSessions(user: Pick<UserDoc, '_id'>) {
 const loginSchema = {
   body: {
     type: 'object',
-    required: ['username'],
+    required: ['username', 'password'],
     additionalProperties: false,
     properties: {
       username: { type: 'string', minLength: 1, maxLength: 64 },
-      // empty or absent: only valid for an account whose password was reset
-      password: { type: 'string', maxLength: 256 },
-    },
-  },
-} as const;
-
-const setPasswordSchema = {
-  body: {
-    type: 'object',
-    required: ['username', 'newPassword'],
-    additionalProperties: false,
-    properties: {
-      username: { type: 'string', minLength: 1, maxLength: 64 },
-      newPassword: { type: 'string', minLength: 8, maxLength: 256 },
+      password: { type: 'string', minLength: 1, maxLength: 256 },
     },
   },
 } as const;
 
 function me(user: UserDoc) {
-  return { username: user.username, role: user.role };
+  return { username: user.username, role: user.role, mustChangePassword: !!user.mustChangePassword };
 }
 
 async function checkPassword(user: UserDoc, password: string) {
@@ -105,29 +92,29 @@ export function registerAuth(app: FastifyInstance) {
     if (isPublic(req)) return;
     const user = await userFromRequest(req);
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
-    if (!authorize(user.role, req.method, req.routeOptions.url!)) return reply.code(403).send({ error: 'forbidden' });
+    const route = req.routeOptions.url!;
+    // temporary password: it must be replaced before anything else
+    if (user.mustChangePassword && !allowedBeforePasswordChange(req.method, route)) {
+      return reply.code(403).send({ error: 'password_change_required' });
+    }
+    if (!authorize(user.role, req.method, route)) return reply.code(403).send({ error: 'forbidden' });
     req.user = user;
   });
 
   app.get('/api/auth/status', async (req) => {
     const user = await userFromRequest(req);
-    // fresh install: the first admin is created with `hm-admin create-admin`
+    // fresh install: log in as superadmin with the password printed in the hub logs
     const noAccounts = !user && (await users.countDocuments({ role: { $ne: SUPERADMIN } })) === 0;
     return { noAccounts, user: user ? me(user) : null };
   });
 
-  app.post<{ Body: { username: string; password?: string } }>(
+  app.post<{ Body: { username: string; password: string } }>(
     '/api/auth/login',
     { schema: loginSchema },
     async (req, reply) => {
       if (tooManyFailures(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
       const user = await users.findOne({ username: req.body.username.trim() });
-      const password = req.body.password ?? '';
-      // reset account: the user picks a new password (POST /api/auth/set-password)
-      if (user && user.role !== SUPERADMIN && user.passwordHash === null && !password) {
-        return { passwordSetupRequired: true };
-      }
-      if (!user || !(await checkPassword(user, password))) {
+      if (!user || !(await checkPassword(user, req.body.password))) {
         recordFailure(req.ip);
         return reply.code(401).send({ error: 'invalid credentials' });
       }
@@ -140,26 +127,7 @@ export function registerAuth(app: FastifyInstance) {
         if (modifiedCount !== 1) return reply.code(401).send({ error: 'invalid credentials' });
       }
       failures.delete(req.ip);
-      await startSession(reply, user);
-      return me(user);
-    },
-  );
-
-  app.post<{ Body: { username: string; newPassword: string } }>(
-    '/api/auth/set-password',
-    { schema: setPasswordSchema },
-    async (req, reply) => {
-      if (tooManyFailures(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
-      const user = await users.findOneAndUpdate(
-        { username: req.body.username.trim(), passwordHash: null, role: { $ne: SUPERADMIN } },
-        { $set: { passwordHash: await hashPassword(req.body.newPassword) } },
-        { returnDocument: 'after' },
-      );
-      if (!user) {
-        recordFailure(req.ip);
-        return reply.code(400).send({ error: 'no password to set for this account' });
-      }
-      failures.delete(req.ip);
+      await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
       await startSession(reply, user);
       return me(user);
     },
@@ -172,13 +140,13 @@ export function registerAuth(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.post<{ Body: { currentPassword: string; newPassword: string } }>(
+  app.post<{ Body: { currentPassword?: string; newPassword: string } }>(
     '/api/account/password',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['currentPassword', 'newPassword'],
+          required: ['newPassword'],
           properties: {
             currentPassword: { type: 'string', maxLength: 256 },
             newPassword: { type: 'string', minLength: 8, maxLength: 256 },
@@ -188,10 +156,17 @@ export function registerAuth(app: FastifyInstance) {
     },
     async (req, reply) => {
       const user = req.user!;
-      if (!(await checkPassword(user, req.body.currentPassword))) {
+      // with a temporary password the user just authenticated with it: no need to type it again
+      if (!user.mustChangePassword && !(await checkPassword(user, req.body.currentPassword ?? ''))) {
         return reply.code(400).send({ error: 'current password is wrong' });
       }
-      await users.updateOne({ _id: user._id }, { $set: { passwordHash: await hashPassword(req.body.newPassword) } });
+      await users.updateOne(
+        { _id: user._id },
+        { $set: { passwordHash: await hashPassword(req.body.newPassword), mustChangePassword: false } },
+      );
+      // other sessions (another browser, someone else) are closed, the current one is kept
+      const current = req.cookies[COOKIE];
+      await sessions.deleteMany({ userId: user._id, _id: { $ne: current ? sha256(current) : '' } });
       return { ok: true };
     },
   );

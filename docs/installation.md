@@ -42,13 +42,25 @@ volumes:
   mongo-data:
 ```
 
-Créer ensuite le premier compte administrateur :
+### Premier démarrage
+
+Sur une base vide, le hub écrit dans ses logs le mot de passe **à usage unique** du compte `superadmin` :
 
 ```bash
-docker compose exec hub hm-admin create-admin <nom>
+docker compose logs hub
 ```
 
-Ouvrir `http://IP_DU_HUB:3000` et se connecter avec ce nom en laissant le mot de passe vide : l'interface demande d'en choisir un (8 caractères minimum). Voir [Comptes et rôles](comptes.md).
+```text
+  Homelab Manager : premier démarrage, aucun compte
+  Connexion :      superadmin
+  Mot de passe :   ZWFQ8CSOh3hAn28V
+```
+
+1. Ouvrir `http://IP_DU_HUB:3000` et se connecter en `superadmin` avec ce mot de passe.
+2. Page **Comptes** : créer son compte `admin` (et les autres). Un mot de passe temporaire s'affiche une seule fois.
+3. Se déconnecter, se connecter avec son compte et le mot de passe temporaire : l'interface demande d'en choisir un (8 caractères minimum).
+
+Le mot de passe `superadmin` est valable 24 h. Perdu ou expiré : redémarrer le hub (`docker compose restart hub`) en génère un nouveau, tant qu'aucun compte n'existe. Voir [Comptes et rôles](comptes.md).
 
 :::warning MongoDB et CPU anciens
 MongoDB 5 et plus demande un processeur avec les instructions AVX. Sur du matériel ancien (ou une VM sans AVX exposé), utiliser `image: mongo:4.4`.

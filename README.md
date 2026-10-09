@@ -34,11 +34,13 @@ Récupère [`compose.yml`](compose.yml), ajuste-le si besoin (port publié, nive
 docker compose up -d
 ```
 
-L'image `mathmath350/homelab-manager` est multi-arch (amd64, arm64). Crée le premier compte administrateur, puis ouvre `http://<ip-du-hub>:3000` et connecte-toi avec ce nom **sans mot de passe** pour choisir le tien :
+L'image `mathmath350/homelab-manager` est multi-arch (amd64, arm64). Au premier démarrage, le hub affiche dans ses logs le mot de passe à usage unique du compte `superadmin` :
 
 ```sh
-docker compose exec hub hm-admin create-admin <nom>
+docker compose logs hub
 ```
+
+Ouvre `http://<ip-du-hub>:3000`, connecte-toi en `superadmin` avec ce mot de passe et crée les comptes (page **Comptes**). Chaque compte reçoit un mot de passe temporaire, à changer à la première connexion.
 
 Gestion des comptes, rôles et récupération d'accès : voir [docs/comptes.md](docs/comptes.md).
 
@@ -92,7 +94,7 @@ Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL
 
 ### Sécurité
 
-- Comptes avec trois rôles (`admin`, `monitor`, `viewer`) vérifiés côté hub, plus un compte de secours `superadmin` à mot de passe à usage unique obtenu par `hm-admin` dans le conteneur ([docs/comptes.md](docs/comptes.md)). Mots de passe hachés en scrypt, session en cookie `HttpOnly` / `SameSite=Strict`, limitation des tentatives de connexion.
+- Comptes avec trois rôles (`admin`, `operator`, `viewer`) vérifiés côté hub ; compte `superadmin` à mot de passe à usage unique (premier démarrage, ou `hm-admin superadmin` dans le conteneur) qui ne gère que les comptes ([docs/comptes.md](docs/comptes.md)). Mots de passe hachés en scrypt, session en cookie `HttpOnly` / `SameSite=Strict`, limitation des tentatives de connexion.
 - Un token par agent, de la forme `<hostId>.<secret>`. Seul le hash du secret est stocké, et régénérer le token déconnecte immédiatement l'ancien agent.
 - Conçu pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy HTTPS et authentification supplémentaire.
 

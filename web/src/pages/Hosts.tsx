@@ -37,7 +37,7 @@ export function Hosts() {
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [agentModal, setAgentModal] = useState(false);
   const bulk = useRunBulk();
-  const { canWrite } = useMe();
+  const { canWrite, canManage } = useMe();
   const run = useRunJob();
 
   const setParam = (k: string, v: string) => {
@@ -89,7 +89,7 @@ export function Hosts() {
 
   return (
     <>
-      <PageHeader icon={Server} title="Hôtes" actions={canWrite && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>} />
+      <PageHeader icon={Server} title="Hôtes" actions={canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>} />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">

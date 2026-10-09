@@ -12,7 +12,7 @@ import { Dashboard } from './pages/Dashboard';
 import { HostDetail } from './pages/HostDetail';
 import { Hosts } from './pages/Hosts';
 import { JobDetail } from './pages/JobDetail';
-import { Login } from './pages/Login';
+import { ForcePasswordChange, Login } from './pages/Login';
 import { Settings } from './pages/Settings';
 import { Updates } from './pages/Updates';
 
@@ -21,7 +21,7 @@ export default function App() {
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.authStatus, staleTime: Infinity });
   const user = auth.data?.user ?? null;
   // the superadmin may only use the accounts page, not the live feed
-  const live = useLiveEvents(!!user && user.role !== 'superadmin');
+  const live = useLiveEvents(!!user && user.role !== 'superadmin' && !user.mustChangePassword);
 
   // Switch user state without detaching the ['auth'] observer (qc.clear() would).
   const setUser = (me: Me | null) => {
@@ -51,6 +51,10 @@ export default function App() {
     await api.logout().catch(() => {});
     setUser(null);
   };
+
+  if (user.mustChangePassword) {
+    return <ForcePasswordChange me={user} onLogout={logout} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
+  }
 
   const me = rights(user);
 
