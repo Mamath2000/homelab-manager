@@ -27,6 +27,17 @@ function HostTags({ h }: { h: Host }) {
   );
 }
 
+type StackState = 'problems' | 'stopped' | 'partial' | 'updates' | 'ok';
+
+// One exclusive state per stack, worst first, so the ring adds up to the number of stacks.
+function stackState(s: ReturnType<typeof allStacks>[number]): StackState {
+  if (s.problems.length > 0) return 'problems';
+  if (s.status === 'stopped' || s.status === 'down') return 'stopped';
+  if (s.status === 'partial') return 'partial';
+  if (s.updates > 0) return 'updates';
+  return 'ok';
+}
+
 export function Dashboard() {
   const { data: hosts, isLoading } = useHosts();
   const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
@@ -44,6 +55,7 @@ export function Dashboard() {
     .filter((h) => (h.aptSummary?.upgradable ?? 0) > 0 || h.aptSummary?.rebootRequired)
     .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
   const stacks = allStacks(hosts);
+  const countStacks = (v: StackState) => stacks.filter((s) => stackState(s) === v).length;
   const stacksToHandle = stacks
     .filter((s) => s.problems.length > 0 || s.updates > 0)
     .sort((a, b) => b.problems.length - a.problems.length || b.updates - a.updates);
@@ -171,11 +183,11 @@ export function Dashboard() {
               title="Docker"
               to="/docker"
               stats={[
-                { label: 'En marche', value: stacks.filter((s) => s.status === 'running').length, tone: 'ok' },
-                { label: 'Partielles', value: stacks.filter((s) => s.status === 'partial').length, tone: 'warn' },
-                { label: 'Arrêtées', value: stacks.filter((s) => s.status === 'stopped' || s.status === 'down').length, tone: 'neutral' },
-                { label: 'À mettre à jour', value: stacks.filter((s) => s.updates > 0).length, tone: 'warn', ringless: true },
-                { label: 'Problèmes', value: stacks.filter((s) => s.problems.length > 0).length, tone: 'bad', ringless: true },
+                { label: 'OK', value: countStacks('ok'), tone: 'ok' },
+                { label: 'Partielles', value: countStacks('partial'), tone: 'warn' },
+                { label: 'Arrêtées', value: countStacks('stopped'), tone: 'neutral' },
+                { label: 'À mettre à jour', value: countStacks('updates'), tone: 'warn' },
+                { label: 'Problèmes', value: countStacks('problems'), tone: 'bad' },
               ]}
               cardsTitle="Stacks à traiter"
               cardsIcon={Container}
