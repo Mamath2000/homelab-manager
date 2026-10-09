@@ -4,7 +4,7 @@ Administration d'un homelab (une vingtaine de serveurs, VM et LXC) depuis une se
 
 Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, aucun port à ouvrir sur les hôtes.
 
-![Tableau de bord](docs/dashboard.png)
+![Tableau de bord](docs/img/dashboard.png)
 
 ## Fonctionnalités (MVP)
 
@@ -18,7 +18,7 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 
 | Fiche hôte | Vue par paquet |
 | --- | --- |
-| ![Fiche hôte](docs/host.png) | ![Mises à jour](docs/updates.png) |
+| ![Fiche hôte](docs/img/host.png) | ![Mises à jour](docs/img/updates.png) |
 
 ## Installation
 
