@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { ArrowLeft, Terminal } from 'lucide-react';
 import { JobConsole } from '../components/JobConsole';
 import { PageHeader } from '../components/ui';

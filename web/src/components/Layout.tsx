@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import { History, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, type LucideIcon } from 'lucide-react';
 import { StatusDot } from './ui';
@@ -123,21 +123,23 @@ function SearchBox() {
     >
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
       <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" className="input h-9 py-0 pl-9 pr-10" />
-      <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-line bg-panel px-1.5 text-[10px] text-muted">/</kbd>
+      <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm border border-line bg-panel px-1.5 text-[10px] text-muted">/</kbd>
     </form>
   );
 }
 
 export function Layout({ user, live, onLogout }: { user: string; live: boolean; onLogout: () => void }) {
-  const [drawer, setDrawer] = useState(false);
-  const location = useLocation();
-  useEffect(() => setDrawer(false), [location.pathname]);
+  const { pathname } = useLocation();
+  // drawer is open for the path it was opened on: any navigation closes it
+  const [drawerPath, setDrawerPath] = useState<string | null>(null);
+  const drawer = drawerPath === pathname;
+  const setDrawer = (open: boolean) => setDrawerPath(open ? pathname : null);
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur md:px-6">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
         <div className="flex items-center gap-3">
-          <button className="rounded p-1.5 text-zinc-400 hover:bg-raised md:hidden" onClick={() => setDrawer((d) => !d)} aria-label="Menu">
+          <button className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised md:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
@@ -152,7 +154,7 @@ export function Layout({ user, live, onLogout }: { user: string; live: boolean; 
             <User className="h-4 w-4" />
             {user}
           </span>
-          <button onClick={onLogout} title="Se déconnecter" className="rounded p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
+          <button onClick={onLogout} title="Se déconnecter" className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
             <LogOut className="h-4 w-4" />
           </button>
         </div>

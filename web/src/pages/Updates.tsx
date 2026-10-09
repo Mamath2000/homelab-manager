@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
 import { RebootTag } from '../components/Reboot';
-import { useToast } from '../components/Toast';
+import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
 import { useHosts } from '../lib/queries';
@@ -114,7 +114,7 @@ export function Updates() {
                   <td className="td">
                     <div className="flex flex-wrap gap-1.5">
                       {r.hosts.map((h) => (
-                        <Link key={h.id} to={`/hosts/${h.id}`} className={`rounded px-2 py-0.5 text-xs font-semibold ${h.online ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-zinc-500 line-through'}`}>
+                        <Link key={h.id} to={`/hosts/${h.id}`} className={`rounded-sm px-2 py-0.5 text-xs font-semibold ${h.online ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-zinc-500 line-through'}`}>
                           {h.name}
                         </Link>
                       ))}

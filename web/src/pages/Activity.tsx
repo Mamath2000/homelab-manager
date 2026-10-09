@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { History } from 'lucide-react';
 import { JobStatusIcon } from '../components/JobConsole';
 import { Badge, Empty, PageHeader, Spinner, Tag } from '../components/ui';

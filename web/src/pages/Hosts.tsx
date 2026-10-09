@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Brush, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
@@ -103,7 +103,7 @@ export function Hosts() {
         <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
           {filters.map((f) => (
             <button key={f.key} onClick={() => setParam('f', f.key === 'all' ? '' : f.key)}
-              className={clsx('rounded px-2.5 py-1 text-xs font-medium transition', filter === f.key ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200')}>
+              className={clsx('rounded-sm px-2.5 py-1 text-xs font-medium transition', filter === f.key ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200')}>
               {f.label}
             </button>
           ))}

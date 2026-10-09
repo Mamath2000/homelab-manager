@@ -47,7 +47,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; 
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset',
         toneBadge[tone],
         className,
       )}
@@ -60,7 +60,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; 
 // Komodo-style label chip (groups, OS, virtualisation...)
 export function Tag({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded bg-zinc-800/80 px-2 py-0.5 text-xs font-semibold text-zinc-200">
+    <span className="inline-flex items-center whitespace-nowrap rounded-sm bg-zinc-800/80 px-2 py-0.5 text-xs font-semibold text-zinc-200">
       {children}
     </span>
   );
@@ -135,14 +135,14 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[12vh] backdrop-blur-sm" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[12vh] backdrop-blur-xs" onMouseDown={onClose}>
       <div
         className={clsx('panel w-full bg-panel shadow-2xl shadow-black/60', wide ? 'max-w-2xl' : 'max-w-md')}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="text-base font-medium text-zinc-100">{title}</h3>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-raised hover:text-zinc-200">
+          <button onClick={onClose} className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-200">
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -202,7 +202,7 @@ export function CopyField({ value, multiline }: { value: string; multiline?: boo
       <pre className={clsx('rounded-md border border-line bg-black/40 py-2.5 pl-3 pr-11 font-mono text-xs text-emerald-300', multiline ? 'whitespace-pre-wrap break-all' : 'overflow-x-auto')}>
         {value}
       </pre>
-      <button onClick={copy} title="Copier" className="absolute right-1.5 top-1.5 rounded p-1.5 text-muted hover:bg-raised hover:text-zinc-100">
+      <button onClick={copy} title="Copier" className="absolute right-1.5 top-1.5 rounded-sm p-1.5 text-muted hover:bg-raised hover:text-zinc-100">
         {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
       </button>
     </div>
@@ -220,7 +220,7 @@ export function Checkbox({ checked, indeterminate, onChange, label }: { checked:
       }}
       onChange={(e) => onChange(e.target.checked)}
       onClick={(e) => e.stopPropagation()}
-      className="h-4 w-4 cursor-pointer rounded border-line bg-raised accent-emerald-500"
+      className="h-4 w-4 cursor-pointer rounded-sm border-line bg-raised accent-emerald-500"
     />
   );
 }

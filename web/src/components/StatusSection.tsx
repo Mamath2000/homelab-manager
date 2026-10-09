@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import clsx from 'clsx';
 import type { LucideIcon } from 'lucide-react';
 import { toneText, type Tone } from '../lib/status';

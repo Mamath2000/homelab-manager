@@ -1,6 +1,55 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-bg: #09090b;
+  --color-panel: #111114;
+  --color-raised: #17171b;
+  --color-line: #24242a;
+  --color-muted: #8a8a96;
+
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  /* Tailwind v4 preflight dropped the pointer cursor on buttons */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@utility panel {
+  @apply rounded-lg border border-line bg-panel;
+}
+
+@utility input {
+  @apply w-full rounded-md border border-line bg-raised px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-hidden transition focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20;
+}
+
+@utility th {
+  @apply px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted;
+}
+
+@utility td {
+  @apply px-3 py-2.5 align-middle;
+}
 
 @layer base {
   html {
@@ -15,20 +64,5 @@
   * {
     scrollbar-width: thin;
     scrollbar-color: #2a2a31 transparent;
-  }
-}
-
-@layer components {
-  .panel {
-    @apply rounded-lg border border-line bg-panel;
-  }
-  .input {
-    @apply w-full rounded-md border border-line bg-raised px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none transition focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20;
-  }
-  .th {
-    @apply px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted;
-  }
-  .td {
-    @apply px-3 py-2.5 align-middle;
   }
 }

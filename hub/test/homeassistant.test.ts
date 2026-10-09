@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer, type AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import aedes from 'aedes';
+import { Aedes } from 'aedes';
 import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
 import { build, INSTALL, PRESS, ROOT_ID, type HostState } from '../src/homeassistant/discovery.js';
@@ -134,7 +134,7 @@ test('outdated agents: update entity, alert and root counter', () => {
 });
 
 test('testConnection reports broker availability and authentication', async () => {
-  const broker = aedes();
+  const broker = await Aedes.createBroker();
   broker.authenticate = (_client, username, password, done) => done(null, username === 'ha' && password?.toString() === 'secret');
   const server = createServer(broker.handle);
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Host, type JobAction } from './api';
-import { useToast } from '../components/Toast';
+import { useToast } from './toast';
 
 export const keys = {
   hosts: ['hosts'] as const,

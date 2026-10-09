@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Home, PlugZap } from 'lucide-react';
 import { api, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
-import { useToast } from './Toast';
+import { useToast } from '../lib/toast';
 import { Button, Panel, Spinner, StatusDot } from './ui';
 
 const stateMeta: Record<HomeAssistantSettings['status']['state'], { label: string; tone: Tone }> = {
@@ -29,24 +29,20 @@ export function HomeAssistantPanel() {
   const qc = useQueryClient();
   // poll while the page is open to follow the connection state
   const { data } = useQuery({ queryKey: ['settings', 'homeassistant'], queryFn: api.homeAssistant, refetchInterval: 5000 });
-  const [form, setForm] = useState<HomeAssistantInput | null>(null);
+  // local draft once edited, server values until then
+  const [draft, setDraft] = useState<HomeAssistantInput | null>(null);
   const [password, setPassword] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
 
-  useEffect(() => {
-    if (data && !form) {
-      setForm({ enabled: data.enabled, broker: data.broker, username: data.username, topic: data.topic, discoveryPrefix: data.discoveryPrefix });
-    }
-  }, [data, form]);
+  if (!data) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
 
-  if (!data || !form) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
-
+  const form: HomeAssistantInput = draft ?? { enabled: data.enabled, broker: data.broker, username: data.username, topic: data.topic, discoveryPrefix: data.discoveryPrefix };
   const input = (): HomeAssistantInput => ({
     ...form,
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
   });
-  const set = (patch: Partial<HomeAssistantInput>) => setForm({ ...form, ...patch });
+  const set = (patch: Partial<HomeAssistantInput>) => setDraft({ ...form, ...patch });
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();

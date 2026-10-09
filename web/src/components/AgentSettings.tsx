@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useToast } from './Toast';
+import { useToast } from '../lib/toast';
 
 // Automatic agent updates + the agent version the hub distributes.
 export function AgentAutoUpdate() {

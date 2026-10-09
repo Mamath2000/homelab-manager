@@ -75,3 +75,5 @@ export function osLabel(h: Host) {
   if (!h.info) return null;
   return h.info.osName.replace(/ GNU\/Linux/, '').replace(/ LTS$/, '');
 }
+
+export const canSelfUpdate = (h: Host) => h.capabilities.includes('agent_update');

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { KeyRound, Settings as SettingsIcon, Terminal } from 'lucide-react';
 import { AgentAutoUpdate } from '../components/AgentSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
-import { useToast } from '../components/Toast';
+import { useToast } from '../lib/toast';
 import { Button, CopyField, PageHeader, Panel } from '../components/ui';
 import { api } from '../lib/api';
 

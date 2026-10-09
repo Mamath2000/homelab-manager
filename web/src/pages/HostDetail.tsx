@@ -1,40 +1,35 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
-import { AgentBadge, canSelfUpdate, UpdateAgentButton } from '../components/Agent';
-import { useToast } from '../components/Toast';
+import { AgentBadge, UpdateAgentButton } from '../components/Agent';
+import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host, type Job } from '../lib/api';
 import { actionLabel, dateTime, timeAgo, uptime } from '../lib/format';
 import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
-import { connection, connectionMeta, listsStale, osLabel } from '../lib/status';
+import { canSelfUpdate, connection, connectionMeta, listsStale, osLabel } from '../lib/status';
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2 text-sm">
       <dt className="shrink-0 text-muted">{label}</dt>
-      <dd className="min-w-0 break-words text-right text-zinc-200">{children}</dd>
+      <dd className="min-w-0 wrap-break-word text-right text-zinc-200">{children}</dd>
     </div>
   );
 }
 
-function EditModal({ host, open, onClose }: { host: Host; open: boolean; onClose: () => void }) {
+// mounted only while open: its state starts from the current host
+function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
   const [name, setName] = useState(host.name);
   const [group, setGroup] = useState(host.group);
   const [busy, setBusy] = useState(false);
   const upsert = useUpdateHostCache();
   const toast = useToast();
-  useEffect(() => {
-    if (open) {
-      setName(host.name);
-      setGroup(host.group);
-    }
-  }, [open, host.name, host.group]);
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -48,7 +43,7 @@ function EditModal({ host, open, onClose }: { host: Host; open: boolean; onClose
     }
   };
   return (
-    <Modal open={open} onClose={onClose} title="Modifier l'hôte">
+    <Modal open onClose={onClose} title="Modifier l'hôte">
       <form onSubmit={save} className="space-y-4">
         <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-muted">Nom</span>
@@ -69,19 +64,16 @@ function EditModal({ host, open, onClose }: { host: Host; open: boolean; onClose
 
 function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undefined }) {
   const run = useRunJob();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [picked, setSelected] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState(false);
   const pkgs = host.apt?.upgradable ?? [];
   const installed = host.recentlyInstalled;
   // packages of the running upgrade job (all of them for a full upgrade)
   const inProgress = (name: string) => !!upgrading && (upgrading.packages.length === 0 || upgrading.packages.includes(name));
+  // drop selections that are no longer upgradable after a refresh
+  const selected = new Set([...picked].filter((n) => pkgs.some((p) => p.name === n)));
   const rebootPkgs = pkgs.filter((p) => p.reboot).map((p) => p.name);
   const selectedReboot = rebootPkgs.filter((n) => selected.has(n));
-
-  // drop selections that are no longer upgradable after a refresh
-  useEffect(() => {
-    setSelected((s) => new Set([...s].filter((n) => pkgs.some((p) => p.name === n))));
-  }, [host.apt?.checkedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const all = pkgs.length > 0 && selected.size === pkgs.length;
   const toggle = (n: string, on: boolean) =>
@@ -348,7 +340,7 @@ export function HostDetail() {
         </Panel>
       </div>
 
-      <EditModal host={host} open={editing} onClose={() => setEditing(false)} />
+      {editing && <EditModal host={host} onClose={() => setEditing(false)} />}
       <ConfirmModal open={confirmUpgrade} onClose={() => setConfirmUpgrade(false)} title={`Mettre à jour ${host.name}`} confirmLabel="Lancer apt-get upgrade" loading={run.isPending} onConfirm={() => startJob('apt_upgrade')}>
         {host.aptSummary?.upgradable} paquet(s) vont être mis à jour, dont {host.aptSummary?.security} de sécurité. Les fichiers de configuration modifiés localement sont conservés.
         {!!host.aptSummary?.rebootPending && <p className="mt-3 text-amber-300">Un redémarrage sera nécessaire ensuite (noyau, microcode ou bibliothèques système).</p>}
@@ -384,7 +376,7 @@ export function HostDetail() {
         }}
       >
         L'hôte et son historique seront supprimés et l'agent déconnecté. Pour désinstaller l'agent :
-        <pre className="mt-2 overflow-x-auto rounded border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">curl -fsSL {window.location.origin}/install.sh | sh -s -- --uninstall</pre>
+        <pre className="mt-2 overflow-x-auto rounded-sm border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">curl -fsSL {window.location.origin}/install.sh | sh -s -- --uninstall</pre>
       </ConfirmModal>
       <Modal open={!!install} onClose={() => setInstall(null)} title={`Installer l'agent sur ${host.name}`} wide>
         {install && <InstallInstructions command={install.command} />}

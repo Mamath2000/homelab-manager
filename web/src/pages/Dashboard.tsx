@@ -26,7 +26,7 @@ function HostTags({ h }: { h: Host }) {
 
 export function Dashboard() {
   const { data: hosts, isLoading } = useHosts();
-  const { data: jobs } = useJobs();
+  const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
   const bulk = useRunBulk();
   const [adding, setAdding] = useState(false);
 
@@ -40,7 +40,7 @@ export function Dashboard() {
     .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
   const sortedHosts = [...hosts].sort((a, b) => connOrder[connection(a)] - connOrder[connection(b)] || a.name.localeCompare(b.name));
 
-  const dayAgo = Date.now() - 24 * 3600 * 1000;
+  const dayAgo = jobsAt - 24 * 3600 * 1000;
   const recentJobs = (jobs ?? []).filter((j) => Date.parse(j.createdAt) > dayAgo);
 
   return (

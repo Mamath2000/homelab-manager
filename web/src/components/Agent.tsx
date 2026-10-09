@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { CircleArrowUp } from 'lucide-react';
 import type { Host } from '../lib/api';
 import { useRunBulk } from '../lib/queries';
+import { canSelfUpdate } from '../lib/status';
 import { Badge, Button, ConfirmModal, CopyField, Tag } from './ui';
-
-export const canSelfUpdate = (h: Host) => h.capabilities.includes('agent_update');
 
 export function AgentBadge({ short }: { short?: boolean }) {
   return (
