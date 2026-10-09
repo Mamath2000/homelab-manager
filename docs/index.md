@@ -19,6 +19,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Vue par paquet** : voir sur quels hôtes un paquet est en retard et le mettre à jour partout en un clic.
 - **Vérification planifiée** : `apt-get update` automatique toutes les 12 h.
 - **Historique** des tâches et de leurs sorties (90 jours).
+- **Home Assistant** (option) : appareils, alertes et mises à jour publiés via MQTT, avec découverte automatique.
 
 ## Principes
 
@@ -30,3 +31,4 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 
 - [Installation](installation.md) : hub et agents.
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
+- [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.

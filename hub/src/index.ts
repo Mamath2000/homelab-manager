@@ -12,6 +12,8 @@ import { flushLogs, recoverJobs } from './jobs.js';
 import { registerHostRoutes } from './routes/hosts.js';
 import { registerInstallRoutes } from './routes/install.js';
 import { registerJobRoutes } from './routes/jobs.js';
+import { loadHomeAssistantSettings, registerSettingsRoutes } from './routes/settings.js';
+import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
 
 // forceCloseConnections: app.close() also drops the hijacked SSE streams instead of waiting for clients.
@@ -32,6 +34,8 @@ registerEvents(app);
 registerHostRoutes(app);
 registerJobRoutes(app);
 registerInstallRoutes(app);
+const bridge = new HomeAssistantBridge(app.log);
+registerSettingsRoutes(app, bridge);
 registerAgentSocket(app);
 app.get('/api/health', async () => ({ ok: true, version: config.version }));
 
@@ -47,6 +51,7 @@ app.setNotFoundHandler((req, reply) => {
 
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
+await bridge.apply(await loadHomeAssistantSettings());
 
 let shuttingDown = false;
 async function shutdown() {
@@ -54,6 +59,7 @@ async function shutdown() {
   shuttingDown = true;
   clearInterval(flushTimer);
   stopScheduler();
+  await bridge.stop(false);
   await flushLogs().catch(() => {});
   await app.close();
   await closeDb();

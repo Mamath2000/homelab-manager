@@ -274,7 +274,7 @@ export function HostDetail() {
                     <JobStatusIcon status={j.status} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-zinc-200">{actionLabel[j.action]}{j.packages.length > 0 && ` (${j.packages.length})`}</span>
-                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}</span>
+                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}</span>
                     </span>
                   </button>
                 </li>

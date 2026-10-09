@@ -58,7 +58,7 @@ export interface Job {
   hostName: string;
   action: JobAction;
   packages: string[];
-  trigger: 'manual' | 'schedule';
+  trigger: 'manual' | 'schedule' | 'homeassistant';
   status: JobStatus;
   createdAt: string;
   finishedAt: string | null;
@@ -70,6 +70,30 @@ export interface Job {
 export interface AuthStatus {
   setupRequired: boolean;
   user: { username: string } | null;
+}
+
+export interface HomeAssistantSettings {
+  enabled: boolean;
+  broker: string;
+  username: string;
+  hasPassword: boolean;
+  topic: string;
+  discoveryPrefix: string;
+  status: {
+    state: 'disabled' | 'connecting' | 'connected' | 'error';
+    error: string | null;
+    devices: number;
+    lastPublishAt: string | null;
+  };
+}
+
+export interface HomeAssistantInput {
+  enabled: boolean;
+  broker: string;
+  username: string;
+  password?: string;
+  topic: string;
+  discoveryPrefix: string;
 }
 
 export class ApiError extends Error {
@@ -111,6 +135,11 @@ export const api = {
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   regenerateToken: (id: string) =>
     request<{ token: string; installCommand: string | null }>('POST', `/api/hosts/${id}/token`),
+
+  homeAssistant: () => request<HomeAssistantSettings>('GET', '/api/settings/homeassistant'),
+  saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),
+  testHomeAssistant: (s: HomeAssistantInput) =>
+    request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),

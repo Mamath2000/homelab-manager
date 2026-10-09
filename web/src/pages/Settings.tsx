@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { KeyRound, Settings as SettingsIcon, Terminal } from 'lucide-react';
+import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { useToast } from '../components/Toast';
 import { Button, CopyField, PageHeader, Panel } from '../components/ui';
 import { api } from '../lib/api';
@@ -58,6 +59,7 @@ export function Settings() {
             </p>
           </div>
         </Panel>
+        <HomeAssistantPanel />
       </div>
     </>
   );

@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { HostDoc, JobDoc, SessionDoc, UserDoc } from './types.js';
+import type { HomeAssistantSettings, HostDoc, JobDoc, SessionDoc, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -8,6 +8,7 @@ export let hosts: Collection<HostDoc>;
 export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
+export let settings: Collection<HomeAssistantSettings>;
 
 export async function connectDb() {
   await client.connect();
@@ -16,6 +17,7 @@ export async function connectDb() {
   jobs = db.collection('jobs');
   users = db.collection('users');
   sessions = db.collection('sessions');
+  settings = db.collection('settings');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),

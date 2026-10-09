@@ -64,7 +64,7 @@ export interface JobDoc {
   hostName: string;
   action: JobAction;
   packages: string[];
-  trigger: 'manual' | 'schedule';
+  trigger: 'manual' | 'schedule' | 'homeassistant';
   status: JobStatus;
   createdAt: Date;
   finishedAt?: Date;
@@ -84,4 +84,14 @@ export interface SessionDoc {
   _id: string; // sha256 of the cookie token
   userId: ObjectId;
   expiresAt: Date;
+}
+
+export interface HomeAssistantSettings {
+  _id: 'homeassistant';
+  enabled: boolean;
+  broker: string; // mqtt://host:1883, mqtts://...
+  username: string;
+  password: string;
+  topic: string; // prefix of the state / command topics
+  discoveryPrefix: string;
 }

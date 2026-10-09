@@ -14,6 +14,7 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 - **Vue par paquet** : « openssl est à mettre à jour sur 14 hôtes », et mise à jour en un clic partout.
 - **Vérification planifiée** : le hub demande aux agents de rafraîchir leurs listes de paquets toutes les 12 h (configurable).
 - **Historique** des tâches avec leurs sorties (conservé 90 jours).
+- **Home Assistant** (option, dans les Paramètres) : publication MQTT avec découverte automatique *device-based*. Hiérarchie Homelab Manager > hôtes > composants (APT…), alertes remontées vers l'hôte puis la racine, mises à jour installables depuis HA. Voir [docs/home-assistant.md](docs/home-assistant.md).
 - Interface **dark**, en français, utilisable sur mobile.
 
 | Fiche hôte | Vue par paquet |
