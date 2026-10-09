@@ -1,14 +1,15 @@
+import { useHubUrl } from '../lib/hubUrl';
 import { CopyField } from './ui';
 
 export function InstallInstructions({ command }: { command: string | null }) {
-  const origin = window.location.origin;
+  const origin = useHubUrl();
   return (
     <div className="space-y-4 text-sm">
       <div>
         <p className="mb-2 text-zinc-300">
           Lance cette commande <strong className="text-zinc-100">en root</strong> sur l'hôte (Debian / Ubuntu, systemd) :
         </p>
-        {command ? <CopyField value={command} multiline /> : <p className="text-red-400">URL du hub invalide : définis PUBLIC_URL.</p>}
+        {command ? <CopyField value={command} multiline /> : <p className="text-red-400">URL du hub invalide : corrige « URL du hub (agents) » dans les paramètres.</p>}
       </div>
       <ul className="list-inside list-disc space-y-1 text-xs text-muted">
         <li>

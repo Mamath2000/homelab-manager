@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { FastifyBaseLogger } from 'fastify';
 import { agentBinary, agentOutdated } from '../agentBinaries.js';
+import { loadAgentSettings } from '../agentUpdate.js';
 import { isOnline } from '../agents.js';
 import { config } from '../config.js';
 import { hosts } from '../db.js';
@@ -108,6 +109,11 @@ export class HomeAssistantBridge {
     this.error = null;
   }
 
+  // republishes the devices, e.g. after the hub URL changed
+  refresh() {
+    if (this.client) this.schedule(0);
+  }
+
   private schedule(delay: number) {
     if (this.debounce) return;
     this.debounce = setTimeout(() => {
@@ -126,6 +132,7 @@ export class HomeAssistantBridge {
     const s = this.settings;
     if (!this.client?.connected || !s) return;
     const list = await hosts.find().sort({ name: 1 }).toArray();
+    const hubUrl = (await loadAgentSettings()).hubUrl || undefined;
     const built = build(
       list.map((host) => {
         const id = host._id.toHexString();
@@ -138,7 +145,7 @@ export class HomeAssistantBridge {
           latestAgentVersion: bin?.version ?? null,
         };
       }),
-      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl: config.publicUrl },
+      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl },
     );
     this.commands = built.commands;
     const ids = new Set(built.devices.map((d) => d.id));

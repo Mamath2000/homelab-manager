@@ -8,26 +8,26 @@ sidebar_position: 1
 
 ## Le hub
 
-Le hub tourne dans Docker avec sa base MongoDB. Dans un répertoire dédié, récupérer `compose.yml` et `.env.example` depuis le dépôt, puis :
+Le hub tourne dans Docker avec sa base MongoDB. Dans un répertoire dédié, récupérer `compose.yml` depuis le dépôt, l'ajuster si besoin (port publié, niveau de logs, reverse proxy), puis :
 
 ```bash
-cp .env.example .env      # optionnel : PUBLIC_URL, CHECK_INTERVAL_HOURS, HUB_PORT…
 docker compose up -d
 ```
 
 ```yaml title="compose.yml"
 services:
   hub:
-    image: ${HUB_IMAGE:-mathmath350/homelab-manager:latest}
+    image: mathmath350/homelab-manager:latest
     container_name: homelab-manager
     restart: unless-stopped
     ports:
-      - "${HUB_PORT:-3000}:3000"
-    env_file:
-      - path: .env
-        required: false
+      - "3000:3000"           # <port publié>:3000
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
+      LOG_LEVEL: info         # fatal | error | warn | info | debug
+      # SESSION_DAYS: 30
+      # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
+      # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
     depends_on:
       - mongo
 
@@ -49,7 +49,7 @@ MongoDB 5 et plus demande un processeur avec les instructions AVX. Sur du matér
 :::
 
 :::tip URL utilisée par les agents
-Par défaut, la commande d'installation des agents reprend l'adresse utilisée dans le navigateur. Si tu ouvres l'interface via un nom ou un reverse proxy que les hôtes ne savent pas joindre, définis `PUBLIC_URL` dans `.env` (voir [Configuration](configuration.md)).
+Par défaut, la commande d'installation des agents reprend l'adresse utilisée dans le navigateur. Si tu ouvres l'interface via un nom ou un reverse proxy que les hôtes ne savent pas joindre, renseigne **URL du hub (agents)** dans **Paramètres > Agent** (voir [Configuration](configuration.md)).
 :::
 
 ### Mise à jour du hub

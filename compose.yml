@@ -1,15 +1,18 @@
+# Déploiement du hub. Les paramètres fonctionnels (URL du hub pour les agents, fréquence des vérifications)
+# se règlent dans l'interface : Paramètres > Agent.
 services:
   hub:
-    image: ${HUB_IMAGE:-mathmath350/homelab-manager:latest}
+    image: mathmath350/homelab-manager:latest
     container_name: homelab-manager
     restart: unless-stopped
     ports:
-      - "${HUB_PORT:-3000}:3000"
-    env_file:
-      - path: .env          # optionnel, voir .env.example
-        required: false
+      - "3000:3000"           # <port publié>:3000
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
+      LOG_LEVEL: info         # fatal | error | warn | info | debug
+      # SESSION_DAYS: 30
+      # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
+      # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
     depends_on:
       - mongo
 

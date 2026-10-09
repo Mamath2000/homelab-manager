@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { KeyRound, Settings as SettingsIcon, Terminal } from 'lucide-react';
-import { AgentAutoUpdate } from '../components/AgentSettings';
+import { AgentAutoUpdate, AgentHubSettings } from '../components/AgentSettings';
+import { useHubUrl } from '../lib/hubUrl';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { useToast } from '../lib/toast';
 import { Button, CopyField, PageHeader, Panel } from '../components/ui';
@@ -11,7 +12,7 @@ export function Settings() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
-  const origin = window.location.origin;
+  const origin = useHubUrl();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +48,7 @@ export function Settings() {
         </Panel>
         <Panel title="Agent" icon={Terminal}>
           <div className="space-y-4 text-sm">
+            <AgentHubSettings />
             <AgentAutoUpdate />
             <div>
               <p className="mb-2 text-zinc-300">Mise à jour manuelle, nécessaire une fois pour les agents antérieurs à la mise à jour automatique (le token est conservé) :</p>

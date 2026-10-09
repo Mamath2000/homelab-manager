@@ -11,8 +11,8 @@ export function registerInstallRoutes(app: FastifyInstance) {
 
   // Generic installer, the agent token is passed as argument when it is run.
   app.get('/install.sh', async (req, reply) => {
-    const url = hubUrl(req);
-    if (!url) return reply.code(400).send('# invalid hub url, set PUBLIC_URL\n');
+    const url = await hubUrl(req);
+    if (!url) return reply.code(400).send('# invalid hub url, set it in the agent settings\n');
     reply.type('text/x-shellscript; charset=utf-8');
     return template.replaceAll('__HUB_URL__', url);
   });

@@ -28,10 +28,9 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 
 ### 1. Le hub
 
-Récupère [`compose.yml`](compose.yml) et [`.env.example`](.env.example), puis :
+Récupère [`compose.yml`](compose.yml), ajuste-le si besoin (port publié, niveau de logs, reverse proxy), puis :
 
 ```sh
-cp .env.example .env      # optionnel : PUBLIC_URL, CHECK_INTERVAL_HOURS, HUB_PORT…
 docker compose up -d
 ```
 
@@ -56,20 +55,18 @@ Prérequis côté hôte : Debian ou Ubuntu, systemd, `curl` ou `wget`.
 
 ## Configuration du hub
 
-Variables d'environnement, lues depuis `.env` par `docker compose`, `make dev` et `make start` :
+Déploiement : variables d'environnement écrites dans [`compose.yml`](compose.yml). En local, le Makefile les fixe (`make start PORT=4000 LOG=debug`).
 
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
 | `MONGO_URL` | `mongodb://localhost:27017/homelab` | Base MongoDB |
-| `HUB_PORT` | `3000` | Port du hub : publié par `docker compose`, écouté par `make dev` / `make start` |
-| `PORT` | `3000` | Port d'écoute interne du hub (fixé à 3000 dans l'image, dérivé de `HUB_PORT` par le Makefile) |
-| `HUB_IMAGE` | `mathmath350/homelab-manager:latest` | Image utilisée par `docker compose` |
-| `PUBLIC_URL` | URL utilisée dans le navigateur | URL par laquelle les agents joignent le hub |
-| `CHECK_INTERVAL_HOURS` | `12` | Fréquence de l'`apt-get update` automatique (`0` = désactivé) |
+| `PORT` | `3000` | Port d'écoute du hub (3000 dans l'image ; port publié choisi dans `compose.yml`) |
+| `LOG_LEVEL` | `info` | Niveau de logs |
 | `SESSION_DAYS` | `30` | Durée des sessions |
 | `COOKIE_SECURE` | `false` | `true` si le hub est servi en HTTPS |
 | `TRUST_PROXY` | `false` | `true` derrière un reverse proxy |
-| `LOG_LEVEL` | `info` | Niveau de logs |
+
+Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL du hub (agents)**, adresse donnée aux agents dans la commande d'installation (vide : celle du navigateur), et fréquence de l'`apt-get update` automatique (12 h par défaut, `0` = désactivé).
 
 ## Architecture
 
@@ -108,7 +105,7 @@ Variables d'environnement, lues depuis `.env` par `docker compose`, `make dev` e
 
 ## Développement
 
-Prérequis : Node.js 22, Go 1.24, GNU Make, Docker pour l'image, et un MongoDB accessible (`MONGO_URL` dans `.env`, défaut `mongodb://localhost:27017/homelab`). `make` (ou `make help`) liste toutes les commandes.
+Prérequis : Node.js 22, Go 1.24, GNU Make, Docker pour l'image, et un MongoDB accessible (défaut `mongodb://localhost:27017/homelab`, `make start MONGO_URL=…` sinon). `make` (ou `make help`) liste toutes les commandes.
 
 ```sh
 make install            # dépendances hub + web + agent
@@ -118,7 +115,7 @@ make agent-run TOKEN=…  # agent local contre le hub (en root pour apt-get upda
 
 | Commande | Rôle |
 | --- | --- |
-| `make start` | Build complet puis hub en mode production (UI servie sur le port 3000) |
+| `make start` | Build complet puis hub en mode production (UI servie sur le port 3000) ; `PORT=`, `LOG=`, `MONGO_URL=` pour changer |
 | `make lint` | gofmt, go vet, typage du hub, eslint de l'interface |
 | `make test` | Tests unitaires agent + hub |
 | `make agent` | Agent amd64 + arm64 dans `agent/dist` (servi par le hub) ; build de la version de l'agent +1 si ses sources ont changé |
@@ -126,9 +123,6 @@ make agent-run TOKEN=…  # agent local contre le hub (en root pour apt-get upda
 | `make build` | Agent (amd64 + arm64), hub et interface |
 | `make check` | lint + test + build : ce que lance la CI |
 | `make docker-build` | Image locale `homelab-manager:latest` |
-| `make docker-up` / `docker-down` / `docker-logs` | Stack compose avec l'image locale |
-
-La configuration locale se met dans `.env` (voir `.env.example`), comme en production.
 
 ### Release
 

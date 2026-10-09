@@ -55,7 +55,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       await hosts.insertOne(doc);
       const dto = hostDto(doc);
       publish('host', dto);
-      const url = hubUrl(req);
+      const url = await hubUrl(req);
       reply.code(201);
       return { host: dto, token, installCommand: url ? installCommand(url, token) : null };
     },
@@ -102,7 +102,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     const res = await hosts.updateOne({ _id }, { $set: { tokenHash } });
     if (res.matchedCount === 0) return reply.code(404).send({ error: 'host not found' });
     disconnectAgent(req.params.id);
-    const url = hubUrl(req);
+    const url = await hubUrl(req);
     return { token, installCommand: url ? installCommand(url, token) : null };
   });
 

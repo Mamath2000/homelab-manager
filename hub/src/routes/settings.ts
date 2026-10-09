@@ -4,6 +4,7 @@ import { testConnection, type HomeAssistantBridge } from '../homeassistant/bridg
 import { AGENT_ARCHES, agentBinary } from '../agentBinaries.js';
 import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
 import { hosts } from '../db.js';
+import { SAFE_URL } from '../hubUrl.js';
 import type { HomeAssistantSettings } from '../types.js';
 
 const DEFAULTS: HomeAssistantSettings = {
@@ -79,28 +80,42 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
   });
 }
 
-// Agents: automatic update and the binaries the hub distributes.
-export function registerAgentSettingsRoutes(app: FastifyInstance) {
-  const dto = async () => ({
-    autoUpdate: (await loadAgentSettings()).autoUpdate,
-    binaries: AGENT_ARCHES.map((a) => agentBinary(a)).filter((b) => b !== null),
-  });
+// Agents: automatic update, hub URL, apt-get update interval and the binaries the hub distributes.
+interface AgentBody {
+  autoUpdate?: boolean;
+  hubUrl?: string;
+  checkIntervalHours?: number;
+}
+
+const agentBody = {
+  type: 'object',
+  minProperties: 1,
+  additionalProperties: false,
+  properties: {
+    autoUpdate: { type: 'boolean' },
+    hubUrl: { type: 'string', maxLength: 256 },
+    checkIntervalHours: { type: 'integer', minimum: 0, maximum: 720 },
+  },
+} as const;
+
+export function registerAgentSettingsRoutes(app: FastifyInstance, bridge: HomeAssistantBridge) {
+  const dto = async () => {
+    const { _id, ...s } = await loadAgentSettings();
+    return { ...s, binaries: AGENT_ARCHES.map((a) => agentBinary(a)).filter((b) => b !== null) };
+  };
 
   app.get('/api/settings/agents', dto);
 
-  app.put<{ Body: { autoUpdate: boolean } }>(
-    '/api/settings/agents',
-    {
-      schema: {
-        body: { type: 'object', required: ['autoUpdate'], additionalProperties: false, properties: { autoUpdate: { type: 'boolean' } } },
-      },
-    },
-    async (req) => {
-      await settings.replaceOne({ _id: 'agents' }, { _id: 'agents', autoUpdate: req.body.autoUpdate }, { upsert: true });
-      if (req.body.autoUpdate) {
-        for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) await maybeAutoUpdate(h._id);
-      }
-      return dto();
-    },
-  );
+  app.put<{ Body: AgentBody }>('/api/settings/agents', { schema: { body: agentBody } }, async (req, reply) => {
+    const current = await loadAgentSettings();
+    const next = { ...current, ...req.body };
+    next.hubUrl = next.hubUrl.trim().replace(/\/+$/, '');
+    if (next.hubUrl && !SAFE_URL.test(next.hubUrl)) return reply.code(400).send({ error: 'URL du hub invalide (http(s)://hôte[:port][/chemin])' });
+    await settings.replaceOne({ _id: 'agents' }, next, { upsert: true });
+    if (next.hubUrl !== current.hubUrl) bridge.refresh();
+    if (next.autoUpdate && !current.autoUpdate) {
+      for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) await maybeAutoUpdate(h._id);
+    }
+    return dto();
+  });
 }

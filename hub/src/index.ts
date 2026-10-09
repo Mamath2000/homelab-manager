@@ -36,7 +36,7 @@ registerJobRoutes(app);
 registerInstallRoutes(app);
 const bridge = new HomeAssistantBridge(app.log);
 registerSettingsRoutes(app, bridge);
-registerAgentSettingsRoutes(app);
+registerAgentSettingsRoutes(app, bridge);
 registerAgentSocket(app);
 app.get('/api/health', async () => ({ ok: true, version: config.version }));
 

@@ -3,5 +3,4 @@ dist/
 *.log
 .env
 .env.*
-!.env.example
 agent/.build-hash

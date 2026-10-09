@@ -1,8 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { isOnline } from './agents.js';
-import { config } from './config.js';
 import { hosts } from './db.js';
-import { maybeAutoUpdate } from './agentUpdate.js';
+import { loadAgentSettings, maybeAutoUpdate } from './agentUpdate.js';
 import { createJob, hasRunningJob } from './jobs.js';
 
 // Asks every online agent to refresh its package lists when they are older than the interval.
@@ -11,9 +10,10 @@ async function tick(log: FastifyBaseLogger) {
     if (await maybeAutoUpdate(h._id)) log.info({ host: h._id.toHexString() }, 'automatic agent update');
   }
 
-  // CHECK_INTERVAL_HOURS=0 disables the automatic apt-get update only
-  if (config.checkIntervalHours <= 0) return;
-  const intervalMs = config.checkIntervalHours * 3600 * 1000;
+  // an interval of 0 disables the automatic apt-get update only
+  const { checkIntervalHours } = await loadAgentSettings();
+  if (checkIntervalHours <= 0) return;
+  const intervalMs = checkIntervalHours * 3600 * 1000;
   const threshold = Date.now() - intervalMs;
   for (const host of await hosts.find().toArray()) {
     const id = host._id.toHexString();

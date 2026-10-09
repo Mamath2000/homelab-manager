@@ -1,17 +1,16 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
-        docker-build docker-up docker-down docker-logs \
+        docker-build \
         docker-release docker-release-minor docker-release-major
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
-# Port du hub : HUB_PORT de la ligne de commande, de l'environnement, sinon de .env, sinon 3000.
-# Seule source du port : publié par docker compose, écouté par make dev / make start (PORT), visé par Vite et agent-run.
-ifndef HUB_PORT
-HUB_PORT  := $(shell set -a; [ -f .env ] && . ./.env; echo $${HUB_PORT:-3000})
-endif
-HUB       ?= http://localhost:$(HUB_PORT)
-LOAD_ENV  := set -a; [ -f .env ] && . ./.env; set +a; export PORT=$(HUB_PORT) HUB_URL=$(HUB);
+# Lancement local (make dev / make start), surchargeable : make start PORT=4000 LOG=debug
+PORT      ?= 3000
+LOG       ?= info
+MONGO_URL ?= mongodb://localhost:27017/homelab
+HUB       ?= http://localhost:$(PORT)
+RUN_ENV   := export PORT=$(PORT) LOG_LEVEL=$(LOG) MONGO_URL=$(MONGO_URL) HUB_URL=$(HUB);
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
@@ -28,13 +27,13 @@ install: ## Installe les dépendances (npm ci hub + web, go mod download)
 
 dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
 	@echo "hub : $(HUB)   ·   interface : http://localhost:5173"
-	@$(LOAD_ENV) trap 'trap - INT TERM; kill 0' INT TERM; \
+	@$(RUN_ENV) trap 'trap - INT TERM; kill 0' INT TERM; \
 		(cd hub && npm run dev) & \
 		(cd web && npm run dev) & \
 		wait
 
-start: build ## Build complet puis lance le hub comme en production (UI servie sur le port HUB_PORT)
-	@$(LOAD_ENV) cd hub && NODE_ENV=production node dist/index.js
+start: build ## Build complet puis lance le hub comme en production : make start [PORT=3000] [LOG=info] [MONGO_URL=…]
+	@$(RUN_ENV) cd hub && NODE_ENV=production node dist/index.js
 
 stop: ## Arrête le hub et l'interface lancés par make dev / make start (processus node de hub/ et web/ de ce repo)
 	@pids=$$(for p in $$(pgrep -u "$$(id -u)" -x 'node|npm.*|esbuild'); do \
@@ -91,16 +90,6 @@ clean: ## Supprime les artefacts de build
 
 docker-build: ## Construit l'image locale homelab-manager:latest (sans push)
 	bash docker-release.sh build
-
-docker-up: ## Lance hub + mongo avec l'image locale (après make docker-build), sur le port HUB_PORT
-	HUB_IMAGE=homelab-manager:latest docker compose up -d
-	@echo "http://localhost:$(HUB_PORT)"
-
-docker-down: ## Arrête la stack docker compose
-	docker compose down
-
-docker-logs: ## Suit les logs de la stack docker compose
-	docker compose logs -f
 
 docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git
 	bash docker-release.sh release

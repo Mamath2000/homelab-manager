@@ -1,11 +1,12 @@
 import type { FastifyRequest } from 'fastify';
-import { config } from './config.js';
+import { loadAgentSettings } from './agentUpdate.js';
 
-const SAFE_URL = /^https?:\/\/[A-Za-z0-9.\-:[\]]+(\/[A-Za-z0-9._~\-/]*)?$/;
+export const SAFE_URL = /^https?:\/\/[A-Za-z0-9.\-:[\]]+(\/[A-Za-z0-9._~\-/]*)?$/;
 
-// URL agents use to reach the hub. It ends up in a shell script, so it is validated strictly.
-export function hubUrl(req: FastifyRequest) {
-  const url = config.publicUrl ?? `${req.protocol}://${req.headers.host ?? ''}`;
+// URL agents use to reach the hub: the agent settings, else the address used in the browser.
+// It ends up in a shell script, so it is validated strictly.
+export async function hubUrl(req: FastifyRequest) {
+  const url = (await loadAgentSettings()).hubUrl || `${req.protocol}://${req.headers.host ?? ''}`;
   return SAFE_URL.test(url) ? url : null;
 }
 

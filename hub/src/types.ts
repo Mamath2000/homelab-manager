@@ -107,6 +107,10 @@ export interface SessionDoc {
 export interface AgentSettings {
   _id: 'agents';
   autoUpdate: boolean;
+  // URL the agents use to reach the hub; empty: the address used in the browser
+  hubUrl: string;
+  // how often the hub asks each agent to run `apt-get update` (0 = never)
+  checkIntervalHours: number;
 }
 
 export interface HomeAssistantSettings {

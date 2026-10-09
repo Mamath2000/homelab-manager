@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useToast } from '../lib/toast';
+import { Button } from './ui';
 
 // Automatic agent updates + the agent version the hub distributes.
 export function AgentAutoUpdate() {
@@ -12,7 +14,7 @@ export function AgentAutoUpdate() {
 
   const toggle = async (autoUpdate: boolean) => {
     try {
-      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings(autoUpdate));
+      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({ autoUpdate }));
       toast.success(autoUpdate ? 'Mise à jour automatique des agents activée' : 'Mise à jour automatique des agents désactivée');
     } catch (err) {
       toast.error((err as Error).message);
@@ -36,5 +38,62 @@ export function AgentAutoUpdate() {
         {data.binaries.length > 0 && <> ({data.binaries.map((b) => b.arch).join(', ')})</>}
       </p>
     </div>
+  );
+}
+
+// URL given to the agents and interval of the automatic apt-get update.
+export function AgentHubSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings });
+  // local draft once edited, server values until then
+  const [draft, setDraft] = useState<{ hubUrl: string; checkIntervalHours: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!data) return null;
+  const form = draft ?? { hubUrl: data.hubUrl, checkIntervalHours: String(data.checkIntervalHours) };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({ hubUrl: form.hubUrl, checkIntervalHours: Number(form.checkIntervalHours) }));
+      setDraft(null);
+      toast.success('Paramètres des agents enregistrés');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save} className="space-y-4">
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">URL du hub (agents)</span>
+        <input
+          className="input"
+          value={form.hubUrl}
+          onChange={(e) => setDraft({ ...form, hubUrl: e.target.value })}
+          placeholder={window.location.origin}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">
+          Adresse par laquelle les hôtes joignent le hub (commande d'installation, liens Home Assistant). Vide : l'adresse de ce navigateur.
+        </span>
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Vérification automatique des mises à jour (heures)</span>
+        <input
+          className="input w-32"
+          type="number"
+          min={0}
+          max={720}
+          required
+          value={form.checkIntervalHours}
+          onChange={(e) => setDraft({ ...form, checkIntervalHours: e.target.value })}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">Fréquence de l'apt-get update lancé sur chaque hôte. 0 : désactivé.</span>
+      </label>
+      <Button type="submit" variant="primary" loading={busy} disabled={!draft}>Enregistrer</Button>
+    </form>
   );
 }

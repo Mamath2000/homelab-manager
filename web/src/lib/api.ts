@@ -105,6 +105,8 @@ export interface HomeAssistantInput {
 
 export interface AgentSettings {
   autoUpdate: boolean;
+  hubUrl: string; // empty: the address used in the browser
+  checkIntervalHours: number;
   binaries: { arch: string; sha256: string; version: string | null }[];
 }
 
@@ -154,7 +156,8 @@ export const api = {
     request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
-  saveAgentSettings: (autoUpdate: boolean) => request<AgentSettings>('PUT', '/api/settings/agents', { autoUpdate }),
+  saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours'>>) =>
+    request<AgentSettings>('PUT', '/api/settings/agents', patch),
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
