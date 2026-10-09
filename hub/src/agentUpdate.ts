@@ -1,6 +1,7 @@
 import type { ObjectId } from 'mongodb';
 import { agentOutdated } from './agentBinaries.js';
 import { isOnline } from './agents.js';
+import { config } from './config.js';
 import { hosts, settings } from './db.js';
 import { createJob, hasRunningJob } from './jobs.js';
 import type { AgentSettings, HostDoc } from './types.js';
@@ -9,7 +10,7 @@ const RETRY_MS = 3600 * 1000;
 
 export async function loadAgentSettings(): Promise<AgentSettings> {
   const s = (await settings.findOne({ _id: 'agents' })) as AgentSettings | null;
-  return { _id: 'agents', autoUpdate: s?.autoUpdate ?? true, hubUrl: s?.hubUrl ?? '', checkIntervalHours: s?.checkIntervalHours ?? 12 };
+  return { _id: 'agents', autoUpdate: s?.autoUpdate ?? true, hubUrl: s?.hubUrl ?? '', agentPort: s?.agentPort ?? config.agentTlsPort, checkIntervalHours: s?.checkIntervalHours ?? 12 };
 }
 
 export function canSelfUpdate(h: HostDoc) {

@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { CircleArrowUp, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert } from 'lucide-react';
+import { Link } from 'react-router';
+import { CircleArrowUp, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert, ShieldX } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
-import { AgentBadge, UpdateAgentButton } from '../components/Agent';
+import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { JobStatusIcon } from '../components/JobConsole';
 import { RebootStatus } from '../components/Reboot';
 import { ItemCard, StatusSection } from '../components/StatusSection';
 import { Badge, Button, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { actionLabel, timeAgo } from '../lib/format';
 import { useHosts, useJobs, useRunBulk } from '../lib/queries';
-import { connection, connectionMeta, listsStale, osLabel, updateMeta, updateState } from '../lib/status';
+import { connection, connectionMeta, listsStale, needsReinstall, osLabel, updateMeta, updateState } from '../lib/status';
 import type { Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 
@@ -37,6 +38,7 @@ export function Dashboard() {
   const count = <T extends string>(fn: (h: Host) => T, v: T) => hosts.filter((h) => fn(h) === v).length;
   const online = hosts.filter((h) => h.online);
   const outdated = hosts.filter((h) => h.agentOutdated);
+  const reinstall = hosts.filter(needsReinstall);
   const needsUpdate = hosts
     .filter((h) => (h.aptSummary?.upgradable ?? 0) > 0 || h.aptSummary?.rebootRequired)
     .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
@@ -89,6 +91,7 @@ export function Dashboard() {
               return (
                 <ItemCard key={h.id} to={`/hosts/${h.id}`} icon={Server} tone={connectionMeta[c].tone} title={h.name}
                   right={c !== 'online' && <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>}>
+                  {needsReinstall(h) && <ReinstallBadge />}
                   {h.agentOutdated && <AgentBadge />}
                   <HostTags h={h} />
                 </ItemCard>
@@ -112,8 +115,22 @@ export function Dashboard() {
             ]}
             cardsTitle="À traiter"
             cardsIcon={ShieldAlert}
-            empty={needsUpdate.length === 0 && outdated.length === 0 ? <p className="py-6 text-sm text-muted">Tout est à jour. 🎉</p> : undefined}
+            empty={needsUpdate.length === 0 && outdated.length === 0 && reinstall.length === 0 ? <p className="py-6 text-sm text-muted">Tout est à jour. 🎉</p> : undefined}
           >
+            {reinstall.length > 0 && (
+              <div className="flex min-w-0 flex-col gap-2.5 rounded-md border border-red-500/40 bg-red-500/5 p-3.5">
+                <span className="flex items-center gap-2.5 text-sm font-medium text-red-200">
+                  <ShieldX className="h-4 w-4 shrink-0 text-red-400" />
+                  Agents à réinstaller ({reinstall.length})
+                </span>
+                <p className="text-xs text-muted">Ancien jeton en clair, refusé par le hub : nouvelle commande d'installation depuis la fiche de chaque hôte.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {reinstall.map((h) => (
+                    <Link key={h.id} to={`/hosts/${h.id}`} className="hover:opacity-80"><Tag>{h.name}</Tag></Link>
+                  ))}
+                </div>
+              </div>
+            )}
             {outdated.length > 0 && (
               <div className="flex min-w-0 flex-col gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-3.5">
                 <span className="flex items-center gap-2.5 text-sm font-medium text-amber-200">

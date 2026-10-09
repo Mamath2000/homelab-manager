@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"testing"
 )
 
@@ -49,7 +50,7 @@ func TestValidPackages(t *testing.T) {
 }
 
 func TestSelfUpdateChecksum(t *testing.T) {
-	if err := selfUpdate(context.Background(), "http://127.0.0.1:1", "short", func(string) {}); err == nil {
+	if err := selfUpdate(context.Background(), http.DefaultClient, "http://127.0.0.1:1", "short", func(string) {}); err == nil {
 		t.Fatal("an invalid expected hash must be refused before any download")
 	}
 	if len(selfHash()) != 64 {

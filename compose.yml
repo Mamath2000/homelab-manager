@@ -6,7 +6,8 @@ services:
     container_name: homelab-manager
     restart: unless-stopped
     ports:
-      - "3000:3000"           # <port publié>:3000
+      - "3000:3000"           # interface et API : <port publié>:3000
+      - "3443:3443"           # agents, en TLS : <port publié>:3443 (à reporter dans Paramètres > Agent s'il diffère)
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
       LOG_LEVEL: info         # fatal | error | warn | info | debug

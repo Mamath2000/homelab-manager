@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
-import { AgentBadge, UpdateAgentButton } from '../components/Agent';
+import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
-import { api, type Host, type Job } from '../lib/api';
+import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { actionLabel, dateTime, timeAgo, uptime } from '../lib/format';
 import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
-import { canSelfUpdate, connection, connectionMeta, listsStale, osLabel } from '../lib/status';
+import { agentRevoked, connection, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
+import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -207,8 +208,10 @@ export function HostDetail() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
-  const [install, setInstall] = useState<{ command: string | null } | null>(null);
-  const [confirmToken, setConfirmToken] = useState(false);
+  const [install, setInstall] = useState<InstallInfo | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const tls = useAgentTls();
+  const upsert = useUpdateHostCache();
   const [confirmReboot, setConfirmReboot] = useState(false);
 
   const shownJob = jobId ?? jobs?.[0]?.id ?? null;
@@ -221,11 +224,20 @@ export function HostDetail() {
   const startJob = (action: 'apt_update' | 'apt_upgrade') =>
     run.mutate({ hostId: host.id, action }, { onSuccess: (j) => { setJobId(j.id); setConfirmUpgrade(false); } });
 
-  const regenerate = async () => {
+  // new single-use code; the current agent keeps working until the new installation enrolls
+  const newInstall = async () => {
     try {
-      const r = await api.regenerateToken(host.id);
-      setConfirmToken(false);
-      setInstall({ command: r.installCommand });
+      setInstall(await api.enrollHost(host.id));
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
+  const revoke = async () => {
+    try {
+      upsert(await api.revokeHost(host.id));
+      setConfirmRevoke(false);
+      toast.success(`Agent de ${host.name} révoqué`);
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -260,7 +272,10 @@ export function HostDetail() {
             )}
             {canManage && (
               <>
-                <Button icon={KeyRound} variant="ghost" title="Nouveau token" onClick={() => setConfirmToken(true)} />
+                <Button icon={KeyRound} variant="ghost" title="Nouvelle commande d'installation" onClick={newInstall} />
+                {host.agentAuth !== 'none' && (
+                  <Button icon={ShieldOff} variant="ghost" title="Révoquer l'agent" className="hover:text-red-400" onClick={() => setConfirmRevoke(true)} />
+                )}
                 <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
               </>
             )}
@@ -283,6 +298,21 @@ export function HostDetail() {
           )}
         </div>
       )}
+      {(needsReinstall(host) || agentRevoked(host)) && (
+        <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
+          {needsReinstall(host) ? <ReinstallBadge /> : <Badge tone="bad" className="gap-1"><ShieldOff className="h-3 w-3" />Agent révoqué</Badge>}
+          <span className="text-red-100/90">
+            {needsReinstall(host)
+              ? "Cet agent s'authentifie avec l'ancien jeton en clair, que le hub refuse désormais. Réinstalle-le avec une nouvelle commande d'installation."
+              : "Son certificat a été révoqué : l'agent ne peut plus se connecter. Réinstalle-le pour le reconnecter."}
+          </span>
+          {canManage && (
+            <span className="ml-auto">
+              <Button size="sm" icon={KeyRound} onClick={newInstall}>Commande d'installation</Button>
+            </span>
+          )}
+        </div>
+      )}
       {host.agentOutdated && (
         <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
           <AgentBadge />
@@ -290,14 +320,18 @@ export function HostDetail() {
             Agent {host.agentVersion ?? 'inconnu'}
             {host.latestAgentVersion && host.latestAgentVersion !== host.agentVersion && <> → {host.latestAgentVersion}</>}
           </span>
-          {!canSelfUpdate(host) && <span className="text-xs text-amber-300">trop ancien pour se mettre à jour seul : réinstallation manuelle une fois</span>}
           <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
         </div>
       )}
       {canManage && c === 'pending' && (
         <Panel title="Installer l'agent" icon={Terminal} className="mb-5">
-          <p className="mb-3 text-sm text-zinc-300">Cet hôte n'a encore jamais contacté le hub. Le token n'étant affiché qu'à la création, génère une nouvelle commande si besoin.</p>
-          <Button icon={KeyRound} onClick={regenerate}>Générer la commande d'installation</Button>
+          <p className="mb-3 text-sm text-zinc-300">
+            Cet hôte n'a encore jamais contacté le hub.{' '}
+            {host.enrollExpiresAt
+              ? `Une commande d'installation est valable jusqu'au ${dateTime(host.enrollExpiresAt)} ; elle n'est affichée qu'une fois, génère-en une nouvelle si besoin.`
+              : "Aucune commande d'installation en cours de validité : génère-en une."}
+          </p>
+          <Button icon={KeyRound} onClick={newInstall}>Générer la commande d'installation</Button>
         </Panel>
       )}
 
@@ -313,6 +347,9 @@ export function HostDetail() {
             <InfoRow label="IP"><span className="font-mono text-xs">{host.info?.ips?.join(', ') || '—'}</span></InfoRow>
             <InfoRow label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</InfoRow>
             <InfoRow label="Agent">{host.agentVersion ?? '—'}</InfoRow>
+            <InfoRow label="Certificat">
+              {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
+            </InfoRow>
             <InfoRow label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</InfoRow>
             <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
           </dl>
@@ -364,8 +401,9 @@ export function HostDetail() {
         L'hôte redémarre dans les secondes qui suivent (<code className="text-zinc-100">systemctl reboot</code>). Il repasse « En ligne » dès que l'agent se reconnecte.
         {host.info?.virt === 'none' || !host.info?.virt ? null : <p className="mt-2 text-xs text-muted">Virtualisation : {host.info.virt} (seul ce conteneur ou cette VM redémarre).</p>}
       </ConfirmModal>
-      <ConfirmModal open={confirmToken} onClose={() => setConfirmToken(false)} title="Générer un nouveau token" confirmLabel="Générer" danger={c !== 'pending'} onConfirm={regenerate}>
-        {c === 'pending' ? "Une nouvelle commande d'installation va être générée." : "L'agent actuel sera déconnecté et devra être réinstallé avec le nouveau token."}
+      <ConfirmModal open={confirmRevoke} onClose={() => setConfirmRevoke(false)} title={`Révoquer l'agent de ${host.name}`} confirmLabel="Révoquer" danger onConfirm={revoke}>
+        L'agent est déconnecté immédiatement et son certificat est refusé, de même que toute commande d'installation en attente.
+        L'hôte reste dans la liste avec son historique ; pour le reconnecter, réinstalle l'agent avec une nouvelle commande d'installation.
       </ConfirmModal>
       <ConfirmModal
         open={deleting}
@@ -382,11 +420,13 @@ export function HostDetail() {
           }
         }}
       >
-        L'hôte et son historique seront supprimés et l'agent déconnecté. Pour désinstaller l'agent :
-        <pre className="mt-2 overflow-x-auto rounded-sm border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">curl -fsSL {window.location.origin}/install.sh | sh -s -- --uninstall</pre>
+        L'hôte et son historique seront supprimés et l'agent déconnecté. Pour désinstaller l'agent, en root sur l'hôte :
+        {tls?.uninstallCommand && (
+          <pre className="mt-2 overflow-x-auto rounded-sm border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">{tls.uninstallCommand}</pre>
+        )}
       </ConfirmModal>
       <Modal open={!!install} onClose={() => setInstall(null)} title={`Installer l'agent sur ${host.name}`} wide>
-        {install && <InstallInstructions command={install.command} />}
+        {install && <InstallInstructions install={install} />}
       </Modal>
     </>
   );

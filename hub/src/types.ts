@@ -54,7 +54,14 @@ export interface HostDoc {
   _id: ObjectId;
   name: string;
   group?: string;
-  tokenHash: string;
+  // legacy bearer token (agents before TLS): such hosts must be reinstalled
+  tokenHash?: string;
+  // single-use enrollment code of the install command (sha256), valid until enrollExpiresAt
+  enrollCodeHash?: string;
+  enrollExpiresAt?: Date;
+  // sha256 of the client certificate the agent authenticates with (mTLS)
+  certFingerprint?: string;
+  certIssuedAt?: Date;
   createdAt: Date;
   enrolledAt?: Date;
   lastSeenAt?: Date;
@@ -117,11 +124,24 @@ export interface SessionDoc {
   expiresAt: Date;
 }
 
+// Internal PKI of the hub (see pki.ts): its CA signs the TLS certificate of the agent port and
+// the client certificates of the agents.
+export interface PkiDoc {
+  _id: 'pki';
+  caCert: string; // PEM
+  caKey: string; // PKCS#8 PEM
+  serverCert: string;
+  serverKey: string;
+  createdAt: Date;
+}
+
 export interface AgentSettings {
   _id: 'agents';
   autoUpdate: boolean;
-  // URL the agents use to reach the hub; empty: the address used in the browser
+  // URL of the hub UI (links, and host of the agent address); empty: the address used in the browser
   hubUrl: string;
+  // port the agents reach the TLS agent server on (published port of AGENT_TLS_PORT)
+  agentPort: number;
   // how often the hub asks each agent to run `apt-get update` (0 = never)
   checkIntervalHours: number;
 }

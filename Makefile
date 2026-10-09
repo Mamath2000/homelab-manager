@@ -10,7 +10,11 @@ PORT      ?= 3000
 LOG       ?= info
 MONGO_URL ?= mongodb://localhost:27017/homelab
 HUB       ?= http://localhost:$(PORT)
-RUN_ENV   := export PORT=$(PORT) LOG_LEVEL=$(LOG) MONGO_URL=$(MONGO_URL) HUB_URL=$(HUB);
+AGENT_TLS_PORT ?= 3443
+RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LOG) MONGO_URL=$(MONGO_URL);
+# Agent local (make agent-run) : adresse TLS du hub et dossier de configuration (certificat, clé)
+AGENT_HUB ?= https://localhost:$(AGENT_TLS_PORT)
+AGENT_DIR ?= $(CURDIR)/agent/.dev
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
@@ -58,9 +62,15 @@ agent-minor: ## Version mineure de l'agent +1 (X.Y+1.0), puis compile
 agent-major: ## Version majeure de l'agent +1 (X+1.0.0), puis compile
 	@./agent/build.sh major
 
-agent-run: ## Lance l'agent en local contre le hub : make agent-run TOKEN=<token> [HUB=url] (root pour apt-get)
-	@[ -n "$(TOKEN)" ] || { echo "Usage : make agent-run TOKEN=<token> [HUB=$(HUB)]"; exit 1; }
-	cd agent && go run -ldflags "-X main.version=$$(cat VERSION)-dev" . -hub $(HUB) -token $(TOKEN)
+agent-run: ## Lance l'agent en local (root pour apt-get) : make agent-run [CODE=<code de la commande d'installation>]
+	@mkdir -p $(AGENT_DIR)
+	@# dev only: the CA is taken from install.sh without pinning (local hub)
+	@if [ -n "$(CODE)" ]; then \
+		curl -fsSk $(AGENT_HUB)/install.sh | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' > $(AGENT_DIR)/ca.pem && \
+		cd agent && go run . enroll -hub $(AGENT_HUB) -dir $(AGENT_DIR) -code $(CODE); \
+	fi
+	@[ -f $(AGENT_DIR)/agent.crt ] || { echo "Agent non enrôlé : make agent-run CODE=<code de la commande d'installation>"; exit 1; }
+	cd agent && go run -ldflags "-X main.version=$$(cat VERSION)-dev" . -hub $(AGENT_HUB) -dir $(AGENT_DIR)
 
 # --- Qualité -------------------------------------------------------------------
 

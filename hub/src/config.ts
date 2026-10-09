@@ -18,6 +18,8 @@ function num(name: string, fallback: number) {
 export const config = {
   version: (JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf8')) as { version: string }).version,
   port: num('PORT', 3000),
+  // TLS port for the agents (install script, binaries, enrollment, WebSocket)
+  agentTlsPort: num('AGENT_TLS_PORT', 3443),
   host: env('HOST') ?? '0.0.0.0',
   mongoUrl: env('MONGO_URL') ?? 'mongodb://localhost:27017/homelab',
   webDir: env('WEB_DIR') ?? resolve(here, '../../web/dist'),

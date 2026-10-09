@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import { safeEqualHex, sha256 } from './crypto.js';
-import { hosts, parseId } from './db.js';
+import type { TLSSocket } from 'node:tls';
+import type { FastifyRequest } from 'fastify';
+import { hosts } from './db.js';
 import { publish } from './events.js';
 import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
@@ -32,14 +33,15 @@ export function disconnectAgent(hostId: string) {
   connections.get(hostId)?.close(4001, 'revoked');
 }
 
-// Agent token format: "<hostId>.<secret>"; only sha256(secret) is stored.
-async function authenticate(header: string | undefined) {
-  const token = header?.startsWith('Bearer ') ? header.slice(7) : '';
-  const [id, secret] = token.split('.');
-  const _id = id ? parseId(id) : null;
-  if (!_id || !secret) return null;
-  const host = await hosts.findOne({ _id });
-  return host && safeEqualHex(host.tokenHash, sha256(secret)) ? host : null;
+// Mutual TLS: the client certificate must be issued by the hub CA (checked by the TLS layer) and
+// be the one currently recorded for a host (revocation = the fingerprint is removed).
+async function authenticate(req: FastifyRequest) {
+  const socket = req.raw.socket as TLSSocket;
+  if (!socket.encrypted || !socket.authorized) return null;
+  const cert = socket.getPeerCertificate();
+  if (!cert?.fingerprint256) return null;
+  const fingerprint = cert.fingerprint256.replaceAll(':', '').toLowerCase();
+  return hosts.findOne({ certFingerprint: fingerprint });
 }
 
 async function emitHost(hostId: HostDoc['_id']) {
@@ -71,8 +73,8 @@ export function registerAgentSocket(app: FastifyInstance) {
     {
       websocket: true,
       preValidation: async (req, reply) => {
-        const host = await authenticate(req.headers.authorization);
-        if (!host) return reply.code(401).send({ error: 'invalid agent token' });
+        const host = await authenticate(req);
+        if (!host) return reply.code(401).send({ error: 'unknown or revoked agent certificate' });
         req.agentHost = host;
       },
     },

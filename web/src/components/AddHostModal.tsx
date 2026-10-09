@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../lib/api';
+import { api, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { InstallInstructions } from './InstallInstructions';
 import { Button, Modal } from './ui';
@@ -9,7 +9,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
   const [group, setGroup] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ installCommand: string | null } | null>(null);
+  const [result, setResult] = useState<InstallInfo | null>(null);
   const upsert = useUpdateHostCache();
 
   const close = () => {
@@ -39,7 +39,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
     <Modal open={open} onClose={close} title={result ? `Installer l'agent sur ${name}` : 'Ajouter un hôte'} wide={!!result}>
       {result ? (
         <div className="space-y-4">
-          <InstallInstructions command={result.installCommand} />
+          <InstallInstructions install={result} />
           <div className="flex justify-end">
             <Button variant="primary" onClick={close}>Terminé</Button>
           </div>

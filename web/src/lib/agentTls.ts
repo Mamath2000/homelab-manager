@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 
-// Hub URL for commands shown in the UI: the agent settings, else this browser's address.
-export function useHubUrl() {
+// Agent server address, pinned keys and the upgrade / uninstall commands built by the hub.
+export function useAgentTls() {
   const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings });
-  return data?.hubUrl || window.location.origin;
+  return data?.tls;
 }

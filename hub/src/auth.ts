@@ -19,7 +19,7 @@ function isPublic(req: FastifyRequest) {
   const route = req.routeOptions.url;
   // unmatched requests only reach the 404 / SPA fallback
   if (!route) return true;
-  // static UI, install script, agent socket (authenticated by its own token)
+  // static UI and the notice of the old install script (the agents use their own TLS server)
   if (!route.startsWith('/api/')) return true;
   return route.startsWith('/api/auth/') || route === '/api/health';
 }
