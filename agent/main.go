@@ -251,6 +251,9 @@ func main() {
 		return
 	}
 	cfg, _ := loadConfig(os.Args[1:])
+	if releasePubKey == "" {
+		log.Printf("development build: agent updates are not signature-checked")
+	}
 	roots, cert, err := identity(cfg.Dir)
 	if err != nil {
 		log.Fatal(err)

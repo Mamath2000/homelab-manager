@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 import type { HostDoc } from './types.js';
@@ -10,6 +10,8 @@ export interface AgentBinary {
   arch: string;
   sha256: string;
   version: string | null;
+  // release signature next to the binary (unsigned: development build)
+  signed: boolean;
 }
 
 // sha256 of the binaries served to agents, recomputed only when a file changes
@@ -42,7 +44,7 @@ export function agentBinary(arch: string | undefined): AgentBinary | null {
     c = { mtimeMs: st.mtimeMs, size: st.size, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') };
     cache.set(arch, c);
   }
-  return { arch, sha256: c.sha256, version: binariesVersion() };
+  return { arch, sha256: c.sha256, version: binariesVersion(), signed: existsSync(`${file}.sig`) };
 }
 
 // null: unknown (never connected, or no binary for this architecture on the hub), or an agent

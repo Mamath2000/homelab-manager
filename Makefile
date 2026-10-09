@@ -1,6 +1,6 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
-        docker-build \
+        docker-build release-key \
         docker-release docker-release-minor docker-release-major
 .DEFAULT_GOAL := help
 
@@ -15,6 +15,9 @@ RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LO
 # Agent local (make agent-run) : adresse TLS du hub et dossier de configuration (certificat, clé)
 AGENT_HUB ?= https://localhost:$(AGENT_TLS_PORT)
 AGENT_DIR ?= $(CURDIR)/agent/.dev
+# Clé privée de signature des binaires de l'agent, hors du dépôt (make release-key)
+RELEASE_KEY ?= $(HOME)/.config/homelab-manager/release.key
+export RELEASE_KEY
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
@@ -98,7 +101,12 @@ clean: ## Supprime les artefacts de build
 
 # --- Docker ----------------------------------------------------------------------
 
-docker-build: ## Construit l'image locale homelab-manager:latest (sans push)
+release-key: ## Crée la clé de signature des agents (une fois) : clé privée dans RELEASE_KEY, agent/release.pub à commiter
+	cd agent && go run ./cmd/hm-sign keygen -key $(RELEASE_KEY) -pub release.pub
+	@echo "Clé privée : $(RELEASE_KEY) (à sauvegarder, jamais dans le dépôt)"
+	@echo "Clé publique : agent/release.pub (à commiter : les agents de release l'embarquent)"
+
+docker-build: ## Construit l'image locale homelab-manager:latest (sans push ; agents signés si la clé de release est présente)
 	bash docker-release.sh build
 
 docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git

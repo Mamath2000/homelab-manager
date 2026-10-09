@@ -140,7 +140,8 @@ export interface AgentSettings {
   hubUrl: string; // empty: the address used in the browser
   checkIntervalHours: number;
   agentPort: number; // TLS port given to the agents (published port of the hub)
-  binaries: { arch: string; sha256: string; version: string | null }[];
+  // signed: release signature checked by the agents (unsigned: development build)
+  binaries: { arch: string; sha256: string; version: string | null; signed: boolean }[];
   tls: {
     agentUrl: string | null; // null: invalid hub URL
     serverPin: string;

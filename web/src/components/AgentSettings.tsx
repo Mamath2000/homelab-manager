@@ -30,7 +30,7 @@ export function AgentAutoUpdate() {
         <span>
           <span className="block font-medium text-zinc-100">Mettre à jour les agents automatiquement</span>
           <span className="mt-1 block text-xs text-muted">
-            Dès qu'un agent se connecte avec une version différente de celle du hub, il télécharge la nouvelle, vérifie son empreinte et redémarre.
+            Dès qu'un agent se connecte avec une version différente de celle du hub, il télécharge la nouvelle, vérifie son empreinte et sa signature, puis redémarre.
             Un nouvel essai a lieu au plus une fois par heure.
           </span>
         </span>
@@ -38,6 +38,12 @@ export function AgentAutoUpdate() {
       <p className="mt-3 text-xs text-muted">
         Agent distribué par ce hub : <span className="font-mono text-zinc-300">{version ?? 'inconnu'}</span>
         {data.binaries.length > 0 && <> ({data.binaries.map((b) => b.arch).join(', ')})</>}
+        {data.binaries.length > 0 &&
+          (data.binaries.every((b) => b.signed) ? (
+            <span className="text-emerald-400"> · signé</span>
+          ) : (
+            <span className="text-amber-300"> · non signé (build de développement : les agents de release refuseront cette mise à jour)</span>
+          ))}
       </p>
     </div>
   );
