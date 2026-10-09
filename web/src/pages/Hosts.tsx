@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Brush, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
+import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
@@ -10,6 +11,7 @@ import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
 import { connection, connectionMeta, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 import { useMe } from '../lib/auth';
+import type { Host } from '../lib/api';
 
 type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent' | 'reinstall';
 
@@ -37,6 +39,7 @@ export function Hosts() {
   const [adding, setAdding] = useState(false);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [agentModal, setAgentModal] = useState(false);
+  const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
   const bulk = useRunBulk();
   const { canWrite, canManage } = useMe();
   const run = useRunJob();
@@ -176,9 +179,14 @@ export function Hosts() {
                             <Badge tone="warn">{s.upgradable}</Badge>
                           </>
                         )}
-                        {!!s?.autoremovable && (
+                        {!!s?.autoremovable && (canWrite && h.online && h.apt?.autoremovable?.length ? (
+                          <button type="button" title="Nettoyer (apt autoremove)" className="rounded-sm transition hover:brightness-125"
+                            onClick={(e) => { e.stopPropagation(); setCleanupHost(h); }}>
+                            <Badge tone="neutral" className="gap-1"><Brush className="h-3 w-3" />{s.autoremovable} à nettoyer</Badge>
+                          </button>
+                        ) : (
                           <Badge tone="neutral" className="gap-1"><Brush className="h-3 w-3" />{s.autoremovable} à nettoyer</Badge>
-                        )}
+                        ))}
                       </div>
                     </td>
                     <td className="td" title={s?.rebootRequired ? "L'hôte attend un redémarrage" : s?.rebootPending ? 'Des mises à jour en attente nécessiteront un redémarrage' : undefined}>
@@ -204,6 +212,8 @@ export function Hosts() {
           </table>
         )}
       </div>
+
+      <CleanupModal host={cleanupHost} onClose={() => setCleanupHost(null)} />
 
       <ConfirmModal
         open={confirmUpgrade}
