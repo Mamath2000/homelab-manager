@@ -247,7 +247,7 @@ export class HomeAssistantBridge {
   private async run(cmd: Command) {
     for (const id of cmd.hostIds) {
       const host = await hosts.findOne({ _id: ObjectId.createFromHexString(id) });
-      if (host && isOnline(id) && !hasRunningJob(id)) await createJob(host, cmd.action, [], 'homeassistant');
+      if (host && isOnline(id) && !hasRunningJob(id)) await createJob(host, cmd.action, [], 'homeassistant', cmd.target);
     }
   }
 }

@@ -4,11 +4,12 @@
 // Hierarchy (via_device):
 //   Homelab Manager (root)
 //   └── one device per host: agent connectivity, alerts rolled up from its sub-components
-//       └── one device per sub-component: APT today (docker, backups... later), with the details
+//       └── one device per sub-component, with the details: APT, one per Docker compose stack
 // Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
 import type { HostDoc, JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
-import { agentAlerts, aptAlerts, type Alert } from './alerts.js';
+import { agentAlerts, aptAlerts, dockerAlerts, type Alert } from './alerts.js';
+import { dockerView } from '../docker.js';
 
 export const PRESS = 'PRESS';
 export const INSTALL = 'INSTALL';
@@ -42,6 +43,8 @@ export interface Command {
   payload: string;
   action: JobAction;
   hostIds: string[];
+  // docker actions: the stack they apply to
+  target?: { stack: string };
 }
 
 export interface Device {
@@ -135,6 +138,11 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   let toUpdate = 0;
   let toReboot = 0;
   let toClean = 0;
+  let stacks = 0;
+  let stacksToUpdate = 0;
+  let withDocker = 0;
+
+  const stackLabel: Record<string, string> = { running: 'En marche', partial: 'Partielle', stopped: 'Arrêtée', down: 'Down' };
 
   for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion } of hosts) {
     const hid = host._id.toHexString();
@@ -186,8 +194,49 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       d.finish();
     }
 
+    // --- Docker: one sub-component per compose stack
+    const docker: Alert[] = [];
+    const view = dockerView(host);
+    if (view) withDocker++;
+    for (const st of view?.stacks ?? []) {
+      stacks++;
+      if (st.updates) stacksToUpdate++;
+      const alerts = dockerAlerts(st);
+      docker.push(...alerts);
+      const id = `${hostId}_docker_${st.name}`;
+      const target = { stack: st.name };
+      const d = device(id, {
+        name: `${host.name} · ${st.name}`, model: 'Stack Docker', via_device: hostId,
+        ...(hubUrl ? { configuration_url: `${hubUrl}/docker/${hid}/${st.name}` } : {}),
+      }, [{ topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }]);
+      d.sensor('status', 'État', stackLabel[st.status] ?? st.status, {
+        icon: 'mdi:docker', json_attributes_topic: `${topic}/${id}/status/attributes`,
+      });
+      d.attributes('status', {
+        services: st.services.map((s) => ({
+          name: s.name, image: s.image, update: s.update,
+          containers: s.containers.map((c) => ({ name: c.name, state: c.state, health: c.health ?? null })),
+        })),
+      });
+      d.sensor('containers', 'Conteneurs', `${st.running}/${st.total}`, { icon: 'mdi:package-variant' });
+      const pending = st.services.filter((s) => s.update === 'available' || s.update === 'recreate');
+      const summary = pending.length ? pending.map((s) => `${s.name} (${s.image})`).join(', ') : 'Images à jour';
+      d.update('images', 'Images', {
+        installed_version: 'actuelles',
+        latest_version: pending.length ? `${pending.length} mise(s) à jour` : 'actuelles',
+        title: st.name,
+        release_summary: summary.length > 255 ? `${summary.slice(0, 252)}...` : summary,
+        in_progress: busy,
+      }, { action: 'docker_update', hostIds: [hid], target });
+      d.button('restart', 'Redémarrer', { action: 'docker_restart', hostIds: [hid], target }, { device_class: 'restart' });
+      d.button('start', 'Démarrer', { action: 'docker_up', hostIds: [hid], target }, { icon: 'mdi:play' });
+      d.button('stop', 'Arrêter', { action: 'docker_stop', hostIds: [hid], target }, { icon: 'mdi:stop' });
+      d.alerts(alerts, diag);
+      d.finish();
+    }
+
     // --- host: connectivity + alerts rolled up from the sub-components
-    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt];
+    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt, ...docker];
     const selfUpdate = !!host.capabilities?.includes('agent_update');
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 
@@ -215,6 +264,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     if (host.capabilities?.includes('reboot')) {
       d.button('reboot', 'Redémarrer', { action: 'reboot', hostIds: [hid] }, { device_class: 'restart' });
     }
+    if (view) d.button('docker_check', 'Vérifier les images Docker', { action: 'docker_check', hostIds: [hid] }, { icon: 'mdi:docker' });
     d.alerts(hostAlerts);
     d.sensor('os', 'Système', host.info?.osName ?? null, { icon: 'mdi:linux', ...diag });
     d.sensor('kernel', 'Noyau', host.info?.kernel ?? null, { icon: 'mdi:chip', ...diag });
@@ -236,6 +286,10 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   root.sensor('hosts_to_reboot', 'Hôtes à redémarrer', toReboot, { icon: 'mdi:restart-alert' });
   root.sensor('agents_outdated', 'Agents à mettre à jour', hosts.filter((h) => h.agentOutdated).length, { icon: 'mdi:update' });
   root.sensor('hosts_to_clean', 'Hôtes à nettoyer', toClean, { icon: 'mdi:broom' });
+  if (withDocker) {
+    root.sensor('stacks', 'Stacks Docker', stacks, { icon: 'mdi:docker' });
+    root.sensor('stacks_to_update', 'Stacks à mettre à jour', stacksToUpdate, { icon: 'mdi:update' });
+  }
   root.alerts(allAlerts);
   root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online) }, { icon: 'mdi:refresh' });
   root.finish();

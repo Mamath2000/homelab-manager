@@ -6,6 +6,7 @@ import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
 import { build, INSTALL, PRESS, ROOT_ID, parseDiscoveryTopic, type HostState } from '../src/homeassistant/discovery.js';
 import type { HostDoc } from '../src/types.js';
+import { dockerHost } from './fixtures.js';
 
 const opts = { topic: 'hm', discoveryPrefix: 'homeassistant', version: '1.2.3' };
 
@@ -164,4 +165,41 @@ test('testConnection reports broker availability and authentication', async () =
     await new Promise<void>((r) => server.close(() => r()));
     await new Promise<void>((r) => broker.close(() => r()));
   }
+});
+
+test('one sub-component per docker stack, with its update and actions', () => {
+  const NEW = 'sha256:' + 'b'.repeat(64);
+  const h = dockerHost(
+    {
+      stacks: [
+        {
+          name: 'web', workingDir: '/srv/web', configFiles: ['/srv/web/compose.yml'], envFiles: [], status: 'partial',
+          services: [
+            { name: 'app', image: 'nginx', containers: [{ id: 'a', name: 'web-app-1', state: 'running', status: '', imageId: 'i' }] },
+            { name: 'db', image: 'postgres', containers: [{ id: 'b', name: 'web-db-1', state: 'exited', status: '', imageId: 'i' }] },
+          ],
+        },
+      ],
+      images: [{ ref: 'nginx', id: 'i', digest: 'sha256:' + 'a'.repeat(64) }, { ref: 'postgres', id: 'i', digest: NEW }],
+    },
+    { checkedAt: Date.now(), images: [{ ref: 'nginx', digest: NEW }, { ref: 'postgres', digest: NEW }] },
+  );
+  const { devices, commands } = build([{ host: h, online: true, busy: false }], opts);
+  const hid = h._id.toHexString();
+  const id = `hm_${hid}_docker_web`;
+  const dev = devices.find((d) => d.id === id)!;
+  assert.equal((dev.discovery.device as Record<string, unknown>).via_device, `hm_${hid}`);
+  const states = new Map(devices.flatMap((d) => d.states));
+  assert.equal(states.get(`hm/${id}/status/state`), 'Partielle');
+  assert.equal(states.get(`hm/${id}/containers/state`), '1/2');
+  const update = JSON.parse(states.get(`hm/${id}/images/state`)!);
+  assert.equal(update.latest_version, '1 mise(s) à jour');
+  assert.match(update.release_summary, /app \(nginx\)/);
+  assert.deepEqual(commands.get(`hm/${id}/images/set`), { payload: INSTALL, action: 'docker_update', hostIds: [hid], target: { stack: 'web' } });
+  assert.deepEqual(commands.get(`hm/${id}/restart/set`), { payload: PRESS, action: 'docker_restart', hostIds: [hid], target: { stack: 'web' } });
+  // the partial stack is an alert of the stack, the host and the root
+  assert.equal(states.get(`hm/${id}/alerts/state`), '1');
+  assert.equal(states.get(`hm/hm_${hid}/alerts/state`), '1');
+  assert.equal(states.get(`hm/${ROOT_ID}/stacks_to_update/state`), '1');
+  assert.deepEqual(commands.get(`hm/hm_${hid}/docker_check/set`), { payload: PRESS, action: 'docker_check', hostIds: [hid] });
 });

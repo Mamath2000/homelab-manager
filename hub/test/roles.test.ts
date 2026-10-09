@@ -39,6 +39,12 @@ test('viewer is read-only and sees neither settings nor accounts', () => {
   assert.ok(authorize('viewer', 'POST', '/api/account/password'));
   assert.ok(!authorize('viewer', 'GET', '/api/settings/homeassistant'));
   assert.ok(!authorize('viewer', 'GET', '/api/users'));
+  // container logs and compose files may hold secrets
+  assert.ok(authorize('viewer', 'GET', '/api/hosts/:id'));
+  assert.ok(!authorize('viewer', 'GET', '/api/hosts/:id/stacks/:stack/logs'));
+  assert.ok(!authorize('viewer', 'GET', '/api/hosts/:id/stacks/:stack/compose'));
+  assert.ok(authorize('operator', 'GET', '/api/hosts/:id/stacks/:stack/logs'));
+  assert.ok(!authorize('operator', 'DELETE', '/api/hosts/:id/stacks/:stack'));
   for (const [m, r] of [
     ['POST', '/api/hosts'],
     ['PATCH', '/api/hosts/:id'],

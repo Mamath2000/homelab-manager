@@ -9,11 +9,13 @@ import { useLiveEvents } from './lib/live';
 import { Accounts } from './pages/Accounts';
 import { Activity } from './pages/Activity';
 import { Dashboard } from './pages/Dashboard';
+import { Docker } from './pages/Docker';
 import { HostDetail } from './pages/HostDetail';
 import { Hosts } from './pages/Hosts';
 import { JobDetail } from './pages/JobDetail';
 import { ForcePasswordChange, Login } from './pages/Login';
 import { Settings } from './pages/Settings';
+import { Stack } from './pages/Stack';
 import { Updates } from './pages/Updates';
 
 export default function App() {
@@ -74,6 +76,8 @@ export default function App() {
                 <Route path="hosts" element={<Hosts />} />
                 <Route path="hosts/:id" element={<HostDetail />} />
                 <Route path="updates" element={<Updates />} />
+                <Route path="docker" element={<Docker />} />
+                <Route path="docker/:hostId/:stack" element={<Stack />} />
                 <Route path="activity" element={<Activity />} />
                 <Route path="jobs/:id" element={<JobDetail />} />
                 {me.canAccounts && <Route path="accounts" element={<Accounts />} />}

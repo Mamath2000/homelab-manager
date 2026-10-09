@@ -20,6 +20,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Vérification planifiée** : `apt-get update` automatique toutes les 12 h.
 - **Nettoyage** : paquets inutiles (anciens noyaux, dépendances orphelines) supprimables via `apt autoremove`.
 - **Historique** des tâches et de leurs sorties (90 jours).
+- **Docker** : stacks compose des hôtes, état des conteneurs, images à mettre à jour, démarrer / arrêter / redémarrer / mettre à jour, logs et fichiers compose.
 - **Home Assistant** (option) : appareils, alertes et mises à jour publiés via MQTT, avec découverte automatique.
 
 ## Principes
@@ -33,6 +34,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 
 - [Installation](installation.md) : hub et agents.
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
+- [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
 - [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.
 - [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe.
 - [Sécurité](securite.md) : connexion des agents, enrôlement, révocation, signature des binaires.

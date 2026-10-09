@@ -1,13 +1,14 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
-import { disconnectAgent } from '../agents.js';
+import { AgentRequestError, agentRequest, disconnectAgent, isOnline } from '../agents.js';
+import { SERVICE_RE, STACK_RE, findStack } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { hosts, jobs, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
-import { JOB_ACTIONS, type HostDoc, type JobAction } from '../types.js';
+import { DOCKER_ACTIONS, JOB_ACTIONS, type HostDoc, type JobAction } from '../types.js';
 
 const hostBody = {
   type: 'object',
@@ -25,8 +26,40 @@ const jobBody = {
   properties: {
     action: { type: 'string', enum: JOB_ACTIONS },
     packages: { type: 'array', maxItems: 500, items: { type: 'string', maxLength: 128 } },
+    stack: { type: 'string', maxLength: 64 },
+    service: { type: 'string', maxLength: 64 },
   },
 } as const;
+
+const stackParams = {
+  type: 'object',
+  required: ['id', 'stack'],
+  properties: { id: { type: 'string' }, stack: { type: 'string', pattern: STACK_RE.source } },
+} as const;
+
+// Host with Docker for the stack routes; sends the error itself and returns null otherwise.
+async function dockerHost(id: string, stack: string, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) {
+  const _id = parseId(id);
+  const host = _id && (await hosts.findOne({ _id }));
+  if (!host) {
+    reply.code(404).send({ error: 'host not found' });
+    return null;
+  }
+  if (!host.capabilities?.includes('docker') || !findStack(host, stack)) {
+    reply.code(404).send({ error: 'stack introuvable sur cet hôte' });
+    return null;
+  }
+  if (!isOnline(id)) {
+    reply.code(409).send({ error: 'hôte hors ligne' });
+    return null;
+  }
+  return host;
+}
+
+function agentError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown) {
+  if (err instanceof AgentRequestError) return reply.code(502).send({ error: err.message });
+  throw err;
+}
 
 export const ENROLL_VALIDITY_MS = 24 * 3600 * 1000;
 
@@ -137,7 +170,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map((j) => jobDto(j));
   });
 
-  app.post<{ Params: { id: string }; Body: { action: JobAction; packages?: string[] } }>(
+  app.post<{ Params: { id: string }; Body: { action: JobAction; packages?: string[]; stack?: string; service?: string } }>(
     '/api/hosts/:id/jobs',
     { schema: { body: jobBody } },
     async (req, reply) => {
@@ -150,11 +183,87 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (req.body.action === 'reboot' && !host.capabilities?.includes('reboot')) {
         return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas redémarrer : mets-le à jour" });
       }
+      const { action, stack, service } = req.body;
+      if (action.startsWith('docker_') && !host.capabilities?.includes('docker')) {
+        return reply.code(400).send({ error: "Docker (avec compose v2) n'est pas disponible sur cet hôte" });
+      }
+      // stack actions need a stack of the last report; docker_check covers the whole host
+      if ((DOCKER_ACTIONS as readonly string[]).includes(action)) {
+        if (!stack || !STACK_RE.test(stack) || (service && !SERVICE_RE.test(service))) {
+          return reply.code(400).send({ error: 'stack ou service invalide' });
+        }
+        if (!findStack(host, stack, service)) return reply.code(404).send({ error: 'stack ou service introuvable sur cet hôte' });
+      } else if (stack || service) {
+        return reply.code(400).send({ error: 'stack et service ne concernent que les actions Docker' });
+      }
       const packages = req.body.packages ?? [];
       if (!validPackages(packages)) return reply.code(400).send({ error: 'invalid package name' });
-      const job = await createJob(host, req.body.action, packages, 'manual');
+      const job = await createJob(host, action, packages, 'manual', { stack, service });
       reply.code(202);
       return jobDto(job);
+    },
+  );
+
+  // Last lines of the logs of a stack, or of one of its services.
+  app.get<{ Params: { id: string; stack: string }; Querystring: { service?: string; tail?: number } }>(
+    '/api/hosts/:id/stacks/:stack/logs',
+    {
+      schema: {
+        params: stackParams,
+        querystring: {
+          type: 'object',
+          properties: {
+            service: { type: 'string', pattern: SERVICE_RE.source },
+            tail: { type: 'integer', minimum: 1, maximum: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const host = await dockerHost(req.params.id, req.params.stack, reply);
+      if (!host) return;
+      try {
+        return await agentRequest<{ logs: string }>(req.params.id, 'docker_logs', {
+          stack: req.params.stack,
+          service: req.query.service,
+          tail: req.query.tail ?? 200,
+        });
+      } catch (err) {
+        return agentError(reply, err);
+      }
+    },
+  );
+
+  // Compose files of a stack as they are on the host (env files with masked values).
+  app.get<{ Params: { id: string; stack: string } }>(
+    '/api/hosts/:id/stacks/:stack/compose',
+    { schema: { params: stackParams } },
+    async (req, reply) => {
+      const host = await dockerHost(req.params.id, req.params.stack, reply);
+      if (!host) return;
+      try {
+        return await agentRequest<{ files: { path: string; content: string; masked?: boolean }[] }>(req.params.id, 'docker_compose_file', {
+          stack: req.params.stack,
+        });
+      } catch (err) {
+        return agentError(reply, err);
+      }
+    },
+  );
+
+  // Forgets a stack whose containers were removed (it stays listed as "down" otherwise).
+  app.delete<{ Params: { id: string; stack: string } }>(
+    '/api/hosts/:id/stacks/:stack',
+    { schema: { params: stackParams } },
+    async (req, reply) => {
+      const host = await dockerHost(req.params.id, req.params.stack, reply);
+      if (!host) return;
+      try {
+        await agentRequest(req.params.id, 'docker_forget', { stack: req.params.stack });
+      } catch (err) {
+        return agentError(reply, err);
+      }
+      return reply.code(204).send();
     },
   );
 }

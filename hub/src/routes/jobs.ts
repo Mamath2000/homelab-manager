@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { hosts, jobs, parseId } from '../db.js';
 import { agentOutdated } from '../agentBinaries.js';
 import { createJob, jobDto } from '../jobs.js';
-import { JOB_ACTIONS, type JobAction } from '../types.js';
+import { DOCKER_ACTIONS, JOB_ACTIONS, type JobAction } from '../types.js';
 
 export function registerJobRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { limit?: number } }>(
@@ -42,12 +42,17 @@ export function registerJobRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
+      // stack actions name a stack of one host: they go through /api/hosts/:id/jobs
+      if ((DOCKER_ACTIONS as readonly string[]).includes(req.body.action)) {
+        return reply.code(400).send({ error: 'action Docker par stack : à lancer hôte par hôte' });
+      }
       const ids = req.body.hostIds.map(parseId).filter((x) => x !== null);
       let targets = await hosts.find({ _id: { $in: ids } }).toArray();
       // agents that are up to date or cannot update themselves are skipped
       if (req.body.action === 'agent_update') {
         targets = targets.filter((h) => h.capabilities?.includes('agent_update') && agentOutdated(h) === true);
       }
+      if (req.body.action === 'docker_check') targets = targets.filter((h) => h.capabilities?.includes('docker'));
       const created = [];
       for (const host of targets) created.push(jobDto(await createJob(host, req.body.action, [], 'manual')));
       reply.code(202);

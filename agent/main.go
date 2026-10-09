@@ -92,7 +92,10 @@ type session struct {
 	mu   sync.Mutex // serialises writes
 }
 
-var capabilities = []string{"apt_report", "apt_update", "apt_upgrade", "apt_autoremove", "reboot", "agent_update"}
+var baseCapabilities = []string{"apt_report", "apt_update", "apt_upgrade", "apt_autoremove", "reboot", "agent_update"}
+
+// Docker stacks module, active when the engine and the compose v2 plugin are available.
+var dock = newDockerModule()
 
 var binaryHash = selfHash()
 
@@ -106,6 +109,88 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 	wctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	return s.conn.Write(wctx, websocket.MessageText, b)
+}
+
+// hello announces the agent; the docker capability is re-evaluated each time, so a Docker
+// installed later is picked up by the next periodic hello.
+func (s *session) hello(ctx context.Context) error {
+	caps := append([]string{}, baseCapabilities...)
+	if dock.available(ctx) {
+		caps = append(caps, "docker")
+	}
+	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
+}
+
+// dockerReport sends the state of the compose stacks (nothing when Docker is unavailable).
+func (s *session) dockerReport(ctx context.Context) {
+	cctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	r, err := dock.collect(cctx)
+	if err != nil {
+		return
+	}
+	_ = s.send(ctx, Outbound{Type: "docker_report", Docker: r})
+}
+
+// dockerLoop reports the stacks every 5 minutes and shortly after container events.
+func (s *session) dockerLoop(ctx context.Context) {
+	kick := make(chan struct{}, 1)
+	go dock.watchEvents(ctx, func() {
+		select {
+		case kick <- struct{}{}:
+		default:
+		}
+	})
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-kick:
+			// events come in bursts (stop, die, start...): report once things settle
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+			}
+			select {
+			case <-kick:
+			default:
+			}
+		}
+		s.dockerReport(ctx)
+	}
+}
+
+// rpc answers a request of the hub outside the job queue (logs, compose files...).
+func (s *session) rpc(ctx context.Context, in Inbound) {
+	out := Outbound{Type: "rpc_result", ReqID: in.ReqID}
+	var err error
+	switch in.Op {
+	case "docker_logs":
+		var logs string
+		if logs, err = dock.logs(ctx, in.Stack, in.Service, in.Tail); err == nil {
+			out.Result = map[string]string{"logs": logs}
+		}
+	case "docker_compose_file":
+		var files []composeFile
+		if files, err = dock.composeFiles(ctx, in.Stack); err == nil {
+			out.Result = map[string]any{"files": files}
+		}
+	case "docker_forget":
+		if err = dock.forget(ctx, in.Stack); err == nil {
+			out.Result = map[string]bool{"ok": true}
+			go s.dockerReport(ctx)
+		}
+	default:
+		err = fmt.Errorf("unknown request %q", in.Op)
+	}
+	if err != nil {
+		out.Error = err.Error()
+	}
+	_ = s.send(ctx, out)
 }
 
 func (s *session) report(ctx context.Context) {
@@ -143,7 +228,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 	case "apt_report":
 		emit("collecting package state...\n")
 	case "apt_update":
-		code, err = runStreaming(jctx, emit, "apt-get", "update")
+		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "update")
 	case "apt_upgrade":
 		if !validPackages(in.Packages) {
 			done(-1, fmt.Errorf("invalid package name"))
@@ -158,7 +243,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			args = append(args, "install", "--only-upgrade")
 			args = append(args, in.Packages...)
 		}
-		code, err = runStreaming(jctx, emit, "apt-get", args...)
+		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", args...)
 	case "reboot":
 		path, lerr := exec.LookPath("systemctl")
 		if lerr != nil {
@@ -188,21 +273,36 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}()
 		return
 	case "apt_autoremove":
-		code, err = runStreaming(jctx, emit, "apt-get", "-y", "autoremove")
+		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "-y", "autoremove")
+	case "docker_check":
+		var upd *DockerUpdates
+		if upd, err = dock.check(jctx, emit); err == nil {
+			_ = s.send(ctx, Outbound{Type: "docker_updates", Updates: upd})
+		} else {
+			code = -1
+		}
+	case "docker_up", "docker_stop", "docker_restart", "docker_update":
+		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
 	default:
 		done(-1, fmt.Errorf("unknown action %q", in.Action))
 		return
 	}
 	// always refresh the state after a job so the UI reflects reality
-	s.report(ctx)
+	if strings.HasPrefix(in.Action, "docker_") {
+		s.dockerReport(ctx)
+	} else {
+		s.report(ctx)
+	}
 	done(code, err)
 }
 
 func (s *session) loop(ctx context.Context) error {
-	if err := s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities, BinaryHash: binaryHash}); err != nil {
+	if err := s.hello(ctx); err != nil {
 		return err
 	}
 	go s.report(ctx)
+	go s.dockerReport(ctx)
+	go s.dockerLoop(ctx)
 
 	// periodic refresh of system info + cached apt state (cheap, no network)
 	go func() {
@@ -213,7 +313,7 @@ func (s *session) loop(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				_ = s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities, BinaryHash: binaryHash})
+				_ = s.hello(ctx)
 				s.report(ctx)
 			}
 		}
@@ -228,8 +328,11 @@ func (s *session) loop(ctx context.Context) error {
 		if json.Unmarshal(data, &in) != nil {
 			continue
 		}
-		if in.Type == "run" {
+		switch in.Type {
+		case "run":
 			go s.runJob(ctx, in)
+		case "rpc":
+			go s.rpc(ctx, in)
 		}
 	}
 }

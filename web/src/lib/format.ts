@@ -39,4 +39,16 @@ export const actionLabel: Record<string, string> = {
   apt_autoremove: 'Nettoyage des paquets',
   reboot: 'Redémarrage',
   agent_update: "Mise à jour de l'agent",
+  docker_check: 'Vérification des images Docker',
+  docker_up: 'Démarrage de stack',
+  docker_stop: 'Arrêt de stack',
+  docker_restart: 'Redémarrage de stack',
+  docker_update: 'Mise à jour de stack',
 };
+
+// "Mise à jour de stack · web/app": action plus its stack (and service) for docker jobs
+export function jobTitle(j: { action: string; stack?: string | null; service?: string | null }) {
+  const label = actionLabel[j.action] ?? j.action;
+  if (!j.stack) return label;
+  return `${label} · ${j.stack}${j.service ? `/${j.service}` : ''}`;
+}

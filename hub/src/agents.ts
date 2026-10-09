@@ -8,6 +8,8 @@ import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
 import { recentlyInstalled } from './installed.js';
 import { appendJobLog, failRunningJobs, finishJob } from './jobs.js';
+import { isDockerReport, isDockerUpdates } from './docker.js';
+import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
 declare module 'fastify' {
@@ -27,6 +29,46 @@ export function sendToAgent(hostId: string, msg: unknown) {
   if (!ws || ws.readyState !== ws.OPEN) return false;
   ws.send(JSON.stringify(msg));
   return true;
+}
+
+// Requests answered by the agent outside the job queue (logs, compose files...).
+interface Pending {
+  hostId: string;
+  resolve: (v: unknown) => void;
+  reject: (e: Error) => void;
+  timer: NodeJS.Timeout;
+}
+const pending = new Map<string, Pending>();
+
+export class AgentRequestError extends Error {}
+
+export function agentRequest<T>(hostId: string, op: string, params: Record<string, unknown>, timeoutMs = 25_000): Promise<T> {
+  const reqId = randomUUID();
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(reqId);
+      reject(new AgentRequestError("l'agent n'a pas répondu à temps"));
+    }, timeoutMs);
+    pending.set(reqId, { hostId, resolve: resolve as (v: unknown) => void, reject, timer });
+    if (!sendToAgent(hostId, { type: 'rpc', reqId, op, ...params })) {
+      clearTimeout(timer);
+      pending.delete(reqId);
+      reject(new AgentRequestError('hôte hors ligne'));
+    }
+  });
+}
+
+function settle(hostId: string, reqId: string | undefined, result: unknown, error?: string) {
+  const p = reqId ? pending.get(reqId) : undefined;
+  if (!p || p.hostId !== hostId) return;
+  pending.delete(reqId!);
+  clearTimeout(p.timer);
+  if (error) p.reject(new AgentRequestError(error));
+  else p.resolve(result);
+}
+
+function failPending(hostId: string) {
+  for (const [reqId, p] of pending) if (p.hostId === hostId) settle(hostId, reqId, null, 'agent déconnecté');
 }
 
 export function disconnectAgent(hostId: string) {
@@ -61,6 +103,10 @@ interface AgentMessage {
   capabilities?: unknown;
   binaryHash?: unknown;
   report?: unknown;
+  docker?: unknown;
+  updates?: unknown;
+  reqId?: string;
+  result?: unknown;
   jobId?: string;
   data?: string;
   exitCode?: number;
@@ -143,6 +189,19 @@ export function registerAgentSocket(app: FastifyInstance) {
               }
               await emitHost(host._id);
               break;
+            case 'docker_report':
+              if (!isDockerReport(msg.docker)) return;
+              await hosts.updateOne({ _id: host._id }, { $set: { docker: msg.docker, lastSeenAt: new Date() } });
+              await emitHost(host._id);
+              break;
+            case 'docker_updates':
+              if (!isDockerUpdates(msg.updates)) return;
+              await hosts.updateOne({ _id: host._id }, { $set: { dockerUpdates: msg.updates } });
+              await emitHost(host._id);
+              break;
+            case 'rpc_result':
+              settle(id, msg.reqId, msg.result, msg.error);
+              break;
             case 'job_log':
               if (msg.jobId && typeof msg.data === 'string') appendJobLog(msg.jobId, id, msg.data);
               break;
@@ -161,6 +220,7 @@ export function registerAgentSocket(app: FastifyInstance) {
         if (connections.get(id) !== socket) return;
         connections.delete(id);
         log.info('agent disconnected');
+        failPending(id);
         await failRunningJobs(id, 'agent disconnected');
         await hosts.updateOne({ _id: host._id }, { $set: { lastSeenAt: new Date() } });
         await emitHost(host._id);

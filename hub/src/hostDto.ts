@@ -3,6 +3,7 @@ import { isOnline } from './agents.js';
 import { needsReboot } from './reboot.js';
 import { INSTALLED_TTL_MS } from './installed.js';
 import { agentBinary, agentOutdated } from './agentBinaries.js';
+import { dockerSummary, dockerView } from './docker.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -16,6 +17,7 @@ export function summarize(report: AptReport): AptSummary {
 }
 
 export function hostDto(h: HostDoc) {
+  const docker = dockerView(h);
   return {
     id: h._id.toHexString(),
     name: h.name,
@@ -40,5 +42,8 @@ export function hostDto(h: HostDoc) {
     // computed on read so that reports stored by older hub versions are covered too
     apt: h.apt ? { ...h.apt, upgradable: h.apt.upgradable.map((p) => ({ ...p, reboot: needsReboot(p.name) })) } : null,
     aptSummary: h.apt ? summarize(h.apt) : null,
+    // compose stacks, with the update state of each service (null without Docker)
+    docker,
+    dockerSummary: dockerSummary(docker),
   };
 }

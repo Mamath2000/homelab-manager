@@ -33,8 +33,8 @@ export function useJob(id: string | null | undefined) {
 export function useRunJob() {
   const toast = useToast();
   return useMutation({
-    mutationFn: (v: { hostId: string; action: JobAction; packages?: string[] }) =>
-      api.runJob(v.hostId, v.action, v.packages),
+    mutationFn: (v: { hostId: string; action: JobAction; packages?: string[]; target?: { stack: string; service?: string } }) =>
+      api.runJob(v.hostId, v.action, v.packages, v.target),
     onSuccess: (job) => {
       if (job.status === 'failed') toast.error(`${job.hostName} : ${job.error ?? 'échec'}`);
     },
