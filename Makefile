@@ -54,7 +54,15 @@ stop: ## Arrête le hub et l'interface lancés par make dev / make start (proces
 	@pids=$$(for p in $$(pgrep -u "$$(id -u)" -x 'node|npm.*|esbuild'); do \
 		case "$$(readlink /proc/$$p/cwd 2>/dev/null)" in $(CURDIR)/hub|$(CURDIR)/web) echo $$p;; esac; \
 	done); \
-	if [ -z "$$pids" ]; then echo "Rien à arrêter"; else kill $$pids && echo "Arrêté :" $$pids; fi
+	if [ -z "$$pids" ]; then echo "Rien à arrêter"; exit 0; fi; \
+	alive() { for p in $$pids; do case "$$(ps -o stat= -p $$p 2>/dev/null)" in ""|Z*) ;; *) echo $$p;; esac; done; }; \
+	kill $$pids 2>/dev/null; \
+	for i in $$(seq 30); do [ -z "$$(alive)" ] && break; sleep 0.2; done; \
+	forced=$$(alive); \
+	if [ -n "$$forced" ]; then kill -9 $$forced 2>/dev/null; sleep 0.5; fi; \
+	echo "Arrêté :" $$pids; \
+	[ -z "$$forced" ] || echo "Tué de force (SIGTERM ignoré pendant 6 s) :" $$forced; \
+	left=$$(alive); [ -z "$$left" ] || { echo "Toujours actif :" $$left; exit 1; }
 
 agent: ## Compile l'agent pour l'architecture locale (agent/dist)
 	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)-dev" \
