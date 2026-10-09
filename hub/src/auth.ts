@@ -12,11 +12,15 @@ declare module 'fastify' {
   }
 }
 
-// Paths reachable without a session: login flow, agent endpoints, static UI.
-function isPublic(rawUrl: string) {
-  const url = rawUrl.split('?')[0];
-  if (!url.startsWith('/api/')) return true;
-  return url.startsWith('/api/auth/') || url === '/api/health';
+// Decided on the matched route pattern, never on the raw URL: the router decodes
+// percent-escapes ("/%61pi/hosts" is routed to "/api/hosts").
+function isPublic(req: FastifyRequest) {
+  const route = req.routeOptions.url;
+  // unmatched requests only reach the 404 / SPA fallback
+  if (!route) return true;
+  // static UI, install script, agent socket (authenticated by its own token)
+  if (!route.startsWith('/api/')) return true;
+  return route.startsWith('/api/auth/') || route === '/api/health';
 }
 
 // naive in-memory brute-force protection, plenty for a LAN-only tool
@@ -66,7 +70,7 @@ const credentialsSchema = {
 
 export function registerAuth(app: FastifyInstance) {
   app.addHook('onRequest', async (req, reply) => {
-    if (isPublic(req.url)) return;
+    if (isPublic(req)) return;
     const user = await userFromRequest(req);
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
     req.user = user;
