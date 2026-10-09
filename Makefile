@@ -1,7 +1,7 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
         docker-build release-key \
-        docker-release docker-release-minor docker-release-major docker-direct
+        docker-release docker-release-minor docker-release-major docker-direct publish
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
@@ -18,6 +18,11 @@ AGENT_DIR ?= $(CURDIR)/agent/.dev
 # Clé privée de signature des binaires de l'agent, hors du dépôt (make release-key)
 RELEASE_KEY ?= $(HOME)/.config/homelab-manager/release.key
 export RELEASE_KEY
+# Stack de prod (make publish) : hôte ssh, CT Proxmox (vide = l'hôte ssh lui-même), dossier du compose
+PROD_SSH  ?= pve1.lo
+PROD_PCT  ?= 171
+PROD_DIR  ?= /root/homelab-manager
+PROD_RUN   = ssh $(PROD_SSH) "$(if $(PROD_PCT),pct exec $(PROD_PCT) -- )sh -c 'cd $(PROD_DIR) && $(1)'"
 
 help: ## Affiche cette aide
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
@@ -120,3 +125,8 @@ docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.
 
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]
 	YES=$(YES) bash docker-release.sh direct
+
+publish: ## Prod : récupère la dernière image du hub (Docker Hub) et relance la stack (docker compose up -d + restart) [YES=1]
+	@echo "Stack de prod : $(PROD_SSH)$(if $(PROD_PCT), / CT $(PROD_PCT)):$(PROD_DIR)"
+	@[ "$(YES)" = 1 ] || { printf "Mettre à jour le hub et relancer la stack ? [o/N] "; read a; case "$$a" in o|O|oui|y|Y) ;; *) echo "Annulé"; exit 1 ;; esac; }
+	$(call PROD_RUN,docker compose pull hub && docker compose up -d && docker compose restart && docker compose ps)
