@@ -5,3 +5,5 @@ dist/
 .env.*
 agent/.build-hash
 agent/.dev/
+mongo-data/
+mongo-config/

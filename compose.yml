@@ -23,7 +23,5 @@ services:
     container_name: homelab-manager-mongo
     restart: unless-stopped
     volumes:
-      - mongo-data:/data/db
-
-volumes:
-  mongo-data:
+      - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
+      - ./mongo-config:/data/configdb

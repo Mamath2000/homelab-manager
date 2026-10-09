@@ -63,4 +63,31 @@ Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse 
 | `jobs` | tâches et leurs sorties, supprimées après 90 jours |
 | `users`, `sessions` | comptes utilisateurs et sessions |
 
-Sauvegarder le volume `mongo-data` (ou `mongodump`) suffit pour tout restaurer, y compris l'autorité de certification : les agents se reconnectent sans réinstallation. La sauvegarde contient les clés privées du hub, elle est à protéger comme un secret.
+Sauvegarder le dossier `mongo-data/` (hub arrêté) ou un `mongodump` suffit pour tout restaurer, y compris l'autorité de certification : les agents se reconnectent sans réinstallation. La sauvegarde contient les clés privées du hub, elle est à protéger comme un secret.
+
+`mongodump` et `mongorestore` sont inclus dans l'image `mongo` : rien à installer.
+
+```bash
+# dump (hub en marche)
+docker exec homelab-manager-mongo mongodump --db homelab --archive --gzip > homelab.archive.gz
+# restauration (écrase les collections existantes)
+docker exec -i homelab-manager-mongo mongorestore --archive --gzip --drop < homelab.archive.gz
+```
+
+Exemple de dump quotidien avec 7 jours de rétention (crontab root de l'hôte du hub) :
+
+```bash
+#!/bin/sh
+set -eu
+umask 077                      # le dump contient les clés privées du hub
+DIR=/root/homelab-manager/backups
+mkdir -p "$DIR"
+OUT="$DIR/homelab-$(date +%F).archive.gz"
+docker exec homelab-manager-mongo mongodump --quiet --db homelab --archive --gzip > "$OUT.tmp"
+mv "$OUT.tmp" "$OUT"
+find "$DIR" -name "homelab-*.archive.gz" -mtime +7 -delete
+```
+
+```text
+15 3 * * * /root/homelab-manager/mongo-backup.sh >> /var/log/homelab-manager-backup.log 2>&1
+```

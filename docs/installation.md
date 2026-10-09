@@ -37,10 +37,8 @@ services:
     container_name: homelab-manager-mongo
     restart: unless-stopped
     volumes:
-      - mongo-data:/data/db
-
-volumes:
-  mongo-data:
+      - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
+      - ./mongo-config:/data/configdb
 ```
 
 ### Premier démarrage
@@ -77,7 +75,7 @@ Les agents joignent le hub en TLS sur le port `3443`, avec le nom d'hôte de l'a
 docker compose pull && docker compose up -d
 ```
 
-Les données (hôtes, historique, comptes) sont dans le volume `mongo-data`.
+Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, à côté du `compose.yml` (montage local plutôt qu'un volume Docker : un `docker compose down -v` ou un `docker volume prune` ne les supprime pas). Sauvegarde : voir [Données](configuration.md#données).
 
 ## Les agents
 
