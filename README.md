@@ -108,11 +108,10 @@ Variables d'environnement, lues depuis `.env` par `docker compose`, `make dev` e
 
 ## Développement
 
-Prérequis : Node.js 22, Go 1.24, GNU Make, et Docker pour MongoDB et l'image. `make` (ou `make help`) liste toutes les commandes.
+Prérequis : Node.js 22, Go 1.24, GNU Make, Docker pour l'image, et un MongoDB accessible (`MONGO_URL` dans `.env`, défaut `mongodb://localhost:27017/homelab`). `make` (ou `make help`) liste toutes les commandes.
 
 ```sh
 make install            # dépendances hub + web + agent
-make mongo              # MongoDB de dev : réutilise celui déjà actif sur 27017, sinon conteneur homelab-mongo
 make dev                # hub (rechargement auto) + interface sur http://localhost:5173, Ctrl-C arrête tout
 make agent-run TOKEN=…  # agent local contre le hub (en root pour apt-get update / upgrade)
 ```

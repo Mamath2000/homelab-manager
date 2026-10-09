@@ -1,6 +1,6 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
-        mongo mongo-stop docker-build docker-up docker-down docker-logs \
+        docker-build docker-up docker-down docker-logs \
         docker-release docker-release-minor docker-release-major
 .DEFAULT_GOAL := help
 
@@ -25,19 +25,6 @@ install: ## Installe les dépendances (npm ci hub + web, go mod download)
 	cd hub && npm ci
 	cd web && npm ci
 	cd agent && go mod download
-
-mongo: ## MongoDB de dev : réutilise celui qui écoute déjà sur 27017 (dev-math), sinon lance le conteneur homelab-mongo
-	@if nc -z localhost 27017 2>/dev/null; then \
-		echo "MongoDB déjà actif sur localhost:27017 : réutilisé"; \
-	else \
-		docker start homelab-mongo >/dev/null 2>&1 || \
-			docker run -d --name homelab-mongo -p 27017:27017 -v homelab-mongo:/data/db mongo:7 >/dev/null; \
-	fi
-	@echo "MongoDB : mongodb://localhost:27017/homelab"
-
-mongo-stop: ## Arrête le conteneur homelab-mongo s'il a été lancé par make mongo (jamais un MongoDB partagé)
-	@if docker ps -q --filter name='^homelab-mongo$$' | grep -q .; then docker stop homelab-mongo; \
-	else echo "homelab-mongo non lancé : rien à arrêter"; fi
 
 dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
 	@echo "hub : $(HUB)   ·   interface : http://localhost:5173"
