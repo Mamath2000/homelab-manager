@@ -10,7 +10,7 @@ ARG VERSION=dev
 RUN for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
         -ldflags "-s -w -X main.version=${VERSION}" -o /out/homelab-agent-linux-$arch . ; \
-    done
+    done && echo "${VERSION}" > /out/VERSION
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert } from 'lucide-react';
+import { CircleArrowUp, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
+import { AgentBadge, UpdateAgentButton } from '../components/Agent';
 import { JobStatusIcon } from '../components/JobConsole';
 import { RebootStatus } from '../components/Reboot';
 import { ItemCard, StatusSection } from '../components/StatusSection';
@@ -33,6 +34,7 @@ export function Dashboard() {
 
   const count = <T extends string>(fn: (h: Host) => T, v: T) => hosts.filter((h) => fn(h) === v).length;
   const online = hosts.filter((h) => h.online);
+  const outdated = hosts.filter((h) => h.agentOutdated);
   const needsUpdate = hosts
     .filter((h) => (h.aptSummary?.upgradable ?? 0) > 0 || h.aptSummary?.rebootRequired)
     .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
@@ -73,6 +75,7 @@ export function Dashboard() {
               { label: 'En ligne', value: count(connection, 'online'), tone: 'ok' },
               { label: 'Hors ligne', value: count(connection, 'offline'), tone: 'bad' },
               { label: 'En attente', value: count(connection, 'pending'), tone: 'unknown' },
+              { label: 'Agent à mettre à jour', value: outdated.length, tone: 'warn', ringless: true },
             ]}
             cardsTitle="Tous les hôtes"
             cardsIcon={Server}
@@ -82,6 +85,7 @@ export function Dashboard() {
               return (
                 <ItemCard key={h.id} to={`/hosts/${h.id}`} icon={Server} tone={connectionMeta[c].tone} title={h.name}
                   right={c !== 'online' && <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>}>
+                  {h.agentOutdated && <AgentBadge />}
                   <HostTags h={h} />
                 </ItemCard>
               );
@@ -130,8 +134,23 @@ export function Dashboard() {
             ]}
             cardsTitle="Dernières tâches · compteurs sur 24 h"
             cardsIcon={History}
-            empty={!jobs?.length ? <p className="py-6 text-sm text-muted">Aucune tâche pour le moment.</p> : undefined}
+            empty={!jobs?.length && !outdated.length ? <p className="py-6 text-sm text-muted">Aucune tâche pour le moment.</p> : undefined}
           >
+            {outdated.length > 0 && (
+              <div className="flex min-w-0 flex-col gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-3.5">
+                <span className="flex items-center gap-2.5 text-sm font-medium text-amber-200">
+                  <CircleArrowUp className="h-4 w-4 shrink-0 text-amber-400" />
+                  Agents à mettre à jour ({outdated.length})
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {outdated.slice(0, 6).map((h) => <Tag key={h.id}>{h.name}</Tag>)}
+                  {outdated.length > 6 && <span className="self-center text-xs text-muted">+{outdated.length - 6}</span>}
+                </div>
+                <div>
+                  <UpdateAgentButton hosts={outdated} label="Mettre à jour" />
+                </div>
+              </div>
+            )}
             {(jobs ?? []).slice(0, 8).map((j) => (
               <ItemCard key={j.id} to={`/jobs/${j.id}`} icon={History}
                 tone={j.status === 'success' ? 'ok' : j.status === 'failed' ? 'bad' : 'info'}

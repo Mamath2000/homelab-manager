@@ -35,7 +35,7 @@ export function StatusSection({ icon: Icon, title, to, stats, cardsTitle, cardsI
           <ul className="space-y-1.5 text-xs">
             {stats.map((s) => (
               <li key={s.label} className="flex items-center gap-3">
-                <span className={clsx('w-6 text-right font-semibold tabular-nums', s.value > 0 ? toneText[s.tone] : 'text-zinc-600')}>
+                <span className={clsx('w-6 shrink-0 text-right font-semibold tabular-nums', s.value > 0 ? toneText[s.tone] : 'text-zinc-600')}>
                   {s.value}
                 </span>
                 <span className={clsx('whitespace-nowrap', s.value > 0 ? 'text-zinc-300' : 'text-zinc-500')}>{s.label}</span>

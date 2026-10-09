@@ -56,11 +56,14 @@ func wsURL(hub string) string {
 }
 
 type session struct {
+	hub  string
 	conn *websocket.Conn
 	mu   sync.Mutex // serialises writes
 }
 
-var capabilities = []string{"apt_report", "apt_update", "apt_upgrade", "apt_autoremove", "reboot"}
+var capabilities = []string{"apt_report", "apt_update", "apt_upgrade", "apt_autoremove", "reboot", "agent_update"}
+
+var binaryHash = selfHash()
 
 // One job at a time per host, across reconnections.
 var jobLock sync.Mutex
@@ -139,6 +142,18 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			}
 		}()
 		return
+	case "agent_update":
+		if err := selfUpdate(jctx, s.hub, in.Sha256, emit); err != nil {
+			done(-1, err)
+			return
+		}
+		done(0, nil)
+		go func() {
+			time.Sleep(time.Second) // let job_done reach the hub
+			log.Printf("agent updated, exiting so that systemd starts the new binary")
+			os.Exit(0)
+		}()
+		return
 	case "apt_autoremove":
 		code, err = runStreaming(jctx, emit, "apt-get", "-y", "autoremove")
 	default:
@@ -151,7 +166,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 }
 
 func (s *session) loop(ctx context.Context) error {
-	if err := s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities}); err != nil {
+	if err := s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities, BinaryHash: binaryHash}); err != nil {
 		return err
 	}
 	go s.report(ctx)
@@ -165,7 +180,7 @@ func (s *session) loop(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				_ = s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities})
+				_ = s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: capabilities, BinaryHash: binaryHash})
 				s.report(ctx)
 			}
 		}
@@ -205,7 +220,7 @@ func main() {
 			conn.SetReadLimit(1 << 20)
 			log.Printf("connected to %s", endpoint)
 			backoff = time.Second
-			s := &session{conn: conn}
+			s := &session{hub: cfg.Hub, conn: conn}
 			sctx, scancel := context.WithCancel(ctx)
 			err = s.loop(sctx)
 			scancel()

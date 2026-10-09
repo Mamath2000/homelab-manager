@@ -115,6 +115,24 @@ test('reboot button only for agents able to reboot', () => {
   assert.deepEqual(commands.get(`hm/hm_${id}/reboot/set`), { payload: PRESS, action: 'reboot', hostIds: [id] });
 });
 
+test('outdated agents: update entity, alert and root counter', () => {
+  const h = { ...host('pve1'), agentVersion: '0.1.1', capabilities: ['agent_update'] };
+  const old = { ...host('old'), agentVersion: '0.1.0' };
+  const { devices, commands } = build([
+    { host: h, online: true, busy: false, agentOutdated: true, latestAgentVersion: '0.1.2' },
+    { host: old, online: true, busy: false, agentOutdated: true, latestAgentVersion: '0.1.2' },
+  ], opts);
+  const states = new Map(devices.flatMap((d) => d.states));
+  const id = h._id.toHexString();
+  const u = JSON.parse(states.get(`hm/hm_${id}/agent_update/state`)!);
+  assert.deepEqual([u.installed_version, u.latest_version], ['0.1.1', '0.1.2']);
+  // an agent unable to update itself gets the alert but no update entity
+  assert.equal(states.get(`hm/hm_${old._id.toHexString()}/agent_update/state`), undefined);
+  assert.equal(states.get(`hm/hm_${old._id.toHexString()}/alerts/state`), '1');
+  assert.equal(states.get(`hm/${ROOT_ID}/agents_outdated/state`), '2');
+  assert.deepEqual(commands.get(`hm/${ROOT_ID}/update_agents/set`)!.hostIds, [id]);
+});
+
 test('testConnection reports broker availability and authentication', async () => {
   const broker = aedes();
   broker.authenticate = (_client, username, password, done) => done(null, username === 'ha' && password?.toString() === 'secret');

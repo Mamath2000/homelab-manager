@@ -55,12 +55,15 @@ export interface HostDoc {
   agentVersion?: string;
   // actions announced by the agent (absent with old agents)
   capabilities?: string[];
+  // sha256 of the agent binary, compared with the one the hub distributes
+  agentHash?: string;
+  lastAgentUpdateAt?: Date;
   info?: HostInfo;
   apt?: AptReport;
   aptSummary?: AptSummary;
 }
 
-export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove', 'reboot'] as const;
+export const JOB_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove', 'reboot', 'agent_update'] as const;
 export type JobAction = (typeof JOB_ACTIONS)[number];
 export type JobStatus = 'running' | 'success' | 'failed';
 
@@ -90,6 +93,11 @@ export interface SessionDoc {
   _id: string; // sha256 of the cookie token
   userId: ObjectId;
   expiresAt: Date;
+}
+
+export interface AgentSettings {
+  _id: 'agents';
+  autoUpdate: boolean;
 }
 
 export interface HomeAssistantSettings {

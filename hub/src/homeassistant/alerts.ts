@@ -11,8 +11,8 @@ export interface Alert {
 
 const STALE_MS = 2 * 24 * 3600 * 1000;
 
-export function agentAlerts(h: HostDoc, online: boolean): Alert[] {
-  if (online) return [];
+export function agentAlerts(h: HostDoc, online: boolean, outdated?: boolean | null): Alert[] {
+  if (online) return outdated ? [{ level: 'warning', source: 'agent', message: 'Agent à mettre à jour' }] : [];
   if (!h.enrolledAt) return [{ level: 'warning', source: 'agent', message: 'Agent jamais connecté' }];
   return [{ level: 'critical', source: 'agent', message: 'Agent hors ligne' }];
 }

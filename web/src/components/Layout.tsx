@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
@@ -82,6 +84,18 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+// Hub version and the agent version it distributes (what agents are updated to).
+function Versions() {
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, staleTime: 60_000 });
+  const agent = data?.binaries.find((b) => b.version)?.version;
+  return (
+    <span className="hidden items-center gap-3 text-xs text-muted lg:flex">
+      <span title="Version du hub">hub v{__APP_VERSION__}</span>
+      {agent && <span title="Version de l'agent distribuée par le hub">agent {agent}</span>}
+    </span>
+  );
+}
+
 function SearchBox() {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
@@ -130,7 +144,7 @@ export function Layout({ user, live, onLogout }: { user: string; live: boolean; 
         </div>
         <SearchBox />
         <div className="flex items-center gap-4 text-sm">
-          <span className="hidden text-xs text-muted lg:inline">v{__APP_VERSION__}</span>
+          <Versions />
           <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
             <StatusDot tone={live ? 'ok' : 'bad'} />
           </span>

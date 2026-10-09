@@ -50,6 +50,8 @@ Homelab Manager
 | Hôtes, Hôtes en ligne | capteurs |
 | Mises à jour disponibles, Mises à jour de sécurité | capteurs (totaux de tous les hôtes) |
 | Hôtes à mettre à jour, Hôtes à redémarrer, Hôtes à nettoyer | capteurs |
+| Agents à mettre à jour | capteur |
+| Mettre à jour les agents | bouton : met à jour les agents obsolètes en ligne |
 | Alertes | capteur (nombre) ; attributs `critical` et `alerts` (niveau, hôte, composant, message) |
 | Problème | capteur binaire, allumé dès qu'une alerte existe |
 | Tout vérifier | bouton : `apt-get update` sur les hôtes en ligne |
@@ -61,6 +63,7 @@ Homelab Manager
 |---|---|
 | Agent | capteur binaire de connectivité (agent connecté au hub) |
 | Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
+| Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
 | Système, Noyau, Adresse IP, Vu | diagnostic |
 
@@ -84,6 +87,7 @@ Homelab Manager
 |---|---|---|
 | Agent | critique | Agent hors ligne |
 | Agent | avertissement | Agent jamais connecté |
+| Agent | avertissement | Agent à mettre à jour |
 | APT | avertissement | Mises à jour de sécurité disponibles |
 | APT | avertissement | Redémarrage requis |
 | APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours |

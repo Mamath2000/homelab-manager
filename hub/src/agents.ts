@@ -4,6 +4,7 @@ import { safeEqualHex, sha256 } from './crypto.js';
 import { hosts, parseId } from './db.js';
 import { publish } from './events.js';
 import { hostDto, summarize } from './hostDto.js';
+import { maybeAutoUpdate } from './agentUpdate.js';
 import { appendJobLog, failRunningJobs, finishJob } from './jobs.js';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
@@ -55,6 +56,7 @@ interface AgentMessage {
   version?: string;
   info?: HostInfo;
   capabilities?: unknown;
+  binaryHash?: unknown;
   report?: unknown;
   jobId?: string;
   data?: string;
@@ -112,11 +114,13 @@ export function registerAgentSocket(app: FastifyInstance) {
                     info: msg.info,
                     agentVersion: msg.version,
                     capabilities: Array.isArray(msg.capabilities) ? msg.capabilities.filter((c) => typeof c === 'string') : [],
+                    agentHash: typeof msg.binaryHash === 'string' ? msg.binaryHash : '',
                     lastSeenAt: new Date(),
                   },
                 },
               );
               await emitHost(host._id);
+              await maybeAutoUpdate(host._id);
               break;
             case 'apt_report':
               if (!isReport(msg.report)) return;

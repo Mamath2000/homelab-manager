@@ -47,12 +47,15 @@ export interface Host {
   online: boolean;
   agentVersion: string | null;
   capabilities: string[];
+  // null: unknown (never connected, or no binary for its architecture)
+  agentOutdated: boolean | null;
+  latestAgentVersion: string | null;
   info: HostInfo | null;
   apt: AptReport | null;
   aptSummary: AptSummary | null;
 }
 
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -99,6 +102,11 @@ export interface HomeAssistantInput {
   discoveryPrefix: string;
 }
 
+export interface AgentSettings {
+  autoUpdate: boolean;
+  binaries: { arch: string; sha256: string; version: string | null }[];
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -143,6 +151,9 @@ export const api = {
   saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),
   testHomeAssistant: (s: HomeAssistantInput) =>
     request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
+
+  agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
+  saveAgentSettings: (autoUpdate: boolean) => request<AgentSettings>('PUT', '/api/settings/agents', { autoUpdate }),
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),

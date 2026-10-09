@@ -6,6 +6,7 @@ import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
+import { AgentBadge, canSelfUpdate, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../components/Toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host } from '../lib/api';
@@ -249,6 +250,17 @@ export function HostDetail() {
         {host.group && <Tag>{host.group}</Tag>}
       </PageHeader>
 
+      {host.agentOutdated && (
+        <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+          <AgentBadge />
+          <span className="text-zinc-200">
+            Agent {host.agentVersion ?? 'inconnu'}
+            {host.latestAgentVersion && host.latestAgentVersion !== host.agentVersion && <> → {host.latestAgentVersion}</>}
+          </span>
+          {!canSelfUpdate(host) && <span className="text-xs text-amber-300">trop ancien pour se mettre à jour seul : réinstallation manuelle une fois</span>}
+          <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
+        </div>
+      )}
       {c === 'pending' && (
         <Panel title="Installer l'agent" icon={Terminal} className="mb-5">
           <p className="mb-3 text-sm text-zinc-300">Cet hôte n'a encore jamais contacté le hub. Le token n'étant affiché qu'à la création, génère une nouvelle commande si besoin.</p>

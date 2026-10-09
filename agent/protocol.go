@@ -39,6 +39,7 @@ type Outbound struct {
 	Info    *HostInfo `json:"info,omitempty"`
 	// actions this agent can run, so that the hub only offers those
 	Capabilities []string   `json:"capabilities,omitempty"`
+	BinaryHash   string     `json:"binaryHash,omitempty"`
 	Report       *AptReport `json:"report,omitempty"`
 	JobID        string     `json:"jobId,omitempty"`
 	Data         string     `json:"data,omitempty"`
@@ -52,4 +53,5 @@ type Inbound struct {
 	JobID    string   `json:"jobId"`
 	Action   string   `json:"action"` // apt_report | apt_update | apt_upgrade
 	Packages []string `json:"packages,omitempty"`
+	Sha256   string   `json:"sha256,omitempty"` // agent_update: expected hash of the new binary
 }

@@ -12,7 +12,7 @@ import { flushLogs, recoverJobs } from './jobs.js';
 import { registerHostRoutes } from './routes/hosts.js';
 import { registerInstallRoutes } from './routes/install.js';
 import { registerJobRoutes } from './routes/jobs.js';
-import { loadHomeAssistantSettings, registerSettingsRoutes } from './routes/settings.js';
+import { loadHomeAssistantSettings, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
 
@@ -36,6 +36,7 @@ registerJobRoutes(app);
 registerInstallRoutes(app);
 const bridge = new HomeAssistantBridge(app.log);
 registerSettingsRoutes(app, bridge);
+registerAgentSettingsRoutes(app);
 registerAgentSocket(app);
 app.get('/api/health', async () => ({ ok: true, version: config.version }));
 

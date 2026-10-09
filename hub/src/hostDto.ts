@@ -1,6 +1,7 @@
 import type { AptReport, AptSummary, HostDoc } from './types.js';
 import { isOnline } from './agents.js';
 import { needsReboot } from './reboot.js';
+import { agentBinary, agentOutdated } from './agentBinaries.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -24,6 +25,8 @@ export function hostDto(h: HostDoc) {
     online: isOnline(h._id.toHexString()),
     agentVersion: h.agentVersion ?? null,
     capabilities: h.capabilities ?? [],
+    agentOutdated: agentOutdated(h),
+    latestAgentVersion: agentBinary(h.info?.arch)?.version ?? null,
     info: h.info ?? null,
     // computed on read so that reports stored by older hub versions are covered too
     apt: h.apt ? { ...h.apt, upgradable: h.apt.upgradable.map((p) => ({ ...p, reboot: needsReboot(p.name) })) } : null,

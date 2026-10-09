@@ -4,12 +4,13 @@ import clsx from 'clsx';
 import { ArrowUpCircle, Brush, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { RebootStatus } from '../components/Reboot';
+import { AgentBadge, UpdateAgentsModal } from '../components/Agent';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
 import { connection, connectionMeta, listsStale, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 
-type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup';
+type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent';
 
 const filters: { key: Filter; label: string }[] = [
   { key: 'all', label: 'Tous' },
@@ -20,6 +21,7 @@ const filters: { key: Filter; label: string }[] = [
   { key: 'security', label: 'Sécurité' },
   { key: 'reboot', label: 'Reboot' },
   { key: 'cleanup', label: 'À nettoyer' },
+  { key: 'agent', label: 'Agent obsolète' },
 ];
 
 export function Hosts() {
@@ -32,6 +34,7 @@ export function Hosts() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
+  const [agentModal, setAgentModal] = useState(false);
   const bulk = useRunBulk();
   const run = useRunJob();
 
@@ -58,6 +61,8 @@ export function Hosts() {
           return (h.aptSummary?.upgradable ?? 0) > 0;
         case 'security':
           return updateState(h) === 'security';
+        case 'agent':
+          return !!h.agentOutdated;
         case 'cleanup':
           return (h.aptSummary?.autoremovable ?? 0) > 0;
         case 'reboot':
@@ -112,6 +117,9 @@ export function Hosts() {
             Rechercher les MAJ
           </Button>
           <Button size="sm" icon={ArrowUpCircle} variant="primary" onClick={() => setConfirmUpgrade(true)}>Tout mettre à jour</Button>
+          {visibleSelected.some((h) => h.agentOutdated) && (
+            <Button size="sm" onClick={() => setAgentModal(true)}>Mettre à jour les agents</Button>
+          )}
           <button className="ml-auto text-xs text-muted hover:text-zinc-200" onClick={() => setSelected(new Set())}>Désélectionner</button>
         </div>
       )}
@@ -120,7 +128,7 @@ export function Hosts() {
         {list.length === 0 ? (
           <Empty icon={Server} title={hosts.length ? 'Aucun hôte ne correspond' : 'Aucun hôte'} />
         ) : (
-          <table className="w-full min-w-[1000px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead className="border-b border-line">
               <tr>
                 <th className="th w-10"><Checkbox label="Tout sélectionner" checked={allChecked} indeterminate={visibleSelected.length > 0} onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())} /></th>
@@ -130,6 +138,7 @@ export function Hosts() {
                 <th className="th">Mises à jour</th>
                 <th className="th">Redémarrage</th>
                 <th className="th">Dernière vérif.</th>
+                <th className="th">Agent</th>
                 <th className="th">Vu</th>
                 <th className="th text-right">Actions</th>
               </tr>
@@ -170,6 +179,12 @@ export function Hosts() {
                       <RebootStatus summary={s} />
                     </td>
                     <td className={clsx('td text-xs', listsStale(h) ? 'text-violet-300' : 'text-zinc-400')}>{h.apt ? timeAgo(h.apt.listsUpdatedAt) : '—'}</td>
+                    <td className="td">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
+                        {h.agentOutdated && <AgentBadge short />}
+                      </div>
+                    </td>
                     <td className="td text-xs text-zinc-400">{h.online ? 'maintenant' : timeAgo(h.lastSeenAt)}</td>
                     <td className="td text-right" onClick={(e) => e.stopPropagation()}>
                       <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!h.online} title="Rechercher les mises à jour"
@@ -201,6 +216,7 @@ export function Hosts() {
         <p className="mt-3 text-xs text-muted">Les configurations locales modifiées sont conservées (--force-confold). Aucun redémarrage n'est effectué.</p>
       </ConfirmModal>
       <AddHostModal open={adding} onClose={() => setAdding(false)} />
+      <UpdateAgentsModal hosts={visibleSelected.filter((h) => h.agentOutdated)} open={agentModal} onClose={() => setAgentModal(false)} />
     </>
   );
 }

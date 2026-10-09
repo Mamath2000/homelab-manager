@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { FastifyBaseLogger } from 'fastify';
+import { agentBinary, agentOutdated } from '../agentBinaries.js';
 import { isOnline } from '../agents.js';
 import { config } from '../config.js';
 import { hosts } from '../db.js';
@@ -128,7 +129,14 @@ export class HomeAssistantBridge {
     const built = build(
       list.map((host) => {
         const id = host._id.toHexString();
-        return { host, online: isOnline(id), busy: hasRunningJob(id) };
+        const bin = agentBinary(host.info?.arch);
+        return {
+          host,
+          online: isOnline(id),
+          busy: hasRunningJob(id),
+          agentOutdated: agentOutdated(host),
+          latestAgentVersion: bin?.version ?? null,
+        };
       }),
       { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl: config.publicUrl },
     );

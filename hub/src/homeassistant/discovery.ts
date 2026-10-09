@@ -18,6 +18,8 @@ export interface HostState {
   host: HostDoc;
   online: boolean;
   busy: boolean; // a job is running on the host
+  agentOutdated?: boolean | null;
+  latestAgentVersion?: string | null;
 }
 
 export interface Command {
@@ -116,8 +118,9 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   let toUpdate = 0;
   let toReboot = 0;
   let toClean = 0;
+  const outdatedAgents: string[] = [];
 
-  for (const { host, online: isOnline, busy } of hosts) {
+  for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion } of hosts) {
     const hid = host._id.toHexString();
     const hostId = `hm_${hid}`;
     const r = host.apt;
@@ -169,7 +172,9 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     }
 
     // --- host: connectivity + alerts rolled up from the sub-components
-    const hostAlerts = [...agentAlerts(host, isOnline), ...apt];
+    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt];
+    const selfUpdate = !!host.capabilities?.includes('agent_update');
+    if (agentOutdated && selfUpdate && isOnline) outdatedAgents.push(hid);
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 
     const d = device(hostId, {
@@ -180,6 +185,17 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
     });
     d.binary('agent', 'Agent', isOnline, { device_class: 'connectivity' });
+    if (selfUpdate) {
+      const installed = host.agentVersion || 'inconnue';
+      let latest = installed;
+      if (agentOutdated) latest = latestAgentVersion && latestAgentVersion !== installed ? latestAgentVersion : `${installed} (nouveau binaire)`;
+      d.update('agent_update', 'Agent', {
+        installed_version: installed,
+        latest_version: latest,
+        title: 'Agent Homelab Manager',
+        in_progress: busy,
+      }, { action: 'agent_update', hostIds: [hid] }, { entity_category: 'config' });
+    }
     if (host.capabilities?.includes('reboot')) {
       d.button('reboot', 'Redémarrer', { action: 'reboot', hostIds: [hid] }, { device_class: 'restart' });
     }
@@ -202,6 +218,8 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   root.sensor('security', 'Mises à jour de sécurité', security, { icon: 'mdi:shield-alert-outline' });
   root.sensor('hosts_to_update', 'Hôtes à mettre à jour', toUpdate, { icon: 'mdi:server-plus' });
   root.sensor('hosts_to_reboot', 'Hôtes à redémarrer', toReboot, { icon: 'mdi:restart-alert' });
+  root.sensor('agents_outdated', 'Agents à mettre à jour', hosts.filter((h) => h.agentOutdated).length, { icon: 'mdi:update' });
+  root.button('update_agents', 'Mettre à jour les agents', { action: 'agent_update', hostIds: outdatedAgents }, { icon: 'mdi:update' });
   root.sensor('hosts_to_clean', 'Hôtes à nettoyer', toClean, { icon: 'mdi:broom' });
   root.alerts(allAlerts);
   root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online) }, { icon: 'mdi:refresh' });

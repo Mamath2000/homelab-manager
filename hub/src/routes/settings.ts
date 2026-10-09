@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { settings } from '../db.js';
 import { testConnection, type HomeAssistantBridge } from '../homeassistant/bridge.js';
+import { AGENT_ARCHES, agentBinary } from '../agentBinaries.js';
+import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
+import { hosts } from '../db.js';
 import type { HomeAssistantSettings } from '../types.js';
 
 const DEFAULTS: HomeAssistantSettings = {
@@ -14,7 +17,7 @@ const DEFAULTS: HomeAssistantSettings = {
 };
 
 export async function loadHomeAssistantSettings() {
-  return { ...DEFAULTS, ...(await settings.findOne({ _id: 'homeassistant' })) };
+  return { ...DEFAULTS, ...((await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null) };
 }
 
 // the password never leaves the hub
@@ -74,4 +77,30 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
       return { ok: false, error: (err as Error).message };
     }
   });
+}
+
+// Agents: automatic update and the binaries the hub distributes.
+export function registerAgentSettingsRoutes(app: FastifyInstance) {
+  const dto = async () => ({
+    autoUpdate: (await loadAgentSettings()).autoUpdate,
+    binaries: AGENT_ARCHES.map((a) => agentBinary(a)).filter((b) => b !== null),
+  });
+
+  app.get('/api/settings/agents', dto);
+
+  app.put<{ Body: { autoUpdate: boolean } }>(
+    '/api/settings/agents',
+    {
+      schema: {
+        body: { type: 'object', required: ['autoUpdate'], additionalProperties: false, properties: { autoUpdate: { type: 'boolean' } } },
+      },
+    },
+    async (req) => {
+      await settings.replaceOne({ _id: 'agents' }, { _id: 'agents', autoUpdate: req.body.autoUpdate }, { upsert: true });
+      if (req.body.autoUpdate) {
+        for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) await maybeAutoUpdate(h._id);
+      }
+      return dto();
+    },
+  );
 }

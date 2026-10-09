@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestParseUpgradable(t *testing.T) {
 	out := `Listing...
@@ -42,5 +45,14 @@ func TestValidPackages(t *testing.T) {
 	}
 	if validPackages([]string{"foo; rm -rf /"}) || validPackages([]string{"--purge"}) {
 		t.Fatal("invalid accepted")
+	}
+}
+
+func TestSelfUpdateChecksum(t *testing.T) {
+	if err := selfUpdate(context.Background(), "http://127.0.0.1:1", "short", func(string) {}); err == nil {
+		t.Fatal("an invalid expected hash must be refused before any download")
+	}
+	if len(selfHash()) != 64 {
+		t.Fatal("selfHash must return a sha256")
 	}
 }

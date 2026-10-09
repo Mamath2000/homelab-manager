@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { agentBinary } from './agentBinaries.js';
 import { sendToAgent } from './agents.js';
 import { jobs } from './db.js';
 import { publish } from './events.js';
@@ -59,7 +60,11 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
   await jobs.insertOne(job);
   running.set(id, { hostId, log: '', dirty: false });
 
-  if (!sendToAgent(hostId, { type: 'run', jobId: id, action, packages })) {
+  // the agent checks the downloaded binary against this hash
+  const bin = action === 'agent_update' ? agentBinary(host.info?.arch) : null;
+  if (action === 'agent_update' && !bin) {
+    await finishJob(id, hostId, -1, `pas de binaire de l'agent pour l'architecture ${host.info?.arch ?? 'inconnue'}`);
+  } else if (!sendToAgent(hostId, { type: 'run', jobId: id, action, packages, ...(bin ? { sha256: bin.sha256 } : {}) })) {
     await finishJob(id, hostId, -1, 'host is offline');
   } else {
     publish('job', jobDto(job));

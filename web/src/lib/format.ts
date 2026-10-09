@@ -38,4 +38,5 @@ export const actionLabel: Record<string, string> = {
   apt_upgrade: 'Mise à jour',
   apt_autoremove: 'Nettoyage des paquets',
   reboot: 'Redémarrage',
+  agent_update: "Mise à jour de l'agent",
 };

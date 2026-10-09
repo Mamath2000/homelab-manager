@@ -67,6 +67,7 @@ stop: ## Arrête le hub et l'interface lancés par make dev / make start (proces
 agent: ## Compile l'agent pour l'architecture locale (agent/dist)
 	cd agent && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)-dev" \
 		-o dist/homelab-agent-linux-$(GOARCH) .
+	@echo "$(VERSION)-dev" > agent/dist/VERSION
 
 agent-all: ## Compile l'agent pour amd64 et arm64 (servis par le hub au script d'installation)
 	@for arch in amd64 arm64; do \
@@ -74,6 +75,7 @@ agent-all: ## Compile l'agent pour amd64 et arm64 (servis par le hub au script d
 		(cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath \
 			-ldflags "-s -w -X main.version=$(VERSION)-dev" -o dist/homelab-agent-linux-$$arch .) || exit 1; \
 	done
+	@echo "$(VERSION)-dev" > agent/dist/VERSION
 
 agent-run: ## Lance l'agent en local contre le hub : make agent-run TOKEN=<token> [HUB=url] (root pour apt-get)
 	@[ -n "$(TOKEN)" ] || { echo "Usage : make agent-run TOKEN=<token> [HUB=$(HUB)]"; exit 1; }

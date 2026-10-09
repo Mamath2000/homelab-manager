@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { KeyRound, Settings as SettingsIcon, Terminal } from 'lucide-react';
+import { AgentAutoUpdate } from '../components/AgentSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { useToast } from '../components/Toast';
 import { Button, CopyField, PageHeader, Panel } from '../components/ui';
@@ -46,8 +47,9 @@ export function Settings() {
         </Panel>
         <Panel title="Agent" icon={Terminal}>
           <div className="space-y-4 text-sm">
+            <AgentAutoUpdate />
             <div>
-              <p className="mb-2 text-zinc-300">Mettre à jour l'agent d'un hôte (le token existant est conservé) :</p>
+              <p className="mb-2 text-zinc-300">Mise à jour manuelle, nécessaire une fois pour les agents antérieurs à la mise à jour automatique (le token est conservé) :</p>
               <CopyField value={`curl -fsSL ${origin}/install.sh | sh`} />
             </div>
             <div>
