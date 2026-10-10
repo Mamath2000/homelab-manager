@@ -20,6 +20,7 @@ const filters: { key: Filter; label: string }[] = [
   { key: 'online', label: 'En ligne' },
   { key: 'offline', label: 'Hors ligne' },
   { key: 'pending', label: 'En attente' },
+  { key: 'away', label: 'Absents' },
   { key: 'updates', label: 'Mises à jour' },
   { key: 'security', label: 'Sécurité' },
   { key: 'reboot', label: 'Reboot' },
@@ -66,6 +67,7 @@ export function Hosts() {
         case 'online':
         case 'offline':
         case 'pending':
+        case 'away':
           return connection(h) === filter;
         case 'updates':
           return (h.aptSummary?.upgradable ?? 0) > 0;

@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { api, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { InstallInstructions } from './InstallInstructions';
+import { RoamingField } from './RoamingField';
 import { Button, Modal } from './ui';
 
 export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('');
   const [group, setGroup] = useState('');
+  const [roaming, setRoaming] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<InstallInfo | null>(null);
@@ -15,6 +17,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
   const close = () => {
     setName('');
     setGroup('');
+    setRoaming(false);
     setError('');
     setResult(null);
     onClose();
@@ -25,7 +28,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
     setBusy(true);
     setError('');
     try {
-      const r = await api.createHost(name, group);
+      const r = await api.createHost(name, group, roaming);
       upsert(r.host);
       setResult(r);
     } catch (err) {
@@ -54,6 +57,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
             <span className="mb-1.5 block text-xs font-medium text-muted">Groupe (optionnel)</span>
             <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} placeholder="infra, media, domotique…" />
           </label>
+          <RoamingField checked={roaming} onChange={setRoaming} />
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={close}>Annuler</Button>

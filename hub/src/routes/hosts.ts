@@ -17,6 +17,7 @@ const hostBody = {
   properties: {
     name: { type: 'string', minLength: 1, maxLength: 64 },
     group: { type: 'string', maxLength: 64 },
+    roaming: { type: 'boolean' },
   },
 } as const;
 
@@ -87,7 +88,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map(hostDto);
   });
 
-  app.post<{ Body: { name: string; group?: string } }>(
+  app.post<{ Body: { name: string; group?: string; roaming?: boolean } }>(
     '/api/hosts',
     { schema: { body: { ...hostBody, required: ['name'] } } },
     async (req, reply) => {
@@ -96,6 +97,7 @@ export function registerHostRoutes(app: FastifyInstance) {
         _id: new ObjectId(),
         name: req.body.name.trim(),
         group: req.body.group?.trim() || undefined,
+        roaming: req.body.roaming || undefined,
         ...enroll.fields,
         createdAt: new Date(),
       };
@@ -114,7 +116,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; group?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; group?: string; roaming?: boolean } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -122,7 +124,9 @@ export function registerHostRoutes(app: FastifyInstance) {
       const set: Partial<HostDoc> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
       if (req.body.group !== undefined) set.group = req.body.group.trim();
-      const host = _id && (await hosts.findOneAndUpdate({ _id }, { $set: set }, { returnDocument: 'after' }));
+      if (req.body.roaming) set.roaming = true;
+      const update = req.body.roaming === false ? { $set: set, $unset: { roaming: '' as const } } : { $set: set };
+      const host = _id && (await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const dto = hostDto(host);
       publish('host', dto);
