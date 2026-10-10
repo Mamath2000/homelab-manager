@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, HomeAssistantSettings, HostDoc, JobDoc, PkiDoc, SessionDoc, UserDoc } from './types.js';
+import type { AgentSettings, HomeAssistantSettings, HostDoc, JobDoc, PkiDoc, SessionDoc, SetupProfile, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -8,7 +8,7 @@ export let hosts: Collection<HostDoc>;
 export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
-export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc>;
+export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile>;
 
 export async function connectDb() {
   await client.connect();

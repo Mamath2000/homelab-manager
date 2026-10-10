@@ -7,6 +7,8 @@ import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
+import { SetupButton, SetupModal, SetupStatus } from '../components/SetupPanel';
+import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
@@ -199,6 +201,7 @@ export function HostDetail() {
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
@@ -258,6 +261,7 @@ export function HostDetail() {
                 </Button>
               </>
             )}
+            <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
             {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
             {host.capabilities.includes('reboot') && (
               <Button
@@ -351,6 +355,7 @@ export function HostDetail() {
             </InfoRow>
             <InfoRow label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</InfoRow>
             <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
+            {showSetup(host) && <InfoRow label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></InfoRow>}
           </dl>
         </Panel>
         <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
@@ -384,7 +389,7 @@ export function HostDetail() {
                     <JobStatusIcon status={j.status} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-zinc-200">{jobTitle(j)}{j.packages.length > 0 && ` (${j.packages.length})`}</span>
-                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}</span>
+                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}{j.trigger === 'enroll' && " · à l'ajout"}</span>
                     </span>
                   </button>
                 </li>
@@ -398,6 +403,7 @@ export function HostDetail() {
       </div>
 
       {editing && <EditModal host={host} onClose={() => setEditing(false)} />}
+      <SetupModal host={host} open={setupOpen} onClose={() => setSetupOpen(false)} running={!!running} onStarted={setJobId} />
       <ConfirmModal
         open={confirmReboot}
         onClose={() => setConfirmReboot(false)}

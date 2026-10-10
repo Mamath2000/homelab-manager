@@ -37,7 +37,7 @@ export function Activity() {
                     {j.error && <span className="ml-2 text-xs text-red-400">{j.error}</span>}
                   </td>
                   <td className="td"><Tag>{j.hostName}</Tag></td>
-                  <td className="td">{j.trigger === 'schedule' ? <Badge tone="info">planifiée</Badge> : j.trigger === 'homeassistant' ? <Badge tone="unknown">Home Assistant</Badge> : <Badge>manuelle</Badge>}</td>
+                  <td className="td">{j.trigger === 'schedule' ? <Badge tone="info">planifiée</Badge> : j.trigger === 'homeassistant' ? <Badge tone="unknown">Home Assistant</Badge> : j.trigger === 'enroll' ? <Badge tone="info">à l'ajout</Badge> : <Badge>manuelle</Badge>}</td>
                   <td className="td text-xs text-zinc-400">{dateTime(j.createdAt)}</td>
                   <td className="td text-xs text-zinc-400">{duration(j.createdAt, j.finishedAt)}</td>
                 </tr>

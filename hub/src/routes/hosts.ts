@@ -8,7 +8,8 @@ import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
-import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type HostDoc, type JobAction } from '../types.js';
+import { USER_RE, applySetup, canSetup } from '../setup.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_MODULES, hasApt, type HostDoc, type JobAction, type SetupModule } from '../types.js';
 
 const hostBody = {
   type: 'object',
@@ -28,6 +29,9 @@ const jobBody = {
     packages: { type: 'array', maxItems: 500, items: { type: 'string', maxLength: 128 } },
     stack: { type: 'string', maxLength: 64 },
     service: { type: 'string', maxLength: 64 },
+    // setup_apply: modules to apply and user of the host ("" : root only)
+    modules: { type: 'array', minItems: 1, maxItems: SETUP_MODULES.length, uniqueItems: true, items: { type: 'string', enum: SETUP_MODULES } },
+    user: { type: 'string', maxLength: 32 },
   },
 } as const;
 
@@ -172,7 +176,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map((j) => jobDto(j));
   });
 
-  app.post<{ Params: { id: string }; Body: { action: JobAction; packages?: string[]; stack?: string; service?: string } }>(
+  app.post<{ Params: { id: string }; Body: { action: JobAction; packages?: string[]; stack?: string; service?: string; modules?: SetupModule[]; user?: string } }>(
     '/api/hosts/:id/jobs',
     { schema: { body: jobBody } },
     async (req, reply) => {
@@ -186,6 +190,16 @@ export function registerHostRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas redémarrer : mets-le à jour" });
       }
       const { action, stack, service } = req.body;
+      if (action === 'setup_apply') {
+        if (!canSetup(host)) return reply.code(400).send({ error: "la standardisation n'est pas disponible sur cet hôte (Debian / Ubuntu, agent à jour)" });
+        const { modules, user } = req.body;
+        if (!modules?.length) return reply.code(400).send({ error: 'aucune option sélectionnée' });
+        if (user !== undefined && user !== '' && !USER_RE.test(user)) return reply.code(400).send({ error: "nom d'utilisateur invalide" });
+        const job = await applySetup(host, modules, user, 'manual');
+        reply.code(202);
+        return jobDto(job);
+      }
+      if (req.body.modules || req.body.user !== undefined) return reply.code(400).send({ error: 'modules et user ne concernent que la standardisation' });
       if ((APT_ACTIONS as readonly string[]).includes(action) && !hasApt(host)) {
         return reply.code(400).send({ error: "pas d'APT sur cet hôte" });
       }

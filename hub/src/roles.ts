@@ -19,7 +19,7 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
       return true;
     case 'operator':
       if (read) return !accounts && !settings;
-      return ownPassword || (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk'));
+      return ownPassword || (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk' || route === '/api/hosts/:id/setup/check'));
     case 'viewer':
       if (read) return !accounts && !settings && !stackDetails;
       return ownPassword;

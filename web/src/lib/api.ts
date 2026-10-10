@@ -130,10 +130,39 @@ export interface Host {
   aptSummary: AptSummary | null;
   docker: DockerView | null;
   dockerSummary: DockerSummary | null;
+  // standardisation: user set on this host (null: the profile's), last conformity check
+  setupUser: string | null;
+  setup: SetupState | null;
+}
+
+export const SETUP_MODULES = ['user', 'apt_proxy', 'packages', 'ssh_keys', 'ssh_config', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
+export type SetupModule = (typeof SETUP_MODULES)[number];
+
+export interface SetupState {
+  checkedAt: number;
+  user: string;
+  modules: { module: SetupModule; state: 'ok' | 'drift' | 'na' | 'error'; detail?: string }[];
+  // modules that differ from the standard configuration
+  drift: number;
+}
+
+export interface SetupProfile {
+  autoApply: boolean;
+  modules: SetupModule[];
+  user: string;
+  sudoNoPassword: boolean;
+  packages: string[];
+  sshKeys: string[];
+  allowPassword: boolean;
+  aliases: string;
+  prompt: 'none' | 'classic' | 'starship';
+  motd: 'none' | 'homelab' | 'fastfetch';
+  aptProxy: string;
+  sshConfig: string;
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction;
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -144,7 +173,8 @@ export interface Job {
   packages: string[];
   stack: string | null;
   service: string | null;
-  trigger: 'manual' | 'schedule' | 'homeassistant';
+  modules: SetupModule[] | null;
+  trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: string;
   finishedAt: string | null;
@@ -306,4 +336,11 @@ export const api = {
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
   runBulk: (hostIds: string[], action: JobAction) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action }),
+
+  setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),
+  saveSetupProfile: (p: SetupProfile) => request<SetupProfile>('PUT', '/api/settings/setup', p),
+  setupStandard: () => request<{ modules: SetupModule[]; user: string; autoApply: boolean }>('GET', '/api/setup'),
+  applySetup: (hostId: string, modules: SetupModule[], user: string) =>
+    request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action: 'setup_apply', modules, user }),
+  checkSetup: (hostId: string) => request<Host>('POST', `/api/hosts/${hostId}/setup/check`),
 };
