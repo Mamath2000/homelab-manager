@@ -10,8 +10,8 @@ import { useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Modal, Spinner } from './ui';
 
-function StateBadge({ check, standard }: { check?: SetupState['modules'][number]; standard: boolean }) {
-  if (!standard) return <span className="text-xs text-zinc-600">hors standard</span>;
+function StateBadge({ check, followed, standard }: { check?: SetupState['modules'][number]; followed: boolean; standard: boolean }) {
+  if (!followed) return <span className="text-xs text-zinc-600">{standard ? 'désactivé sur cet hôte' : 'hors standard'}</span>;
   if (!check) return <span className="text-xs text-zinc-500">non vérifié</span>;
   switch (check.state) {
     case 'ok':
@@ -51,8 +51,8 @@ export function SetupStatus({ host, onOpen }: { host: Host; onOpen: () => void }
   );
 }
 
-// Standardisation of one host: the options to push (pre-checked with the standard configuration),
-// the conformity of each one, and a confirmation step before applying.
+// Standardisation of one host: its options (the standard ones until a selection is applied, then kept
+// for the host and used for its conformity) and the conformity of each one.
 export function SetupModal({ host, open, onClose, running, onStarted }: { host: Host; open: boolean; onClose: () => void; running: boolean; onStarted: (jobId: string) => void }) {
   const { canWrite, canManage } = useMe();
   const toast = useToast();
@@ -78,7 +78,9 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
     );
   }
 
-  const selected = selectedDraft ?? new Set(standard.modules);
+  // modules of the host: those chosen at its last application, the standard ones otherwise
+  const hostModules = host.setupModules ?? standard.modules;
+  const selected = selectedDraft ?? new Set(hostModules);
   const user = userDraft ?? host.setupUser ?? standard.user;
   const checks = new Map(host.setup?.modules.map((m) => [m.module, m]));
   const chosen = SETUP_MODULES.filter((m) => selected.has(m));
@@ -171,7 +173,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-zinc-200">{setupModuleInfo[m].label}</span>
-                    <StateBadge check={c} standard={standard.modules.includes(m)} />
+                    <StateBadge check={c} followed={hostModules.includes(m)} standard={standard.modules.includes(m)} />
                   </div>
                   {c?.detail && c.state !== 'ok' ? (
                     <p className="mt-0.5 truncate font-mono text-[11px] text-amber-200/80" title={c.detail}>{c.detail}</p>

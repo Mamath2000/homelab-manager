@@ -137,6 +137,8 @@ export interface HostDoc {
   unmanagedStacks?: string[];
   // standardisation: user configured on this host (default: the one of the profile), last check
   setupUser?: string;
+  // modules of the standardisation chosen for this host, absent: those of the standard configuration
+  setupModules?: SetupModule[];
   setup?: SetupState;
   // new host: the standard configuration is applied at its first connection (Paramètres > Standardisation)
   setupPending?: boolean;

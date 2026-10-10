@@ -55,6 +55,7 @@ export function hostDto(h: HostDoc) {
     docker,
     dockerSummary: dockerSummary(docker),
     setupUser: h.setupUser ?? null,
+    setupModules: h.setupModules ?? null,
     setup: setupDto(h),
   };
 }

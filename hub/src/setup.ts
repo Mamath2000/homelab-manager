@@ -78,6 +78,7 @@ export function profileError(p: SetupProfile): string | null {
 }
 
 export const hostUser = (h: HostDoc, p: SetupProfile) => h.setupUser ?? p.user;
+export const hostModules = (h: HostDoc, p: SetupProfile) => (h.setupModules ?? p.modules).filter((m) => SETUP_MODULES.includes(m));
 
 // What the agent receives: the modules and only the parameters they need.
 export function buildSpec(p: SetupProfile, modules: SetupModule[], user: string) {
@@ -98,12 +99,12 @@ export function buildSpec(p: SetupProfile, modules: SetupModule[], user: string)
 
 export const canSetup = (h: { capabilities?: string[] }) => !!h.capabilities?.includes('setup');
 
-// Conformity of a host with the standard configuration, as checked by its agent.
+// Conformity of a host with its modules (the standard ones unless chosen on the host), as checked by its agent.
 export async function checkHostSetup(hostId: ObjectId) {
   const host = await hosts.findOne({ _id: hostId });
   if (!host || !canSetup(host) || !isOnline(hostId.toHexString())) return;
   const p = await loadSetupProfile();
-  const state = await agentRequest<SetupState>(hostId.toHexString(), 'setup_check', { setup: buildSpec(p, p.modules, hostUser(host, p)) }, 60_000);
+  const state = await agentRequest<SetupState>(hostId.toHexString(), 'setup_check', { setup: buildSpec(p, hostModules(host, p), hostUser(host, p)) }, 60_000);
   const updated = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { setup: state } }, { returnDocument: 'after' });
   if (updated) publish('host', hostDto(updated));
 }
@@ -119,6 +120,11 @@ export async function applySetup(host: HostDoc, modules: SetupModule[], user: st
   const p = await loadSetupProfile();
   const u = user ?? hostUser(host, p);
   if (user !== undefined && user !== host.setupUser) await hosts.updateOne({ _id: host._id }, { $set: { setupUser: user } });
+  // manual application: the selection becomes the modules of the host (unset when it is the standard one)
+  if (trigger === 'manual') {
+    const same = modules.length === p.modules.length && modules.every((m) => p.modules.includes(m));
+    await hosts.updateOne({ _id: host._id }, same ? { $unset: { setupModules: '' } } : { $set: { setupModules: modules } });
+  }
   return createJob(host, 'setup_apply', [], trigger, { setup: buildSpec(p, modules, u) });
 }
 

@@ -635,6 +635,26 @@ func sshdBinary() string {
 	return ""
 }
 
+// sshd -t / -T need the privilege separation directory, which ssh.service creates (RuntimeDirectory)
+// only while it runs: missing when sshd is stopped, e.g. socket-activated and not started yet.
+func ensureSshdRunDir() { _ = os.MkdirAll(sysPath("/run/sshd"), 0o755) }
+
+// How to make a running sshd take a new configuration. With socket activation (ssh.socket, the
+// default in Proxmox LXC), systemd holds port 22: a reload makes sshd re-exec and bind the port
+// itself, which fails and kills it. Restarting ssh.service hands it the socket again, and
+// KillMode=process keeps the open sessions. Without ssh.service running, the next connection
+// starts it with the new configuration.
+func sshdReloadAction(socketActive, serviceActive bool) string {
+	switch {
+	case !serviceActive:
+		return ""
+	case socketActive:
+		return "restart"
+	default:
+		return "reload"
+	}
+}
+
 // sshd reads the files of sshd_config.d first (first value wins) when sshd_config includes them.
 func sshdUsesDropIns() bool {
 	cfg, _ := readFile("/etc/ssh/sshd_config")
@@ -673,6 +693,7 @@ func applySSHPassword(ctx context.Context, s *SetupSpec, emit func(string)) erro
 	if err := syncFile(sshdDropIn, renderSshd(s.AllowPassword), 0o644, nil, emit); err != nil {
 		return err
 	}
+	ensureSshdRunDir()
 	if out, err := exec.CommandContext(ctx, sshd, "-t").CombinedOutput(); err != nil {
 		// put the previous configuration back: never leave sshd unable to start
 		if had {
@@ -682,16 +703,26 @@ func applySSHPassword(ctx context.Context, s *SetupSpec, emit func(string)) erro
 		}
 		return fmt.Errorf("sshd -t: %s", strings.TrimSpace(string(out)))
 	}
-	for _, unit := range []string{"ssh", "sshd"} {
-		if exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit).Run() == nil {
-			emit("reloading " + unit + "\n")
-			if out, err := exec.CommandContext(ctx, "systemctl", "reload", unit).CombinedOutput(); err != nil {
-				return fmt.Errorf("systemctl reload %s: %s", unit, strings.TrimSpace(string(out)))
-			}
-			return nil
-		}
+	active := func(unit string) bool {
+		return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit).Run() == nil
 	}
-	emit("ssh service not running: taken into account at its next start\n")
+	socket := active("ssh.socket")
+	for _, unit := range []string{"ssh", "sshd"} {
+		action := sshdReloadAction(socket, active(unit+".service"))
+		if action == "" {
+			continue
+		}
+		emit(action + "ing " + unit + "\n")
+		if out, err := exec.CommandContext(ctx, "systemctl", action, unit+".service").CombinedOutput(); err != nil {
+			return fmt.Errorf("systemctl %s %s: %s", action, unit, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	if socket {
+		emit("ssh service not running (socket activation): taken into account at the next connection\n")
+	} else {
+		emit("ssh service not running: taken into account at its next start\n")
+	}
 	return nil
 }
 
@@ -841,6 +872,7 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			c.State, c.Detail = "na", "no SSH server"
 			return c
 		}
+		ensureSshdRunDir()
 		out, err := exec.CommandContext(ctx, sshd, "-T").Output()
 		if err != nil {
 			c.State, c.Detail = "error", "sshd -T failed"

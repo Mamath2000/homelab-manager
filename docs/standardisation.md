@@ -28,7 +28,7 @@ Disponible sur Debian et Ubuntu (pas sur Unraid), avec un agent à jour.
 | Alias bash | `~/.bash_aliases` de root et de l'utilisateur | contenu du fichier |
 | Prompt | classique coloré (rouge pour root, branche git) ou [Starship](https://starship.rs) | `/etc/homelab/prompt.sh` |
 | Écran d'accueil | résumé homelab ou fastfetch | `/etc/homelab/motd.sh` |
-| Connexion SSH par mot de passe | `PasswordAuthentication` dans `/etc/ssh/sshd_config.d/00-homelab.conf`, validé par `sshd -t` puis `systemctl reload ssh` | valeur effective (`sshd -T`) |
+| Connexion SSH par mot de passe | `PasswordAuthentication` dans `/etc/ssh/sshd_config.d/00-homelab.conf`, validé par `sshd -t` puis pris en compte par sshd (voir Garde-fous SSH) | valeur effective (`sshd -T`) |
 
 L'utilisateur se règle dans la configuration standard et peut être changé hôte par hôte. Vide : seul root est configuré.
 
@@ -57,6 +57,11 @@ Les mises à jour et les conteneurs viennent de l'agent, qui tient `/etc/homelab
 - La configuration standard refuse « mot de passe interdit » sans l'option **Clés SSH**.
 - Si `sshd -t` rejette la configuration, l'ancienne est remise en place.
 - `sshd_config` doit inclure `sshd_config.d` (Debian 12, Ubuntu 22.04 et plus récents).
+- Prise en compte de la nouvelle configuration :
+  - sshd en écoute directe : `systemctl reload ssh` ;
+  - socket activation (`ssh.socket` actif, cas des LXC Proxmox) : `systemctl restart ssh.service`. Un reload y tue sshd, car le port 22 est tenu par systemd. Le restart garde les sessions ouvertes et systemd rend le socket à sshd ;
+  - service arrêté : rien à faire, la configuration est lue au prochain démarrage ou à la prochaine connexion.
+- `/run/sshd` est créé s'il manque (service arrêté), sinon `sshd -t` et `sshd -T` échouent.
 
 ## Sur un hôte
 
