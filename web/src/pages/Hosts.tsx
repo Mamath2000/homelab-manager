@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, Plus, RefreshCw, Search, Server } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
@@ -9,7 +9,7 @@ import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Age
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
-import { connection, connectionMeta, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
+import { canSelfUpdate, connection, connectionMeta, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { Host } from '../lib/api';
 
@@ -39,6 +39,7 @@ export function Hosts() {
   const [adding, setAdding] = useState(false);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [agentModal, setAgentModal] = useState(false);
+  const [allAgentsModal, setAllAgentsModal] = useState(false);
   const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
   const bulk = useRunBulk();
   const { canWrite, canManage } = useMe();
@@ -50,6 +51,9 @@ export function Hosts() {
     else next.delete(k);
     setParams(next, { replace: true });
   };
+
+  // agents out of sync with the binary served by the hub, able to update themselves now
+  const outdatedAgents = (hosts ?? []).filter((h) => h.agentOutdated && h.online && canSelfUpdate(h));
 
   const groups = useMemo(() => [...new Set((hosts ?? []).map((h) => h.group).filter(Boolean))].sort(), [hosts]);
 
@@ -95,7 +99,18 @@ export function Hosts() {
 
   return (
     <>
-      <PageHeader icon={Server} title="Hôtes" actions={canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>} />
+      <PageHeader
+        icon={Server}
+        title="Hôtes"
+        actions={
+          <>
+            {canWrite && outdatedAgents.length > 0 && (
+              <Button icon={CircleArrowUp} onClick={() => setAllAgentsModal(true)}>Mettre à jour les agents ({outdatedAgents.length})</Button>
+            )}
+            {canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>}
+          </>
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
@@ -234,6 +249,7 @@ export function Hosts() {
       </ConfirmModal>
       <AddHostModal open={adding} onClose={() => setAdding(false)} />
       <UpdateAgentsModal hosts={visibleSelected.filter((h) => h.agentOutdated)} open={agentModal} onClose={() => setAgentModal(false)} />
+      <UpdateAgentsModal hosts={outdatedAgents} open={allAgentsModal} onClose={() => setAllAgentsModal(false)} />
     </>
   );
 }

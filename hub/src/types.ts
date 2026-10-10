@@ -121,6 +121,8 @@ export interface HostDoc {
   // sha256 of the agent binary, compared with the one the hub distributes
   agentHash?: string;
   lastAgentUpdateAt?: Date;
+  // sha256 of the binary the last automatic update installed
+  lastAgentUpdateHash?: string;
   // packages upgraded during the last 24 h (see installed.ts)
   recentlyInstalled?: InstalledPackage[];
   info?: HostInfo;

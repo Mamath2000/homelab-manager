@@ -1,5 +1,5 @@
 import type { ObjectId } from 'mongodb';
-import { agentOutdated } from './agentBinaries.js';
+import { agentBinary, agentOutdated } from './agentBinaries.js';
 import { isOnline } from './agents.js';
 import { config } from './config.js';
 import { hosts, settings } from './db.js';
@@ -18,15 +18,17 @@ export function canSelfUpdate(h: HostDoc) {
 }
 
 // Starts an agent_update job when the agent is outdated, able to update itself, idle,
-// and was not already asked within the last hour (a failing update must not loop).
+// and was not already asked for the same binary within the last hour (a failing update must
+// not loop; a new release goes out right away).
 export async function maybeAutoUpdate(id: ObjectId) {
   if (!(await loadAgentSettings()).autoUpdate) return false;
   const h = await hosts.findOne({ _id: id });
   if (!h || !canSelfUpdate(h) || agentOutdated(h) !== true) return false;
   const hid = h._id.toHexString();
   if (!isOnline(hid) || hasRunningJob(hid)) return false;
-  if (h.lastAgentUpdateAt && Date.now() - h.lastAgentUpdateAt.getTime() < RETRY_MS) return false;
-  await hosts.updateOne({ _id: h._id }, { $set: { lastAgentUpdateAt: new Date() } });
+  const target = agentBinary(h.info?.arch)?.sha256;
+  if (h.lastAgentUpdateAt && h.lastAgentUpdateHash === target && Date.now() - h.lastAgentUpdateAt.getTime() < RETRY_MS) return false;
+  await hosts.updateOne({ _id: h._id }, { $set: { lastAgentUpdateAt: new Date(), lastAgentUpdateHash: target } });
   await createJob(h, 'agent_update', [], 'schedule');
   return true;
 }
