@@ -23,7 +23,11 @@ export function SetupSettings() {
   const opts = form.options;
   const setOption = <K extends SetupOption>(k: K, patch: Partial<{ enabled: boolean; value: SetupValues[K] }>) =>
     setForm({ ...form, options: { ...opts, [k]: { ...opts[k], ...patch } } });
-  const fastfetchUsed = (['root_motd', 'user_motd'] as const).some((k) => opts[k].enabled && opts[k].value === 'fastfetch' && (k === 'root_motd' || opts.user.enabled));
+  // a style used by root, or by the user when there is one
+  const used = (k: 'root_motd' | 'user_motd' | 'root_prompt' | 'user_prompt', style: string) =>
+    opts[k].enabled && opts[k].value === style && (k.startsWith('root') || opts.user.enabled);
+  const fastfetchUsed = used('root_motd', 'fastfetch') || used('user_motd', 'fastfetch');
+  const starshipUsed = used('root_prompt', 'starship') || used('user_prompt', 'starship');
 
   const save = async () => {
     setBusy(true);
@@ -95,6 +99,18 @@ export function SetupSettings() {
           </div>
         </Panel>
       ))}
+
+      {starshipUsed && (
+        <Panel title="Configuration Starship">
+          <label className="block text-sm">
+            <span className="mb-2 block text-xs text-muted">
+              TOML commun à root et à l'utilisateur, écrit dans /etc/homelab/starship.toml (STARSHIP_CONFIG) ; un ~/.config/starship.toml présent sur l'hôte
+              est ignoré. Vide : configuration par défaut de Starship.
+            </span>
+            <textarea className={`${textarea} min-h-[16rem]`} value={form.starship} onChange={(e) => setForm({ ...form, starship: e.target.value })} spellCheck={false} />
+          </label>
+        </Panel>
+      )}
 
       {fastfetchUsed && (
         <Panel title="Configuration fastfetch">

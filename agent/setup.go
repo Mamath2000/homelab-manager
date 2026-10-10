@@ -52,6 +52,7 @@ type SetupSpec struct {
 	Root          AccountSpec `json:"root"`
 	User          *UserSpec   `json:"user,omitempty"`
 	Fastfetch     string      `json:"fastfetch,omitempty"` // JSON configuration (welcome screen fastfetch)
+	Starship      string      `json:"starship,omitempty"`  // TOML configuration (prompt starship)
 }
 
 // State of one module against the spec.
@@ -86,6 +87,7 @@ const (
 	motdDir       = homelabDir + "/motd"
 	motdEnvFile   = homelabDir + "/motd.env"
 	fastfetchFile = homelabDir + "/fastfetch.jsonc"
+	starshipFile  = homelabDir + "/starship.toml"
 	sshdDropIn    = "/etc/ssh/sshd_config.d/00-homelab.conf"
 	sudoersFile   = "/etc/sudoers.d/90-homelab"
 	blockStart    = "# >>> homelab-manager >>>"
@@ -133,6 +135,10 @@ func validateSetup(s *SetupSpec) error {
 	}
 	if len(s.Fastfetch) > maxSetupText || (s.Fastfetch != "" && !json.Valid([]byte(s.Fastfetch))) {
 		return fmt.Errorf("invalid fastfetch configuration")
+	}
+	// TOML is checked by the hub; starship ignores an invalid file (warning, default prompt)
+	if len(s.Starship) > maxSetupText || strings.ContainsRune(s.Starship, 0) {
+		return fmt.Errorf("invalid starship configuration")
 	}
 	return nil
 }
@@ -217,6 +223,7 @@ unset __hm_c
 `
 
 const promptStarship = `# shellcheck shell=bash
+[ -r /etc/homelab/starship.toml ] && export STARSHIP_CONFIG=/etc/homelab/starship.toml
 command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"
 `
 
@@ -297,6 +304,14 @@ func renderFastfetch(s *SetupSpec) string {
 	}
 	// same header as the other files, as a JSONC comment
 	return "//" + strings.TrimPrefix(renderManaged(s.Fastfetch), "#")
+}
+
+// renderStarship is the configuration read by the Starship prompt (TOML: same header).
+func renderStarship(s *SetupSpec) string {
+	if strings.TrimSpace(s.Starship) == "" {
+		return ""
+	}
+	return renderManaged(s.Starship)
 }
 
 func stylePath(dir, style string) string { return dir + "/" + style + ".sh" }
@@ -710,6 +725,11 @@ func applyAccountOption(ctx context.Context, s *SetupSpec, m string, emit func(s
 		if err := applyStyle(ctx, promptDir, acc.Prompt, renderPrompt(acc.Prompt), emit); err != nil {
 			return err
 		}
+		if acc.Prompt == "starship" {
+			if err := syncFile(starshipFile, renderStarship(s), 0o644, nil, emit); err != nil {
+				return err
+			}
+		}
 	case "motd":
 		if err := applyStyle(ctx, motdDir, acc.Motd, renderMotd(acc.Motd), emit); err != nil {
 			return err
@@ -983,6 +1003,9 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			set(checkFile(filepath.Join(a.home, ".bash_aliases"), aliasesContent(acc.Aliases)))
 		case "prompt":
 			set(checkStyle(ctx, promptDir, acc.Prompt, renderPrompt(acc.Prompt)))
+			if acc.Prompt == "starship" {
+				set(checkFile(starshipFile, renderStarship(s)))
+			}
 		case "motd":
 			set(checkStyle(ctx, motdDir, acc.Motd, renderMotd(acc.Motd)))
 			if acc.Motd == "fastfetch" {

@@ -34,7 +34,7 @@ const valueSchema: Record<SetupOption, object> = {
 const profileBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['autoApply', 'options', 'fastfetch'],
+  required: ['autoApply', 'options', 'fastfetch', 'starship'],
   properties: {
     autoApply: { type: 'boolean' },
     options: {
@@ -49,6 +49,7 @@ const profileBody = {
       ),
     },
     fastfetch: text,
+    starship: text,
   },
 };
 

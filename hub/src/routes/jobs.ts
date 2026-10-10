@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { hosts, jobs, parseId } from '../db.js';
 import { agentOutdated } from '../agentBinaries.js';
 import { createJob, jobDto } from '../jobs.js';
-import { applySetup, canSetup } from '../setup.js';
-import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type JobAction } from '../types.js';
+import { applySetup, canSetup, loadSetupProfile, resetAndApplySetup, resetError } from '../setup.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type JobAction, type SetupOption } from '../types.js';
 
 export function registerJobRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { limit?: number } }>(
@@ -27,7 +27,7 @@ export function registerJobRoutes(app: FastifyInstance) {
   });
 
   // Same action on several hosts at once (full upgrades only, package lists are per host).
-  app.post<{ Body: { hostIds: string[]; action: JobAction } }>(
+  app.post<{ Body: { hostIds: string[]; action: JobAction; options?: SetupOption[] } }>(
     '/api/jobs/bulk',
     {
       schema: {
@@ -38,6 +38,8 @@ export function registerJobRoutes(app: FastifyInstance) {
           properties: {
             hostIds: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'string' } },
             action: { type: 'string', enum: JOB_ACTIONS },
+            // setup_apply: options of the standard to apply, replacing the values of each host
+            options: { type: 'array', minItems: 1, maxItems: SETUP_OPTIONS.length, uniqueItems: true, items: { type: 'string', enum: SETUP_OPTIONS } },
           },
         },
       },
@@ -47,6 +49,7 @@ export function registerJobRoutes(app: FastifyInstance) {
       if ((DOCKER_ACTIONS as readonly string[]).includes(req.body.action)) {
         return reply.code(400).send({ error: 'action Docker par stack : à lancer hôte par hôte' });
       }
+      if (req.body.options && req.body.action !== 'setup_apply') return reply.code(400).send({ error: 'options ne concerne que la standardisation' });
       const ids = req.body.hostIds.map(parseId).filter((x) => x !== null);
       let targets = await hosts.find({ _id: { $in: ids } }).toArray();
       // agents that are up to date or cannot update themselves are skipped
@@ -56,9 +59,22 @@ export function registerJobRoutes(app: FastifyInstance) {
       if (req.body.action === 'docker_check') targets = targets.filter((h) => h.capabilities?.includes('docker'));
       if ((APT_ACTIONS as readonly string[]).includes(req.body.action)) targets = targets.filter(hasApt);
       const created = [];
-      // standardisation: the values of each host (standard configuration and its overrides)
+      // standardisation: the chosen options back to the standard on every host (their own values are
+      // dropped) and applied; without options, each host with its own values
       if (req.body.action === 'setup_apply') {
-        for (const host of targets.filter(canSetup)) created.push(jobDto(await applySetup(host, 'manual')));
+        const { options } = req.body;
+        const setupTargets = targets.filter(canSetup);
+        if (!options) {
+          for (const host of setupTargets) created.push(jobDto(await applySetup(host, 'manual')));
+        } else {
+          const p = await loadSetupProfile();
+          const outside = options.filter((k) => !p.options[k].enabled);
+          if (outside.length) return reply.code(400).send({ error: `options hors du standard : ${outside.join(', ')}` });
+          // all or nothing: no host is changed when one of them would be refused
+          const errors = setupTargets.map((h) => resetError(p, h, options)).filter((e) => e !== null);
+          if (errors.length) return reply.code(400).send({ error: errors.join(' ; ') });
+          for (const host of setupTargets) created.push(jobDto(await resetAndApplySetup(p, host, options)));
+        }
         reply.code(202);
         return created;
       }

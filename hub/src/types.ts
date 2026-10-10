@@ -191,6 +191,7 @@ export interface SetupProfile {
   autoApply: boolean;
   options: SetupOptions;
   fastfetch: string; // JSON configuration of fastfetch (welcome screen 'fastfetch')
+  starship: string; // TOML configuration of Starship (prompt 'starship')
 }
 
 // Host value of an option, absent: the standard one. off: neither applied nor checked; extra: the

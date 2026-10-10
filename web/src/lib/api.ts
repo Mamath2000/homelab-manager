@@ -185,6 +185,7 @@ export interface SetupProfile {
   autoApply: boolean;
   options: SetupOptions;
   fastfetch: string;
+  starship: string;
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
@@ -361,7 +362,7 @@ export const api = {
   forgetStack: (hostId: string, stack: string) => request<void>('DELETE', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}`),
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
-  runBulk: (hostIds: string[], action: JobAction) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action }),
+  runBulk: (hostIds: string[], action: JobAction, options?: SetupOption[]) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action, options }),
 
   setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),
   saveSetupProfile: (p: SetupProfile) => request<SetupProfile>('PUT', '/api/settings/setup', p),

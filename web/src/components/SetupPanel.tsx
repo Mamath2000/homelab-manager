@@ -2,14 +2,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { RefreshCw, Save, Wand2 } from 'lucide-react';
-import { api, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
+import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { describeValue, hostHasUser, isListOption, setupOptionInfo, setupSections, showSetup, type SetupSection } from '../lib/setup';
-import { useUpdateHostCache } from '../lib/queries';
+import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
-import { Badge, Button, Modal, Spinner } from './ui';
+import { Badge, Button, Modal, Spinner, Tag } from './ui';
 
 function StateBadge({ check, managed }: { check?: SetupState['modules'][number]; managed: boolean }) {
   if (!managed) return <span className="text-xs text-zinc-600">non géré</span>;
@@ -284,6 +284,97 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
           Valeurs standard : {canManage ? <Link to="/settings?tab=setup" className="text-emerald-400 hover:underline">configuration standard</Link> : 'configuration standard'}.
         </p>
       </div>
+    </Modal>
+  );
+}
+
+// Standardisation of several hosts (Hôtes, selection): the chosen options of the standard go back to
+// the standard on every host (their own values are dropped), then they are applied.
+export function BulkSetupModal({ hosts, open, onClose }: { hosts: Host[]; open: boolean; onClose: () => void }) {
+  const bulk = useRunBulk();
+  const { data: standard } = useQuery({ queryKey: ['setup'], queryFn: api.setupStandard, enabled: open });
+  const [draft, setDraft] = useState<Set<SetupOption> | null>(null);
+  if (!open) return null;
+  const close = () => {
+    setDraft(null);
+    onClose();
+  };
+  const targets = hosts.filter((h) => h.capabilities.includes('setup'));
+  const skipped = hosts.length - targets.length;
+  // only the options of the standard, all pre-checked
+  const inStandard = SETUP_OPTIONS.filter((k) => standard?.options[k].enabled);
+  const selected = draft ?? new Set(inStandard);
+  const toggle = (k: SetupOption, on: boolean) => {
+    const next = new Set(selected);
+    if (on) next.add(k);
+    else next.delete(k);
+    setDraft(next);
+  };
+  const chosen = inStandard.filter((k) => selected.has(k));
+  // own values of the hosts that the application replaces
+  const replaced = targets
+    .map((h) => ({ host: h, options: chosen.filter((k) => h.setupOverrides[k]) }))
+    .filter((r) => r.options.length);
+
+  return (
+    <Modal
+      open
+      onClose={close}
+      wide
+      title={`Standardiser ${targets.length} hôte(s)`}
+      footer={
+        <>
+          <Button onClick={close}>Annuler</Button>
+          <Button
+            variant="primary"
+            icon={Wand2}
+            loading={bulk.isPending}
+            disabled={!standard || !chosen.length || !targets.length}
+            onClick={() => bulk.mutate({ hostIds: targets.map((h) => h.id), action: 'setup_apply', options: chosen }, { onSuccess: close })}
+          >
+            Appliquer {chosen.length} option(s)
+          </Button>
+        </>
+      }
+    >
+      {!standard ? (
+        <div className="flex justify-center p-6"><Spinner /></div>
+      ) : (
+        <div className="space-y-4 text-sm">
+          <div className="flex flex-wrap gap-1.5">{targets.map((h) => <Tag key={h.id}>{h.name}</Tag>)}</div>
+          {skipped > 0 && <p className="text-xs text-muted">{skipped} hôte(s) ignoré(s) : standardisation indisponible (Debian / Ubuntu, agent à jour).</p>}
+          <p className="text-xs text-muted">
+            Les options cochées repassent au standard sur chaque hôte : leurs valeurs propres sont supprimées, puis le standard est appliqué. Seules les
+            options du standard sont proposées.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {setupSections.map((s) => (
+              <section key={s.id}>
+                <h3 className="mb-1 border-b border-line pb-1 text-xs font-medium uppercase tracking-wide text-muted">{s.title}</h3>
+                {s.options.filter((k) => standard.options[k].enabled).map((k) => (
+                  <label key={k} className="flex cursor-pointer items-center gap-2 py-1 text-zinc-200">
+                    <input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={selected.has(k)} onChange={(e) => toggle(k, e.target.checked)} />
+                    {setupOptionInfo[k].label}
+                  </label>
+                ))}
+                {!s.options.some((k) => standard.options[k].enabled) && <p className="py-1 text-xs text-zinc-600">Aucune option dans le standard.</p>}
+              </section>
+            ))}
+          </div>
+          {replaced.length > 0 && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-200">
+              <p className="mb-1 font-medium">Valeurs propres remplacées par le standard :</p>
+              <ul className="space-y-0.5">
+                {replaced.map((r) => (
+                  <li key={r.host.id}>
+                    {r.host.name} : {r.options.map((k) => `${setupOptionInfo[k].label}${k.startsWith('user') ? ' (utilisateur)' : k.startsWith('root') ? ' (root)' : ''}`).join(', ')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

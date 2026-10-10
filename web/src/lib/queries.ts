@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Host, type JobAction } from './api';
+import { api, type Host, type JobAction, type SetupOption } from './api';
 import { useToast } from './toast';
 
 export const keys = {
@@ -45,7 +45,7 @@ export function useRunJob() {
 export function useRunBulk() {
   const toast = useToast();
   return useMutation({
-    mutationFn: (v: { hostIds: string[]; action: JobAction }) => api.runBulk(v.hostIds, v.action),
+    mutationFn: (v: { hostIds: string[]; action: JobAction; options?: SetupOption[] }) => api.runBulk(v.hostIds, v.action, v.options),
     onSuccess: (jobs) => {
       const failed = jobs.filter((j) => j.status === 'failed');
       const started = jobs.length - failed.length;

@@ -3,8 +3,10 @@ import { agentRequest, isOnline } from './agents.js';
 import { hosts, settings } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
+import { parse as parseToml } from 'smol-toml';
 import { DEFAULT_FASTFETCH } from './fastfetch.js';
 import { createJob } from './jobs.js';
+import { DEFAULT_STARSHIP } from './starship.js';
 import {
   LIST_OPTIONS,
   SETUP_OPTIONS,
@@ -63,6 +65,7 @@ export const DEFAULT_SETUP: SetupProfile = {
     user_motd: { enabled: false, value: 'homelab' },
   },
   fastfetch: DEFAULT_FASTFETCH,
+  starship: DEFAULT_STARSHIP,
 };
 
 export const isListOption = (k: SetupOption): k is ListOption => (LIST_OPTIONS as readonly string[]).includes(k);
@@ -81,6 +84,7 @@ export async function loadSetupProfile(): Promise<SetupProfile> {
     autoApply: saved?.autoApply ?? DEFAULT_SETUP.autoApply,
     options,
     fastfetch: saved?.fastfetch ?? DEFAULT_SETUP.fastfetch,
+    starship: saved?.starship ?? DEFAULT_SETUP.starship,
   };
 }
 
@@ -105,6 +109,15 @@ function fastfetchError(fastfetch: string) {
     return null;
   } catch (err) {
     return `configuration fastfetch invalide : ${(err as Error).message}`;
+  }
+}
+
+function starshipError(starship: string) {
+  try {
+    parseToml(starship);
+    return null;
+  } catch (err) {
+    return `configuration Starship invalide : ${(err as Error).message.split('\n')[0]}`;
   }
 }
 
@@ -145,6 +158,7 @@ export function profileError(p: SetupProfile): string | null {
   }
   const v = effectiveValues(p);
   if ((v.root_motd === 'fastfetch' || v.user_motd === 'fastfetch') && fastfetchError(p.fastfetch)) return fastfetchError(p.fastfetch);
+  if ((v.root_prompt === 'starship' || v.user_prompt === 'starship') && starshipError(p.starship)) return starshipError(p.starship);
   return lockoutError(v);
 }
 
@@ -173,10 +187,11 @@ const accountSpec = (v: Partial<SetupValues>, prefix: 'root' | 'user') => ({
   ...(v[`${prefix}_motd`] ? { motd: v[`${prefix}_motd`] } : {}),
 });
 
-// What the agent receives: the managed options (in SETUP_OPTIONS order) and only their values.
-export function buildSpec(p: SetupProfile, overrides?: SetupOverrides) {
+// What the agent receives: the managed options (in SETUP_OPTIONS order, restricted to `only` when
+// given) and their values; the user values travel with any user option (the account name).
+export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: SetupOption[]) {
   const v = effectiveValues(p, overrides);
-  const modules = SETUP_OPTIONS.filter((k) => k in v);
+  const modules = SETUP_OPTIONS.filter((k) => k in v && (!only || only.includes(k)));
   return {
     modules,
     ...(v.packages ? { packages: v.packages } : {}),
@@ -184,6 +199,7 @@ export function buildSpec(p: SetupProfile, overrides?: SetupOverrides) {
     root: accountSpec(v, 'root'),
     ...(v.user ? { user: { ...v.user, ...accountSpec(v, 'user') } } : {}),
     ...(v.root_motd === 'fastfetch' || v.user_motd === 'fastfetch' ? { fastfetch: p.fastfetch } : {}),
+    ...(v.root_prompt === 'starship' || v.user_prompt === 'starship' ? { starship: p.starship } : {}),
   };
 }
 
@@ -206,9 +222,30 @@ export function checkAllHosts() {
     .then((list) => Promise.allSettled(list.map((h) => checkHostSetup(h._id))));
 }
 
-export async function applySetup(host: HostDoc, trigger: JobDoc['trigger']) {
+// Applies the values of a host, all its managed options or only some of them (bulk application).
+export async function applySetup(host: HostDoc, trigger: JobDoc['trigger'], only?: SetupOption[]) {
   const p = await loadSetupProfile();
-  return createJob(host, 'setup_apply', [], trigger, { setup: buildSpec(p, host.setupOverrides) });
+  return createJob(host, 'setup_apply', [], trigger, { setup: buildSpec(p, host.setupOverrides, only) });
+}
+
+// Bulk standardisation: the chosen options go back to the standard on the host (its own values are
+// dropped), then they are applied.
+const withoutOverrides = (host: HostDoc, options: SetupOption[]) => {
+  const overrides = { ...host.setupOverrides } as Record<string, unknown>;
+  for (const k of options) delete overrides[k];
+  return overrides as SetupOverrides;
+};
+
+// Error message when the host values once reset would be refused (SSH lock-out), null otherwise.
+export const resetError = (p: SetupProfile, host: HostDoc, options: SetupOption[]) => {
+  const err = overridesError(p, withoutOverrides(host, options));
+  return err && `${host.name} : ${err}`;
+};
+
+export async function resetAndApplySetup(p: SetupProfile, host: HostDoc, options: SetupOption[]) {
+  const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { setupOverrides: withoutOverrides(host, options) } }, { returnDocument: 'after' }))!;
+  publish('host', hostDto(updated));
+  return createJob(updated, 'setup_apply', [], 'manual', { setup: buildSpec(p, updated.setupOverrides, options) });
 }
 
 // First connection of a new host: standard configuration if the profile says so, conformity otherwise.

@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
 import { authorize } from '../src/roles.js';
-import { DEFAULT_SETUP, buildSpec, effectiveValues, overridesError, profileError } from '../src/setup.js';
+import { DEFAULT_SETUP, buildSpec, effectiveValues, overridesError, profileError, resetError } from '../src/setup.js';
 import { setupDto } from '../src/hostDto.js';
 import { DEFAULT_FASTFETCH } from '../src/fastfetch.js';
+import { DEFAULT_STARSHIP } from '../src/starship.js';
 import type { HostDoc, SetupOption, SetupOverrides, SetupProfile, SetupValues } from '../src/types.js';
 
 const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5 mamath@pc';
@@ -28,8 +29,26 @@ test('the agent only receives the managed options and their values, in order', (
   assert.ok(!('prompt' in spec.root));
   assert.deepEqual(spec.user, { name: 'mamath', sudoNoPassword: true, motd: 'fastfetch' });
   assert.equal(spec.fastfetch, DEFAULT_FASTFETCH);
-  // no fastfetch welcome screen: no configuration sent
+  // no fastfetch welcome screen nor Starship prompt: no configuration sent
   assert.ok(!('fastfetch' in buildSpec(profile())));
+  assert.ok(!('starship' in buildSpec(profile())));
+  assert.equal(buildSpec(profile({ user: USER, user_prompt: 'starship' })).starship, DEFAULT_STARSHIP);
+});
+
+test('bulk application: only the chosen options, the user values travel with them', () => {
+  const p = profile({ root_keys: [KEY], user: USER, user_keys: [KEY2] });
+  const spec = buildSpec(p, { packages: { mode: 'off' } }, ['packages', 'user_keys', 'root_prompt']);
+  // packages not managed on this host: skipped
+  assert.deepEqual(spec.modules, ['root_prompt', 'user_keys']);
+  assert.equal(spec.user?.name, 'mamath');
+});
+
+test('bulk reset to the standard: refused when it would lock the host out', () => {
+  const p = profile({ ssh_password: false, root_keys: [KEY] });
+  const h = { _id: new ObjectId(), name: 'h1', createdAt: new Date(), setupOverrides: { root_keys: { mode: 'off' }, ssh_password: { mode: 'custom', value: true } } } as HostDoc;
+  // back to "password forbidden" while the host keeps its keys unmanaged: no key pushed
+  assert.match(resetError(p, h, ['ssh_password'])!, /^h1 : .*clés SSH/);
+  assert.equal(resetError(p, h, ['ssh_password', 'root_keys']), null);
 });
 
 test('the user options need the user', () => {
@@ -65,8 +84,10 @@ test('profile and overrides validation', () => {
   assert.match(profileError(profile({ root_keys: ['not a key'] }))!, /clé SSH/);
   assert.match(profileError(profile({ user_keys: [KEY + '\nssh-rsa AAAA'] }))!, /clé SSH/);
   assert.match(profileError(profile({ root_motd: 'fastfetch' }, { fastfetch: '{ "logo": ' }))!, /fastfetch/);
+  assert.match(profileError(profile({ root_prompt: 'starship' }, { starship: 'format = "x' }))!, /Starship/);
+  assert.equal(profileError(profile({ root_prompt: 'starship' })), null);
   // only checked when it is used
-  assert.equal(profileError(profile({}, { fastfetch: '{' })), null);
+  assert.equal(profileError(profile({}, { fastfetch: '{', starship: '[' })), null);
   // forbidding passwords without pushing keys could lock the hosts out
   assert.match(profileError(profile({ ssh_password: false }))!, /clés SSH/);
   assert.equal(profileError(profile({ ssh_password: false, root_keys: [KEY] })), null);

@@ -94,6 +94,9 @@ func TestMissingKeys(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
+	if renderStarship(&SetupSpec{}) != "" || renderStarship(&SetupSpec{Starship: "a = 1"}) != managedHead+"a = 1\n" {
+		t.Fatal("starship configuration")
+	}
 	if renderFastfetch(&SetupSpec{}) != "" {
 		t.Fatal("no fastfetch configuration expected")
 	}

@@ -6,6 +6,7 @@ import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
+import { BulkSetupModal } from '../components/SetupPanel';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
@@ -41,6 +42,7 @@ export function Hosts() {
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [agentModal, setAgentModal] = useState(false);
   const [allAgentsModal, setAllAgentsModal] = useState(false);
+  const [setupModal, setSetupModal] = useState(false);
   const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
   const bulk = useRunBulk();
   const { canWrite, canManage } = useMe();
@@ -145,6 +147,9 @@ export function Hosts() {
           <Button size="sm" icon={ArrowUpCircle} variant="primary" onClick={() => setConfirmUpgrade(true)}>Tout mettre à jour</Button>
           {visibleSelected.some((h) => h.agentOutdated) && (
             <Button size="sm" onClick={() => setAgentModal(true)}>Mettre à jour les agents</Button>
+          )}
+          {visibleSelected.some((h) => h.capabilities.includes('setup')) && (
+            <Button size="sm" icon={Wand2} onClick={() => setSetupModal(true)}>Standardisation</Button>
           )}
           <button className="ml-auto text-xs text-muted hover:text-zinc-200" onClick={() => setSelected(new Set())}>Désélectionner</button>
         </div>
@@ -255,6 +260,7 @@ export function Hosts() {
         )}
         <p className="mt-3 text-xs text-muted">Les configurations locales modifiées sont conservées (--force-confold). Aucun redémarrage n'est effectué.</p>
       </ConfirmModal>
+      <BulkSetupModal hosts={visibleSelected} open={setupModal} onClose={() => setSetupModal(false)} />
       <AddHostModal open={adding} onClose={() => setAdding(false)} />
       <UpdateAgentsModal hosts={visibleSelected.filter((h) => h.agentOutdated)} open={agentModal} onClose={() => setAgentModal(false)} />
       <UpdateAgentsModal hosts={outdatedAgents} open={allAgentsModal} onClose={() => setAllAgentsModal(false)} />
