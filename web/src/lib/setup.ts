@@ -1,4 +1,7 @@
-import type { SetupModule } from './api';
+import type { Host, SetupModule } from './api';
+
+// Hosts where the standardisation exists, or will once their agent is updated.
+export const showSetup = (host: Host) => host.capabilities.includes('setup') || !!host.apt;
 
 // Options of the standardisation, in the order the agent applies them.
 export const setupModuleInfo: Record<SetupModule, { label: string; hint: string }> = {

@@ -7,7 +7,8 @@ import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
-import { SetupPanel } from '../components/SetupPanel';
+import { SetupButton, SetupModal, SetupStatus } from '../components/SetupPanel';
+import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
@@ -208,6 +209,7 @@ export function HostDetail() {
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
@@ -265,6 +267,7 @@ export function HostDetail() {
                 </Button>
               </>
             )}
+            <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
             {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
             {host.capabilities.includes('reboot') && (
               <Button
@@ -358,10 +361,10 @@ export function HostDetail() {
             </InfoRow>
             <InfoRow label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</InfoRow>
             <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
+            {showSetup(host) && <InfoRow label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></InfoRow>}
           </dl>
         </Panel>
         <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
-        <SetupPanel host={host} running={!!running} onStarted={setJobId} />
         </div>
         {hasApt(host) ? (
           <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
@@ -406,6 +409,7 @@ export function HostDetail() {
       </div>
 
       {editing && <EditModal host={host} onClose={() => setEditing(false)} />}
+      <SetupModal host={host} open={setupOpen} onClose={() => setSetupOpen(false)} running={!!running} onStarted={setJobId} />
       <ConfirmModal open={confirmUpgrade} onClose={() => setConfirmUpgrade(false)} title={`Mettre à jour ${host.name}`} confirmLabel="Lancer apt-get upgrade" loading={run.isPending} onConfirm={() => startJob('apt_upgrade')}>
         {host.aptSummary?.upgradable} paquet(s) vont être mis à jour, dont {host.aptSummary?.security} de sécurité. Les fichiers de configuration modifiés localement sont conservés.
         {!!host.aptSummary?.rebootPending && <p className="mt-3 text-amber-300">Un redémarrage sera nécessaire ensuite (noyau, microcode ou bibliothèques système).</p>}
