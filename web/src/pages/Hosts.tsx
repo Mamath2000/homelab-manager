@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, CircleArrowUp, Plus, RefreshCw, Search, Server } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Container, Plus, RefreshCw, Search, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
@@ -202,6 +202,11 @@ export function Hosts() {
                         ) : (
                           <Badge tone="neutral" className="gap-1"><Brush className="h-3 w-3" />{s.autoremovable} à nettoyer</Badge>
                         ))}
+                        {!!h.dockerSummary?.updates && (
+                          <span title="Stacks Docker avec une image à mettre à jour">
+                            <Badge tone="warn" className="gap-1"><Container className="h-3 w-3" />{h.dockerSummary.updates} docker</Badge>
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="td" title={s?.rebootRequired ? "L'hôte attend un redémarrage" : s?.rebootPending ? 'Des mises à jour en attente nécessiteront un redémarrage' : undefined}>
