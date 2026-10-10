@@ -39,6 +39,9 @@ func collectInfo() *HostInfo {
 	}
 
 	info.Kernel = runningKernel()
+	if isWSL(info.Kernel) {
+		info.OSName = strings.TrimSpace(info.OSName + " (WSL)")
+	}
 
 	if b, err := os.ReadFile("/proc/uptime"); err == nil {
 		if f, _, ok := strings.Cut(string(b), "."); ok {

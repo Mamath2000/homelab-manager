@@ -81,7 +81,7 @@ Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, �
 
 ### Prérequis
 
-- Debian ou Ubuntu (APT) avec systemd, ou **Unraid** (voir plus bas) ;
+- Debian ou Ubuntu (APT) avec systemd, y compris sous **WSL2**, ou **Unraid** (voir plus bas) ;
 - `curl` (`apt install curl`) : il vérifie la clé du hub pendant l'installation, ce que wget ne sait pas faire ;
 - accès root ;
 - accès réseau de l'hôte vers le hub sur le port des agents (`3443` par défaut). Rien n'est à ouvrir sur l'hôte.
@@ -142,6 +142,22 @@ Unraid n'a ni systemd ni APT, et son système tourne en mémoire : tout ce qui n
 - au démarrage d'Unraid, cette ligne copie le binaire dans `/usr/local/bin` et lance l'agent, qui est relancé automatiquement s'il s'arrête (après une mise à jour, par exemple). Logs dans `/var/log/homelab-agent.log`.
 
 Sur Unraid, l'hôte remonte son état système et ses **stacks Docker** (voir [Docker](docker.md)). Il n'a pas de mises à jour APT ni de bouton Redémarrer : un redémarrage d'Unraid passe par son interface, qui arrête proprement l'array. La mise à jour automatique de l'agent met aussi à jour la copie gardée sur la clé USB.
+
+### WSL2 (Windows)
+
+Une distribution Debian ou Ubuntu sous WSL2 s'installe comme un hôte Debian, avec systemd activé. L'image Debian de WSL ne l'active pas et n'a pas `curl` ; le script s'occupe de systemd :
+
+1. Dans la distribution, en root : `apt update && apt install -y curl` ;
+2. Lancer la commande d'installation. Si systemd ne tourne pas, le script ajoute `systemd=true` à la section `[boot]` de `/etc/wsl.conf` (le reste du fichier est conservé) et s'arrête ;
+3. Depuis Windows : `wsl --shutdown`, puis rouvrir la distribution ;
+4. Relancer **la même commande** : l'agent s'installe en service systemd et passe « En ligne ».
+
+Particularités :
+
+- **Pas de bouton Redémarrer** : un `reboot` arrête la distribution, qui ne redémarre que depuis Windows (`wsl --shutdown` / `wsl -t <distribution>` puis réouverture) ;
+- **Pas de Docker** : l'agent ignore Docker sous WSL (même si Docker Desktop y expose son socket). L'hôte remonte son état système, ses mises à jour APT et la standardisation ;
+- le système affiché porte la mention « (WSL) », et l'hôte remonte l'IP interne de WSL (le réseau NAT n'empêche rien : c'est l'agent qui se connecte au hub sur le port des agents) ;
+- **l'hôte n'est en ligne que quand WSL tourne.** WSL ne démarre pas avec Windows et peut s'arrêter quand plus aucun terminal n'est ouvert. Pour le garder actif pendant la session Windows, créer une tâche planifiée « À l'ouverture de session » qui lance `wsl.exe -d Debian -u root --exec sleep infinity` (nom exact de la distribution : `wsl -l -v`).
 
 ### Mise à jour des agents
 
