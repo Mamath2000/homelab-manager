@@ -13,7 +13,7 @@ import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel,
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
-import { agentRevoked, connection, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
+import { agentRevoked, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 
@@ -254,12 +254,16 @@ export function HostDetail() {
         title={host.name}
         actions={
           canWrite && <>
-            <Button icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => startJob('apt_update')}>
-              Rechercher les MAJ
-            </Button>
-            <Button icon={ArrowUpCircle} variant="primary" disabled={!host.online || running || !host.aptSummary?.upgradable} onClick={() => setConfirmUpgrade(true)}>
-              Tout mettre à jour
-            </Button>
+            {hasApt(host) && (
+              <>
+                <Button icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => startJob('apt_update')}>
+                  Rechercher les MAJ
+                </Button>
+                <Button icon={ArrowUpCircle} variant="primary" disabled={!host.online || running || !host.aptSummary?.upgradable} onClick={() => setConfirmUpgrade(true)}>
+                  Tout mettre à jour
+                </Button>
+              </>
+            )}
             {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
             {host.capabilities.includes('reboot') && (
               <Button
@@ -357,10 +361,18 @@ export function HostDetail() {
         </Panel>
         <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
         </div>
-        <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
+        {hasApt(host) ? (
+          <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
+        ) : host.docker ? (
+          <DockerPanel host={host} running={!!running} onStarted={setJobId} />
+        ) : (
+          <Panel title="Système" icon={Package}>
+            <p className="text-sm text-muted">Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi.</p>
+          </Panel>
+        )}
       </div>
 
-      {host.docker && (
+      {host.docker && hasApt(host) && (
         <div className="mt-5">
           <DockerPanel host={host} running={!!running} onStarted={setJobId} />
         </div>

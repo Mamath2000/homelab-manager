@@ -60,7 +60,7 @@ La commande épingle la clé du hub et contient un code à usage unique, valable
 
 Les commandes de mise à jour manuelle (certificat conservé) et de désinstallation sont dans **Paramètres > Agent**.
 
-Prérequis côté hôte : Debian ou Ubuntu, systemd, `curl`.
+Prérequis côté hôte : Debian ou Ubuntu avec systemd, ou Unraid ; `curl`. L'agent peut s'installer dans un répertoire au choix (`--dir`, voir [docs/installation.md](docs/installation.md)).
 
 Agents installés avant la connexion TLS : le hub les refuse et les marque « Réinstallation requise » ; relancer sur chaque hôte une commande d'installation générée depuis sa fiche ([docs/installation.md](docs/installation.md)).
 

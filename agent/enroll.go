@@ -92,10 +92,9 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
+	// a FAT filesystem (Unraid flash drive) has no permissions: the file keeps the 0600 of
+	// CreateTemp, which is what matters for the key
+	_ = tmp.Chmod(mode)
 	if err := tmp.Close(); err != nil {
 		return err
 	}

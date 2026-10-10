@@ -96,13 +96,14 @@ func (s *stackStore) merge(live []DockerStack) []DockerStack {
 			svcs = append(svcs, svc.Name)
 		}
 		old, ok := s.stacks[st.Name]
+		// LastSeen only changes with the rest: the file may sit on a flash drive (Unraid)
 		k := knownStack{Name: st.Name, WorkingDir: st.WorkingDir, ConfigFiles: st.ConfigFiles, EnvFiles: st.EnvFiles, Services: svcs, LastSeen: now}
 		// keep services seen earlier (a stopped service may have no container left)
 		if ok {
 			k.Services = union(old.Services, svcs)
 		}
 		if !ok || old.WorkingDir != k.WorkingDir || strings.Join(old.ConfigFiles, ",") != strings.Join(k.ConfigFiles, ",") ||
-			strings.Join(old.Services, ",") != strings.Join(k.Services, ",") || now-old.LastSeen > 3600_000 {
+			strings.Join(old.Services, ",") != strings.Join(k.Services, ",") {
 			changed = true
 		}
 		s.stacks[st.Name] = k

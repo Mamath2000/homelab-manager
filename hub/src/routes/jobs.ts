@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { hosts, jobs, parseId } from '../db.js';
 import { agentOutdated } from '../agentBinaries.js';
 import { createJob, jobDto } from '../jobs.js';
-import { DOCKER_ACTIONS, JOB_ACTIONS, type JobAction } from '../types.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type JobAction } from '../types.js';
 
 export function registerJobRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { limit?: number } }>(
@@ -53,6 +53,7 @@ export function registerJobRoutes(app: FastifyInstance) {
         targets = targets.filter((h) => h.capabilities?.includes('agent_update') && agentOutdated(h) === true);
       }
       if (req.body.action === 'docker_check') targets = targets.filter((h) => h.capabilities?.includes('docker'));
+      if ((APT_ACTIONS as readonly string[]).includes(req.body.action)) targets = targets.filter(hasApt);
       const created = [];
       for (const host of targets) created.push(jobDto(await createJob(host, req.body.action, [], 'manual')));
       reply.code(202);

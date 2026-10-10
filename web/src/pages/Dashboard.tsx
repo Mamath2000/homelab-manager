@@ -10,7 +10,7 @@ import { ItemCard, StatusSection } from '../components/StatusSection';
 import { Badge, Button, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { jobTitle, timeAgo } from '../lib/format';
 import { useHosts, useJobs, useRunBulk } from '../lib/queries';
-import { allStacks, connection, connectionMeta, listsStale, needsReinstall, osLabel, stackMeta, stackPath, updateMeta, updateState } from '../lib/status';
+import { allStacks, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel, stackMeta, stackPath, updateMeta, updateState } from '../lib/status';
 import type { Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 
@@ -47,8 +47,10 @@ export function Dashboard() {
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
 
-  const count = <T extends string>(fn: (h: Host) => T, v: T) => hosts.filter((h) => fn(h) === v).length;
-  const online = hosts.filter((h) => h.online);
+  // the APT section only concerns hosts with APT (not Unraid)
+  const aptHosts = hosts.filter(hasApt);
+  const count = <T extends string>(fn: (h: Host) => T, v: T, list = aptHosts) => list.filter((h) => fn(h) === v).length;
+  const onlineApt = aptHosts.filter((h) => h.online);
   const outdated = hosts.filter((h) => h.agentOutdated);
   const reinstall = hosts.filter(needsReinstall);
   const needsUpdate = hosts
@@ -72,7 +74,7 @@ export function Dashboard() {
         actions={
           <>
             {canWrite && (
-              <Button icon={RefreshCw} loading={bulk.isPending} disabled={!online.length} onClick={() => bulk.mutate({ hostIds: online.map((h) => h.id), action: 'apt_update' })}>
+              <Button icon={RefreshCw} loading={bulk.isPending} disabled={!onlineApt.length} onClick={() => bulk.mutate({ hostIds: onlineApt.map((h) => h.id), action: 'apt_update' })}>
                 Tout vérifier
               </Button>
             )}
@@ -95,9 +97,9 @@ export function Dashboard() {
             title="Hôtes"
             to="/hosts"
             stats={[
-              { label: 'En ligne', value: count(connection, 'online'), tone: 'ok' },
-              { label: 'Hors ligne', value: count(connection, 'offline'), tone: 'bad' },
-              { label: 'En attente', value: count(connection, 'pending'), tone: 'unknown' },
+              { label: 'En ligne', value: count(connection, 'online', hosts), tone: 'ok' },
+              { label: 'Hors ligne', value: count(connection, 'offline', hosts), tone: 'bad' },
+              { label: 'En attente', value: count(connection, 'pending', hosts), tone: 'unknown' },
               { label: 'Agent à mettre à jour', value: outdated.length, tone: 'warn', ringless: true },
             ]}
             cardsTitle="Tous les hôtes"

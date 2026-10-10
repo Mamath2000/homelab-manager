@@ -32,6 +32,12 @@ func collectInfo() *HostInfo {
 		f.Close()
 	}
 
+	// Unraid (Slackware based) describes itself in /etc/unraid-version: version="6.12.13"
+	if b, err := os.ReadFile("/etc/unraid-version"); err == nil {
+		v := strings.Trim(strings.TrimPrefix(strings.TrimSpace(string(b)), "version="), `"`)
+		info.OSID, info.OSName = "unraid", strings.TrimSpace("Unraid "+v)
+	}
+
 	info.Kernel = runningKernel()
 
 	if b, err := os.ReadFile("/proc/uptime"); err == nil {

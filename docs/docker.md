@@ -17,6 +17,8 @@ Le module Docker suit les **stacks docker compose déjà présentes sur les hôt
 
 Rien à configurer : les stacks sont découvertes à partir des labels que compose pose sur ses conteneurs (`com.docker.compose.project`, dossier et fichiers du projet).
 
+Sur **Unraid**, les stacks du plugin Compose Manager sont suivies là où il les range (`/boot/config/plugins/compose.manager/projects/…`). Les conteneurs créés par l'interface Docker d'Unraid (templates) ne passent pas par compose : ils ne sont pas suivis.
+
 ## Ce qui est suivi
 
 - **Stacks**, avec leur état :

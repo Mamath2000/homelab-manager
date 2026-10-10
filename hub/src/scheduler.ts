@@ -16,7 +16,7 @@ async function tick(log: FastifyBaseLogger) {
   if (checkIntervalHours <= 0) return;
   const intervalMs = checkIntervalHours * 3600 * 1000;
   const threshold = Date.now() - intervalMs;
-  for (const host of await hosts.find().toArray()) {
+  for (const host of await hosts.find({ capabilities: 'apt_update' }).toArray()) {
     const id = host._id.toHexString();
     if (!isOnline(id) || hasRunningJob(id)) continue;
     const listsAge = host.apt?.listsUpdatedAt ?? 0;
