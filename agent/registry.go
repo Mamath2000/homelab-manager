@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -85,15 +86,18 @@ func (r imageRef) sameRepo(o imageRef) bool {
 	return r.Registry == o.Registry && r.Repo == o.Repo
 }
 
-// localDigest returns the registry digest the local image was pulled from, found among its
-// RepoDigests ("nginx@sha256:..."); "" for an image built locally.
-func localDigest(ref imageRef, repoDigests []string) string {
+// localDigests returns the registry digests the local image is known under, found among its
+// RepoDigests ("nginx@sha256:..."); empty for an image built locally. There can be several for
+// one image: a registry republishing the tag with a new index but the same layers makes the
+// next pull add a digest without downloading anything.
+func localDigests(ref imageRef, repoDigests []string) []string {
+	out := []string{}
 	for _, rd := range repoDigests {
-		if o, err := parseRef(rd); err == nil && o.Digest != "" && o.sameRepo(ref) {
-			return o.Digest
+		if o, err := parseRef(rd); err == nil && o.Digest != "" && o.sameRepo(ref) && !slices.Contains(out, o.Digest) {
+			out = append(out, o.Digest)
 		}
 	}
-	return ""
+	return out
 }
 
 var manifestTypes = strings.Join([]string{

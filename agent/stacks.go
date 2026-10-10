@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -283,7 +284,7 @@ func (d *dockerModule) check(ctx context.Context, emit func(string)) (*DockerUpd
 		case c.Error != "":
 			failed++
 			emit(fmt.Sprintf("%s: %s\n", img.Ref, c.Error))
-		case c.Digest == img.Digest:
+		case slices.Contains(img.Digests, c.Digest):
 			emit(fmt.Sprintf("%s: up to date\n", img.Ref))
 		default:
 			emit(fmt.Sprintf("%s: update available (%s → %s)\n", img.Ref, short(img.Digest), short(c.Digest)))

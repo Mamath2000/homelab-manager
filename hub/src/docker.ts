@@ -54,8 +54,11 @@ export interface DockerView {
 function serviceUpdate(svc: DockerService, report: DockerReport, updates?: DockerUpdates): Omit<ServiceView, keyof DockerService> {
   const img = report.images.find((i) => i.ref === svc.image);
   const check = updates?.images.find((i) => i.ref === svc.image);
-  const local = img?.digest || null;
   const remote = check?.digest || null;
+  // an image can be known under several digests (tag republished with the same layers):
+  // up to date when the registry one is among them
+  const digests = img?.digests?.length ? img.digests : img?.digest ? [img.digest] : [];
+  const local = (remote && digests.includes(remote) ? remote : digests[0]) || null;
   const base = { localDigest: local, remoteDigest: remote, checkError: check?.error || null };
   const recreate = !!img?.id && svc.containers.some((c) => c.imageId && c.imageId !== img.id);
   if (local && remote && local !== remote) return { ...base, update: 'available' };

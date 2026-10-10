@@ -264,12 +264,15 @@ func (d *dockerModule) collect(ctx context.Context) (*DockerReport, error) {
 				continue
 			}
 			seen[svc.Image] = true
-			img := DockerImage{Ref: svc.Image}
+			img := DockerImage{Ref: svc.Image, Digests: []string{}}
 			var ai apiImage
 			if err := d.client.get(ctx, "/images/"+svc.Image+"/json", &ai); err == nil {
 				img.ID = ai.ID
 				if ref, err := parseRef(svc.Image); err == nil {
-					img.Digest = localDigest(ref, ai.RepoDigests)
+					img.Digests = localDigests(ref, ai.RepoDigests)
+					if len(img.Digests) > 0 {
+						img.Digest = img.Digests[0]
+					}
 				}
 			}
 			images = append(images, img)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -38,13 +39,18 @@ func TestParseRef(t *testing.T) {
 	}
 }
 
-func TestLocalDigest(t *testing.T) {
+func TestLocalDigests(t *testing.T) {
 	ref, _ := parseRef("nginx:latest")
 	d := "sha256:" + strings.Repeat("b", 64)
-	if got := localDigest(ref, []string{"ghcr.io/other/nginx@sha256:" + strings.Repeat("c", 64), "nginx@" + d}); got != d {
+	if got := localDigests(ref, []string{"ghcr.io/other/nginx@sha256:" + strings.Repeat("c", 64), "nginx@" + d}); !slices.Equal(got, []string{d}) {
 		t.Fatalf("got %q", got)
 	}
-	if got := localDigest(ref, nil); got != "" {
+	// tag republished with the same layers: the image keeps the old and the new digest
+	d2 := "sha256:" + strings.Repeat("d", 64)
+	if got := localDigests(ref, []string{"nginx@" + d, "docker.io/library/nginx@" + d2, "nginx@" + d}); !slices.Equal(got, []string{d, d2}) {
+		t.Fatalf("got %q", got)
+	}
+	if got := localDigests(ref, nil); len(got) != 0 {
 		t.Fatalf("local build: got %q", got)
 	}
 }

@@ -63,6 +63,8 @@ type DockerImage struct {
 	ID  string `json:"id"` // image the tag currently points to ("" if absent)
 	// digest of the registry manifest the local image was pulled from ("" for local builds)
 	Digest string `json:"digest"`
+	// every registry digest of the local image (Digest is the first one, kept for older hubs)
+	Digests []string `json:"digests"`
 }
 
 type DockerReport struct {

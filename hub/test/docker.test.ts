@@ -59,6 +59,24 @@ test('update state per service: available, recreate, up to date, unknown', () =>
   assert.equal(v.stacks[0].services.find((s) => s.name === 'tool')!.checkError, 'local image');
 });
 
+test('image known under several digests: up to date when the registry one is among them', () => {
+  // tag republished with the same layers: the pull adds a digest to the same image
+  const h = dockerHost(
+    {
+      stacks: [stack('sure', 'running', [['db', 'postgres:16', 'running'], ['app', 'nginx', 'running']])],
+      images: [
+        { ref: 'postgres:16', id: 'img-current', digest: OLD, digests: [OLD, NEW] },
+        { ref: 'nginx', id: 'img-current', digest: OLD, digests: [OLD] },
+      ],
+    },
+    { checkedAt: Date.now(), images: [{ ref: 'postgres:16', digest: NEW }, { ref: 'nginx', digest: NEW }] },
+  );
+  const [db, app] = dockerView(h)!.stacks[0].services;
+  assert.equal(db.update, 'uptodate');
+  assert.equal(db.localDigest, NEW);
+  assert.equal(app.update, 'available');
+});
+
 test('never checked: unknown, except an image pulled but not redeployed', () => {
   const h = dockerHost({
     stacks: [stack('a', 'running', [['app', 'nginx', 'running']]), stack('b', 'running', [['app', 'redis', 'running', 'img-old']])],

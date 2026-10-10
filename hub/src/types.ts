@@ -81,6 +81,8 @@ export interface DockerImage {
   ref: string;
   id: string; // image the tag points to locally
   digest: string; // registry digest it was pulled from ("" for local builds)
+  // every registry digest of the local image (agents >= this field; older ones only send digest)
+  digests?: string[];
 }
 
 export interface DockerReport {
