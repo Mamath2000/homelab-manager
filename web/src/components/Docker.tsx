@@ -11,7 +11,7 @@ import { Badge, Button, ConfirmModal, Panel, Tag } from './ui';
 export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'status' | 'running' | 'total'> }) {
   if (!stack.managed) {
     return (
-      <span title="Gérée en dehors de Homelab Manager : ni état, ni mise à jour, ni action">
+      <span title="Gérée en dehors de Homelab Manager : mises à jour d'image affichées pour information, ni état ni action">
         <Badge tone="neutral">Non managée</Badge>
       </span>
     );
@@ -23,11 +23,6 @@ export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed'
       {stack.status !== 'down' && <span className="tabular-nums opacity-80">· {stack.running}/{stack.total}</span>}
     </Badge>
   );
-}
-
-// Image state of a stack; nothing for an unmanaged one.
-export function StackImagesBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'update' | 'updates'> }) {
-  return stack.managed ? <ImageUpdateBadge update={stack.update} count={stack.updates} /> : <span className="text-xs text-muted">—</span>;
 }
 
 export function ImageUpdateBadge({ update, count }: { update: ImageUpdate; count?: number }) {
@@ -185,7 +180,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                   {st.problems.length > 0 && <p className="text-xs text-amber-300">{st.problems.join(' · ')}</p>}
                 </td>
                 <td className="td"><StackStatusBadge stack={st} /></td>
-                <td className="td"><StackImagesBadge stack={st} /></td>
+                <td className="td"><ImageUpdateBadge update={st.update} count={st.updates} /></td>
                 <td className="td hidden md:table-cell">
                   <div className="flex flex-wrap gap-1">{st.services.map((s) => <Tag key={s.name}>{s.name}</Tag>)}</div>
                 </td>

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowUpCircle, Boxes, Container, Eye, EyeOff, FileCode, History, RefreshCw, ScrollText, ShieldAlert, Trash2 } from 'lucide-react';
-import { CheckImagesButton, ImageUpdateBadge, StackActions, StackImagesBadge, StackStatusBadge } from '../components/Docker';
+import { CheckImagesButton, ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Panel, Spinner, Tabs, Tag } from '../components/ui';
 import { api, type DockerStack, type Host } from '../lib/api';
@@ -29,13 +29,25 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
             <tr>
               <th className="th">Service</th>
               <th className="th">Image</th>
+              <th className="th">Mise à jour</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
             {stack.services.map((s) => (
-              <tr key={s.name} className="hover:bg-raised/40">
+              <tr key={s.name} className="align-top hover:bg-raised/40">
                 <td className="td font-medium text-zinc-100">{s.name}</td>
-                <td className="td"><span className="font-mono text-xs text-zinc-300">{s.image || '—'}</span></td>
+                <td className="td">
+                  <span className="font-mono text-xs text-zinc-300">{s.image || '—'}</span>
+                  {s.update === 'available' && (
+                    <p className="mt-0.5 font-mono text-[11px] text-muted">
+                      {short(s.localDigest)} → <span className="text-amber-300">{short(s.remoteDigest)}</span>
+                    </p>
+                  )}
+                </td>
+                <td className="td">
+                  <ImageUpdateBadge update={s.update} />
+                  {s.checkError && s.update === 'unknown' && <p className="mt-0.5 text-[11px] text-muted">{s.checkError}</p>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -281,7 +293,7 @@ export function Stack() {
         actions={
           <>
             <StackActions host={host} stack={stack} disabled={running} onStarted={started} />
-            {stack.managed && <CheckImagesButton host={host} disabled={running} onStarted={started} />}
+            <CheckImagesButton host={host} disabled={running} onStarted={started} />
             {canManage &&
               (stack.managed ? (
                 <Button size="sm" variant="ghost" icon={EyeOff} title="Stack gérée par ailleurs : lecture seule, sans état ni mise à jour" onClick={() => setUnmanage(true)}>
@@ -301,7 +313,7 @@ export function Stack() {
         }
       >
         <StackStatusBadge stack={stack} />
-        {stack.managed && <StackImagesBadge stack={stack} />}
+        <ImageUpdateBadge update={stack.update} count={stack.updates} />
         <Link to={`/hosts/${host.id}`}><Tag>{host.name}</Tag></Link>
         {!host.online && <Badge tone="bad">hôte hors ligne</Badge>}
       </PageHeader>
@@ -310,8 +322,8 @@ export function Stack() {
         <div className="panel mb-5 flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
           <EyeOff className="h-5 w-5 text-muted" />
           <span className="text-zinc-300">
-            Stack non managée : elle est gérée en dehors de Homelab Manager (son propre système de mise à jour…). Lecture seule : ni état, ni
-            vérification d'image, ni action, et elle n'est pas publiée dans Home Assistant.
+            Stack non managée : elle est gérée en dehors de Homelab Manager (son propre système de mise à jour…). Lecture seule : les mises à
+            jour d'image sont affichées pour information, sans état ni action, et elle n'est pas publiée dans Home Assistant.
           </span>
         </div>
       )}
@@ -325,7 +337,7 @@ export function Stack() {
         <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
           <ArrowUpCircle className="h-5 w-5 text-amber-400" />
           <span className="text-zinc-200">
-            {pending.length} service(s) à mettre à jour :{' '}
+            {pending.length} service(s) à mettre à jour{!stack.managed && ' (par son propre système)'} :{' '}
             {pending.map((s) => `${s.name} (${imageUpdateMeta[s.update].label.toLowerCase()})`).join(', ')}
           </span>
         </div>
@@ -335,7 +347,7 @@ export function Stack() {
         <span className="font-mono">{stack.workingDir}</span>
         {' · '}
         {stack.configFiles.map((f) => f.replace(`${stack.workingDir}/`, '')).join(', ')}
-        {stack.managed && <>{' · '}images vérifiées {host.docker?.updatesCheckedAt ? timeAgo(host.docker.updatesCheckedAt) : 'jamais'}</>}
+        {' · '}images vérifiées {host.docker?.updatesCheckedAt ? timeAgo(host.docker.updatesCheckedAt) : 'jamais'}
       </p>
 
       <Tabs tabs={tabs} value={tabs.some((t) => t.id === tab) ? tab : 'services'} onChange={setTab} />
@@ -377,8 +389,8 @@ export function Stack() {
           setUnmanage(false);
         }}
       >
-        Pour une stack qui a son propre système de mise à jour. Elle reste listée en lecture seule (services, logs, compose) mais
-        n'a plus d'état, de mise à jour, de problème ni d'action, et disparaît de Home Assistant. Réversible avec « Gérer ».
+        Pour une stack qui a son propre système de mise à jour. Elle reste listée en lecture seule (services, mises à jour d'image pour
+        information, logs, compose) mais n'a plus d'état, de problème ni d'action, et disparaît de Home Assistant. Réversible avec « Gérer ».
       </ConfirmModal>
     </>
   );

@@ -81,12 +81,13 @@ Logs et fichiers compose peuvent contenir des secrets : ils sont réservés aux 
 
 Une stack qui a son propre système de mise à jour (ou que l'on veut simplement laisser de côté) peut être sortie de la gestion : **Ne plus gérer** (admin, sur la page de la stack). Elle reste listée, en lecture seule, avec le badge **Non managée** :
 
-- ni état, ni conteneurs, ni statut d'image, ni problème : rien de cela n'est affiché ni compté (tuiles, tableau de bord, filtres) ;
+- ni état, ni conteneurs, ni problème : rien de cela n'est affiché ni compté (tuiles, tableau de bord, filtre « Arrêtées ») ;
+- les **mises à jour d'image** restent affichées, pour information (badge, détail par service, filtre « À mettre à jour ») : elles ne comptent pas dans les tuiles, le tableau de bord ni la liste des hôtes, et ne sont pas envoyées à Home Assistant ;
 - aucune action : Démarrer, Arrêter, Redémarrer et Mettre à jour sont refusés, y compris par l'API, et la stack est exclue de **Mettre à jour (n)** ;
 - pas publiée dans Home Assistant (son sous-composant disparaît) ;
 - restent consultables : ses services et leurs images, les logs et les fichiers compose.
 
-Le choix est enregistré par le hub (par hôte et nom de stack), rien n'est modifié sur l'hôte. Il survit à un « Oublier » : la stack revient non managée si elle est relancée. **Gérer** la remet dans le suivi normal. L'agent continue de vérifier ses images au registre ; le résultat est simplement ignoré.
+Le choix est enregistré par le hub (par hôte et nom de stack), rien n'est modifié sur l'hôte. Il survit à un « Oublier » : la stack revient non managée si elle est relancée. **Gérer** la remet dans le suivi normal. L'agent continue de vérifier ses images au registre comme pour les autres stacks.
 
 ## Home Assistant
 
