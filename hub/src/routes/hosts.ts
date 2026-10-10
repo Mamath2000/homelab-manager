@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, disconnectAgent, isOnline } from '../agents.js';
-import { SERVICE_RE, STACK_RE, findStack } from '../docker.js';
+import { SERVICE_RE, STACK_RE, findStack, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { hosts, jobs, parseId } from '../db.js';
 import { publish } from '../events.js';
@@ -198,6 +198,7 @@ export function registerHostRoutes(app: FastifyInstance) {
           return reply.code(400).send({ error: 'stack ou service invalide' });
         }
         if (!findStack(host, stack, service)) return reply.code(404).send({ error: 'stack ou service introuvable sur cet hôte' });
+        if (isUnmanaged(host, stack)) return reply.code(409).send({ error: 'stack non managée : aucune action depuis Homelab Manager' });
       } else if (stack || service) {
         return reply.code(400).send({ error: 'stack et service ne concernent que les actions Docker' });
       }
@@ -269,6 +270,31 @@ export function registerHostRoutes(app: FastifyInstance) {
         return agentError(reply, err);
       }
       return reply.code(204).send();
+    },
+  );
+
+  // Stops (or resumes) managing a stack that has its own update system: still listed, read-only.
+  app.put<{ Params: { id: string; stack: string }; Body: { managed: boolean } }>(
+    '/api/hosts/:id/stacks/:stack/managed',
+    {
+      schema: {
+        params: stackParams,
+        body: { type: 'object', required: ['managed'], additionalProperties: false, properties: { managed: { type: 'boolean' } } },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!host.capabilities?.includes('docker') || !findStack(host, req.params.stack)) {
+        return reply.code(404).send({ error: 'stack introuvable sur cet hôte' });
+      }
+      const update = req.body.managed ? { $pull: { unmanagedStacks: req.params.stack } } : { $addToSet: { unmanagedStacks: req.params.stack } };
+      const updated = await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' });
+      if (!updated) return reply.code(404).send({ error: 'host not found' });
+      const dto = hostDto(updated);
+      publish('host', dto);
+      return dto;
     },
   );
 }

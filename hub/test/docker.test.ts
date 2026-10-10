@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport } from '../src/docker.js';
+import { dockerSummary, dockerView, findStack, isDockerReport, isUnmanaged } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -105,7 +105,30 @@ test('problems: partial stack, unhealthy or restarting containers, not a stopped
   assert.ok(problems.mqtt.includes('broker : redémarre en boucle'));
   assert.deepEqual(problems.old, []);
   assert.deepEqual(problems.gone, []);
-  assert.deepEqual(dockerSummary(v), { stacks: 5, running: 1, partial: 2, stopped: 1, down: 1, updates: 0, problems: 3 });
+  assert.deepEqual(dockerSummary(v), { stacks: 5, running: 1, partial: 2, stopped: 1, down: 1, updates: 0, problems: 3, unmanaged: 0 });
+});
+
+test('unmanaged stack: listed without state, updates nor problems, out of the counts', () => {
+  const sick = stack('media', 'partial', [['plex', 'plex:latest', 'restarting'], ['db', 'postgres', 'exited']]);
+  const web = stack('web', 'running', [['app', 'nginx:latest', 'running']]);
+  const h = {
+    ...dockerHost(
+      { stacks: [sick, web], images: [{ ref: 'plex:latest', id: 'img-current', digest: OLD }, { ref: 'nginx:latest', id: 'img-current', digest: OLD }] },
+      { checkedAt: Date.now(), images: [{ ref: 'plex:latest', digest: NEW }, { ref: 'nginx:latest', digest: NEW }] },
+    ),
+    unmanagedStacks: ['media'],
+  };
+  const v = dockerView(h)!;
+  const media = v.stacks.find((s) => s.name === 'media')!;
+  assert.equal(media.managed, false);
+  assert.deepEqual(media.problems, []);
+  assert.equal(media.updates, 0);
+  assert.equal(media.update, 'unknown');
+  assert.deepEqual(media.services.map((s) => [s.name, s.containers.length, s.update]), [['plex', 0, 'unknown'], ['db', 0, 'unknown']]);
+  assert.equal(v.stacks.find((s) => s.name === 'web')!.managed, true);
+  assert.deepEqual(dockerSummary(v), { stacks: 1, running: 1, partial: 0, stopped: 0, down: 0, updates: 1, problems: 0, unmanaged: 1 });
+  assert.ok(isUnmanaged(h, 'media'));
+  assert.ok(!isUnmanaged(h, 'web'));
 });
 
 test('no docker view without the capability or a report', () => {

@@ -33,6 +33,8 @@ export interface ServiceView extends DockerService {
 }
 
 export interface StackView extends Omit<DockerStack, 'services'> {
+  // false: managed elsewhere, shown read-only without state, updates, problems nor actions
+  managed: boolean;
   services: ServiceView[];
   running: number;
   total: number;
@@ -79,10 +81,27 @@ export function stackProblems(st: { status: string; running: number; total: numb
   return out;
 }
 
+export const isUnmanaged = (h: Pick<HostDoc, 'unmanagedStacks'>, stack: string) => !!h.unmanagedStacks?.includes(stack);
+
+// An unmanaged stack keeps its name, files and services (logs, compose), nothing of its state.
+function unmanagedView(st: DockerStack): StackView {
+  return {
+    ...st,
+    managed: false,
+    services: st.services.map((svc) => ({ ...svc, containers: [], update: 'unknown', localDigest: null, remoteDigest: null, checkError: null })),
+    running: 0,
+    total: 0,
+    update: 'unknown',
+    updates: 0,
+    problems: [],
+  };
+}
+
 export function dockerView(h: HostDoc): DockerView | null {
   const r = h.docker;
   if (!r || !h.capabilities?.includes('docker')) return null;
   const stacks = r.stacks.map((st): StackView => {
+    if (isUnmanaged(h, st.name)) return unmanagedView(st);
     const services = st.services.map((svc) => ({ ...svc, ...serviceUpdate(svc, r, h.dockerUpdates) }));
     const containers = services.flatMap((s) => s.containers);
     const running = containers.filter((c) => c.state === 'running').length;
@@ -90,6 +109,7 @@ export function dockerView(h: HostDoc): DockerView | null {
     const update: ImageUpdate = has('available') ? 'available' : has('recreate') ? 'recreate' : has('uptodate') ? 'uptodate' : 'unknown';
     const view = {
       ...st,
+      managed: true,
       services,
       running,
       total: containers.length,
@@ -111,15 +131,17 @@ export function dockerView(h: HostDoc): DockerView | null {
 
 export function dockerSummary(v: DockerView | null) {
   if (!v) return null;
-  const count = (s: string) => v.stacks.filter((st) => st.status === s).length;
+  const managed = v.stacks.filter((st) => st.managed);
+  const count = (s: string) => managed.filter((st) => st.status === s).length;
   return {
-    stacks: v.stacks.length,
+    stacks: managed.length,
     running: count('running'),
     partial: count('partial'),
     stopped: count('stopped'),
     down: count('down'),
-    updates: v.stacks.filter((st) => st.updates > 0).length,
-    problems: v.stacks.filter((st) => st.problems.length > 0).length,
+    updates: managed.filter((st) => st.updates > 0).length,
+    problems: managed.filter((st) => st.problems.length > 0).length,
+    unmanaged: v.stacks.length - managed.length,
   };
 }
 

@@ -64,6 +64,8 @@ export interface DockerService {
 
 export interface DockerStack {
   name: string;
+  // false: managed elsewhere (own update system), read-only, without state, updates nor problems
+  managed: boolean;
   workingDir: string;
   configFiles: string[];
   envFiles: string[];
@@ -92,6 +94,7 @@ export interface DockerSummary {
   down: number;
   updates: number;
   problems: number;
+  unmanaged: number;
 }
 
 export interface ComposeFile {
@@ -298,5 +301,7 @@ export const api = {
   stackCompose: (hostId: string, stack: string) =>
     request<{ files: ComposeFile[] }>('GET', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/compose`),
   forgetStack: (hostId: string, stack: string) => request<void>('DELETE', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}`),
+  setStackManaged: (hostId: string, stack: string, managed: boolean) =>
+    request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
   runBulk: (hostIds: string[], action: JobAction) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action }),
 };

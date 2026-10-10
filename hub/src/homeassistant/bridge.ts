@@ -5,6 +5,7 @@ import { agentBinary, agentOutdated } from '../agentBinaries.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { isOnline } from '../agents.js';
 import { config } from '../config.js';
+import { isUnmanaged } from '../docker.js';
 import { hosts } from '../db.js';
 import { subscribe } from '../events.js';
 import { createJob, hasRunningJob } from '../jobs.js';
@@ -247,6 +248,8 @@ export class HomeAssistantBridge {
   private async run(cmd: Command) {
     for (const id of cmd.hostIds) {
       const host = await hosts.findOne({ _id: ObjectId.createFromHexString(id) });
+      // a command left over from before the stack became unmanaged
+      if (host && cmd.target && isUnmanaged(host, cmd.target.stack)) continue;
       if (host && isOnline(id) && !hasRunningJob(id)) await createJob(host, cmd.action, [], 'homeassistant', cmd.target);
     }
   }

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Container, RefreshCw, Search } from 'lucide-react';
-import { ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
+import { StackActions, StackImagesBadge, StackStatusBadge } from '../components/Docker';
 import { Button, ConfirmModal, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -24,7 +24,7 @@ const match: Record<Filter, (s: HostStack) => boolean> = {
   all: () => true,
   updates: (s) => s.updates > 0,
   problems: (s) => s.problems.length > 0,
-  stopped: (s) => s.status === 'stopped' || s.status === 'down',
+  stopped: (s) => s.managed && (s.status === 'stopped' || s.status === 'down'),
 };
 
 // Every compose stack of every host, with its state and image updates.
@@ -66,9 +66,11 @@ export function Docker() {
     if (ok < toUpdate.length) toast.error(`${toUpdate.length - ok} mise(s) à jour non lancée(s)`);
   };
 
+  // unmanaged stacks are listed, but out of the counts
+  const managed = stacks.filter((s) => s.managed);
   const tiles = [
-    { label: 'Stacks', value: stacks.length },
-    { label: 'En marche', value: stacks.filter((s) => s.status === 'running').length },
+    { label: 'Stacks', value: managed.length },
+    { label: 'En marche', value: managed.filter((s) => s.status === 'running').length },
     { label: 'À mettre à jour', value: stacks.filter((s) => s.updates > 0).length },
     { label: 'Problèmes', value: stacks.filter((s) => s.problems.length > 0).length },
   ];
@@ -165,12 +167,12 @@ export function Docker() {
                         </Link>
                       </td>
                       <td className="td"><StackStatusBadge stack={s} /></td>
-                      <td className="td"><ImageUpdateBadge update={s.update} count={s.updates} /></td>
+                      <td className="td"><StackImagesBadge stack={s} /></td>
                       <td className="td">
                         <div className="flex flex-wrap gap-1">{s.services.map((v) => <Tag key={v.name}>{v.name}</Tag>)}</div>
                       </td>
                       <td className="td text-xs text-zinc-400">
-                        {s.host.docker?.updatesCheckedAt ? timeAgo(s.host.docker.updatesCheckedAt) : 'jamais'}
+                        {!s.managed ? '—' : s.host.docker?.updatesCheckedAt ? timeAgo(s.host.docker.updatesCheckedAt) : 'jamais'}
                       </td>
                       {canWrite && (
                         <td className="td">

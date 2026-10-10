@@ -45,6 +45,8 @@ test('viewer is read-only and sees neither settings nor accounts', () => {
   assert.ok(!authorize('viewer', 'GET', '/api/hosts/:id/stacks/:stack/compose'));
   assert.ok(authorize('operator', 'GET', '/api/hosts/:id/stacks/:stack/logs'));
   assert.ok(!authorize('operator', 'DELETE', '/api/hosts/:id/stacks/:stack'));
+  assert.ok(!authorize('operator', 'PUT', '/api/hosts/:id/stacks/:stack/managed'));
+  assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/stacks/:stack/managed'));
   for (const [m, r] of [
     ['POST', '/api/hosts'],
     ['PATCH', '/api/hosts/:id'],

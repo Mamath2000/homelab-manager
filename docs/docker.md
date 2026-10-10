@@ -77,9 +77,20 @@ L'agent ne prend jamais un chemin venant du hub : il n'agit que sur les stacks q
 
 Logs et fichiers compose peuvent contenir des secrets : ils sont réservés aux rôles **admin** et **operator**. Le rôle **viewer** voit les stacks, leurs états et leurs mises à jour.
 
+## Stacks non managées
+
+Une stack qui a son propre système de mise à jour (ou que l'on veut simplement laisser de côté) peut être sortie de la gestion : **Ne plus gérer** (admin, sur la page de la stack). Elle reste listée, en lecture seule, avec le badge **Non managée** :
+
+- ni état, ni conteneurs, ni statut d'image, ni problème : rien de cela n'est affiché ni compté (tuiles, tableau de bord, filtres) ;
+- aucune action : Démarrer, Arrêter, Redémarrer et Mettre à jour sont refusés, y compris par l'API, et la stack est exclue de **Mettre à jour (n)** ;
+- pas publiée dans Home Assistant (son sous-composant disparaît) ;
+- restent consultables : ses services et leurs images, les logs et les fichiers compose.
+
+Le choix est enregistré par le hub (par hôte et nom de stack), rien n'est modifié sur l'hôte. Il survit à un « Oublier » : la stack revient non managée si elle est relancée. **Gérer** la remet dans le suivi normal. L'agent continue de vérifier ses images au registre ; le résultat est simplement ignoré.
+
 ## Home Assistant
 
-Avec l'intégration activée, chaque stack devient un sous-composant de son hôte (`hôte · stack`) : état, conteneurs en marche, entité `update` « Images » installable depuis Home Assistant, boutons Démarrer, Arrêter et Redémarrer. Ses problèmes remontent en alertes vers l'hôte puis vers Homelab Manager. Voir [Home Assistant](home-assistant.md).
+Avec l'intégration activée, chaque stack (sauf les stacks non managées) devient un sous-composant de son hôte (`hôte · stack`) : état, conteneurs en marche, entité `update` « Images » installable depuis Home Assistant, boutons Démarrer, Arrêter et Redémarrer. Ses problèmes remontent en alertes vers l'hôte puis vers Homelab Manager. Voir [Home Assistant](home-assistant.md).
 
 ## Limites
 

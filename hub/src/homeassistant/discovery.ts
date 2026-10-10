@@ -198,7 +198,8 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     const docker: Alert[] = [];
     const view = dockerView(host);
     if (view) withDocker++;
-    for (const st of view?.stacks ?? []) {
+    // unmanaged stacks (own update system) are not published at all
+    for (const st of view?.stacks.filter((v) => v.managed) ?? []) {
       stacks++;
       if (st.updates) stacksToUpdate++;
       const alerts = dockerAlerts(st);

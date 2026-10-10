@@ -56,7 +56,8 @@ export function Dashboard() {
   const needsUpdate = hosts
     .filter((h) => (h.aptSummary?.upgradable ?? 0) > 0 || h.aptSummary?.rebootRequired)
     .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
-  const stacks = allStacks(hosts);
+  // unmanaged stacks have no state to show
+  const stacks = allStacks(hosts).filter((s) => s.managed);
   const countStacks = (v: StackState) => stacks.filter((s) => stackState(s) === v).length;
   const stacksToHandle = stacks
     .filter((s) => s.problems.length > 0 || s.updates > 0)

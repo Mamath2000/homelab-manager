@@ -131,6 +131,8 @@ export interface HostDoc {
   docker?: DockerReport;
   dockerUpdates?: DockerUpdates;
   lastDockerAutoCheckAt?: Date;
+  // compose stacks managed elsewhere (own update system...): listed, but no state nor action
+  unmanagedStacks?: string[];
 }
 
 export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;

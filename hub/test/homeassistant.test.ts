@@ -209,3 +209,24 @@ test('one sub-component per docker stack, with its update and actions', () => {
   assert.equal(states.get(`hm/${ROOT_ID}/stacks_to_update/state`), '1');
   assert.deepEqual(commands.get(`hm/hm_${hid}/docker_check/set`), { payload: PRESS, action: 'docker_check', hostIds: [hid] });
 });
+
+test('unmanaged stacks are not published', () => {
+  const h = {
+    ...dockerHost({
+      stacks: [
+        {
+          name: 'web', workingDir: '/srv/web', configFiles: ['/srv/web/compose.yml'], envFiles: [], status: 'partial',
+          services: [{ name: 'app', image: 'nginx', containers: [{ id: 'a', name: 'web-app-1', state: 'restarting', status: '', imageId: 'i' }] }],
+        },
+      ],
+    }),
+    unmanagedStacks: ['web'],
+  };
+  const { devices, commands } = build([{ host: h, online: true, busy: false }], opts);
+  const hid = h._id.toHexString();
+  assert.ok(!devices.some((d) => d.id === `hm_${hid}_docker_web`));
+  assert.ok(![...commands.keys()].some((k) => k.includes('_docker_web/')));
+  const states = new Map(devices.flatMap((d) => d.states));
+  assert.equal(states.get(`hm/hm_${hid}/alerts/state`), '0');
+  assert.equal(states.get(`hm/${ROOT_ID}/stacks/state`), '0');
+});

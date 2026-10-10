@@ -97,7 +97,7 @@ Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la
 | Démarrer, Arrêter, Redémarrer | boutons (`docker compose up -d`, `stop`, `restart`) |
 | Alertes, Problème | diagnostic : alertes propres à la stack |
 
-Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker](docker.md).
+Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker](docker.md). Une stack non managée n'est pas publiée (son appareil est retiré).
 
 ### Alertes
 

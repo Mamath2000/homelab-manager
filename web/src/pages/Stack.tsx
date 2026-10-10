@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowUpCircle, Boxes, Container, FileCode, History, RefreshCw, ScrollText, ShieldAlert, Trash2 } from 'lucide-react';
-import { CheckImagesButton, ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
+import { ArrowLeft, ArrowUpCircle, Boxes, Container, Eye, EyeOff, FileCode, History, RefreshCw, ScrollText, ShieldAlert, Trash2 } from 'lucide-react';
+import { CheckImagesButton, ImageUpdateBadge, StackActions, StackImagesBadge, StackStatusBadge } from '../components/Docker';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Panel, Spinner, Tabs, Tag } from '../components/ui';
 import { api, type DockerStack, type Host } from '../lib/api';
@@ -21,6 +21,28 @@ const stateTone = (state: string, health?: string) =>
 const short = (d: string | null) => (d ? d.replace('sha256:', '').slice(0, 12) : '—');
 
 function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: DockerStack; running: boolean; onStarted: (id: string) => void }) {
+  if (!stack.managed) {
+    return (
+      <div className="panel overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="border-b border-line">
+            <tr>
+              <th className="th">Service</th>
+              <th className="th">Image</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {stack.services.map((s) => (
+              <tr key={s.name} className="hover:bg-raised/40">
+                <td className="td font-medium text-zinc-100">{s.name}</td>
+                <td className="td"><span className="font-mono text-xs text-zinc-300">{s.image || '—'}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
   return (
     <div className="panel overflow-x-auto">
       <table className="w-full min-w-[820px] text-sm">
@@ -208,6 +230,7 @@ export function Stack() {
   const [params, setParams] = useSearchParams();
   const [jobId, setJobId] = useState<string | null>(null);
   const [forget, setForget] = useState(false);
+  const [unmanage, setUnmanage] = useState(false);
   const tab = (params.get('tab') as Tab) || 'services';
   const stack = host?.docker?.stacks.find((s) => s.name === name);
   const running = useMemo(() => !!jobs?.some((j) => j.status === 'running'), [jobs]);
@@ -238,6 +261,14 @@ export function Stack() {
     { id: 'history', label: 'Historique', icon: History },
   ];
   const pending = stack.services.filter((s) => s.update === 'available' || s.update === 'recreate');
+  const setManaged = async (managed: boolean) => {
+    try {
+      await api.setStackManaged(host.id, stack.name, managed);
+      toast.success(managed ? `${stack.name} est de nouveau gérée` : `${stack.name} n'est plus gérée`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   return (
     <>
@@ -250,7 +281,17 @@ export function Stack() {
         actions={
           <>
             <StackActions host={host} stack={stack} disabled={running} onStarted={started} />
-            <CheckImagesButton host={host} disabled={running} onStarted={started} />
+            {stack.managed && <CheckImagesButton host={host} disabled={running} onStarted={started} />}
+            {canManage &&
+              (stack.managed ? (
+                <Button size="sm" variant="ghost" icon={EyeOff} title="Stack gérée par ailleurs : lecture seule, sans état ni mise à jour" onClick={() => setUnmanage(true)}>
+                  Ne plus gérer
+                </Button>
+              ) : (
+                <Button size="sm" icon={Eye} onClick={() => setManaged(true)}>
+                  Gérer
+                </Button>
+              ))}
             {canManage && stack.status === 'down' && (
               <Button size="sm" variant="ghost" icon={Trash2} className="hover:text-red-400" onClick={() => setForget(true)}>
                 Oublier
@@ -260,11 +301,20 @@ export function Stack() {
         }
       >
         <StackStatusBadge stack={stack} />
-        <ImageUpdateBadge update={stack.update} count={stack.updates} />
+        {stack.managed && <StackImagesBadge stack={stack} />}
         <Link to={`/hosts/${host.id}`}><Tag>{host.name}</Tag></Link>
         {!host.online && <Badge tone="bad">hôte hors ligne</Badge>}
       </PageHeader>
 
+      {!stack.managed && (
+        <div className="panel mb-5 flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+          <EyeOff className="h-5 w-5 text-muted" />
+          <span className="text-zinc-300">
+            Stack non managée : elle est gérée en dehors de Homelab Manager (son propre système de mise à jour…). Lecture seule : ni état, ni
+            vérification d'image, ni action, et elle n'est pas publiée dans Home Assistant.
+          </span>
+        </div>
+      )}
       {stack.problems.length > 0 && (
         <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
           <ShieldAlert className="h-5 w-5 text-red-400" />
@@ -285,7 +335,7 @@ export function Stack() {
         <span className="font-mono">{stack.workingDir}</span>
         {' · '}
         {stack.configFiles.map((f) => f.replace(`${stack.workingDir}/`, '')).join(', ')}
-        {' · '}images vérifiées {host.docker?.updatesCheckedAt ? timeAgo(host.docker.updatesCheckedAt) : 'jamais'}
+        {stack.managed && <>{' · '}images vérifiées {host.docker?.updatesCheckedAt ? timeAgo(host.docker.updatesCheckedAt) : 'jamais'}</>}
       </p>
 
       <Tabs tabs={tabs} value={tabs.some((t) => t.id === tab) ? tab : 'services'} onChange={setTab} />
@@ -316,6 +366,19 @@ export function Stack() {
         }}
       >
         La stack n'a plus de conteneur : elle cesse d'être suivie. Ses fichiers sur l'hôte ne sont pas touchés ; elle réapparaîtra si elle est relancée.
+      </ConfirmModal>
+      <ConfirmModal
+        open={unmanage}
+        onClose={() => setUnmanage(false)}
+        title={`Ne plus gérer ${stack.name}`}
+        confirmLabel="Ne plus gérer"
+        onConfirm={async () => {
+          await setManaged(false);
+          setUnmanage(false);
+        }}
+      >
+        Pour une stack qui a son propre système de mise à jour. Elle reste listée en lecture seule (services, logs, compose) mais
+        n'a plus d'état, de mise à jour, de problème ni d'action, et disparaît de Home Assistant. Réversible avec « Gérer ».
       </ConfirmModal>
     </>
   );
