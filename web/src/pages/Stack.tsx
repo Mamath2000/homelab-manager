@@ -20,6 +20,19 @@ const stateTone = (state: string, health?: string) =>
 
 const short = (d: string | null) => (d ? d.replace('sha256:', '').slice(0, 12) : '—');
 
+function ServiceName({ service }: { service: DockerStack['services'][number] }) {
+  return (
+    <>
+      {service.name}
+      {service.external && (
+        <span className="ml-2" title="Conteneur créé par un autre conteneur de la stack, hors du fichier compose : logs seulement, aucune action">
+          <Badge tone="neutral">hors compose</Badge>
+        </span>
+      )}
+    </>
+  );
+}
+
 function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: DockerStack; running: boolean; onStarted: (id: string) => void }) {
   if (!stack.managed) {
     return (
@@ -35,7 +48,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
           <tbody className="divide-y divide-line">
             {stack.services.map((s) => (
               <tr key={s.name} className="align-top hover:bg-raised/40">
-                <td className="td font-medium text-zinc-100">{s.name}</td>
+                <td className="td font-medium text-zinc-100"><ServiceName service={s} /></td>
                 <td className="td">
                   <span className="font-mono text-xs text-zinc-300">{s.image || '—'}</span>
                   {s.update === 'available' && (
@@ -70,7 +83,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
         <tbody className="divide-y divide-line">
           {stack.services.map((s) => (
             <tr key={s.name} className="align-top hover:bg-raised/40">
-              <td className="td font-medium text-zinc-100">{s.name}</td>
+              <td className="td font-medium text-zinc-100"><ServiceName service={s} /></td>
               <td className="td">
                 <span className="font-mono text-xs text-zinc-300">{s.image || '—'}</span>
                 {s.update === 'available' && (
@@ -99,7 +112,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
               </td>
               <td className="td">
                 <div className="flex justify-end">
-                  {stack.status !== 'down' && <StackActions host={host} stack={stack} service={s.name} disabled={running} compact onStarted={onStarted} />}
+                  {stack.status !== 'down' && !s.external && <StackActions host={host} stack={stack} service={s.name} disabled={running} compact onStarted={onStarted} />}
                 </div>
               </td>
             </tr>

@@ -26,7 +26,9 @@ type knownStack struct {
 	ConfigFiles []string `json:"configFiles"`
 	EnvFiles    []string `json:"envFiles"`
 	Services    []string `json:"services"`
-	LastSeen    int64    `json:"lastSeen"`
+	// services outside the compose file (see DockerService.External): container names
+	External []string `json:"external,omitempty"`
+	LastSeen int64    `json:"lastSeen"`
 }
 
 type stackStore struct {
@@ -91,19 +93,26 @@ func (s *stackStore) merge(live []DockerStack) []DockerStack {
 		if !stackNameRe.MatchString(st.Name) || st.WorkingDir == "" || len(st.ConfigFiles) == 0 {
 			continue
 		}
-		svcs := []string{}
+		svcs, ext := []string{}, []string{}
 		for _, svc := range st.Services {
+			if svc.Name == "" || !serviceNameRe.MatchString(svc.Name) {
+				continue
+			}
 			svcs = append(svcs, svc.Name)
+			if svc.External {
+				ext = append(ext, svc.Name)
+			}
 		}
 		old, ok := s.stacks[st.Name]
 		// LastSeen only changes with the rest: the file may sit on a flash drive (Unraid)
-		k := knownStack{Name: st.Name, WorkingDir: st.WorkingDir, ConfigFiles: st.ConfigFiles, EnvFiles: st.EnvFiles, Services: svcs, LastSeen: now}
-		// keep services seen earlier (a stopped service may have no container left)
+		k := knownStack{Name: st.Name, WorkingDir: st.WorkingDir, ConfigFiles: st.ConfigFiles, EnvFiles: st.EnvFiles, Services: svcs, External: ext, LastSeen: now}
+		// keep services seen earlier (a stopped service may have no container left); an
+		// external container that is gone is gone for good (removed by its creator)
 		if ok {
-			k.Services = union(old.Services, svcs)
+			k.Services = union(withoutAll(old.Services, old.External), svcs)
 		}
 		if !ok || old.WorkingDir != k.WorkingDir || strings.Join(old.ConfigFiles, ",") != strings.Join(k.ConfigFiles, ",") ||
-			strings.Join(old.Services, ",") != strings.Join(k.Services, ",") {
+			strings.Join(old.Services, ",") != strings.Join(k.Services, ",") || strings.Join(old.External, ",") != strings.Join(k.External, ",") {
 			changed = true
 		}
 		s.stacks[st.Name] = k
@@ -120,7 +129,7 @@ func (s *stackStore) merge(live []DockerStack) []DockerStack {
 		}
 		svcs := []DockerService{}
 		for _, n := range k.Services {
-			svcs = append(svcs, DockerService{Name: n, Containers: []DockerContainer{}})
+			svcs = append(svcs, DockerService{Name: n, Containers: []DockerContainer{}, External: contains(k.External, n)})
 		}
 		out = append(out, DockerStack{Name: name, WorkingDir: k.WorkingDir, ConfigFiles: k.ConfigFiles, EnvFiles: k.EnvFiles, Status: "down", Services: svcs})
 	}
@@ -189,6 +198,16 @@ func (d *dockerModule) target(ctx context.Context, stack, service string) (known
 	return k, nil
 }
 
+func withoutAll(list, drop []string) []string {
+	out := []string{}
+	for _, v := range list {
+		if !contains(drop, v) {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func contains(list []string, x string) bool {
 	for _, v := range list {
 		if v == x {
@@ -225,6 +244,9 @@ func (d *dockerModule) runAction(ctx context.Context, emit func(string), action,
 	k, err := d.target(ctx, stack, service)
 	if err != nil {
 		return -1, err
+	}
+	if contains(k.External, service) {
+		return -1, fmt.Errorf("%s is not a service of the compose file of %s: no action", service, stack)
 	}
 	run := func(args ...string) (int, error) {
 		args = withService(args, service)
@@ -319,17 +341,52 @@ func (d *dockerModule) logs(ctx context.Context, stack, service string, tail int
 	tail = min(tail, 2000)
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "docker", composeArgs(k, withService([]string{"logs", "--no-color", "--timestamps", "--tail", fmt.Sprint(tail)}, service)...)...)
-	cmd.Env = dockerEnv()
-	out, err := cmd.CombinedOutput()
-	if err != nil && len(out) == 0 {
-		return "", err
+	var all strings.Builder
+	// compose only knows the services of its file: the external containers are read one by one
+	if service == "" || !contains(k.External, service) {
+		cmd := exec.CommandContext(cctx, "docker", composeArgs(k, withService([]string{"logs", "--no-color", "--timestamps", "--tail", fmt.Sprint(tail)}, service)...)...)
+		cmd.Env = dockerEnv()
+		out, err := cmd.CombinedOutput()
+		if err != nil && len(out) == 0 {
+			return "", err
+		}
+		all.Write(out)
+		if len(out) > 0 && out[len(out)-1] != '\n' {
+			all.WriteString("\n")
+		}
 	}
-	logs := sortLogs(string(out))
+	for _, name := range k.External {
+		if service != "" && service != name {
+			continue
+		}
+		cmd := exec.CommandContext(cctx, "docker", "logs", "--timestamps", "--tail", fmt.Sprint(tail), name)
+		cmd.Env = dockerEnv()
+		out, err := cmd.CombinedOutput()
+		if err != nil && len(out) == 0 {
+			if service != "" {
+				return "", err
+			}
+			continue
+		}
+		all.WriteString(prefixLines(name, string(out)))
+	}
+	logs := sortLogs(all.String())
 	if len(logs) > maxRPCBytes {
 		logs = logs[len(logs)-maxRPCBytes:]
 	}
 	return logs, nil
+}
+
+// prefixLines gives the lines of `docker logs` the "name  | " prefix of compose.
+func prefixLines(name, out string) string {
+	if out = strings.TrimRight(out, "\n"); out == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, l := range strings.Split(out, "\n") {
+		b.WriteString(name + "  | " + l + "\n")
+	}
+	return b.String()
 }
 
 // sortLogs merges the containers of a stack by time: compose prints them one after the other.

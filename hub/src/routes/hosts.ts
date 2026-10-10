@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, disconnectAgent, isOnline } from '../agents.js';
-import { SERVICE_RE, STACK_RE, findStack, isUnmanaged } from '../docker.js';
+import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { hosts, jobs, parseId } from '../db.js';
 import { publish } from '../events.js';
@@ -199,6 +199,7 @@ export function registerHostRoutes(app: FastifyInstance) {
         }
         if (!findStack(host, stack, service)) return reply.code(404).send({ error: 'stack ou service introuvable sur cet hôte' });
         if (isUnmanaged(host, stack)) return reply.code(409).send({ error: 'stack non managée : aucune action depuis Homelab Manager' });
+        if (isExternal(host, stack, service)) return reply.code(409).send({ error: 'conteneur hors du fichier compose : aucune action' });
       } else if (stack || service) {
         return reply.code(400).send({ error: 'stack et service ne concernent que les actions Docker' });
       }

@@ -17,6 +17,8 @@ Le module Docker suit les **stacks docker compose déjà présentes sur les hôt
 
 Rien à configurer : les stacks sont découvertes à partir des labels que compose pose sur ses conteneurs (`com.docker.compose.project`, dossier et fichiers du projet).
 
+Certains conteneurs créent eux-mêmes d'autres conteneurs rattachés à leur projet compose (Nextcloud AIO : le *mastercontainer* lance apache, nextcloud, database…). Ces conteneurs, absents du fichier compose, sont listés dans la stack sous leur nom avec le badge **hors compose** : état, image et logs, mais aucune action (ils sont gérés par le conteneur qui les a créés).
+
 Sur **Unraid**, les stacks du plugin Compose Manager sont suivies là où il les range (`/boot/config/plugins/compose.manager/projects/…`). Les conteneurs créés par l'interface Docker d'Unraid (templates) ne passent pas par compose : ils ne sont pas suivis.
 
 ## Ce qui est suivi

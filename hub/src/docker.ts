@@ -135,6 +135,9 @@ export function dockerSummary(v: DockerView | null) {
   };
 }
 
+export const isExternal = (h: HostDoc, stack: string, service?: string) =>
+  !!service && !!findStack(h, stack)?.services.some((s) => s.name === service && s.external);
+
 // The stack (and service) named by a request, from the last report of the host.
 export function findStack(h: HostDoc, stack: string, service?: string) {
   const st = h.docker?.stacks.find((s) => s.name === stack);

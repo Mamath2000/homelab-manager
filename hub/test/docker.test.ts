@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport, isUnmanaged } from '../src/docker.js';
+import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -146,6 +146,10 @@ test('stack and service lookups use the last report', () => {
   assert.ok(findStack(h, 'web', 'app'));
   assert.equal(findStack(h, 'web', 'db'), null);
   assert.equal(findStack(h, 'other'), null);
+  h.docker!.stacks[0].services.push({ name: 'aio-apache', image: 'apache', containers: [], external: true });
+  assert.ok(isExternal(h, 'web', 'aio-apache'));
+  assert.ok(!isExternal(h, 'web', 'app'));
+  assert.ok(!isExternal(h, 'web'));
 });
 
 test('malformed reports are refused', () => {

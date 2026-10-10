@@ -56,6 +56,8 @@ export interface DockerService {
   name: string;
   image: string;
   containers: DockerContainer[];
+  // container outside the compose file (created by another container): logs only, no action
+  external?: boolean;
   update: ImageUpdate;
   localDigest: string | null;
   remoteDigest: string | null;

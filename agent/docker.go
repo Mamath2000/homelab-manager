@@ -132,19 +132,28 @@ func buildStacks(cs []apiContainer, images map[string]string) []DockerStack {
 		}
 		st := byName[project]
 		if st == nil {
-			st = &DockerStack{
-				Name:        project,
-				WorkingDir:  c.Labels[labelWorkingDir],
-				ConfigFiles: splitList(c.Labels[labelConfig]),
-				EnvFiles:    splitList(c.Labels[labelEnvFile]),
-			}
+			st = &DockerStack{Name: project, ConfigFiles: []string{}, EnvFiles: []string{}}
 			byName[project] = st
 			services[project] = map[string]*DockerService{}
 		}
-		name := c.Labels[labelService]
+		// containers created outside compose may carry the project label alone: directory and
+		// files come from the first container that has them
+		if st.WorkingDir == "" && c.Labels[labelWorkingDir] != "" {
+			st.WorkingDir = c.Labels[labelWorkingDir]
+			st.ConfigFiles = splitList(c.Labels[labelConfig])
+			st.EnvFiles = splitList(c.Labels[labelEnvFile])
+		}
+		cname := ""
+		if len(c.Names) > 0 {
+			cname = strings.TrimPrefix(c.Names[0], "/")
+		}
+		name, external := c.Labels[labelService], false
+		if name == "" {
+			name, external = cname, true
+		}
 		svc := services[project][name]
 		if svc == nil {
-			svc = &DockerService{Name: name, Containers: []DockerContainer{}}
+			svc = &DockerService{Name: name, Containers: []DockerContainer{}, External: external}
 			services[project][name] = svc
 		}
 		ref := c.Image
@@ -157,10 +166,6 @@ func buildStacks(cs []apiContainer, images map[string]string) []DockerStack {
 		id := c.ID
 		if len(id) > 12 {
 			id = id[:12]
-		}
-		cname := ""
-		if len(c.Names) > 0 {
-			cname = strings.TrimPrefix(c.Names[0], "/")
 		}
 		svc.Containers = append(svc.Containers, DockerContainer{
 			ID: id, Name: cname, State: c.State, Status: c.Status, Health: health(c.Status), ImageID: c.ImageID,
