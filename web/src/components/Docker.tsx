@@ -147,6 +147,24 @@ export function CheckImagesButton({ host, disabled, onStarted }: { host: Host; d
   );
 }
 
+// Service chips of a stack, capped so a big stack doesn't widen its table column.
+const MAX_SERVICE_TAGS = 4;
+
+export function ServiceTags({ services }: { services: { name: string }[] }) {
+  const shown = services.slice(0, MAX_SERVICE_TAGS);
+  const hidden = services.slice(MAX_SERVICE_TAGS);
+  return (
+    <div className="flex max-w-xs flex-wrap gap-1">
+      {shown.map((s) => <Tag key={s.name}>{s.name}</Tag>)}
+      {hidden.length > 0 && (
+        <span title={hidden.map((s) => s.name).join(', ')} className="cursor-help">
+          <Tag>+{hidden.length}…</Tag>
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Stacks of a host, on its detail page.
 export function DockerPanel({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
   const d = host.docker;
@@ -182,7 +200,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                 <td className="td"><StackStatusBadge stack={st} /></td>
                 <td className="td"><ImageUpdateBadge update={st.update} count={st.updates} /></td>
                 <td className="td hidden md:table-cell">
-                  <div className="flex flex-wrap gap-1">{st.services.map((s) => <Tag key={s.name}>{s.name}</Tag>)}</div>
+                  <ServiceTags services={st.services} />
                 </td>
               </tr>
             ))}

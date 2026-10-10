@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Container, RefreshCw, Search } from 'lucide-react';
-import { ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
+import { ImageUpdateBadge, ServiceTags, StackActions, StackStatusBadge } from '../components/Docker';
 import { Button, ConfirmModal, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -170,7 +170,7 @@ export function Docker() {
                       <td className="td"><StackStatusBadge stack={s} /></td>
                       <td className="td"><ImageUpdateBadge update={s.update} count={s.updates} /></td>
                       <td className="td">
-                        <div className="flex flex-wrap gap-1">{s.services.map((v) => <Tag key={v.name}>{v.name}</Tag>)}</div>
+                        <ServiceTags services={s.services} />
                       </td>
                       <td className="td text-xs text-zinc-400">
                         {s.host.docker?.updatesCheckedAt ? timeAgo(s.host.docker.updatesCheckedAt) : 'jamais'}
