@@ -17,7 +17,7 @@ Disponible sur Debian et Ubuntu (pas sur Unraid), avec un agent à jour.
 | Système | Paquets | `apt-get update` puis installation des paquets manquants de la liste | paquets absents |
 | Système | Connexion SSH par mot de passe | `PasswordAuthentication` dans `/etc/ssh/sshd_config.d/00-homelab.conf`, validé par `sshd -t` puis pris en compte par sshd (voir Garde-fous SSH) | valeur effective (`sshd -T`) |
 | root, Utilisateur | Clés SSH | clés ajoutées à `~/.ssh/authorized_keys` du compte ; les autres clés sont gardées | clés absentes |
-| root, Utilisateur | Alias bash | `~/.bash_aliases` du compte | contenu du fichier |
+| root, Utilisateur | Alias bash | `~/.host_aliases` du compte ; `~/.bash_aliases` n'est pas touché | contenu du fichier |
 | root, Utilisateur | Prompt | classique coloré (rouge pour root, branche git) ou [Starship](https://starship.rs) | script du style, paquet, bloc `~/.bashrc` |
 | root, Utilisateur | Écran d'accueil | résumé homelab ou fastfetch | script du style, paquet, bloc `~/.bashrc` |
 | Utilisateur | Compte | créé s'il n'existe pas (bash, sans mot de passe), ajouté aux groupes `sudo`, `docker` et `adm` existants ; option sudo sans mot de passe (`/etc/sudoers.d/90-homelab`, vérifié par `visudo`) | compte, groupes, fichier sudoers |
@@ -77,7 +77,18 @@ C'est tout ou rien : si un seul hôte devait être refusé (par exemple « mot d
 
 ## Prompt et écran d'accueil
 
-Chaque style a son script : `/etc/homelab/prompt/<style>.sh` et `/etc/homelab/motd/<style>.sh`. Un bloc à la fin de `~/.bashrc` de chaque compte (entre les marqueurs `# >>> homelab-manager >>>`) charge ceux de son style. Il charge aussi `~/.bash_aliases` quand `.bashrc` ne le fait pas (le `.bashrc` de root sur Debian). Une option « Non géré » garde la ligne déjà présente dans le bloc.
+Chaque style a son script : `/etc/homelab/prompt/<style>.sh` et `/etc/homelab/motd/<style>.sh`. Un bloc à la fin de `~/.bashrc` de chaque compte (entre les marqueurs `# >>> homelab-manager >>>`) charge ceux de son style. Il charge `~/.bash_aliases` quand le reste de `.bashrc` ne le fait pas (le `.bashrc` de root sur Debian), puis les alias de la standardisation, `~/.host_aliases`, s'il existe : ils passent après et l'emportent en cas de doublon. Le reste de `~/.bashrc` n'est pas modifié, et `~/.bash_aliases` reste à l'utilisateur. Une option « Non géré » garde la ligne déjà présente dans le bloc.
+
+```bash
+# >>> homelab-manager >>>
+[ -f ~/.bash_aliases ] && . ~/.bash_aliases     # seulement si .bashrc ne le charge pas
+[ -f ~/.host_aliases ] && . ~/.host_aliases
+[ -r /etc/homelab/prompt/classic.sh ] && . /etc/homelab/prompt/classic.sh
+[ -r /etc/homelab/motd/homelab.sh ] && . /etc/homelab/motd/homelab.sh
+# <<< homelab-manager <<<
+```
+
+Un `~/.bash_aliases` écrit par une version précédente (qui commence par « Géré par Homelab Manager ») est supprimé à l'application des alias ; un fichier écrit à la main n'est jamais touché.
 
 Le **résumé homelab** s'affiche instantanément, en bash pur, une fois par connexion.
 

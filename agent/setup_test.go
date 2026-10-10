@@ -44,20 +44,22 @@ func TestValidateSetup(t *testing.T) {
 
 func TestBashrcBlock(t *testing.T) {
 	prompt, motd := sourceLine(promptDir, "classic"), sourceLine(motdDir, "fastfetch")
-	// Debian user .bashrc already loads .bash_aliases: the block does not add it again
+	// Debian user .bashrc already loads .bash_aliases: the block only adds ~/.host_aliases
 	user := "# ~/.bashrc\nif [ -f ~/.bash_aliases ]; then\n    . ~/.bash_aliases\nfi\n"
 	got := withBlock(user, prompt, motd)
-	if !strings.HasPrefix(got, user) || strings.Count(got, ".bash_aliases") != 2 || !strings.Contains(got, "/etc/homelab/prompt/classic.sh") {
+	if !strings.HasPrefix(got, user) || strings.Count(got, ".bash_aliases") != 2 || !strings.Contains(got, "[ -f ~/.host_aliases ] && . ~/.host_aliases") ||
+		!strings.Contains(got, "/etc/homelab/prompt/classic.sh") {
 		t.Fatalf("unexpected block:\n%s", got)
 	}
 	// idempotent
 	if withBlock(got, prompt, motd) != got {
 		t.Fatal("withBlock is not idempotent")
 	}
-	// root's .bashrc (no newline at the end, no .bash_aliases): the block loads it
+	// root's .bashrc on Debian (no newline at the end, no .bash_aliases): the block loads it, before ~/.host_aliases
 	root := "PS1='# '"
 	got = withBlock(root, "", "")
-	if !strings.HasPrefix(got, root+"\n"+blockStart) || !strings.Contains(got, "[ -f ~/.bash_aliases ] && . ~/.bash_aliases") {
+	ba, ha := strings.Index(got, "[ -f ~/.bash_aliases ] && . ~/.bash_aliases"), strings.Index(got, ". ~/.host_aliases")
+	if !strings.HasPrefix(got, root+"\n"+blockStart) || ba < 0 || ha < ba {
 		t.Fatalf("unexpected root block:\n%s", got)
 	}
 	// a block in the middle is moved to the end, the rest is kept

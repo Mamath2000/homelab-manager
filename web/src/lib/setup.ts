@@ -20,7 +20,7 @@ export const setupSections: { id: SetupSection; title: string; hint: string; opt
 ];
 
 const keysHint = 'Ajoute les clés manquantes à ~/.ssh/authorized_keys ; les autres clés sont gardées.';
-const aliasesHint = '~/.bash_aliases, chargé par ~/.bashrc.';
+const aliasesHint = '~/.host_aliases, chargé par ~/.bashrc ; ~/.bash_aliases reste libre.';
 const promptHint = 'Invite de commande : classique colorée (rouge pour root, branche git) ou Starship.';
 const motdHint = 'Affiché à la connexion : résumé homelab (instantané) ou fastfetch (configuration commune, /etc/homelab/fastfetch.jsonc).';
 

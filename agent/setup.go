@@ -342,14 +342,19 @@ func blockLine(content, dir string) string {
 	return ""
 }
 
-// bashrcBlock is the managed block at the end of ~/.bashrc: it loads ~/.bash_aliases when the rest
-// of the file does not (root's .bashrc on Debian), then the prompt and welcome screen of the account.
+// Aliases of the standardisation: their own file, loaded by the block; ~/.bash_aliases stays the user's.
+const hostAliases = ".host_aliases"
+
+// bashrcBlock is the managed block at the end of ~/.bashrc: ~/.bash_aliases when the rest of the file
+// does not load it (root's .bashrc on Debian), then ~/.host_aliases when it exists (after: its
+// aliases win), then the prompt and welcome screen of the account.
 func bashrcBlock(rest, prompt, motd string) string {
 	var b strings.Builder
 	b.WriteString(blockStart + "\n")
 	if !strings.Contains(rest, ".bash_aliases") {
 		b.WriteString("[ -f ~/.bash_aliases ] && . ~/.bash_aliases\n")
 	}
+	b.WriteString("[ -f ~/" + hostAliases + " ] && . ~/" + hostAliases + "\n")
 	b.WriteString(prompt + motd)
 	b.WriteString(blockEnd + "\n")
 	return b.String()
@@ -718,8 +723,16 @@ func applyAccountOption(ctx context.Context, s *SetupSpec, m string, emit func(s
 	case "keys":
 		return applySSHKeys(a, acc.SSHKeys, emit)
 	case "aliases":
-		if err := syncFile(filepath.Join(a.home, ".bash_aliases"), aliasesContent(acc.Aliases), 0o644, a, emit); err != nil {
+		if err := syncFile(filepath.Join(a.home, hostAliases), aliasesContent(acc.Aliases), 0o644, a, emit); err != nil {
 			return err
+		}
+		// ~/.bash_aliases written by a previous version: removed only when it is still ours
+		old := filepath.Join(a.home, ".bash_aliases")
+		if cur, ok := readFile(old); ok && strings.HasPrefix(cur, managedHead) {
+			emit("removing " + old + " (now " + hostAliases + ")\n")
+			if err := os.Remove(sysPath(old)); err != nil {
+				return err
+			}
 		}
 	case "prompt":
 		if err := applyStyle(ctx, promptDir, acc.Prompt, renderPrompt(acc.Prompt), emit); err != nil {
@@ -1000,7 +1013,7 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			}
 			return c
 		case "aliases":
-			set(checkFile(filepath.Join(a.home, ".bash_aliases"), aliasesContent(acc.Aliases)))
+			set(checkFile(filepath.Join(a.home, hostAliases), aliasesContent(acc.Aliases)))
 		case "prompt":
 			set(checkStyle(ctx, promptDir, acc.Prompt, renderPrompt(acc.Prompt)))
 			if acc.Prompt == "starship" {
