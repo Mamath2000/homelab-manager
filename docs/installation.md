@@ -81,7 +81,7 @@ Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, �
 
 ### Prérequis
 
-- Debian ou Ubuntu (APT), avec systemd ;
+- Debian ou Ubuntu (APT) avec systemd, ou **Unraid** (voir plus bas) ;
 - `curl` (`apt install curl`) : il vérifie la clé du hub pendant l'installation, ce que wget ne sait pas faire ;
 - accès root ;
 - accès réseau de l'hôte vers le hub sur le port des agents (`3443` par défaut). Rien n'est à ouvrir sur l'hôte.
@@ -112,12 +112,36 @@ Détails dans [Sécurité](securite.md).
 | Configuration (adresse du hub), droits 600 | `/etc/homelab-agent/agent.env` |
 | Certificat de l'autorité du hub | `/etc/homelab-agent/ca.pem` |
 | Clé privée de l'agent (droits 600) et son certificat | `/etc/homelab-agent/agent.key`, `/etc/homelab-agent/agent.crt` |
+| État (stacks Docker connues) | `/var/lib/homelab-agent/` |
 | Service systemd | `homelab-agent.service` |
 
 ```bash
 systemctl status homelab-agent
 journalctl -u homelab-agent -f
 ```
+
+### Installer dans un autre répertoire
+
+Pour tout regrouper ailleurs, renseigne **Répertoire d'installation** dans la fenêtre d'installation, ou ajoute `--dir` à la commande :
+
+```bash
+curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh | sh -s -- CODE --dir /opt/homelab-agent
+```
+
+Binaire, configuration, certificat, clé et état (`state/`) vont alors dans ce répertoire, et le service systemd pointe dessus. Le chemin doit être absolu, sans espace : lettres, chiffres, `.`, `_`, `-`, `/`.
+
+- La mise à jour manuelle et la désinstallation retrouvent seules le répertoire, grâce au service systemd : les commandes de **Paramètres > Agent** ne changent pas.
+- Relancer la commande avec un autre `--dir` **déplace** l'installation : l'identité de l'agent suit (pas besoin de nouveau code) et l'ancien emplacement est nettoyé.
+
+### Unraid
+
+Unraid n'a ni systemd ni APT, et son système tourne en mémoire : tout ce qui n'est pas sur la clé USB (`/boot`) ou les disques disparaît au redémarrage. La même commande d'installation fonctionne ; le script détecte Unraid et :
+
+- garde les fichiers de l'agent (binaire, configuration, certificat, clé, stacks connues) dans `/boot/config/plugins/homelab-agent`, ou dans le répertoire donné par `--dir` (un partage sur les disques par exemple) ;
+- ajoute une ligne au script de démarrage `/boot/config/go` ;
+- au démarrage d'Unraid, cette ligne copie le binaire dans `/usr/local/bin` et lance l'agent, qui est relancé automatiquement s'il s'arrête (après une mise à jour, par exemple). Logs dans `/var/log/homelab-agent.log`.
+
+Sur Unraid, l'hôte remonte son état système et ses **stacks Docker** (voir [Docker](docker.md)). Il n'a pas de mises à jour APT ni de bouton Redémarrer : un redémarrage d'Unraid passe par son interface, qui arrête proprement l'array. La mise à jour automatique de l'agent met aussi à jour la copie gardée sur la clé USB.
 
 ### Mise à jour des agents
 

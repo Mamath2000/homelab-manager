@@ -92,7 +92,23 @@ type session struct {
 	mu   sync.Mutex // serialises writes
 }
 
-var baseCapabilities = []string{"apt_report", "apt_update", "apt_upgrade", "apt_autoremove", "reboot", "agent_update"}
+// Actions this host supports: APT only where apt-get exists (not on Unraid), reboot through
+// systemd only (on Unraid a reboot from the shell could skip the array shutdown).
+func platformCapabilities() []string {
+	caps := []string{}
+	if hasApt() {
+		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
+	}
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		caps = append(caps, "reboot")
+	}
+	return append(caps, "agent_update")
+}
+
+func hasApt() bool {
+	_, err := exec.LookPath("apt-get")
+	return err == nil
+}
 
 // Docker stacks module, active when the engine and the compose v2 plugin are available.
 var dock = newDockerModule()
@@ -114,7 +130,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 // hello announces the agent; the docker capability is re-evaluated each time, so a Docker
 // installed later is picked up by the next periodic hello.
 func (s *session) hello(ctx context.Context) error {
-	caps := append([]string{}, baseCapabilities...)
+	caps := platformCapabilities()
 	if dock.available(ctx) {
 		caps = append(caps, "docker")
 	}
@@ -194,6 +210,9 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 }
 
 func (s *session) report(ctx context.Context) {
+	if !hasApt() {
+		return
+	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	r, err := collectAptReport(cctx)

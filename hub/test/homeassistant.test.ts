@@ -18,6 +18,8 @@ function host(name: string, apt?: Partial<NonNullable<HostDoc['apt']>>): HostDoc
     createdAt: new Date(),
     enrolledAt: new Date(),
     info: { hostname: name, osId: 'debian', osName: 'Debian 13 (trixie)', kernel: '6.12', arch: 'amd64', uptime: 10, ips: ['10.0.0.1'], virt: 'lxc' },
+    // agents announce APT only where apt-get exists
+    ...(apt ? { capabilities: ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] } : {}),
     apt: apt && {
       checkedAt: Date.now(),
       listsUpdatedAt: Date.now(),
@@ -104,6 +106,10 @@ test('update entity and commands map to jobs', () => {
   // root buttons only target online hosts
   assert.equal(commands.get(`hm/${ROOT_ID}/update_all/set`), undefined);
   assert.deepEqual(commands.get(`hm/${ROOT_ID}/check_all/set`)!.hostIds, [hid]);
+  // a host without APT (Unraid) is left out of "Tout vérifier"
+  const unraid = { ...host('nas'), capabilities: ['agent_update', 'docker'] };
+  const built = build([{ host: h, online: true, busy: false }, { host: unraid, online: true, busy: false }], opts);
+  assert.deepEqual(built.commands.get(`hm/${ROOT_ID}/check_all/set`)!.hostIds, [hid]);
 });
 
 test('autoremove entities appear only when the agent reports them', () => {

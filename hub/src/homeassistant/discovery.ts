@@ -6,7 +6,7 @@
 //   └── one device per host: agent connectivity, alerts rolled up from its sub-components
 //       └── one device per sub-component, with the details: APT, one per Docker compose stack
 // Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
-import type { HostDoc, JobAction } from '../types.js';
+import { hasApt, type HostDoc, type JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
 import { agentAlerts, aptAlerts, dockerAlerts, type Alert } from './alerts.js';
 import { dockerView } from '../docker.js';
@@ -291,7 +291,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     root.sensor('stacks_to_update', 'Stacks à mettre à jour', stacksToUpdate, { icon: 'mdi:update' });
   }
   root.alerts(allAlerts);
-  root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online) }, { icon: 'mdi:refresh' });
+  root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online.filter((h) => hasApt(h.host))) }, { icon: 'mdi:refresh' });
   root.finish();
 
   return { devices, commands };

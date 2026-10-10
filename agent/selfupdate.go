@@ -50,6 +50,17 @@ func selfUpdate(ctx context.Context, client *http.Client, hub, expected string, 
 	if err := os.Rename(tmp, exe); err != nil {
 		return err
 	}
+	// Unraid: the running binary lives in RAM, the one restored at boot on the flash drive
+	if keep := os.Getenv("AGENT_PERSIST_BIN"); keep != "" && keep != exe {
+		raw, err := os.ReadFile(exe)
+		if err == nil {
+			err = writeFileAtomic(keep, raw, 0o755)
+		}
+		if err != nil {
+			return fmt.Errorf("binary replaced but not saved to %s: %w", keep, err)
+		}
+		emit(fmt.Sprintf("copy kept in %s\n", keep))
+	}
 	emit(fmt.Sprintf("%s replaced, restarting\n", exe))
 	return nil
 }

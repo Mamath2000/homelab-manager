@@ -109,3 +109,7 @@ export function allStacks(hosts: Host[]): HostStack[] {
 }
 
 export const stackPath = (hostId: string, stack: string) => `/docker/${hostId}/${encodeURIComponent(stack)}`;
+
+// APT is not everywhere (Unraid): only agents that announce it. Hosts that never connected are
+// counted as APT hosts whose state is unknown.
+export const hasApt = (h: Host) => h.capabilities.length === 0 || h.capabilities.includes('apt_update');

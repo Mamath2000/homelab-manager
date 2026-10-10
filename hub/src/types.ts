@@ -133,6 +133,9 @@ export interface HostDoc {
   lastDockerAutoCheckAt?: Date;
 }
 
+export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;
+// hosts without APT (Unraid...) do not announce apt_update
+export const hasApt = (h: { capabilities?: string[] }) => !!h.capabilities?.includes('apt_update');
 export const DOCKER_ACTIONS = ['docker_up', 'docker_stop', 'docker_restart', 'docker_update'] as const;
 export const JOB_ACTIONS = [
   'apt_report',

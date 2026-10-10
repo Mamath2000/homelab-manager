@@ -8,7 +8,7 @@ import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
-import { DOCKER_ACTIONS, JOB_ACTIONS, type HostDoc, type JobAction } from '../types.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type HostDoc, type JobAction } from '../types.js';
 
 const hostBody = {
   type: 'object',
@@ -65,7 +65,9 @@ export const ENROLL_VALIDITY_MS = 24 * 3600 * 1000;
 
 // Single-use code of the install command; only its hash is stored.
 function newEnrollCode() {
-  const code = randomToken(24);
+  let code = randomToken(24);
+  // base64url: never start with a dash, which would read like an option on a command line
+  while (code.startsWith('-')) code = randomToken(24);
   const expiresAt = new Date(Date.now() + ENROLL_VALIDITY_MS);
   return { code, expiresAt, fields: { enrollCodeHash: sha256(code), enrollExpiresAt: expiresAt } };
 }
@@ -184,6 +186,9 @@ export function registerHostRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas redémarrer : mets-le à jour" });
       }
       const { action, stack, service } = req.body;
+      if ((APT_ACTIONS as readonly string[]).includes(action) && !hasApt(host)) {
+        return reply.code(400).send({ error: "pas d'APT sur cet hôte" });
+      }
       if (action.startsWith('docker_') && !host.capabilities?.includes('docker')) {
         return reply.code(400).send({ error: "Docker (avec compose v2) n'est pas disponible sur cet hôte" });
       }
