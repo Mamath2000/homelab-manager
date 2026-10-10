@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowUpCircle, Boxes, Container, Eye, EyeOff, FileCode, History, RefreshCw, ScrollText, ShieldAlert, Trash2 } from 'lucide-react';
 import { CheckImagesButton, ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Panel, Spinner, Tabs, Tag } from '../components/ui';
+import { Badge, Button, Checkbox, Empty, PageHeader, Panel, Spinner, Tabs, Tag } from '../components/ui';
 import { api, type DockerStack, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { jobTitle, timeAgo } from '../lib/format';
@@ -254,8 +254,6 @@ export function Stack() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const [jobId, setJobId] = useState<string | null>(null);
-  const [forget, setForget] = useState(false);
-  const [unmanage, setUnmanage] = useState(false);
   const tab = (params.get('tab') as Tab) || 'services';
   const stack = host?.docker?.stacks.find((s) => s.name === name);
   const running = useMemo(() => !!jobs?.some((j) => j.status === 'running'), [jobs]);
@@ -295,6 +293,17 @@ export function Stack() {
     }
   };
 
+  // the stack has no container left: it stops being tracked, its files on the host are untouched
+  const forget = async () => {
+    try {
+      await api.forgetStack(host.id, stack.name);
+      toast.success(`${stack.name} n'est plus suivie`);
+      navigate('/docker');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
   return (
     <>
       <Link to="/docker" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-zinc-200">
@@ -309,7 +318,7 @@ export function Stack() {
             <CheckImagesButton host={host} disabled={running} onStarted={started} />
             {canManage &&
               (stack.managed ? (
-                <Button size="sm" variant="ghost" icon={EyeOff} title="Stack gérée par ailleurs : lecture seule, sans état ni mise à jour" onClick={() => setUnmanage(true)}>
+                <Button size="sm" variant="ghost" icon={EyeOff} title="Stack gérée par ailleurs : lecture seule, sans état ni mise à jour" onClick={() => setManaged(false)}>
                   Ne plus gérer
                 </Button>
               ) : (
@@ -318,7 +327,7 @@ export function Stack() {
                 </Button>
               ))}
             {canManage && stack.status === 'down' && (
-              <Button size="sm" variant="ghost" icon={Trash2} className="hover:text-red-400" onClick={() => setForget(true)}>
+              <Button size="sm" variant="ghost" icon={Trash2} className="hover:text-red-400" onClick={forget}>
                 Oublier
               </Button>
             )}
@@ -374,37 +383,6 @@ export function Stack() {
         <ServicesTab host={host} stack={stack} running={running} onStarted={started} />
       )}
 
-      <ConfirmModal
-        open={forget}
-        onClose={() => setForget(false)}
-        title={`Oublier ${stack.name}`}
-        confirmLabel="Oublier"
-        danger
-        onConfirm={async () => {
-          try {
-            await api.forgetStack(host.id, stack.name);
-            toast.success(`${stack.name} n'est plus suivie`);
-            navigate('/docker');
-          } catch (err) {
-            toast.error((err as Error).message);
-          }
-        }}
-      >
-        La stack n'a plus de conteneur : elle cesse d'être suivie. Ses fichiers sur l'hôte ne sont pas touchés ; elle réapparaîtra si elle est relancée.
-      </ConfirmModal>
-      <ConfirmModal
-        open={unmanage}
-        onClose={() => setUnmanage(false)}
-        title={`Ne plus gérer ${stack.name}`}
-        confirmLabel="Ne plus gérer"
-        onConfirm={async () => {
-          await setManaged(false);
-          setUnmanage(false);
-        }}
-      >
-        Pour une stack qui a son propre système de mise à jour. Elle reste listée en lecture seule (services, mises à jour d'image pour
-        information, logs, compose) mais n'a plus d'état, de problème ni d'action, et disparaît de Home Assistant. Réversible avec « Gérer ».
-      </ConfirmModal>
     </>
   );
 }

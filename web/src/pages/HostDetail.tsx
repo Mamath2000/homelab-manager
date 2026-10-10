@@ -69,7 +69,6 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
   const run = useRunJob();
   const { canWrite } = useMe();
   const [picked, setSelected] = useState<Set<string>>(new Set());
-  const [confirm, setConfirm] = useState(false);
   const pkgs = host.apt?.upgradable ?? [];
   const installed = host.recentlyInstalled;
   // packages of the running upgrade job (all of them for a full upgrade)
@@ -77,7 +76,6 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
   // drop selections that are no longer upgradable after a refresh
   const selected = new Set([...picked].filter((n) => pkgs.some((p) => p.name === n)));
   const rebootPkgs = pkgs.filter((p) => p.reboot).map((p) => p.name);
-  const selectedReboot = rebootPkgs.filter((n) => selected.has(n));
 
   const all = pkgs.length > 0 && selected.size === pkgs.length;
   const toggle = (n: string, on: boolean) =>
@@ -95,7 +93,14 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
       bodyClassName=""
       actions={
         canWrite && selected.size > 0 && (
-          <Button size="sm" variant="primary" icon={ArrowUpCircle} disabled={!host.online} onClick={() => setConfirm(true)}>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={ArrowUpCircle}
+            disabled={!host.online}
+            loading={run.isPending}
+            onClick={() => run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) })}
+          >
             Mettre à jour la sélection ({selected.size})
           </Button>
         )
@@ -180,19 +185,6 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
           </table>
         </div>
       )}
-      <ConfirmModal
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        title={`Mettre à jour ${selected.size} paquet(s)`}
-        confirmLabel="Mettre à jour"
-        loading={run.isPending}
-        onConfirm={() =>
-          run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => { setConfirm(false); setSelected(new Set()); } })
-        }
-      >
-        <div className="flex flex-wrap gap-1.5">{[...selected].map((n) => <Tag key={n}>{n}</Tag>)}</div>
-        {selectedReboot.length > 0 && <p className="mt-3 text-amber-300">Redémarrage à prévoir ensuite ({selectedReboot.join(', ')}).</p>}
-      </ConfirmModal>
     </Panel>
   );
 }
@@ -208,7 +200,6 @@ export function HostDetail() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmUpgrade, setConfirmUpgrade] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const tls = useAgentTls();
@@ -223,7 +214,7 @@ export function HostDetail() {
 
   const c = connection(host);
   const startJob = (action: 'apt_update' | 'apt_upgrade') =>
-    run.mutate({ hostId: host.id, action }, { onSuccess: (j) => { setJobId(j.id); setConfirmUpgrade(false); } });
+    run.mutate({ hostId: host.id, action }, { onSuccess: (j) => setJobId(j.id) });
 
   // new single-use code; the current agent keeps working until the new installation enrolls
   const newInstall = async () => {
@@ -259,7 +250,10 @@ export function HostDetail() {
                 <Button icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => startJob('apt_update')}>
                   Rechercher les MAJ
                 </Button>
-                <Button icon={ArrowUpCircle} variant="primary" disabled={!host.online || running || !host.aptSummary?.upgradable} onClick={() => setConfirmUpgrade(true)}>
+                <Button icon={ArrowUpCircle} variant="primary" disabled={!host.online || running || !host.aptSummary?.upgradable}
+                  loading={run.isPending && run.variables?.action === 'apt_upgrade'}
+                  onClick={() => startJob('apt_upgrade')}
+                >
                   Tout mettre à jour
                 </Button>
               </>
@@ -404,10 +398,6 @@ export function HostDetail() {
       </div>
 
       {editing && <EditModal host={host} onClose={() => setEditing(false)} />}
-      <ConfirmModal open={confirmUpgrade} onClose={() => setConfirmUpgrade(false)} title={`Mettre à jour ${host.name}`} confirmLabel="Lancer apt-get upgrade" loading={run.isPending} onConfirm={() => startJob('apt_upgrade')}>
-        {host.aptSummary?.upgradable} paquet(s) vont être mis à jour, dont {host.aptSummary?.security} de sécurité. Les fichiers de configuration modifiés localement sont conservés.
-        {!!host.aptSummary?.rebootPending && <p className="mt-3 text-amber-300">Un redémarrage sera nécessaire ensuite (noyau, microcode ou bibliothèques système).</p>}
-      </ConfirmModal>
       <ConfirmModal
         open={confirmReboot}
         onClose={() => setConfirmReboot(false)}

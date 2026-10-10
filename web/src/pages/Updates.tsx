@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
 import { RebootTag } from '../components/Reboot';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, Checkbox, Empty, PageHeader, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
 import { useHosts } from '../lib/queries';
 import { useMe } from '../lib/auth';
@@ -23,8 +23,8 @@ export function Updates() {
   const { canWrite } = useMe();
   const [q, setQ] = useState('');
   const [securityOnly, setSecurityOnly] = useState(false);
-  const [target, setTarget] = useState<Row | null>(null);
-  const [busy, setBusy] = useState(false);
+  // package whose upgrade is being started
+  const [busy, setBusy] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const map = new Map<string, Row>();
@@ -45,7 +45,7 @@ export function Updates() {
   const affected = new Set(rows.flatMap((r) => r.hosts.map((h) => h.id))).size;
 
   const upgrade = async (row: Row) => {
-    setBusy(true);
+    setBusy(row.name);
     const targets = row.hosts.filter((h) => h.online);
     let ok = 0;
     for (const h of targets) {
@@ -56,8 +56,7 @@ export function Updates() {
         // reported below through the counter
       }
     }
-    setBusy(false);
-    setTarget(null);
+    setBusy(null);
     if (ok) toast.success(`${row.name} : mise à jour lancée sur ${ok} hôte(s)`);
     if (ok < targets.length) toast.error(`${targets.length - ok} hôte(s) n'ont pas pu démarrer la mise à jour`);
   };
@@ -123,7 +122,7 @@ export function Updates() {
                     </div>
                   </td>
                   <td className="td text-right">
-                    {canWrite && <Button size="sm" icon={ArrowUpCircle} disabled={!r.hosts.some((h) => h.online)} onClick={() => setTarget(r)}>
+                    {canWrite && <Button size="sm" icon={ArrowUpCircle} disabled={!r.hosts.some((h) => h.online) || !!busy} loading={busy === r.name} onClick={() => upgrade(r)}>
                       Mettre à jour ({r.hosts.filter((h) => h.online).length})
                     </Button>}
                   </td>
@@ -134,13 +133,6 @@ export function Updates() {
         )}
       </div>
 
-      <ConfirmModal open={!!target} onClose={() => setTarget(null)} title={`Mettre à jour ${target?.name}`} confirmLabel="Lancer" loading={busy} onConfirm={() => target && upgrade(target)}>
-        <p>
-          <code className="text-zinc-100">apt-get install --only-upgrade {target?.name}</code> sera lancé sur {target?.hosts.filter((h) => h.online).length} hôte(s) en ligne.
-        </p>
-        {target?.reboot && <p className="mt-2 text-amber-300">Ces hôtes devront ensuite être redémarrés.</p>}
-        {target?.hosts.some((h) => !h.online) && <p className="mt-2 text-xs text-muted">Les hôtes hors ligne sont ignorés.</p>}
-      </ConfirmModal>
     </>
   );
 }

@@ -47,12 +47,24 @@ export function UpdateAgentsModal({ hosts, open, onClose }: { hosts: Host[]; ope
   );
 }
 
+// Single host: starts right away; several hosts: confirms with the list first.
 export function UpdateAgentButton({ hosts, label }: { hosts: Host[]; label?: string }) {
   const [open, setOpen] = useState(false);
+  const bulk = useRunBulk();
   if (!useMe().canWrite) return null;
+  const auto = hosts.filter(canSelfUpdate);
   return (
     <>
-      <Button size="sm" icon={CircleArrowUp} onClick={(e) => { e.preventDefault(); setOpen(true); }}>
+      <Button
+        size="sm"
+        icon={CircleArrowUp}
+        loading={bulk.isPending}
+        onClick={(e) => {
+          e.preventDefault();
+          if (auto.length === 1) bulk.mutate({ hostIds: [auto[0].id], action: 'agent_update' });
+          else setOpen(true);
+        }}
+      >
         {label ?? "Mettre à jour l'agent"}
       </Button>
       <UpdateAgentsModal hosts={hosts} open={open} onClose={() => setOpen(false)} />
