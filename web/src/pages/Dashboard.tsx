@@ -193,7 +193,7 @@ export function Dashboard() {
               cardsIcon={Container}
               empty={stacksToHandle.length === 0 ? <p className="py-6 text-sm text-muted">Toutes les stacks tournent et sont à jour.</p> : undefined}
             >
-              {stacksToHandle.slice(0, 12).map((s) => (
+              {stacksToHandle.map((s) => (
                 <ItemCard key={`${s.host.id}/${s.name}`} to={stackPath(s.host.id, s.name)} icon={Container}
                   tone={s.problems.length ? 'bad' : 'warn'} title={s.name}
                   right={s.status !== 'running' && <Badge tone={stackMeta[s.status].tone}>{stackMeta[s.status].label}</Badge>}>

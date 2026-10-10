@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { Children, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import type { LucideIcon } from 'lucide-react';
+import { ArrowRight, type LucideIcon } from 'lucide-react';
 import { toneText, type Tone } from '../lib/status';
 import { StatusRing } from './StatusRing';
 
@@ -50,9 +50,36 @@ export function StatusSection({ icon: Icon, title, to, stats, cardsTitle, cardsI
           <CardsIcon className="h-4 w-4" />
           {cardsTitle}
         </h3>
-        {empty ?? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{children}</div>}
+        {empty ?? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 max-sm:[&>*:nth-child(n+3)]:hidden sm:max-xl:[&>*:nth-child(n+5)]:hidden xl:max-2xl:[&>*:nth-child(n+7)]:hidden 2xl:[&>*:nth-child(n+9)]:hidden">
+              {children}
+            </div>
+            <MoreLink to={to} count={Children.toArray(children).length} />
+          </>
+        )}
       </div>
     </section>
+  );
+}
+
+// Cards are limited to two rows (2, 4, 6 or 8 depending on the columns): link to the full page
+// when some are hidden at the current width.
+function MoreLink({ to, count }: { to: string; count: number }) {
+  if (count <= 2) return null;
+  return (
+    <Link
+      to={to}
+      className={clsx(
+        'mt-3 items-center gap-1.5 text-xs text-muted transition hover:text-zinc-200',
+        'flex',
+        count > 4 ? 'sm:flex' : 'sm:hidden',
+        count > 6 ? 'xl:flex' : 'xl:hidden',
+        count > 8 ? '2xl:flex' : '2xl:hidden',
+      )}
+    >
+      Voir tout ({count}) <ArrowRight className="h-3.5 w-3.5" />
+    </Link>
   );
 }
 
