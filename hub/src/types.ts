@@ -64,6 +64,8 @@ export interface DockerService {
   name: string;
   image: string;
   containers: DockerContainer[];
+  // container outside the compose file (created by another container): logs only
+  external?: boolean;
 }
 
 export type StackStatus = 'running' | 'partial' | 'stopped' | 'down';

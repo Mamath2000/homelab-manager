@@ -17,6 +17,8 @@ Le module Docker suit les **stacks docker compose déjà présentes sur les hôt
 
 Rien à configurer : les stacks sont découvertes à partir des labels que compose pose sur ses conteneurs (`com.docker.compose.project`, dossier et fichiers du projet).
 
+Certains conteneurs créent eux-mêmes d'autres conteneurs rattachés à leur projet compose (Nextcloud AIO : le *mastercontainer* lance apache, nextcloud, database…). Ces conteneurs, absents du fichier compose, sont listés dans la stack sous leur nom avec le badge **hors compose** : état, image et logs, mais aucune action (ils sont gérés par le conteneur qui les a créés).
+
 Sur **Unraid**, les stacks du plugin Compose Manager sont suivies là où il les range (`/boot/config/plugins/compose.manager/projects/…`). Les conteneurs créés par l'interface Docker d'Unraid (templates) ne passent pas par compose : ils ne sont pas suivis.
 
 ## Ce qui est suivi
@@ -81,12 +83,13 @@ Logs et fichiers compose peuvent contenir des secrets : ils sont réservés aux 
 
 Une stack qui a son propre système de mise à jour (ou que l'on veut simplement laisser de côté) peut être sortie de la gestion : **Ne plus gérer** (admin, sur la page de la stack). Elle reste listée, en lecture seule, avec le badge **Non managée** :
 
-- ni état, ni conteneurs, ni statut d'image, ni problème : rien de cela n'est affiché ni compté (tuiles, tableau de bord, filtres) ;
+- ni état, ni conteneurs, ni problème : rien de cela n'est affiché ni compté (tuiles, tableau de bord, filtre « Arrêtées ») ;
+- les **mises à jour d'image** restent affichées, pour information (badge, détail par service, filtre « À mettre à jour ») : elles ne comptent pas dans les tuiles, le tableau de bord ni la liste des hôtes, et ne sont pas envoyées à Home Assistant ;
 - aucune action : Démarrer, Arrêter, Redémarrer et Mettre à jour sont refusés, y compris par l'API, et la stack est exclue de **Mettre à jour (n)** ;
 - pas publiée dans Home Assistant (son sous-composant disparaît) ;
 - restent consultables : ses services et leurs images, les logs et les fichiers compose.
 
-Le choix est enregistré par le hub (par hôte et nom de stack), rien n'est modifié sur l'hôte. Il survit à un « Oublier » : la stack revient non managée si elle est relancée. **Gérer** la remet dans le suivi normal. L'agent continue de vérifier ses images au registre ; le résultat est simplement ignoré.
+Le choix est enregistré par le hub (par hôte et nom de stack), rien n'est modifié sur l'hôte. Il survit à un « Oublier » : la stack revient non managée si elle est relancée. **Gérer** la remet dans le suivi normal. L'agent continue de vérifier ses images au registre comme pour les autres stacks.
 
 ## Home Assistant
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Container, RefreshCw, Search } from 'lucide-react';
-import { StackActions, StackImagesBadge, StackStatusBadge } from '../components/Docker';
+import { ImageUpdateBadge, ServiceTags, StackActions, StackStatusBadge } from '../components/Docker';
 import { Button, ConfirmModal, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -46,7 +46,8 @@ export function Docker() {
 
   const needle = q.toLowerCase();
   const list = stacks.filter((s) => (match[filter] ?? match.all)(s) && (!needle || s.name.includes(needle) || s.host.name.toLowerCase().includes(needle)));
-  const toUpdate = stacks.filter((s) => s.updates > 0 && s.host.online);
+  // unmanaged stacks show their updates, but are updated by their own system
+  const toUpdate = stacks.filter((s) => s.managed && s.updates > 0 && s.host.online);
 
   const updateAll = async () => {
     setBusy(true);
@@ -71,7 +72,7 @@ export function Docker() {
   const tiles = [
     { label: 'Stacks', value: managed.length },
     { label: 'En marche', value: managed.filter((s) => s.status === 'running').length },
-    { label: 'À mettre à jour', value: stacks.filter((s) => s.updates > 0).length },
+    { label: 'À mettre à jour', value: managed.filter((s) => s.updates > 0).length },
     { label: 'Problèmes', value: stacks.filter((s) => s.problems.length > 0).length },
   ];
 
@@ -167,12 +168,12 @@ export function Docker() {
                         </Link>
                       </td>
                       <td className="td"><StackStatusBadge stack={s} /></td>
-                      <td className="td"><StackImagesBadge stack={s} /></td>
+                      <td className="td"><ImageUpdateBadge update={s.update} count={s.updates} /></td>
                       <td className="td">
-                        <div className="flex flex-wrap gap-1">{s.services.map((v) => <Tag key={v.name}>{v.name}</Tag>)}</div>
+                        <ServiceTags services={s.services} />
                       </td>
                       <td className="td text-xs text-zinc-400">
-                        {!s.managed ? '—' : s.host.docker?.updatesCheckedAt ? timeAgo(s.host.docker.updatesCheckedAt) : 'jamais'}
+                        {s.host.docker?.updatesCheckedAt ? timeAgo(s.host.docker.updatesCheckedAt) : 'jamais'}
                       </td>
                       {canWrite && (
                         <td className="td">

@@ -33,7 +33,7 @@ export interface ServiceView extends DockerService {
 }
 
 export interface StackView extends Omit<DockerStack, 'services'> {
-  // false: managed elsewhere, shown read-only without state, updates, problems nor actions
+  // false: managed elsewhere, read-only: image updates only (no state, problems nor actions)
   managed: boolean;
   services: ServiceView[];
   running: number;
@@ -83,30 +83,20 @@ export function stackProblems(st: { status: string; running: number; total: numb
 
 export const isUnmanaged = (h: Pick<HostDoc, 'unmanagedStacks'>, stack: string) => !!h.unmanagedStacks?.includes(stack);
 
-// An unmanaged stack keeps its name, files and services (logs, compose), nothing of its state.
-function unmanagedView(st: DockerStack): StackView {
-  return {
-    ...st,
-    managed: false,
-    services: st.services.map((svc) => ({ ...svc, containers: [], update: 'unknown', localDigest: null, remoteDigest: null, checkError: null })),
-    running: 0,
-    total: 0,
-    update: 'unknown',
-    updates: 0,
-    problems: [],
-  };
-}
-
 export function dockerView(h: HostDoc): DockerView | null {
   const r = h.docker;
   if (!r || !h.capabilities?.includes('docker')) return null;
   const stacks = r.stacks.map((st): StackView => {
-    if (isUnmanaged(h, st.name)) return unmanagedView(st);
     const services = st.services.map((svc) => ({ ...svc, ...serviceUpdate(svc, r, h.dockerUpdates) }));
-    const containers = services.flatMap((s) => s.containers);
-    const running = containers.filter((c) => c.state === 'running').length;
     const has = (u: ImageUpdate) => services.some((s) => s.update === u);
     const update: ImageUpdate = has('available') ? 'available' : has('recreate') ? 'recreate' : has('uptodate') ? 'uptodate' : 'unknown';
+    const updates = services.filter((s) => s.update === 'available' || s.update === 'recreate').length;
+    // unmanaged: only the image updates (for information), nothing of the containers' state
+    if (isUnmanaged(h, st.name)) {
+      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, updates, problems: [] };
+    }
+    const containers = services.flatMap((s) => s.containers);
+    const running = containers.filter((c) => c.state === 'running').length;
     const view = {
       ...st,
       managed: true,
@@ -114,7 +104,7 @@ export function dockerView(h: HostDoc): DockerView | null {
       running,
       total: containers.length,
       update,
-      updates: services.filter((s) => s.update === 'available' || s.update === 'recreate').length,
+      updates,
       problems: [] as string[],
     };
     view.problems = stackProblems(view);
@@ -144,6 +134,9 @@ export function dockerSummary(v: DockerView | null) {
     unmanaged: v.stacks.length - managed.length,
   };
 }
+
+export const isExternal = (h: HostDoc, stack: string, service?: string) =>
+  !!service && !!findStack(h, stack)?.services.some((s) => s.name === service && s.external);
 
 // The stack (and service) named by a request, from the last report of the host.
 export function findStack(h: HostDoc, stack: string, service?: string) {

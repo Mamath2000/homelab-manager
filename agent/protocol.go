@@ -46,6 +46,9 @@ type DockerService struct {
 	Name       string            `json:"name"`
 	Image      string            `json:"image"` // reference as written in the compose file
 	Containers []DockerContainer `json:"containers"`
+	// container with the project label but outside the compose file (created by another
+	// container, as Nextcloud AIO does): named after the container, logs only
+	External bool `json:"external,omitempty"`
 }
 
 type DockerStack struct {

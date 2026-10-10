@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport, isUnmanaged } from '../src/docker.js';
+import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -108,7 +108,7 @@ test('problems: partial stack, unhealthy or restarting containers, not a stopped
   assert.deepEqual(dockerSummary(v), { stacks: 5, running: 1, partial: 2, stopped: 1, down: 1, updates: 0, problems: 3, unmanaged: 0 });
 });
 
-test('unmanaged stack: listed without state, updates nor problems, out of the counts', () => {
+test('unmanaged stack: image updates only, no state nor problems, out of the counts', () => {
   const sick = stack('media', 'partial', [['plex', 'plex:latest', 'restarting'], ['db', 'postgres', 'exited']]);
   const web = stack('web', 'running', [['app', 'nginx:latest', 'running']]);
   const h = {
@@ -122,9 +122,10 @@ test('unmanaged stack: listed without state, updates nor problems, out of the co
   const media = v.stacks.find((s) => s.name === 'media')!;
   assert.equal(media.managed, false);
   assert.deepEqual(media.problems, []);
-  assert.equal(media.updates, 0);
-  assert.equal(media.update, 'unknown');
-  assert.deepEqual(media.services.map((s) => [s.name, s.containers.length, s.update]), [['plex', 0, 'unknown'], ['db', 0, 'unknown']]);
+  assert.equal(media.updates, 1);
+  assert.equal(media.update, 'available');
+  assert.equal(media.total, 0);
+  assert.deepEqual(media.services.map((s) => [s.name, s.containers.length, s.update]), [['plex', 0, 'available'], ['db', 0, 'unknown']]);
   assert.equal(v.stacks.find((s) => s.name === 'web')!.managed, true);
   assert.deepEqual(dockerSummary(v), { stacks: 1, running: 1, partial: 0, stopped: 0, down: 0, updates: 1, problems: 0, unmanaged: 1 });
   assert.ok(isUnmanaged(h, 'media'));
@@ -145,6 +146,10 @@ test('stack and service lookups use the last report', () => {
   assert.ok(findStack(h, 'web', 'app'));
   assert.equal(findStack(h, 'web', 'db'), null);
   assert.equal(findStack(h, 'other'), null);
+  h.docker!.stacks[0].services.push({ name: 'aio-apache', image: 'apache', containers: [], external: true });
+  assert.ok(isExternal(h, 'web', 'aio-apache'));
+  assert.ok(!isExternal(h, 'web', 'app'));
+  assert.ok(!isExternal(h, 'web'));
 });
 
 test('malformed reports are refused', () => {

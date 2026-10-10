@@ -46,6 +46,52 @@ func TestBuildStacks(t *testing.T) {
 	}
 }
 
+// Nextcloud AIO: the compose file starts one container, which creates the others with the
+// project label alone (no service, directory nor files), listed first here.
+func TestBuildStacksExternalContainers(t *testing.T) {
+	child := apiContainer{ID: strings.Repeat("c", 64), Names: []string{"/aio-apache"}, Image: "apache", State: "running",
+		Labels: map[string]string{labelProject: "aio"}}
+	master := compose("aio", "master", "running", "Up 1 hour")
+	stacks := buildStacks([]apiContainer{child, master}, map[string]string{})
+	if len(stacks) != 1 {
+		t.Fatalf("got %+v", stacks)
+	}
+	st := stacks[0]
+	if st.WorkingDir != "/srv/aio" || len(st.ConfigFiles) != 1 || len(st.Services) != 2 {
+		t.Fatalf("aio: %+v", st)
+	}
+	if st.Services[0].Name != "aio-apache" || !st.Services[0].External || st.Services[1].Name != "master" || st.Services[1].External {
+		t.Fatalf("services: %+v", st.Services)
+	}
+
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "compose.yml")
+	os.WriteFile(cfg, []byte("services: {}\n"), 0o644)
+	st.WorkingDir, st.ConfigFiles = dir, []string{cfg}
+	s := newStackStore(dir)
+	s.merge([]DockerStack{st})
+	k, ok := s.get("aio")
+	if !ok || strings.Join(k.Services, ",") != "aio-apache,master" || strings.Join(k.External, ",") != "aio-apache" {
+		t.Fatalf("known: %+v", k)
+	}
+	// an external container removed by its creator is not kept
+	st.Services = st.Services[1:]
+	s.merge([]DockerStack{st})
+	if k, _ = s.get("aio"); strings.Join(k.Services, ",") != "master" || len(k.External) != 0 {
+		t.Fatalf("after removal: %+v", k)
+	}
+}
+
+func TestPrefixLines(t *testing.T) {
+	got := sortLogs("app-1  | 2026-10-09T22:00:02Z b\n" + prefixLines("aio-apache", "2026-10-09T22:00:01Z a\n"))
+	if got != "aio-apache  | 2026-10-09T22:00:01Z a\napp-1  | 2026-10-09T22:00:02Z b\n" {
+		t.Fatalf("got %q", got)
+	}
+	if prefixLines("x", "") != "" {
+		t.Fatal("empty")
+	}
+}
+
 func TestStackStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "compose.yml")

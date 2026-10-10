@@ -11,7 +11,7 @@ import { Badge, Button, ConfirmModal, Panel, Tag } from './ui';
 export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'status' | 'running' | 'total'> }) {
   if (!stack.managed) {
     return (
-      <span title="Gérée en dehors de Homelab Manager : ni état, ni mise à jour, ni action">
+      <span title="Gérée en dehors de Homelab Manager : mises à jour d'image affichées pour information, ni état ni action">
         <Badge tone="neutral">Non managée</Badge>
       </span>
     );
@@ -23,11 +23,6 @@ export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed'
       {stack.status !== 'down' && <span className="tabular-nums opacity-80">· {stack.running}/{stack.total}</span>}
     </Badge>
   );
-}
-
-// Image state of a stack; nothing for an unmanaged one.
-export function StackImagesBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'update' | 'updates'> }) {
-  return stack.managed ? <ImageUpdateBadge update={stack.update} count={stack.updates} /> : <span className="text-xs text-muted">—</span>;
 }
 
 export function ImageUpdateBadge({ update, count }: { update: ImageUpdate; count?: number }) {
@@ -152,6 +147,24 @@ export function CheckImagesButton({ host, disabled, onStarted }: { host: Host; d
   );
 }
 
+// Service chips of a stack, capped so a big stack doesn't widen its table column.
+const MAX_SERVICE_TAGS = 4;
+
+export function ServiceTags({ services }: { services: { name: string }[] }) {
+  const shown = services.slice(0, MAX_SERVICE_TAGS);
+  const hidden = services.slice(MAX_SERVICE_TAGS);
+  return (
+    <div className="flex max-w-xs flex-wrap gap-1">
+      {shown.map((s) => <Tag key={s.name}>{s.name}</Tag>)}
+      {hidden.length > 0 && (
+        <span title={hidden.map((s) => s.name).join(', ')} className="cursor-help">
+          <Tag>+{hidden.length}…</Tag>
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Stacks of a host, on its detail page.
 export function DockerPanel({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
   const d = host.docker;
@@ -185,9 +198,9 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                   {st.problems.length > 0 && <p className="text-xs text-amber-300">{st.problems.join(' · ')}</p>}
                 </td>
                 <td className="td"><StackStatusBadge stack={st} /></td>
-                <td className="td"><StackImagesBadge stack={st} /></td>
+                <td className="td"><ImageUpdateBadge update={st.update} count={st.updates} /></td>
                 <td className="td hidden md:table-cell">
-                  <div className="flex flex-wrap gap-1">{st.services.map((s) => <Tag key={s.name}>{s.name}</Tag>)}</div>
+                  <ServiceTags services={st.services} />
                 </td>
               </tr>
             ))}
