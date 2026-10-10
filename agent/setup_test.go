@@ -133,3 +133,29 @@ func TestSSHDropInsDetection(t *testing.T) {
 		t.Fatal("include not seen")
 	}
 }
+
+func TestSshdReloadAction(t *testing.T) {
+	for _, c := range []struct {
+		socket, service bool
+		want            string
+	}{
+		{false, true, "reload"}, // sshd listening by itself
+		{true, true, "restart"}, // socket activation: a reload kills sshd (port held by systemd)
+		{true, false, ""},       // next connection starts it
+		{false, false, ""},      // stopped: next start
+	} {
+		if got := sshdReloadAction(c.socket, c.service); got != c.want {
+			t.Errorf("sshdReloadAction(%v, %v) = %q, want %q", c.socket, c.service, got, c.want)
+		}
+	}
+}
+
+func TestEnsureSshdRunDir(t *testing.T) {
+	fsRoot = t.TempDir()
+	defer func() { fsRoot = "" }()
+	ensureSshdRunDir()
+	st, err := os.Stat(filepath.Join(fsRoot, "/run/sshd"))
+	if err != nil || !st.IsDir() || st.Mode().Perm() != 0o755 {
+		t.Fatalf("/run/sshd: %v %v", st, err)
+	}
+}
