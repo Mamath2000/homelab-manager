@@ -36,13 +36,13 @@ Les fichiers écrits commencent par une ligne « Géré par Homelab Manager » :
 
 ## Configuration standard
 
-**Paramètres › Standardisation** (administrateurs), un panneau par section. Une option cochée fait partie du standard :
+**Paramètres › Standardisation** (administrateurs) présente des onglets verticaux : **Général** (application à l'ajout d'un hôte), puis un onglet par section avec le nombre d'options cochées, et les configurations Starship et fastfetch quand elles servent. Une option cochée fait partie du standard :
 
 - elle s'applique aux hôtes qui ne la surchargent pas ;
 - la conformité est mesurée par rapport à elle ;
 - avec **Appliquer à l'ajout d'un hôte**, un nouvel hôte reçoit le standard dès sa première connexion. Les hôtes existants ne sont pas touchés.
 
-Deux panneaux de configuration, communs à root et à l'utilisateur, apparaissent quand leur style est utilisé :
+Deux onglets de configuration, communs à root et à l'utilisateur, apparaissent quand leur style est utilisé :
 
 - **Configuration Starship** (prompt Starship) : TOML écrit dans `/etc/homelab/starship.toml`, vérifié à l'enregistrement ;
 - **Configuration fastfetch** (écran d'accueil fastfetch) : JSON écrit dans `/etc/homelab/fastfetch.jsonc`.
