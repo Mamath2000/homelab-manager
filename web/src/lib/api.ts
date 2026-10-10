@@ -135,7 +135,7 @@ export interface Host {
   setup: SetupState | null;
 }
 
-export const SETUP_MODULES = ['user', 'apt_proxy', 'packages', 'ssh_keys', 'ssh_config', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
+export const SETUP_MODULES = ['user', 'packages', 'ssh_keys', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
 export type SetupModule = (typeof SETUP_MODULES)[number];
 
 export interface SetupState {
@@ -157,8 +157,7 @@ export interface SetupProfile {
   aliases: string;
   prompt: 'none' | 'classic' | 'starship';
   motd: 'none' | 'homelab' | 'fastfetch';
-  aptProxy: string;
-  sshConfig: string;
+  fastfetch: string;
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';

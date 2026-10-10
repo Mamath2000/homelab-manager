@@ -3,6 +3,7 @@ import { agentRequest, isOnline } from './agents.js';
 import { hosts, settings } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
+import { DEFAULT_FASTFETCH } from './fastfetch.js';
 import { createJob } from './jobs.js';
 import { SETUP_MODULES, type HostDoc, type JobDoc, type SetupModule, type SetupProfile, type SetupState } from './types.js';
 
@@ -13,7 +14,6 @@ export const USER_RE = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const PKG_RE = /^[a-z0-9][a-z0-9+.\-:]*$/;
 export const SSH_KEY_RE =
   /^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/]+={0,3}( [^\r\n]*)?$/;
-export const PROXY_RE = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?\/?$/;
 export const MAX_TEXT = 64 * 1024;
 
 // The defaults reproduce homeSetup's dispatch_full, minus what Homelab Manager does itself
@@ -45,12 +45,16 @@ export const DEFAULT_SETUP: SetupProfile = {
   ].join('\n'),
   prompt: 'classic',
   motd: 'homelab',
-  aptProxy: '',
-  sshConfig: '',
+  fastfetch: DEFAULT_FASTFETCH,
 };
 
 export async function loadSetupProfile(): Promise<SetupProfile> {
-  return { ...DEFAULT_SETUP, ...((await settings.findOne({ _id: 'setup' })) as SetupProfile | null), _id: 'setup' };
+  const saved = (await settings.findOne({ _id: 'setup' })) as Partial<SetupProfile> | null;
+  const p = { ...DEFAULT_SETUP } as Record<string, unknown>;
+  // only the known fields and modules: a removed module (apt_proxy, ssh_config) is dropped
+  for (const k of Object.keys(DEFAULT_SETUP)) if (saved && k in saved) p[k] = saved[k as keyof SetupProfile];
+  const profile = p as unknown as SetupProfile;
+  return { ...profile, modules: profile.modules.filter((m) => SETUP_MODULES.includes(m)), _id: 'setup' };
 }
 
 // Error message for an invalid profile, null when it is fine.
@@ -60,7 +64,13 @@ export function profileError(p: SetupProfile): string | null {
   if (pkg) return `nom de paquet invalide : ${pkg}`;
   const key = p.sshKeys.find((k) => !SSH_KEY_RE.test(k));
   if (key) return `clé SSH invalide : ${key.slice(0, 40)}…`;
-  if (p.aptProxy && !PROXY_RE.test(p.aptProxy)) return 'proxy APT invalide (http://hôte:port)';
+  if (p.motd === 'fastfetch') {
+    try {
+      JSON.parse(p.fastfetch);
+    } catch (err) {
+      return `configuration fastfetch invalide : ${(err as Error).message}`;
+    }
+  }
   if (p.modules.includes('ssh_password') && !p.allowPassword && !p.modules.includes('ssh_keys')) {
     return "interdire le mot de passe SSH demande aussi le module « Clés SSH », sinon l'hôte devient injoignable";
   }
@@ -82,9 +92,7 @@ export function buildSpec(p: SetupProfile, modules: SetupModule[], user: string)
     ...(has('ssh_password') ? { allowPassword: p.allowPassword } : {}),
     ...(has('aliases') ? { aliases: p.aliases } : {}),
     ...(has('prompt') ? { prompt: p.prompt } : {}),
-    ...(has('motd') ? { motd: p.motd } : {}),
-    ...(has('apt_proxy') ? { aptProxy: p.aptProxy } : {}),
-    ...(has('ssh_config') ? { sshConfig: p.sshConfig } : {}),
+    ...(has('motd') ? { motd: p.motd, ...(p.motd === 'fastfetch' ? { fastfetch: p.fastfetch } : {}) } : {}),
   };
 }
 

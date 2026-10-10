@@ -8,7 +8,7 @@ import { MOTD_STYLES, PROMPT_STYLES, SETUP_MODULES, type SetupProfile } from '..
 const profileBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['autoApply', 'modules', 'user', 'sudoNoPassword', 'packages', 'sshKeys', 'allowPassword', 'aliases', 'prompt', 'motd', 'aptProxy', 'sshConfig'],
+  required: ['autoApply', 'modules', 'user', 'sudoNoPassword', 'packages', 'sshKeys', 'allowPassword', 'aliases', 'prompt', 'motd', 'fastfetch'],
   properties: {
     autoApply: { type: 'boolean' },
     modules: { type: 'array', maxItems: SETUP_MODULES.length, uniqueItems: true, items: { type: 'string', enum: SETUP_MODULES } },
@@ -20,8 +20,7 @@ const profileBody = {
     aliases: { type: 'string', maxLength: MAX_TEXT },
     prompt: { type: 'string', enum: PROMPT_STYLES },
     motd: { type: 'string', enum: MOTD_STYLES },
-    aptProxy: { type: 'string', maxLength: 256 },
-    sshConfig: { type: 'string', maxLength: MAX_TEXT },
+    fastfetch: { type: 'string', maxLength: MAX_TEXT },
   },
 } as const;
 
@@ -39,7 +38,6 @@ export function registerSetupRoutes(app: FastifyInstance) {
       ...req.body,
       _id: 'setup',
       user: req.body.user.trim(),
-      aptProxy: req.body.aptProxy.trim(),
       sshKeys: req.body.sshKeys.map((k) => k.trim()).filter(Boolean),
     };
     const err = profileError(next);

@@ -143,7 +143,7 @@ export interface HostDoc {
 }
 
 // Standardisation of the hosts (see setup.ts and agent/setup.go).
-export const SETUP_MODULES = ['user', 'apt_proxy', 'packages', 'ssh_keys', 'ssh_config', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
+export const SETUP_MODULES = ['user', 'packages', 'ssh_keys', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
 export type SetupModule = (typeof SETUP_MODULES)[number];
 export const PROMPT_STYLES = ['none', 'classic', 'starship'] as const;
 export const MOTD_STYLES = ['none', 'homelab', 'fastfetch'] as const;
@@ -162,8 +162,7 @@ export interface SetupProfile {
   aliases: string;
   prompt: (typeof PROMPT_STYLES)[number];
   motd: (typeof MOTD_STYLES)[number];
-  aptProxy: string; // "" : no proxy (the file is removed)
-  sshConfig: string;
+  fastfetch: string; // JSON configuration of fastfetch (motd: 'fastfetch')
 }
 
 export interface SetupCheck {

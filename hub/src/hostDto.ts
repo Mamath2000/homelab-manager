@@ -1,4 +1,4 @@
-import type { AptReport, AptSummary, HostDoc } from './types.js';
+import { SETUP_MODULES, type AptReport, type AptSummary, type HostDoc } from './types.js';
 import { isOnline } from './agents.js';
 import { needsReboot } from './reboot.js';
 import { INSTALLED_TTL_MS } from './installed.js';
@@ -19,7 +19,9 @@ export function summarize(report: AptReport): AptSummary {
 // last conformity check with the standard configuration; drift counts the modules to re-apply
 export function setupDto(h: HostDoc) {
   if (!h.setup) return null;
-  return { ...h.setup, drift: h.setup.modules.filter((m) => m.state === 'drift' || m.state === 'error').length };
+  // checks of a removed module (stored before the upgrade) are dropped
+  const modules = h.setup.modules.filter((m) => SETUP_MODULES.includes(m.module));
+  return { ...h.setup, modules, drift: modules.filter((m) => m.state === 'drift' || m.state === 'error').length };
 }
 
 export function hostDto(h: HostDoc) {

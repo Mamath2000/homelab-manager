@@ -4,13 +4,14 @@ import { ObjectId } from 'mongodb';
 import { authorize } from '../src/roles.js';
 import { DEFAULT_SETUP, buildSpec, hostUser, profileError } from '../src/setup.js';
 import { setupDto } from '../src/hostDto.js';
+import { DEFAULT_FASTFETCH } from '../src/fastfetch.js';
 import type { HostDoc, SetupProfile } from '../src/types.js';
 
 const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5 mamath@pc';
 const profile = (p: Partial<SetupProfile> = {}): SetupProfile => ({ ...DEFAULT_SETUP, ...p });
 
 test('the agent only receives the parameters of the selected modules, in application order', () => {
-  const p = profile({ user: 'mamath', sshKeys: [KEY], aptProxy: 'http://10.0.0.8:3142', sshConfig: 'Host x' });
+  const p = profile({ user: 'mamath', sshKeys: [KEY] });
   const spec = buildSpec(p, ['motd', 'ssh_password', 'user', 'aliases'], 'mamath');
   assert.deepEqual(spec.modules, ['user', 'aliases', 'motd', 'ssh_password']);
   assert.equal(spec.user, 'mamath');
@@ -18,17 +19,25 @@ test('the agent only receives the parameters of the selected modules, in applica
   assert.equal(spec.allowPassword, true);
   assert.equal(spec.sudoNoPassword, false);
   assert.ok(spec.aliases?.includes("alias ll='ls -lh'"));
-  for (const k of ['packages', 'sshKeys', 'prompt', 'aptProxy', 'sshConfig']) assert.ok(!(k in spec), k);
+  for (const k of ['packages', 'sshKeys', 'prompt', 'fastfetch']) assert.ok(!(k in spec), k);
+});
+
+test('the fastfetch configuration is only sent with the fastfetch welcome screen', () => {
+  assert.ok(!('fastfetch' in buildSpec(profile({ motd: 'homelab' }), ['motd'], '')));
+  assert.equal(buildSpec(profile({ motd: 'fastfetch' }), ['motd'], '').fastfetch, DEFAULT_FASTFETCH);
+  assert.ok(!('fastfetch' in buildSpec(profile({ motd: 'fastfetch' }), ['aliases'], '')));
 });
 
 test('profile validation', () => {
   assert.equal(profileError(DEFAULT_SETUP), null);
-  assert.equal(profileError(profile({ user: 'mamath', sshKeys: [KEY], aptProxy: 'http://proxy.lan:3142/' })), null);
+  assert.equal(profileError(profile({ user: 'mamath', sshKeys: [KEY], motd: 'fastfetch' })), null);
   assert.match(profileError(profile({ user: 'Mamath' }))!, /utilisateur/);
   assert.match(profileError(profile({ packages: ['htop', 'rm -rf'] }))!, /paquet/);
   assert.match(profileError(profile({ sshKeys: ['not a key'] }))!, /clé SSH/);
   assert.match(profileError(profile({ sshKeys: [KEY + '\nssh-rsa AAAA'] }))!, /clé SSH/);
-  assert.match(profileError(profile({ aptProxy: 'http://proxy:3142";\nAcquire::x "y' }))!, /proxy/);
+  assert.match(profileError(profile({ motd: 'fastfetch', fastfetch: '{ "logo": ' }))!, /fastfetch/);
+  // only checked when it is used
+  assert.equal(profileError(profile({ motd: 'homelab', fastfetch: '{' })), null);
   // forbidding passwords without pushing keys could lock every new host out
   assert.match(profileError(profile({ modules: ['ssh_password'], allowPassword: false }))!, /Clés SSH/);
   assert.equal(profileError(profile({ modules: ['ssh_keys', 'ssh_password'], allowPassword: false, sshKeys: [KEY] })), null);
@@ -54,9 +63,11 @@ test('drift counts modules that differ or failed to check', () => {
         { module: 'aliases', state: 'ok' },
         { module: 'ssh_password', state: 'na' },
         { module: 'motd', state: 'error' },
+        // removed module, checked before the upgrade
+        { module: 'apt_proxy', state: 'drift' },
       ],
     },
-  } as HostDoc;
+  } as unknown as HostDoc;
   assert.equal(setupDto(h)!.drift, 2);
   assert.equal(setupDto({ ...h, setup: undefined }), null);
 });

@@ -80,10 +80,8 @@ export function SetupSettings() {
         </label>
       </div>
     ),
-    apt_proxy: <input className="input max-w-md" value={form.aptProxy} onChange={(e) => set({ aptProxy: e.target.value.trim() })} placeholder="http://192.168.100.8:3142 (vide : aucun proxy)" spellCheck={false} />,
     packages: <textarea className={textarea} value={packages} onChange={(e) => setPackages(e.target.value)} spellCheck={false} placeholder="htop git curl jq" />,
     ssh_keys: <textarea className={textarea} value={keys} onChange={(e) => setKeys(e.target.value)} spellCheck={false} placeholder="ssh-ed25519 AAAA… mamath@pc (une clé publique par ligne)" />,
-    ssh_config: <textarea className={textarea} value={form.sshConfig} onChange={(e) => set({ sshConfig: e.target.value })} spellCheck={false} placeholder={'Host pve0\n  HostName 192.168.100.240\n  User root'} />,
     aliases: <textarea className={`${textarea} min-h-[12rem]`} value={form.aliases} onChange={(e) => set({ aliases: e.target.value })} spellCheck={false} />,
     prompt: (
       <Choice
@@ -114,6 +112,14 @@ export function SetupSettings() {
             {'  '}192.168.100.21  <span className="text-zinc-500">·</span> docker 7/8 conteneurs{'\n'}
             {'  '}<span className="text-red-400">3 mise(s) à jour, dont 1 de sécurité</span>
           </pre>
+        )}
+        {form.motd === 'fastfetch' && (
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">
+              Configuration fastfetch (JSON), écrite dans /etc/homelab/fastfetch.jsonc. Une ligne <code>command</code> dont la commande échoue ou n'affiche rien est masquée.
+            </span>
+            <textarea className={`${textarea} min-h-[20rem]`} value={form.fastfetch} onChange={(e) => set({ fastfetch: e.target.value })} spellCheck={false} />
+          </label>
         )}
         {(form.prompt === 'starship' || form.motd === 'fastfetch') && (
           <p className="text-xs text-amber-300">Starship et fastfetch s'installent par APT : Debian 13 ou Ubuntu 24.04 et plus récents.</p>

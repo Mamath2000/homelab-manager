@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -22,7 +23,7 @@ import (
 
 // Modules, in the order they are applied: the user first (the others write in its home), the SSH
 // password last (it refuses to lock out a host where no key is installed).
-var setupModules = []string{"user", "apt_proxy", "packages", "ssh_keys", "ssh_config", "aliases", "prompt", "motd", "ssh_password"}
+var setupModules = []string{"user", "packages", "ssh_keys", "aliases", "prompt", "motd", "ssh_password"}
 
 type SetupSpec struct {
 	User           string   `json:"user"` // "" or "root": root only
@@ -32,10 +33,9 @@ type SetupSpec struct {
 	SSHKeys        []string `json:"sshKeys,omitempty"`
 	AllowPassword  bool     `json:"allowPassword,omitempty"`
 	Aliases        string   `json:"aliases,omitempty"`
-	Prompt         string   `json:"prompt,omitempty"` // none | classic | starship
-	Motd           string   `json:"motd,omitempty"`   // none | homelab | fastfetch
-	AptProxy       string   `json:"aptProxy,omitempty"`
-	SSHConfig      string   `json:"sshConfig,omitempty"`
+	Prompt         string   `json:"prompt,omitempty"`    // none | classic | starship
+	Motd           string   `json:"motd,omitempty"`      // none | homelab | fastfetch
+	Fastfetch      string   `json:"fastfetch,omitempty"` // JSON configuration (motd fastfetch)
 }
 
 // State of one module against the spec.
@@ -54,7 +54,6 @@ type SetupReport struct {
 var (
 	userNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 	sshKeyRe   = regexp.MustCompile(`^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/]+={0,3}( [^\r\n]*)?$`)
-	proxyRe    = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$`)
 )
 
 const maxSetupText = 64 << 10
@@ -66,16 +65,16 @@ func sysPath(p string) string { return fsRoot + p }
 
 // Files and markers written by the module.
 const (
-	homelabDir   = "/etc/homelab"
-	promptFile   = homelabDir + "/prompt.sh"
-	motdFile     = homelabDir + "/motd.sh"
-	motdEnvFile  = homelabDir + "/motd.env"
-	aptProxyFile = "/etc/apt/apt.conf.d/01proxy"
-	sshdDropIn   = "/etc/ssh/sshd_config.d/00-homelab.conf"
-	sudoersFile  = "/etc/sudoers.d/90-homelab"
-	blockStart   = "# >>> homelab-manager >>>"
-	blockEnd     = "# <<< homelab-manager <<<"
-	managedHead  = "# Géré par Homelab Manager (Paramètres > Standardisation) : les modifications locales seront écrasées.\n"
+	homelabDir    = "/etc/homelab"
+	promptFile    = homelabDir + "/prompt.sh"
+	motdFile      = homelabDir + "/motd.sh"
+	motdEnvFile   = homelabDir + "/motd.env"
+	fastfetchFile = homelabDir + "/fastfetch.jsonc"
+	sshdDropIn    = "/etc/ssh/sshd_config.d/00-homelab.conf"
+	sudoersFile   = "/etc/sudoers.d/90-homelab"
+	blockStart    = "# >>> homelab-manager >>>"
+	blockEnd      = "# <<< homelab-manager <<<"
+	managedHead   = "# Géré par Homelab Manager (Paramètres > Standardisation) : les modifications locales seront écrasées.\n"
 )
 
 func validateSetup(s *SetupSpec) error {
@@ -95,13 +94,13 @@ func validateSetup(s *SetupSpec) error {
 			return fmt.Errorf("invalid ssh key")
 		}
 	}
-	if s.AptProxy != "" && !proxyRe.MatchString(s.AptProxy) {
-		return fmt.Errorf("invalid apt proxy url")
+	if s.Fastfetch != "" && !json.Valid([]byte(s.Fastfetch)) {
+		return fmt.Errorf("invalid fastfetch configuration")
 	}
 	if !contains([]string{"", "none", "classic", "starship"}, s.Prompt) || !contains([]string{"", "none", "homelab", "fastfetch"}, s.Motd) {
 		return fmt.Errorf("invalid prompt or motd style")
 	}
-	for _, t := range []string{s.Aliases, s.SSHConfig} {
+	for _, t := range []string{s.Aliases, s.Fastfetch} {
 		if len(t) > maxSetupText || strings.ContainsRune(t, 0) {
 			return fmt.Errorf("text too long or binary")
 		}
@@ -140,25 +139,9 @@ func (s *SetupSpec) accounts() []*account {
 	return out
 }
 
-// target is the account whose ssh config is written: the user, root when there is none.
-func (s *SetupSpec) target() *account {
-	acc := s.accounts()
-	if len(acc) == 0 {
-		return nil
-	}
-	return acc[len(acc)-1]
-}
-
 func (s *SetupSpec) has(m string) bool { return contains(s.Modules, m) }
 
 // --- rendering (pure, tested) ------------------------------------------------------
-
-func renderAptProxy(proxy string) string {
-	if proxy == "" {
-		return ""
-	}
-	return managedHead + fmt.Sprintf("Acquire::HTTP::Proxy %q;\nAcquire::HTTPS::Proxy \"false\";\n", proxy)
-}
 
 func renderSshd(allow bool) string {
 	v := "no"
@@ -240,7 +223,9 @@ fi
 const motdFastfetch = `# shellcheck shell=bash
 if [ -n "$PS1" ] && [ -z "$HM_MOTD_SHOWN" ]; then
   export HM_MOTD_SHOWN=1
-  command -v fastfetch >/dev/null 2>&1 && fastfetch
+  if command -v fastfetch >/dev/null 2>&1; then
+    if [ -r /etc/homelab/fastfetch.jsonc ]; then fastfetch -c /etc/homelab/fastfetch.jsonc; else fastfetch; fi
+  fi
 fi
 `
 
@@ -252,6 +237,15 @@ func renderMotd(style string) string {
 		return managedHead + motdFastfetch
 	}
 	return ""
+}
+
+// renderFastfetch is the configuration read by the fastfetch welcome screen, none for the other styles.
+func renderFastfetch(s *SetupSpec) string {
+	if s.Motd != "fastfetch" || strings.TrimSpace(s.Fastfetch) == "" {
+		return ""
+	}
+	// same header as the other files, as a JSONC comment
+	return "//" + strings.TrimPrefix(renderManaged(s.Fastfetch), "#")
 }
 
 // bashrcBlock is the managed block at the end of ~/.bashrc: it loads the prompt and the welcome
@@ -568,22 +562,6 @@ func applySSHKeys(s *SetupSpec, emit func(string)) error {
 	return nil
 }
 
-func applySSHConfig(s *SetupSpec, emit func(string)) error {
-	a := s.target()
-	if a == nil {
-		return fmt.Errorf("no account")
-	}
-	d, err := sshDir(a)
-	if err != nil {
-		return err
-	}
-	content := ""
-	if strings.TrimSpace(s.SSHConfig) != "" {
-		content = renderManaged(s.SSHConfig)
-	}
-	return syncFile(filepath.Join(d, "config"), content, 0o600, a, emit)
-}
-
 func applyAliases(s *SetupSpec, emit func(string)) error {
 	content := ""
 	if strings.TrimSpace(s.Aliases) != "" {
@@ -636,6 +614,9 @@ func applyMotd(ctx context.Context, s *SetupSpec, emit func(string)) error {
 		}
 	}
 	if err := syncFile(motdFile, renderMotd(s.Motd), 0o644, nil, emit); err != nil {
+		return err
+	}
+	if err := syncFile(fastfetchFile, renderFastfetch(s), 0o644, nil, emit); err != nil {
 		return err
 	}
 	if s.Motd == "homelab" {
@@ -730,14 +711,10 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 		switch m {
 		case "user":
 			err = applyUser(ctx, s, emit)
-		case "apt_proxy":
-			err = syncFile(aptProxyFile, renderAptProxy(s.AptProxy), 0o644, nil, emit)
 		case "packages":
 			err = aptInstall(ctx, s.Packages, emit)
 		case "ssh_keys":
 			err = applySSHKeys(s, emit)
-		case "ssh_config":
-			err = applySSHConfig(s, emit)
 		case "aliases":
 			err = applyAliases(s, emit)
 		case "prompt":
@@ -821,8 +798,6 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			want = sudoersContent(s.User)
 		}
 		set(checkFile(sudoersFile, want))
-	case "apt_proxy":
-		set(checkFile(aptProxyFile, renderAptProxy(s.AptProxy)))
 	case "packages":
 		if miss := missingPackages(ctx, s.Packages); len(miss) > 0 {
 			sort.Strings(miss)
@@ -835,14 +810,6 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			if n := len(missingKeys(cur, s.SSHKeys)); n > 0 {
 				set("drift", fmt.Sprintf("%s: %d key(s) missing", p, n))
 			}
-		}
-	case "ssh_config":
-		if a := s.target(); a != nil {
-			want := ""
-			if strings.TrimSpace(s.SSHConfig) != "" {
-				want = renderManaged(s.SSHConfig)
-			}
-			set(checkFile(filepath.Join(a.home, ".ssh", "config"), want))
 		}
 	case "aliases":
 		want := ""
@@ -863,6 +830,7 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 		set(checkBashrc(s))
 	case "motd":
 		set(checkFile(motdFile, renderMotd(s.Motd)))
+		set(checkFile(fastfetchFile, renderFastfetch(s)))
 		if s.Motd == "fastfetch" && len(missingPackages(ctx, []string{"fastfetch"})) > 0 {
 			set("drift", "fastfetch not installed")
 		}

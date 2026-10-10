@@ -10,7 +10,7 @@ import (
 const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5LTAwMDAwMDAwMDA mamath@pc"
 
 func TestValidateSetup(t *testing.T) {
-	ok := SetupSpec{User: "mamath", Modules: []string{"user", "packages"}, Packages: []string{"htop", "lib++-dev"}, SSHKeys: []string{testKey}, AptProxy: "http://192.168.100.8:3142", Prompt: "classic", Motd: "homelab"}
+	ok := SetupSpec{User: "mamath", Modules: []string{"user", "packages"}, Packages: []string{"htop", "lib++-dev"}, SSHKeys: []string{testKey}, Prompt: "classic", Motd: "fastfetch", Fastfetch: `{"logo": {"source": "debian"}}`}
 	if err := validateSetup(&ok); err != nil {
 		t.Fatal(err)
 	}
@@ -21,12 +21,11 @@ func TestValidateSetup(t *testing.T) {
 		{Packages: []string{"htop; reboot"}},
 		{SSHKeys: []string{"ssh-ed25519 AAAA\nssh-rsa BBBB"}},
 		{SSHKeys: []string{`command="rm -rf /" ssh-ed25519 AAAA`}},
-		{AptProxy: "http://proxy:3142/\nAcquire::x"},
-		{AptProxy: "ftp://proxy"},
+		{Fastfetch: `{"logo": `},
 		{Prompt: "zsh"},
 		{Motd: "cowsay"},
 		{Aliases: "a\x00b"},
-		{SSHConfig: strings.Repeat("x", maxSetupText+1)},
+		{Aliases: strings.Repeat("x", maxSetupText+1)},
 	}
 	for i, b := range bad {
 		if validateSetup(&b) == nil {
@@ -71,11 +70,12 @@ func TestMissingKeys(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	if renderAptProxy("") != "" {
-		t.Fatal("empty proxy must remove the file")
+	// the fastfetch configuration only exists with the fastfetch welcome screen
+	if renderFastfetch(&SetupSpec{Motd: "homelab", Fastfetch: "{}"}) != "" || renderFastfetch(&SetupSpec{Motd: "fastfetch"}) != "" {
+		t.Fatal("no fastfetch configuration expected")
 	}
-	if p := renderAptProxy("http://10.0.0.8:3142"); !strings.Contains(p, `Acquire::HTTP::Proxy "http://10.0.0.8:3142";`) {
-		t.Fatal(p)
+	if got := renderFastfetch(&SetupSpec{Motd: "fastfetch", Fastfetch: "{}"}); got != "// "+strings.TrimPrefix(managedHead, "# ")+"{}\n" {
+		t.Fatalf("%q", got)
 	}
 	if !strings.HasSuffix(renderSshd(false), "PasswordAuthentication no\n") || !strings.HasSuffix(renderSshd(true), "PasswordAuthentication yes\n") {
 		t.Fatal("sshd drop-in")
@@ -96,25 +96,25 @@ func TestSyncFileAndCheck(t *testing.T) {
 	fsRoot = t.TempDir()
 	defer func() { fsRoot = "" }()
 	emit := func(string) {}
-	want := renderAptProxy("http://10.0.0.8:3142")
-	if st, _ := checkFile(aptProxyFile, want); st != "drift" {
+	want := renderFastfetch(&SetupSpec{Motd: "fastfetch", Fastfetch: "{}"})
+	if st, _ := checkFile(fastfetchFile, want); st != "drift" {
 		t.Fatal("absent file must drift")
 	}
-	if err := syncFile(aptProxyFile, want, 0o644, nil, emit); err != nil {
+	if err := syncFile(fastfetchFile, want, 0o644, nil, emit); err != nil {
 		t.Fatal(err)
 	}
-	if st, d := checkFile(aptProxyFile, want); st != "ok" {
+	if st, d := checkFile(fastfetchFile, want); st != "ok" {
 		t.Fatal(d)
 	}
-	_ = os.WriteFile(filepath.Join(fsRoot, aptProxyFile), []byte("changed"), 0o644)
-	if st, _ := checkFile(aptProxyFile, want); st != "drift" {
+	_ = os.WriteFile(filepath.Join(fsRoot, fastfetchFile), []byte("changed"), 0o644)
+	if st, _ := checkFile(fastfetchFile, want); st != "drift" {
 		t.Fatal("modified file must drift")
 	}
-	// no proxy: the file is removed
-	if err := syncFile(aptProxyFile, "", 0o644, nil, emit); err != nil {
+	// another welcome screen: the file is removed
+	if err := syncFile(fastfetchFile, "", 0o644, nil, emit); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := checkFile(aptProxyFile, ""); st != "ok" {
+	if st, _ := checkFile(fastfetchFile, ""); st != "ok" {
 		t.Fatal("removed file")
 	}
 }
