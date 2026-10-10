@@ -67,6 +67,11 @@ func newerKernel(running string, installed []string) string {
 	return best
 }
 
+// WSL kernels: "6.6.87.2-microsoft-standard-WSL2", "4.4.0-19041-Microsoft" (WSL1)
+func isWSL(release string) bool {
+	return strings.Contains(strings.ToLower(release), "microsoft")
+}
+
 func runningKernel() string {
 	var u syscall.Utsname
 	if syscall.Uname(&u) != nil {

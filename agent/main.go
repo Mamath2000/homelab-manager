@@ -93,13 +93,14 @@ type session struct {
 }
 
 // Actions this host supports: APT only where apt-get exists (not on Unraid), reboot through
-// systemd only (on Unraid a reboot from the shell could skip the array shutdown).
+// systemd only (on Unraid a reboot from the shell could skip the array shutdown) and not on WSL
+// (a stopped distribution only starts again from Windows).
 func platformCapabilities() []string {
 	caps := []string{}
 	if hasApt() {
 		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
 	}
-	if _, err := exec.LookPath("systemctl"); err == nil {
+	if _, err := exec.LookPath("systemctl"); err == nil && !onWSL {
 		caps = append(caps, "reboot")
 	}
 	// standardisation (setup.go): Debian-like hosts only
@@ -116,6 +117,9 @@ func hasApt() bool {
 
 // Docker stacks module, active when the engine and the compose v2 plugin are available.
 var dock = newDockerModule()
+
+// WSL: Docker is not managed (Docker Desktop may expose its socket in the distribution).
+var onWSL = isWSL(runningKernel())
 
 var binaryHash = selfHash()
 
@@ -135,7 +139,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 // installed later is picked up by the next periodic hello.
 func (s *session) hello(ctx context.Context) error {
 	caps := platformCapabilities()
-	if dock.available(ctx) {
+	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
 	}
 	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
@@ -341,8 +345,10 @@ func (s *session) loop(ctx context.Context) error {
 		return err
 	}
 	go s.report(ctx)
-	go s.dockerReport(ctx)
-	go s.dockerLoop(ctx)
+	if !onWSL { // WSL: Docker is not managed
+		go s.dockerReport(ctx)
+		go s.dockerLoop(ctx)
+	}
 
 	// periodic refresh of system info + cached apt state (cheap, no network)
 	go func() {

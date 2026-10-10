@@ -23,7 +23,7 @@ export function InstallInstructions({ install }: { install: InstallInfo }) {
       </label>
       <div>
         <p className="mb-2 text-zinc-300">
-          Lance cette commande <strong className="text-zinc-100">en root</strong> sur l'hôte (Debian / Ubuntu avec systemd, ou Unraid ; curl requis) :
+          Lance cette commande <strong className="text-zinc-100">en root</strong> sur l'hôte (Debian / Ubuntu avec systemd, WSL2 compris, ou Unraid ; curl requis) :
         </p>
         {command ? (
           <CopyField value={command} multiline />

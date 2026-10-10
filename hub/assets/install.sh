@@ -11,6 +11,8 @@
 #   Unraid: the system lives in RAM, so the files are kept in DIR (default on the flash drive,
 #     /boot/config/plugins/homelab-agent) and the agent is started at boot by /boot/config/go,
 #     from a copy in /usr/local/bin.
+#   WSL: as systemd hosts, once systemd is enabled in /etc/wsl.conf (the installer enables it and
+#     asks for a `wsl --shutdown` first).
 set -eu
 
 HUB_URL="__HUB_URL__"
@@ -20,6 +22,7 @@ LEGACY_ENV=/etc/homelab-agent.env
 GO_FILE=/boot/config/go
 GO_MARK="# homelab-agent"
 UNRAID_DIR=/boot/config/plugins/homelab-agent
+WSL_CONF=/etc/wsl.conf
 
 fail() { echo "error: $*" >&2; exit 1; }
 
@@ -29,7 +32,27 @@ command -v curl >/dev/null 2>&1 || fail "curl is required"
 
 UNRAID=
 [ -f /etc/unraid-version ] && UNRAID=1
-[ -n "$UNRAID" ] || command -v systemctl >/dev/null 2>&1 || fail "systemd is required (or Unraid)"
+WSL=
+grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null && WSL=1
+
+# sets systemd=true in the [boot] section of a wsl.conf, leaving the rest of the file as is
+enable_wsl_systemd() {
+  tmp=$(mktemp)
+  [ -f "$1" ] || : > "$1"
+  awk '
+    /^[[:space:]]*\[/ {
+      boot = ($0 ~ /^[[:space:]]*\[boot\][[:space:]]*$/)
+      print
+      if (boot && !done) { print "systemd=true"; done = 1 }
+      next
+    }
+    boot && /^[[:space:]]*systemd[[:space:]]*=/ { next }
+    { print }
+    END { if (!done) { if (NR) print ""; print "[boot]"; print "systemd=true" } }
+  ' "$1" > "$tmp"
+  cat "$tmp" > "$1"
+  rm -f "$tmp"
+}
 
 CODE=
 NEWDIR=
@@ -56,6 +79,16 @@ if [ -n "$NEWDIR" ]; then
   case "$NEWDIR" in
     "" | *[!A-Za-z0-9._/-]*) fail "--dir: only letters, digits and . _ - / are allowed" ;;
   esac
+fi
+
+# systemctl may exist without systemd running (WSL without systemd)
+if [ -z "$UNRAID" ] && [ ! -d /run/systemd/system ]; then
+  if [ -n "$WSL" ] && [ -z "$UNINSTALL" ]; then
+    [ -x /lib/systemd/systemd ] || fail "WSL: systemd is not installed: apt install systemd systemd-sysv, then run this command again"
+    enable_wsl_systemd "$WSL_CONF"
+    fail "WSL: systemd is now enabled in $WSL_CONF; run 'wsl --shutdown' from Windows, reopen the distribution, then run this command again"
+  fi
+  fail "systemd is required (or Unraid)"
 fi
 
 # --- current installation, found from the service (systemd) or the boot script (Unraid)
