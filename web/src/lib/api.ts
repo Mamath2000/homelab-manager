@@ -132,6 +132,7 @@ export interface Host {
   dockerSummary: DockerSummary | null;
   // standardisation: user set on this host (null: the profile's), last conformity check
   setupUser: string | null;
+  setupModules: SetupModule[] | null;
   setup: SetupState | null;
 }
 

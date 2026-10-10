@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
 import { authorize } from '../src/roles.js';
-import { DEFAULT_SETUP, buildSpec, hostUser, profileError } from '../src/setup.js';
+import { DEFAULT_SETUP, buildSpec, hostModules, hostUser, profileError } from '../src/setup.js';
 import { setupDto } from '../src/hostDto.js';
 import { DEFAULT_FASTFETCH } from '../src/fastfetch.js';
 import type { HostDoc, SetupProfile } from '../src/types.js';
@@ -48,6 +48,14 @@ test('host user overrides the profile one, "" meaning root only', () => {
   assert.equal(hostUser(h, profile({ user: 'mamath' })), 'mamath');
   assert.equal(hostUser({ ...h, setupUser: '' }, profile({ user: 'mamath' })), '');
   assert.equal(hostUser({ ...h, setupUser: 'ops' }, profile({ user: 'mamath' })), 'ops');
+});
+
+test('host modules override the standard ones, removed modules dropped', () => {
+  const h = { _id: new ObjectId(), name: 'h', createdAt: new Date() } as HostDoc;
+  const p = profile({ modules: ['packages', 'prompt', 'motd'] });
+  assert.deepEqual(hostModules(h, p), ['packages', 'prompt', 'motd']);
+  assert.deepEqual(hostModules({ ...h, setupModules: ['packages'] }, p), ['packages']);
+  assert.deepEqual(hostModules({ ...h, setupModules: ['packages', 'apt_proxy'] } as unknown as HostDoc, p), ['packages']);
 });
 
 test('drift counts modules that differ or failed to check', () => {
