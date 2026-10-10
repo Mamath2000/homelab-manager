@@ -17,25 +17,41 @@ import (
 	"time"
 )
 
-// Standardisation of a host (setup_apply / setup_check): a fixed list of modules, each with typed
-// parameters checked here again. The hub never sends a command or a path: only values that end up
-// in files this module writes (aliases, ssh config) or in fixed commands (apt-get install, useradd).
+// Standardisation of a host (setup_apply / setup_check): a fixed list of options in three sections
+// (system, root, an optional user), each with typed values checked here again. The hub never sends a
+// command or a path: only values that end up in files this module writes (aliases, fastfetch) or in
+// fixed commands (apt-get install, useradd).
 
-// Modules, in the order they are applied: the user first (the others write in its home), the SSH
+// Options, in the order they are applied: the user first (the others write in its home), the SSH
 // password last (it refuses to lock out a host where no key is installed).
-var setupModules = []string{"user", "packages", "ssh_keys", "aliases", "prompt", "motd", "ssh_password"}
+var setupModules = []string{
+	"user", "packages",
+	"root_keys", "user_keys", "root_aliases", "user_aliases",
+	"root_prompt", "user_prompt", "root_motd", "user_motd",
+	"ssh_password",
+}
+
+// What is configured for one account: root or the user.
+type AccountSpec struct {
+	SSHKeys []string `json:"sshKeys,omitempty"`
+	Aliases string   `json:"aliases,omitempty"`
+	Prompt  string   `json:"prompt,omitempty"` // none | classic | starship
+	Motd    string   `json:"motd,omitempty"`   // none | homelab | fastfetch
+}
+
+type UserSpec struct {
+	Name           string `json:"name"`
+	SudoNoPassword bool   `json:"sudoNoPassword,omitempty"`
+	AccountSpec
+}
 
 type SetupSpec struct {
-	User           string   `json:"user"` // "" or "root": root only
-	Modules        []string `json:"modules"`
-	SudoNoPassword bool     `json:"sudoNoPassword,omitempty"`
-	Packages       []string `json:"packages,omitempty"`
-	SSHKeys        []string `json:"sshKeys,omitempty"`
-	AllowPassword  bool     `json:"allowPassword,omitempty"`
-	Aliases        string   `json:"aliases,omitempty"`
-	Prompt         string   `json:"prompt,omitempty"`    // none | classic | starship
-	Motd           string   `json:"motd,omitempty"`      // none | homelab | fastfetch
-	Fastfetch      string   `json:"fastfetch,omitempty"` // JSON configuration (motd fastfetch)
+	Modules       []string    `json:"modules"` // managed options
+	Packages      []string    `json:"packages,omitempty"`
+	AllowPassword bool        `json:"allowPassword,omitempty"`
+	Root          AccountSpec `json:"root"`
+	User          *UserSpec   `json:"user,omitempty"`
+	Fastfetch     string      `json:"fastfetch,omitempty"` // JSON configuration (welcome screen fastfetch)
 }
 
 // State of one module against the spec.
@@ -66,8 +82,8 @@ func sysPath(p string) string { return fsRoot + p }
 // Files and markers written by the module.
 const (
 	homelabDir    = "/etc/homelab"
-	promptFile    = homelabDir + "/prompt.sh"
-	motdFile      = homelabDir + "/motd.sh"
+	promptDir     = homelabDir + "/prompt"
+	motdDir       = homelabDir + "/motd"
 	motdEnvFile   = homelabDir + "/motd.env"
 	fastfetchFile = homelabDir + "/fastfetch.jsonc"
 	sshdDropIn    = "/etc/ssh/sshd_config.d/00-homelab.conf"
@@ -77,33 +93,46 @@ const (
 	managedHead   = "# Géré par Homelab Manager (Paramètres > Standardisation) : les modifications locales seront écrasées.\n"
 )
 
+func validateAccount(a *AccountSpec) error {
+	for _, k := range a.SSHKeys {
+		if !sshKeyRe.MatchString(k) {
+			return fmt.Errorf("invalid ssh key")
+		}
+	}
+	if !contains([]string{"", "none", "classic", "starship"}, a.Prompt) || !contains([]string{"", "none", "homelab", "fastfetch"}, a.Motd) {
+		return fmt.Errorf("invalid prompt or motd style")
+	}
+	if len(a.Aliases) > maxSetupText || strings.ContainsRune(a.Aliases, 0) {
+		return fmt.Errorf("text too long or binary")
+	}
+	return nil
+}
+
 func validateSetup(s *SetupSpec) error {
-	if s.User != "" && !userNameRe.MatchString(s.User) {
+	if s.User != nil && (!userNameRe.MatchString(s.User.Name) || s.User.Name == "root") {
 		return fmt.Errorf("invalid user name")
 	}
 	for _, m := range s.Modules {
 		if !contains(setupModules, m) {
 			return fmt.Errorf("unknown module %q", m)
 		}
+		if strings.HasPrefix(m, "user") && s.User == nil {
+			return fmt.Errorf("%s without user", m)
+		}
 	}
 	if !validPackages(s.Packages) {
 		return fmt.Errorf("invalid package name")
 	}
-	for _, k := range s.SSHKeys {
-		if !sshKeyRe.MatchString(k) {
-			return fmt.Errorf("invalid ssh key")
+	if err := validateAccount(&s.Root); err != nil {
+		return err
+	}
+	if s.User != nil {
+		if err := validateAccount(&s.User.AccountSpec); err != nil {
+			return err
 		}
 	}
-	if s.Fastfetch != "" && !json.Valid([]byte(s.Fastfetch)) {
+	if len(s.Fastfetch) > maxSetupText || (s.Fastfetch != "" && !json.Valid([]byte(s.Fastfetch))) {
 		return fmt.Errorf("invalid fastfetch configuration")
-	}
-	if !contains([]string{"", "none", "classic", "starship"}, s.Prompt) || !contains([]string{"", "none", "homelab", "fastfetch"}, s.Motd) {
-		return fmt.Errorf("invalid prompt or motd style")
-	}
-	for _, t := range []string{s.Aliases, s.Fastfetch} {
-		if len(t) > maxSetupText || strings.ContainsRune(t, 0) {
-			return fmt.Errorf("text too long or binary")
-		}
 	}
 	return nil
 }
@@ -125,21 +154,41 @@ func lookupAccount(name string) (*account, error) {
 	return &account{name: u.Username, home: u.HomeDir, uid: uid, gid: gid}, nil
 }
 
-// accounts returns root and the target user when it exists.
-func (s *SetupSpec) accounts() []*account {
-	out := []*account{}
-	if root, err := lookupAccount("root"); err == nil {
-		out = append(out, root)
+func (s *SetupSpec) has(m string) bool { return contains(s.Modules, m) }
+
+func (s *SetupSpec) userName() string {
+	if s.User == nil {
+		return ""
 	}
-	if s.User != "" && s.User != "root" {
-		if a, err := lookupAccount(s.User); err == nil {
-			out = append(out, a)
-		}
-	}
-	return out
+	return s.User.Name
 }
 
-func (s *SetupSpec) has(m string) bool { return contains(s.Modules, m) }
+// section of the spec an option belongs to: "root" or "user", with its values
+func (s *SetupSpec) section(prefix string) *AccountSpec {
+	if prefix == "user" {
+		if s.User == nil {
+			return nil
+		}
+		return &s.User.AccountSpec
+	}
+	return &s.Root
+}
+
+// account of a section, nil when the user does not exist (yet)
+func (s *SetupSpec) account(prefix string) *account {
+	name := "root"
+	if prefix == "user" {
+		name = s.userName()
+	}
+	if name == "" {
+		return nil
+	}
+	a, err := lookupAccount(name)
+	if err != nil {
+		return nil
+	}
+	return a
+}
 
 // --- rendering (pure, tested) ------------------------------------------------------
 
@@ -171,6 +220,7 @@ const promptStarship = `# shellcheck shell=bash
 command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"
 `
 
+// renderPrompt is the script of a prompt style, in promptDir/<style>.sh.
 func renderPrompt(style string) string {
 	switch style {
 	case "classic":
@@ -229,6 +279,7 @@ if [ -n "$PS1" ] && [ -z "$HM_MOTD_SHOWN" ]; then
 fi
 `
 
+// renderMotd is the script of a welcome screen style, in motdDir/<style>.sh.
 func renderMotd(style string) string {
 	switch style {
 	case "homelab":
@@ -239,35 +290,77 @@ func renderMotd(style string) string {
 	return ""
 }
 
-// renderFastfetch is the configuration read by the fastfetch welcome screen, none for the other styles.
+// renderFastfetch is the configuration read by the fastfetch welcome screen.
 func renderFastfetch(s *SetupSpec) string {
-	if s.Motd != "fastfetch" || strings.TrimSpace(s.Fastfetch) == "" {
+	if strings.TrimSpace(s.Fastfetch) == "" {
 		return ""
 	}
 	// same header as the other files, as a JSONC comment
 	return "//" + strings.TrimPrefix(renderManaged(s.Fastfetch), "#")
 }
 
-// bashrcBlock is the managed block at the end of ~/.bashrc: it loads the prompt and the welcome
-// screen, and ~/.bash_aliases when the rest of the file does not (root's .bashrc on Debian).
-func bashrcBlock(rest string) string {
+func stylePath(dir, style string) string { return dir + "/" + style + ".sh" }
+
+// sourceLine loads a style script from ~/.bashrc, nothing for "none".
+func sourceLine(dir, style string) string {
+	if style == "" || style == "none" {
+		return ""
+	}
+	p := stylePath(dir, style)
+	return "[ -r " + p + " ] && . " + p + "\n"
+}
+
+// blockLine returns the line of the current block that loads a script of dir ("" when none).
+func blockLine(content, dir string) string {
+	i := strings.Index(content, blockStart)
+	if i < 0 {
+		return ""
+	}
+	for _, l := range strings.Split(content[i:], "\n") {
+		if strings.HasPrefix(l, blockEnd) {
+			break
+		}
+		if strings.Contains(l, dir+"/") {
+			return l + "\n"
+		}
+	}
+	return ""
+}
+
+// bashrcBlock is the managed block at the end of ~/.bashrc: it loads ~/.bash_aliases when the rest
+// of the file does not (root's .bashrc on Debian), then the prompt and welcome screen of the account.
+func bashrcBlock(rest, prompt, motd string) string {
 	var b strings.Builder
 	b.WriteString(blockStart + "\n")
 	if !strings.Contains(rest, ".bash_aliases") {
 		b.WriteString("[ -f ~/.bash_aliases ] && . ~/.bash_aliases\n")
 	}
-	b.WriteString("for __hm_f in " + promptFile + " " + motdFile + "; do [ -r \"$__hm_f\" ] && . \"$__hm_f\"; done; unset __hm_f\n")
+	b.WriteString(prompt + motd)
 	b.WriteString(blockEnd + "\n")
 	return b.String()
 }
 
+// accountBlock returns the content of ~/.bashrc with the block of the section: a prompt or welcome
+// screen that is not managed keeps the line already there.
+func (s *SetupSpec) accountBlock(content, prefix string) string {
+	acc := s.section(prefix)
+	prompt, motd := blockLine(content, promptDir), blockLine(content, motdDir)
+	if s.has(prefix + "_prompt") {
+		prompt = sourceLine(promptDir, acc.Prompt)
+	}
+	if s.has(prefix + "_motd") {
+		motd = sourceLine(motdDir, acc.Motd)
+	}
+	return withBlock(content, prompt, motd)
+}
+
 // withBlock returns content with the managed block (re)written at the end.
-func withBlock(content string) string {
+func withBlock(content, prompt, motd string) string {
 	rest := stripBlock(content)
 	if rest != "" && !strings.HasSuffix(rest, "\n") {
 		rest += "\n"
 	}
-	return rest + bashrcBlock(rest)
+	return rest + bashrcBlock(rest, prompt, motd)
 }
 
 func stripBlock(content string) string {
@@ -481,26 +574,23 @@ func sudoersContent(name string) string {
 }
 
 func applyUser(ctx context.Context, s *SetupSpec, emit func(string)) error {
-	if s.User == "" || s.User == "root" {
-		emit("no user configured: root only\n")
-		return nil
-	}
+	name := s.userName()
 	if _, err := exec.LookPath("sudo"); err != nil {
 		if err := aptInstall(ctx, []string{"sudo"}, emit); err != nil {
 			return err
 		}
 	}
-	if _, err := user.Lookup(s.User); err != nil {
-		emit("creating user " + s.User + "\n")
+	if _, err := user.Lookup(name); err != nil {
+		emit("creating user " + name + "\n")
 		args := []string{"-m", "-s", "/bin/bash"}
 		if g := wantedGroups(); len(g) > 0 {
 			args = append(args, "-G", strings.Join(g, ","))
 		}
-		if code, err := runStreaming(ctx, os.Environ(), emit, "useradd", append(args, s.User)...); err != nil || code != 0 {
+		if code, err := runStreaming(ctx, os.Environ(), emit, "useradd", append(args, name)...); err != nil || code != 0 {
 			return fmt.Errorf("useradd failed (%d) %v", code, err)
 		}
 	} else {
-		have := userGroups(s.User)
+		have := userGroups(name)
 		var add []string
 		for _, g := range wantedGroups() {
 			if !have[g] {
@@ -508,17 +598,17 @@ func applyUser(ctx context.Context, s *SetupSpec, emit func(string)) error {
 			}
 		}
 		if len(add) > 0 {
-			emit("adding " + s.User + " to " + strings.Join(add, ", ") + "\n")
-			if code, err := runStreaming(ctx, os.Environ(), emit, "usermod", "-aG", strings.Join(add, ","), s.User); err != nil || code != 0 {
+			emit("adding " + name + " to " + strings.Join(add, ", ") + "\n")
+			if code, err := runStreaming(ctx, os.Environ(), emit, "usermod", "-aG", strings.Join(add, ","), name); err != nil || code != 0 {
 				return fmt.Errorf("usermod failed (%d) %v", code, err)
 			}
 		} else {
-			emit("user " + s.User + " already set up\n")
+			emit("user " + name + " already set up\n")
 		}
 	}
 	content := ""
-	if s.SudoNoPassword {
-		content = sudoersContent(s.User)
+	if s.User.SudoNoPassword {
+		content = sudoersContent(name)
 	}
 	if content != "" {
 		// a broken sudoers file locks sudo: check it before it takes effect
@@ -534,95 +624,106 @@ func applyUser(ctx context.Context, s *SetupSpec, emit func(string)) error {
 	return syncFile(sudoersFile, content, 0o440, nil, emit)
 }
 
-func applySSHKeys(s *SetupSpec, emit func(string)) error {
-	if len(s.SSHKeys) == 0 {
+// applySSHKeys adds the missing keys to ~/.ssh/authorized_keys of the account; the others are kept.
+func applySSHKeys(a *account, keys []string, emit func(string)) error {
+	if len(keys) == 0 {
 		emit("no key configured\n")
 		return nil
 	}
-	for _, a := range s.accounts() {
-		d, err := sshDir(a)
-		if err != nil {
-			return err
-		}
-		p := filepath.Join(d, "authorized_keys")
-		cur, _ := readFile(p)
-		add := missingKeys(cur, s.SSHKeys)
-		if len(add) == 0 {
-			emit(p + ": keys already present\n")
-			continue
-		}
-		if cur != "" && !strings.HasSuffix(cur, "\n") {
-			cur += "\n"
-		}
-		emit(fmt.Sprintf("%s: adding %d key(s)\n", p, len(add)))
-		if err := writeOwned(p, cur+strings.Join(add, "\n")+"\n", 0o600, a); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func applyAliases(s *SetupSpec, emit func(string)) error {
-	content := ""
-	if strings.TrimSpace(s.Aliases) != "" {
-		content = renderManaged(s.Aliases)
-	}
-	for _, a := range s.accounts() {
-		if err := syncFile(filepath.Join(a.home, ".bash_aliases"), content, 0o644, a, emit); err != nil {
-			return err
-		}
-	}
-	return applyBashrc(s, emit)
-}
-
-// applyBashrc adds the managed block to ~/.bashrc of root and the user.
-func applyBashrc(s *SetupSpec, emit func(string)) error {
-	for _, a := range s.accounts() {
-		p := filepath.Join(a.home, ".bashrc")
-		cur, ok := readFile(p)
-		if !ok {
-			cur, _ = readFile("/etc/skel/.bashrc")
-		}
-		next := withBlock(cur)
-		if ok && next == cur {
-			continue
-		}
-		emit("updating " + p + "\n")
-		if err := writeOwned(p, next, 0o644, a); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func applyPrompt(ctx context.Context, s *SetupSpec, emit func(string)) error {
-	if s.Prompt == "starship" {
-		if err := aptInstall(ctx, []string{"starship"}, emit); err != nil {
-			return err
-		}
-	}
-	if err := syncFile(promptFile, renderPrompt(s.Prompt), 0o644, nil, emit); err != nil {
+	d, err := sshDir(a)
+	if err != nil {
 		return err
 	}
-	return applyBashrc(s, emit)
+	p := filepath.Join(d, "authorized_keys")
+	cur, _ := readFile(p)
+	add := missingKeys(cur, keys)
+	if len(add) == 0 {
+		emit(p + ": keys already present\n")
+		return nil
+	}
+	if cur != "" && !strings.HasSuffix(cur, "\n") {
+		cur += "\n"
+	}
+	emit(fmt.Sprintf("%s: adding %d key(s)\n", p, len(add)))
+	return writeOwned(p, cur+strings.Join(add, "\n")+"\n", 0o600, a)
 }
 
-func applyMotd(ctx context.Context, s *SetupSpec, emit func(string)) error {
-	if s.Motd == "fastfetch" {
-		if err := aptInstall(ctx, []string{"fastfetch"}, emit); err != nil {
+func aliasesContent(aliases string) string {
+	if strings.TrimSpace(aliases) == "" {
+		return ""
+	}
+	return renderManaged(aliases)
+}
+
+// applyBashrc writes the managed block of a section to ~/.bashrc of its account.
+func applyBashrc(s *SetupSpec, prefix string, a *account, emit func(string)) error {
+	p := filepath.Join(a.home, ".bashrc")
+	cur, ok := readFile(p)
+	if !ok {
+		cur, _ = readFile("/etc/skel/.bashrc")
+	}
+	next := s.accountBlock(cur, prefix)
+	if ok && next == cur {
+		return nil
+	}
+	emit("updating " + p + "\n")
+	return writeOwned(p, next, 0o644, a)
+}
+
+// applyStyle installs the package of a prompt or welcome screen style when it needs one, then writes its script.
+func applyStyle(ctx context.Context, dir, style, content string, emit func(string)) error {
+	if pkg := stylePackage(style); pkg != "" {
+		if err := aptInstall(ctx, []string{pkg}, emit); err != nil {
 			return err
 		}
 	}
-	if err := syncFile(motdFile, renderMotd(s.Motd), 0o644, nil, emit); err != nil {
-		return err
+	if content == "" {
+		return nil
 	}
-	if err := syncFile(fastfetchFile, renderFastfetch(s), 0o644, nil, emit); err != nil {
-		return err
+	return syncFile(stylePath(dir, style), content, 0o644, nil, emit)
+}
+
+// package a style needs, installed by APT
+func stylePackage(style string) string {
+	if style == "starship" || style == "fastfetch" {
+		return style
 	}
-	if s.Motd == "homelab" {
-		writeMotdEnv()
+	return ""
+}
+
+// applyAccountOption applies one option of the root or user section (keys, aliases, prompt, motd).
+func applyAccountOption(ctx context.Context, s *SetupSpec, m string, emit func(string)) error {
+	prefix, opt, _ := strings.Cut(m, "_")
+	a := s.account(prefix)
+	if a == nil {
+		return fmt.Errorf("account %s absent", s.userName())
 	}
-	return applyBashrc(s, emit)
+	acc := s.section(prefix)
+	switch opt {
+	case "keys":
+		return applySSHKeys(a, acc.SSHKeys, emit)
+	case "aliases":
+		if err := syncFile(filepath.Join(a.home, ".bash_aliases"), aliasesContent(acc.Aliases), 0o644, a, emit); err != nil {
+			return err
+		}
+	case "prompt":
+		if err := applyStyle(ctx, promptDir, acc.Prompt, renderPrompt(acc.Prompt), emit); err != nil {
+			return err
+		}
+	case "motd":
+		if err := applyStyle(ctx, motdDir, acc.Motd, renderMotd(acc.Motd), emit); err != nil {
+			return err
+		}
+		if acc.Motd == "fastfetch" {
+			if err := syncFile(fastfetchFile, renderFastfetch(s), 0o644, nil, emit); err != nil {
+				return err
+			}
+		}
+		if acc.Motd == "homelab" {
+			writeMotdEnv()
+		}
+	}
+	return applyBashrc(s, prefix, a, emit)
 }
 
 func sshdBinary() string {
@@ -670,9 +771,11 @@ func sshdUsesDropIns() bool {
 // installed keys of root and the user, so that disabling passwords cannot lock everyone out
 func installedKeys(s *SetupSpec) int {
 	n := 0
-	for _, a := range s.accounts() {
-		c, _ := readFile(filepath.Join(a.home, ".ssh", "authorized_keys"))
-		n += countKeys(c)
+	for _, prefix := range []string{"root", "user"} {
+		if a := s.account(prefix); a != nil {
+			c, _ := readFile(filepath.Join(a.home, ".ssh", "authorized_keys"))
+			n += countKeys(c)
+		}
 	}
 	return n
 }
@@ -684,7 +787,7 @@ func applySSHPassword(ctx context.Context, s *SetupSpec, emit func(string)) erro
 		return nil
 	}
 	if !s.AllowPassword && installedKeys(s) == 0 {
-		return fmt.Errorf("refusing to disable password logins: no SSH key installed for root or %s (enable the SSH keys module first)", s.User)
+		return fmt.Errorf("refusing to disable password logins: no SSH key installed for root or the user (push SSH keys first)")
 	}
 	if !sshdUsesDropIns() {
 		return fmt.Errorf("/etc/ssh/sshd_config does not include sshd_config.d: set PasswordAuthentication by hand")
@@ -726,8 +829,8 @@ func applySSHPassword(ctx context.Context, s *SetupSpec, emit func(string)) erro
 	return nil
 }
 
-// applySetup runs the selected modules; a failed module does not stop the others, except the
-// user, whose home the following modules write in.
+// applySetup runs the managed options; a failed one does not stop the others, except the user,
+// whose home the following options write in.
 func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, error) {
 	if err := validateSetup(s); err != nil {
 		return -1, err
@@ -744,16 +847,10 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 			err = applyUser(ctx, s, emit)
 		case "packages":
 			err = aptInstall(ctx, s.Packages, emit)
-		case "ssh_keys":
-			err = applySSHKeys(s, emit)
-		case "aliases":
-			err = applyAliases(s, emit)
-		case "prompt":
-			err = applyPrompt(ctx, s, emit)
-		case "motd":
-			err = applyMotd(ctx, s, emit)
 		case "ssh_password":
 			err = applySSHPassword(ctx, s, emit)
+		default:
+			err = applyAccountOption(ctx, s, m, emit)
 		}
 		if err != nil {
 			emit("error: " + err.Error() + "\n")
@@ -787,15 +884,24 @@ func checkFile(p, want string) (string, string) {
 	return "ok", ""
 }
 
-func checkBashrc(s *SetupSpec) (string, string) {
-	for _, a := range s.accounts() {
-		p := filepath.Join(a.home, ".bashrc")
-		cur, _ := readFile(p)
-		if withBlock(cur) != cur {
-			return "drift", p + " does not load the Homelab Manager block"
-		}
+func checkBashrc(s *SetupSpec, prefix string, a *account) (string, string) {
+	p := filepath.Join(a.home, ".bashrc")
+	cur, _ := readFile(p)
+	if s.accountBlock(cur, prefix) != cur {
+		return "drift", p + " does not load the Homelab Manager block"
 	}
 	return "ok", ""
+}
+
+// checkStyle checks the script of a style and its package.
+func checkStyle(ctx context.Context, dir, style, content string) (string, string) {
+	if pkg := stylePackage(style); pkg != "" && len(missingPackages(ctx, []string{pkg})) > 0 {
+		return "drift", pkg + " not installed"
+	}
+	if content == "" {
+		return "ok", ""
+	}
+	return checkFile(stylePath(dir, style), content)
 }
 
 func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
@@ -807,14 +913,12 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 	}
 	switch m {
 	case "user":
-		if s.User == "" || s.User == "root" {
-			return c
-		}
-		if _, err := user.Lookup(s.User); err != nil {
-			set("drift", "user "+s.User+" absent")
+		name := s.userName()
+		if _, err := user.Lookup(name); err != nil {
+			set("drift", "user "+name+" absent")
 			break
 		}
-		have := userGroups(s.User)
+		have := userGroups(name)
 		var miss []string
 		for _, g := range wantedGroups() {
 			if !have[g] {
@@ -825,8 +929,8 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			set("drift", "not in group "+strings.Join(miss, ", "))
 		}
 		want := ""
-		if s.SudoNoPassword {
-			want = sudoersContent(s.User)
+		if s.User.SudoNoPassword {
+			want = sudoersContent(name)
 		}
 		set(checkFile(sudoersFile, want))
 	case "packages":
@@ -834,38 +938,6 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			sort.Strings(miss)
 			set("drift", "missing: "+strings.Join(miss, " "))
 		}
-	case "ssh_keys":
-		for _, a := range s.accounts() {
-			p := filepath.Join(a.home, ".ssh", "authorized_keys")
-			cur, _ := readFile(p)
-			if n := len(missingKeys(cur, s.SSHKeys)); n > 0 {
-				set("drift", fmt.Sprintf("%s: %d key(s) missing", p, n))
-			}
-		}
-	case "aliases":
-		want := ""
-		if strings.TrimSpace(s.Aliases) != "" {
-			want = renderManaged(s.Aliases)
-		}
-		for _, a := range s.accounts() {
-			set(checkFile(filepath.Join(a.home, ".bash_aliases"), want))
-		}
-		set(checkBashrc(s))
-	case "prompt":
-		set(checkFile(promptFile, renderPrompt(s.Prompt)))
-		if s.Prompt == "starship" {
-			if len(missingPackages(ctx, []string{"starship"})) > 0 {
-				set("drift", "starship not installed")
-			}
-		}
-		set(checkBashrc(s))
-	case "motd":
-		set(checkFile(motdFile, renderMotd(s.Motd)))
-		set(checkFile(fastfetchFile, renderFastfetch(s)))
-		if s.Motd == "fastfetch" && len(missingPackages(ctx, []string{"fastfetch"})) > 0 {
-			set("drift", "fastfetch not installed")
-		}
-		set(checkBashrc(s))
 	case "ssh_password":
 		sshd := sshdBinary()
 		if sshd == "" {
@@ -891,6 +963,33 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 		if got != want {
 			set("drift", "PasswordAuthentication "+got)
 		}
+	default:
+		prefix, opt, _ := strings.Cut(m, "_")
+		a := s.account(prefix)
+		if a == nil {
+			set("drift", "account "+s.userName()+" absent")
+			break
+		}
+		acc := s.section(prefix)
+		switch opt {
+		case "keys":
+			p := filepath.Join(a.home, ".ssh", "authorized_keys")
+			cur, _ := readFile(p)
+			if n := len(missingKeys(cur, acc.SSHKeys)); n > 0 {
+				set("drift", fmt.Sprintf("%s: %d key(s) missing", p, n))
+			}
+			return c
+		case "aliases":
+			set(checkFile(filepath.Join(a.home, ".bash_aliases"), aliasesContent(acc.Aliases)))
+		case "prompt":
+			set(checkStyle(ctx, promptDir, acc.Prompt, renderPrompt(acc.Prompt)))
+		case "motd":
+			set(checkStyle(ctx, motdDir, acc.Motd, renderMotd(acc.Motd)))
+			if acc.Motd == "fastfetch" {
+				set(checkFile(fastfetchFile, renderFastfetch(s)))
+			}
+		}
+		set(checkBashrc(s, prefix, a))
 	}
 	return c
 }
@@ -899,7 +998,7 @@ func checkSetup(ctx context.Context, s *SetupSpec) (*SetupReport, error) {
 	if err := validateSetup(s); err != nil {
 		return nil, err
 	}
-	r := &SetupReport{CheckedAt: time.Now().UnixMilli(), User: s.User, Modules: []SetupCheck{}}
+	r := &SetupReport{CheckedAt: time.Now().UnixMilli(), User: s.userName(), Modules: []SetupCheck{}}
 	for _, m := range setupModules {
 		if s.has(m) {
 			r.Modules = append(r.Modules, checkModule(ctx, s, m))
@@ -913,7 +1012,7 @@ func checkSetup(ctx context.Context, s *SetupSpec) (*SetupReport, error) {
 // writeMotdEnv refreshes the counters of the welcome screen, only where it is installed and only
 // when they change. Readable by every user: counts only.
 func writeMotdEnv() {
-	if _, ok := readFile(motdFile); !ok {
+	if _, ok := readFile(stylePath(motdDir, "homelab")); !ok {
 		return
 	}
 	c := motdState.snapshot()

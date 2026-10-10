@@ -135,10 +135,8 @@ export interface HostDoc {
   lastDockerAutoCheckAt?: Date;
   // compose stacks managed elsewhere (own update system...): listed, but no state nor action
   unmanagedStacks?: string[];
-  // standardisation: user configured on this host (default: the one of the profile), last check
-  setupUser?: string;
-  // modules of the standardisation chosen for this host, absent: those of the standard configuration
-  setupModules?: SetupModule[];
+  // standardisation: what this host does differently from the standard configuration, last check
+  setupOverrides?: SetupOverrides;
   setup?: SetupState;
   // new host: the standard configuration is applied at its first connection (Paramètres > Standardisation)
   setupPending?: boolean;
@@ -146,31 +144,62 @@ export interface HostDoc {
   roaming?: boolean;
 }
 
-// Standardisation of the hosts (see setup.ts and agent/setup.go).
-export const SETUP_MODULES = ['user', 'packages', 'ssh_keys', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
-export type SetupModule = (typeof SETUP_MODULES)[number];
+// Standardisation of the hosts (see setup.ts and agent/setup.go): options in three sections, the
+// system, root and an optional user. Ids are also the ones of the agent checks.
+export const SETUP_OPTIONS = [
+  'packages',
+  'ssh_password',
+  'root_keys',
+  'root_aliases',
+  'root_prompt',
+  'root_motd',
+  'user',
+  'user_keys',
+  'user_aliases',
+  'user_prompt',
+  'user_motd',
+] as const;
+export type SetupOption = (typeof SETUP_OPTIONS)[number];
 export const PROMPT_STYLES = ['none', 'classic', 'starship'] as const;
 export const MOTD_STYLES = ['none', 'homelab', 'fastfetch'] as const;
+export type PromptStyle = (typeof PROMPT_STYLES)[number];
+export type MotdStyle = (typeof MOTD_STYLES)[number];
+
+export interface SetupValues {
+  packages: string[];
+  ssh_password: boolean; // password logins allowed
+  root_keys: string[];
+  root_aliases: string;
+  root_prompt: PromptStyle;
+  root_motd: MotdStyle;
+  user: { name: string; sudoNoPassword: boolean };
+  user_keys: string[];
+  user_aliases: string;
+  user_prompt: PromptStyle;
+  user_motd: MotdStyle;
+}
+// options whose host value can be the standard list plus additions
+export const LIST_OPTIONS = ['packages', 'root_keys', 'user_keys'] as const;
+export type ListOption = (typeof LIST_OPTIONS)[number];
+
+// enabled: part of the standard configuration (applied, checked); value: also the default of a host
+export type SetupOptions = { [K in SetupOption]: { enabled: boolean; value: SetupValues[K] } };
 
 export interface SetupProfile {
   _id: 'setup';
   // applied to a new host at its first connection
   autoApply: boolean;
-  // modules of the standard configuration (pre-checked on the hosts, checked for conformity)
-  modules: SetupModule[];
-  user: string; // "" : root only
-  sudoNoPassword: boolean;
-  packages: string[];
-  sshKeys: string[];
-  allowPassword: boolean;
-  aliases: string;
-  prompt: (typeof PROMPT_STYLES)[number];
-  motd: (typeof MOTD_STYLES)[number];
-  fastfetch: string; // JSON configuration of fastfetch (motd: 'fastfetch')
+  options: SetupOptions;
+  fastfetch: string; // JSON configuration of fastfetch (welcome screen 'fastfetch')
 }
 
+// Host value of an option, absent: the standard one. off: neither applied nor checked; extra: the
+// standard list plus these items.
+export type SetupOverride<K extends SetupOption> = { mode: 'off' } | { mode: 'custom'; value: SetupValues[K] } | { mode: 'extra'; add: string[] };
+export type SetupOverrides = { [K in SetupOption]?: SetupOverride<K> };
+
 export interface SetupCheck {
-  module: SetupModule;
+  module: SetupOption;
   state: 'ok' | 'drift' | 'na' | 'error';
   detail?: string;
 }
@@ -208,8 +237,8 @@ export interface JobDoc {
   // docker actions: target stack, and service when the action is limited to one
   stack?: string;
   service?: string;
-  // setup_apply: modules applied
-  modules?: SetupModule[];
+  // setup_apply: options applied
+  modules?: SetupOption[];
   trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;

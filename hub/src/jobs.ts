@@ -3,7 +3,7 @@ import { agentBinary } from './agentBinaries.js';
 import { sendToAgent } from './agents.js';
 import { jobs } from './db.js';
 import { publish } from './events.js';
-import type { HostDoc, JobAction, JobDoc, SetupModule } from './types.js';
+import type { HostDoc, JobAction, JobDoc, SetupOption } from './types.js';
 
 const MAX_LOG = 512 * 1024;
 const PKG_RE = /^[a-z0-9][a-z0-9+.\-:]*$/;
@@ -50,7 +50,7 @@ export interface JobTarget {
   stack?: string;
   service?: string;
   // setup_apply: what the agent applies (built by setup.ts from the profile, never from the request)
-  setup?: { modules: SetupModule[] } & Record<string, unknown>;
+  setup?: { modules: SetupOption[] } & Record<string, unknown>;
 }
 
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {

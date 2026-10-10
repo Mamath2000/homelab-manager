@@ -3,7 +3,7 @@ import type { UserDoc } from './types.js';
 // What each role may call, decided on the matched route pattern (see isPublic in auth.ts).
 // Anything not explicitly allowed is refused.
 //   admin     everything
-//   operator  reads + runs jobs (updates, cleanup, reboot, agent updates); no hosts, settings or accounts
+//   operator  reads + runs jobs (updates, cleanup, reboot, agent updates) + standardisation of a host; no hosts, settings or accounts
 //   viewer    reads only
 //   superadmin  accounts only: list, create, reset passwords (first install and recovery)
 export function authorize(role: UserDoc['role'], method: string, route: string) {
@@ -19,7 +19,11 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
       return true;
     case 'operator':
       if (read) return !accounts && !settings;
-      return ownPassword || (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk' || route === '/api/hosts/:id/setup/check'));
+      return (
+        ownPassword ||
+        (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk' || route === '/api/hosts/:id/setup/check')) ||
+        (method === 'PUT' && route === '/api/hosts/:id/setup')
+      );
     case 'viewer':
       if (read) return !accounts && !settings && !stackDetails;
       return ownPassword;

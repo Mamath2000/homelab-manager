@@ -132,34 +132,58 @@ export interface Host {
   aptSummary: AptSummary | null;
   docker: DockerView | null;
   dockerSummary: DockerSummary | null;
-  // standardisation: user set on this host (null: the profile's), last conformity check
-  setupUser: string | null;
-  setupModules: SetupModule[] | null;
+  // standardisation: values of this host that differ from the standard, last conformity check
+  setupOverrides: SetupOverrides;
   setup: SetupState | null;
 }
 
-export const SETUP_MODULES = ['user', 'packages', 'ssh_keys', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
-export type SetupModule = (typeof SETUP_MODULES)[number];
+// options of the standardisation (see hub/src/types.ts)
+export const SETUP_OPTIONS = [
+  'packages',
+  'ssh_password',
+  'root_keys',
+  'root_aliases',
+  'root_prompt',
+  'root_motd',
+  'user',
+  'user_keys',
+  'user_aliases',
+  'user_prompt',
+  'user_motd',
+] as const;
+export type SetupOption = (typeof SETUP_OPTIONS)[number];
+export type PromptStyle = 'none' | 'classic' | 'starship';
+export type MotdStyle = 'none' | 'homelab' | 'fastfetch';
+
+export interface SetupValues {
+  packages: string[];
+  ssh_password: boolean;
+  root_keys: string[];
+  root_aliases: string;
+  root_prompt: PromptStyle;
+  root_motd: MotdStyle;
+  user: { name: string; sudoNoPassword: boolean };
+  user_keys: string[];
+  user_aliases: string;
+  user_prompt: PromptStyle;
+  user_motd: MotdStyle;
+}
+export const LIST_OPTIONS: readonly SetupOption[] = ['packages', 'root_keys', 'user_keys'];
+export type SetupOptions = { [K in SetupOption]: { enabled: boolean; value: SetupValues[K] } };
+export type SetupOverride<K extends SetupOption> = { mode: 'off' } | { mode: 'custom'; value: SetupValues[K] } | { mode: 'extra'; add: string[] };
+export type SetupOverrides = { [K in SetupOption]?: SetupOverride<K> };
 
 export interface SetupState {
   checkedAt: number;
   user: string;
-  modules: { module: SetupModule; state: 'ok' | 'drift' | 'na' | 'error'; detail?: string }[];
-  // modules that differ from the standard configuration
+  modules: { module: SetupOption; state: 'ok' | 'drift' | 'na' | 'error'; detail?: string }[];
+  // options that differ from the values of the host
   drift: number;
 }
 
 export interface SetupProfile {
   autoApply: boolean;
-  modules: SetupModule[];
-  user: string;
-  sudoNoPassword: boolean;
-  packages: string[];
-  sshKeys: string[];
-  allowPassword: boolean;
-  aliases: string;
-  prompt: 'none' | 'classic' | 'starship';
-  motd: 'none' | 'homelab' | 'fastfetch';
+  options: SetupOptions;
   fastfetch: string;
 }
 
@@ -175,7 +199,7 @@ export interface Job {
   packages: string[];
   stack: string | null;
   service: string | null;
-  modules: SetupModule[] | null;
+  modules: SetupOption[] | null;
   trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: string;
@@ -341,8 +365,8 @@ export const api = {
 
   setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),
   saveSetupProfile: (p: SetupProfile) => request<SetupProfile>('PUT', '/api/settings/setup', p),
-  setupStandard: () => request<{ modules: SetupModule[]; user: string; autoApply: boolean }>('GET', '/api/setup'),
-  applySetup: (hostId: string, modules: SetupModule[], user: string) =>
-    request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action: 'setup_apply', modules, user }),
+  setupStandard: () => request<{ autoApply: boolean; options: SetupOptions }>('GET', '/api/setup'),
+  saveHostSetup: (hostId: string, overrides: SetupOverrides) => request<Host>('PUT', `/api/hosts/${hostId}/setup`, { overrides }),
+  applySetup: (hostId: string) => request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action: 'setup_apply' }),
   checkSetup: (hostId: string) => request<Host>('POST', `/api/hosts/${hostId}/setup/check`),
 };

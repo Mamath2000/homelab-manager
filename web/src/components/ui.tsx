@@ -154,7 +154,8 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  wide?: boolean;
+  // true: 2xl, 'xl': 5xl (content in columns)
+  wide?: boolean | 'xl';
 }) {
   useEffect(() => {
     if (!open) return;
@@ -166,7 +167,7 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[12vh] backdrop-blur-xs" onMouseDown={onClose}>
       <div
-        className={clsx('panel w-full bg-panel shadow-2xl shadow-black/60', wide ? 'max-w-2xl' : 'max-w-md')}
+        className={clsx('panel w-full bg-panel shadow-2xl shadow-black/60', wide === 'xl' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md')}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-line px-5 py-3.5">

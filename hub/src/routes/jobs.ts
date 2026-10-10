@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { hosts, jobs, parseId } from '../db.js';
 import { agentOutdated } from '../agentBinaries.js';
 import { createJob, jobDto } from '../jobs.js';
-import { applySetup, canSetup, loadSetupProfile } from '../setup.js';
+import { applySetup, canSetup } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type JobAction } from '../types.js';
 
 export function registerJobRoutes(app: FastifyInstance) {
@@ -56,11 +56,9 @@ export function registerJobRoutes(app: FastifyInstance) {
       if (req.body.action === 'docker_check') targets = targets.filter((h) => h.capabilities?.includes('docker'));
       if ((APT_ACTIONS as readonly string[]).includes(req.body.action)) targets = targets.filter(hasApt);
       const created = [];
-      // standardisation: the modules of the standard configuration, with the user of each host
+      // standardisation: the values of each host (standard configuration and its overrides)
       if (req.body.action === 'setup_apply') {
-        const p = await loadSetupProfile();
-        if (!p.modules.length) return reply.code(400).send({ error: 'la configuration standard ne contient aucune option' });
-        for (const host of targets.filter(canSetup)) created.push(jobDto(await applySetup(host, p.modules, undefined, 'manual')));
+        for (const host of targets.filter(canSetup)) created.push(jobDto(await applySetup(host, 'manual')));
         reply.code(202);
         return created;
       }
