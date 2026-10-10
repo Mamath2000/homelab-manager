@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { ArrowLeft, RefreshCw, Wand2 } from 'lucide-react';
+import { RefreshCw, Wand2 } from 'lucide-react';
 import { api, SETUP_MODULES, type Host, type SetupModule, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -61,13 +61,11 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   // pre-checked with the standard configuration, user of the host or of the profile, until edited
   const [selectedDraft, setSelected] = useState<Set<SetupModule> | null>(null);
   const [userDraft, setUser] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState<'apply' | 'check' | null>(null);
 
   const close = () => {
     setSelected(null);
     setUser(null);
-    setConfirming(false);
     onClose();
   };
   const available = host.capabilities.includes('setup');
@@ -119,17 +117,13 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   };
 
   const drift = host.setup?.drift ?? 0;
+  // a unit action: launched at once, the job console shows the result (see CLAUDE.md)
   const footer = !canWrite ? (
     <Button onClick={close}>Fermer</Button>
-  ) : confirming ? (
-    <>
-      <Button icon={ArrowLeft} variant="ghost" onClick={() => setConfirming(false)}>Retour</Button>
-      <Button variant="primary" icon={Wand2} loading={busy === 'apply'} disabled={!host.online || running} onClick={apply}>Confirmer</Button>
-    </>
   ) : (
     <>
       <Button onClick={close}>Annuler</Button>
-      <Button variant="primary" icon={Wand2} disabled={!host.online || running || chosen.length === 0 || !userOk} onClick={() => setConfirming(true)}>
+      <Button variant="primary" icon={Wand2} loading={busy === 'apply'} disabled={!host.online || running || chosen.length === 0 || !userOk} onClick={apply}>
         Appliquer la sélection
       </Button>
     </>
@@ -148,64 +142,52 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       }
       footer={footer}
     >
-      {confirming ? (
-        <div className="text-sm">
-          <p className="mb-2 text-zinc-300">
-            Options appliquées, avec les valeurs de la configuration standard{user ? <> (utilisateur <b className="text-zinc-100">{user}</b>)</> : ' (root seulement)'} :
-          </p>
-          <ul className="list-inside list-disc space-y-0.5 text-zinc-300">
-            {chosen.map((m) => <li key={m}>{setupModuleInfo[m].label}</li>)}
-          </ul>
-          {(running || !host.online) && <p className="mt-3 text-xs text-amber-300">{host.online ? 'Une tâche est déjà en cours sur cet hôte.' : 'Hôte hors ligne.'}</p>}
+      <div className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted">Utilisateur</span>
+            <input
+              className={`input h-8 max-w-[12rem] py-1 ${userOk ? '' : 'border-red-500/60'}`}
+              value={user}
+              onChange={(e) => setUser(e.target.value.trim())}
+              placeholder="root seulement"
+              disabled={!canWrite}
+              spellCheck={false}
+            />
+            {user !== standard.user && <span className="text-xs text-zinc-500">standard : {standard.user || 'root seulement'}</span>}
+          </label>
+          {canWrite && (
+            <Button size="sm" icon={RefreshCw} variant="ghost" loading={busy === 'check'} disabled={!host.online} onClick={check}>
+              Vérifier
+            </Button>
+          )}
         </div>
-      ) : (
-        <div className="space-y-3 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted">Utilisateur</span>
-              <input
-                className={`input h-8 max-w-[12rem] py-1 ${userOk ? '' : 'border-red-500/60'}`}
-                value={user}
-                onChange={(e) => setUser(e.target.value.trim())}
-                placeholder="root seulement"
-                disabled={!canWrite}
-                spellCheck={false}
-              />
-              {user !== standard.user && <span className="text-xs text-zinc-500">standard : {standard.user || 'root seulement'}</span>}
-            </label>
-            {canWrite && (
-              <Button size="sm" icon={RefreshCw} variant="ghost" loading={busy === 'check'} disabled={!host.online} onClick={check}>
-                Vérifier
-              </Button>
-            )}
-          </div>
-          <ul className="divide-y divide-line/60">
-            {SETUP_MODULES.map((m) => {
-              const c = checks.get(m);
-              return (
-                <li key={m} className="flex items-start gap-3 py-2">
-                  <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-500" checked={selected.has(m)} onChange={() => toggle(m)} disabled={!canWrite} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-zinc-200">{setupModuleInfo[m].label}</span>
-                      <StateBadge check={c} standard={standard.modules.includes(m)} />
-                    </div>
-                    {c?.detail && c.state !== 'ok' ? (
-                      <p className="mt-0.5 truncate font-mono text-[11px] text-amber-200/80" title={c.detail}>{c.detail}</p>
-                    ) : (
-                      <p className="mt-0.5 text-xs text-zinc-500">{setupModuleInfo[m].hint}</p>
-                    )}
+        <ul className="divide-y divide-line/60">
+          {SETUP_MODULES.map((m) => {
+            const c = checks.get(m);
+            return (
+              <li key={m} className="flex items-start gap-3 py-2">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 accent-emerald-500" checked={selected.has(m)} onChange={() => toggle(m)} disabled={!canWrite} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-zinc-200">{setupModuleInfo[m].label}</span>
+                    <StateBadge check={c} standard={standard.modules.includes(m)} />
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-xs text-muted">
-            {host.setup ? <>Vérifié {timeAgo(host.setup.checkedAt)}. </> : null}
-            Valeurs de la {canManage ? <Link to="/settings?tab=setup" className="text-emerald-400 hover:underline">configuration standard</Link> : 'configuration standard'}.
-          </p>
-        </div>
-      )}
+                  {c?.detail && c.state !== 'ok' ? (
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-amber-200/80" title={c.detail}>{c.detail}</p>
+                  ) : (
+                    <p className="mt-0.5 text-xs text-zinc-500">{setupModuleInfo[m].hint}</p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="text-xs text-muted">
+          {host.setup ? <>Vérifié {timeAgo(host.setup.checkedAt)}. </> : null}
+          Valeurs de la {canManage ? <Link to="/settings?tab=setup" className="text-emerald-400 hover:underline">configuration standard</Link> : 'configuration standard'}.
+        </p>
+      </div>
     </Modal>
   );
 }

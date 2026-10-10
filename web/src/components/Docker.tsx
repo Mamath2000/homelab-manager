@@ -36,23 +36,15 @@ export function ImageUpdateBadge({ update, count }: { update: ImageUpdate; count
   );
 }
 
-const actionText: Record<StackAction, { label: string; icon: typeof Play; confirm: (what: string) => string; danger?: boolean }> = {
-  docker_up: {
-    label: 'Démarrer',
-    icon: Play,
-    confirm: (w) => `docker compose up -d sur ${w} : crée ou démarre les conteneurs, et recrée ceux dont la configuration a changé sur l'hôte.`,
-  },
-  docker_stop: { label: 'Arrêter', icon: Square, danger: true, confirm: (w) => `docker compose stop sur ${w} : les conteneurs sont arrêtés, pas supprimés.` },
-  docker_restart: { label: 'Redémarrer', icon: RotateCw, confirm: (w) => `docker compose restart sur ${w}.` },
-  docker_update: {
-    label: 'Mettre à jour',
-    icon: ArrowUpCircle,
-    confirm: (w) =>
-      `docker compose pull puis up -d sur ${w} : les nouvelles images sont téléchargées et les conteneurs concernés recréés. Les anciennes images devenues inutiles sont supprimées (docker image prune).`,
-  },
+// `confirm` = the action asks for a confirmation before starting (stop only).
+const actionText: Record<StackAction, { label: string; icon: typeof Play; confirm?: (what: string) => string }> = {
+  docker_up: { label: 'Démarrer', icon: Play },
+  docker_stop: { label: 'Arrêter', icon: Square, confirm: (w) => `docker compose stop sur ${w} : les conteneurs sont arrêtés, pas supprimés.` },
+  docker_restart: { label: 'Redémarrer', icon: RotateCw },
+  docker_update: { label: 'Mettre à jour', icon: ArrowUpCircle },
 };
 
-// Buttons for a stack, or one of its services, with a confirmation.
+// Buttons for a stack, or one of its services; only stopping asks for a confirmation.
 export function StackActions({
   host,
   stack,
@@ -77,6 +69,16 @@ export function StackActions({
   const off = disabled || !host.online;
   const actions: StackAction[] = stack.status === 'down' ? ['docker_up'] : ['docker_up', 'docker_restart', 'docker_stop', 'docker_update'];
   const highlight = (a: StackAction) => a === 'docker_update' && stack.updates > 0 && !service;
+  const start = (a: StackAction) =>
+    run.mutate(
+      { hostId: host.id, action: a, target: { stack: stack.name, service } },
+      {
+        onSuccess: (j) => {
+          setConfirm(null);
+          onStarted?.(j.id);
+        },
+      },
+    );
 
   return (
     <>
@@ -90,10 +92,11 @@ export function StackActions({
               icon={t.icon}
               variant={highlight(a) ? 'primary' : compact ? 'ghost' : 'secondary'}
               title={compact ? t.label : undefined}
-              disabled={off}
+              disabled={off || run.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                setConfirm(a);
+                if (t.confirm) setConfirm(a);
+                else start(a);
               }}
             >
               {!compact && t.label}
@@ -107,21 +110,11 @@ export function StackActions({
           onClose={() => setConfirm(null)}
           title={`${actionText[confirm].label} ${service ? `${stack.name}/${service}` : stack.name}`}
           confirmLabel={actionText[confirm].label}
-          danger={actionText[confirm].danger}
+          danger
           loading={run.isPending}
-          onConfirm={() =>
-            run.mutate(
-              { hostId: host.id, action: confirm, target: { stack: stack.name, service } },
-              {
-                onSuccess: (j) => {
-                  setConfirm(null);
-                  onStarted?.(j.id);
-                },
-              },
-            )
-          }
+          onConfirm={() => start(confirm)}
         >
-          {actionText[confirm].confirm(what)}
+          {actionText[confirm].confirm?.(what)}
           <p className="mt-2 text-xs text-muted">Hôte : {host.name}</p>
         </ConfirmModal>
       )}

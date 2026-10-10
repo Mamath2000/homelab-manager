@@ -64,7 +64,7 @@ Sur la fiche hôte, l'icône **baguette** de l'en-tête (avec le nombre d'écart
 
 Elle liste les options, pré-cochées selon la configuration standard, avec leur état : **conforme**, **écart** (avec le détail), **sans objet** (pas de serveur SSH, par exemple). L'utilisateur peut y être changé pour cet hôte.
 
-- **Appliquer la sélection** affiche le récapitulatif, puis **Confirmer** lance une tâche : sa console en direct s'affiche sur la fiche, avec son historique. Une option qui échoue n'arrête pas les autres, sauf l'utilisateur.
+- **Appliquer la sélection** lance la tâche aussitôt : la fenêtre se ferme et sa console en direct s'affiche sur la fiche, avec son historique. Une option qui échoue n'arrête pas les autres, sauf l'utilisateur.
 - **Vérifier** mesure à nouveau la conformité. Elle est aussi vérifiée à chaque connexion de l'agent, après chaque application et après chaque modification de la configuration standard.
 - La liste des hôtes affiche un badge **non standard** pour les hôtes en écart.
 
