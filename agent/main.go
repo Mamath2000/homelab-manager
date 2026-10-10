@@ -102,6 +102,10 @@ func platformCapabilities() []string {
 	if _, err := exec.LookPath("systemctl"); err == nil {
 		caps = append(caps, "reboot")
 	}
+	// standardisation (setup.go): Debian-like hosts only
+	if _, err := exec.LookPath("useradd"); err == nil && hasApt() {
+		caps = append(caps, "setup")
+	}
 	return append(caps, "agent_update")
 }
 
@@ -145,6 +149,7 @@ func (s *session) dockerReport(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	motdState.setDocker(r)
 	_ = s.send(ctx, Outbound{Type: "docker_report", Docker: r})
 }
 
@@ -195,6 +200,15 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		if files, err = dock.composeFiles(ctx, in.Stack); err == nil {
 			out.Result = map[string]any{"files": files}
 		}
+	case "setup_check":
+		if in.Setup == nil {
+			err = fmt.Errorf("missing setup")
+			break
+		}
+		var r *SetupReport
+		if r, err = checkSetup(ctx, in.Setup); err == nil {
+			out.Result = r
+		}
 	case "docker_forget":
 		if err = dock.forget(ctx, in.Stack); err == nil {
 			out.Result = map[string]bool{"ok": true}
@@ -220,6 +234,7 @@ func (s *session) report(ctx context.Context) {
 		log.Printf("apt report failed: %v", err)
 		return
 	}
+	motdState.setApt(r)
 	_ = s.send(ctx, Outbound{Type: "apt_report", Report: r})
 }
 
@@ -291,6 +306,12 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			os.Exit(0)
 		}()
 		return
+	case "setup_apply":
+		if in.Setup == nil {
+			done(-1, fmt.Errorf("missing setup"))
+			return
+		}
+		code, err = applySetup(jctx, in.Setup, emit)
 	case "apt_autoremove":
 		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "-y", "autoremove")
 	case "docker_check":

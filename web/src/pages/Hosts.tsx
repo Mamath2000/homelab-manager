@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, CircleArrowUp, Container, Plus, RefreshCw, Search, Server } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Container, Plus, RefreshCw, Search, Server, Wand2 } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
@@ -217,6 +217,7 @@ export function Hosts() {
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
                         {h.agentOutdated && <AgentBadge short />}
+                        {!!h.setup?.drift && <Badge tone="warn" className="gap-1"><Wand2 className="h-3 w-3" />non standard</Badge>}
                         {needsReinstall(h) && <ReinstallBadge short />}
                       </div>
                     </td>

@@ -133,6 +133,47 @@ export interface HostDoc {
   lastDockerAutoCheckAt?: Date;
   // compose stacks managed elsewhere (own update system...): listed, but no state nor action
   unmanagedStacks?: string[];
+  // standardisation: user configured on this host (default: the one of the profile), last check
+  setupUser?: string;
+  setup?: SetupState;
+  // new host: the standard configuration is applied at its first connection (Paramètres > Standardisation)
+  setupPending?: boolean;
+}
+
+// Standardisation of the hosts (see setup.ts and agent/setup.go).
+export const SETUP_MODULES = ['user', 'apt_proxy', 'packages', 'ssh_keys', 'ssh_config', 'aliases', 'prompt', 'motd', 'ssh_password'] as const;
+export type SetupModule = (typeof SETUP_MODULES)[number];
+export const PROMPT_STYLES = ['none', 'classic', 'starship'] as const;
+export const MOTD_STYLES = ['none', 'homelab', 'fastfetch'] as const;
+
+export interface SetupProfile {
+  _id: 'setup';
+  // applied to a new host at its first connection
+  autoApply: boolean;
+  // modules of the standard configuration (pre-checked on the hosts, checked for conformity)
+  modules: SetupModule[];
+  user: string; // "" : root only
+  sudoNoPassword: boolean;
+  packages: string[];
+  sshKeys: string[];
+  allowPassword: boolean;
+  aliases: string;
+  prompt: (typeof PROMPT_STYLES)[number];
+  motd: (typeof MOTD_STYLES)[number];
+  aptProxy: string; // "" : no proxy (the file is removed)
+  sshConfig: string;
+}
+
+export interface SetupCheck {
+  module: SetupModule;
+  state: 'ok' | 'drift' | 'na' | 'error';
+  detail?: string;
+}
+
+export interface SetupState {
+  checkedAt: number;
+  user: string;
+  modules: SetupCheck[];
 }
 
 export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;
@@ -148,6 +189,7 @@ export const JOB_ACTIONS = [
   'agent_update',
   'docker_check',
   ...DOCKER_ACTIONS,
+  'setup_apply',
 ] as const;
 export type JobAction = (typeof JOB_ACTIONS)[number];
 export type JobStatus = 'running' | 'success' | 'failed';
@@ -161,7 +203,9 @@ export interface JobDoc {
   // docker actions: target stack, and service when the action is limited to one
   stack?: string;
   service?: string;
-  trigger: 'manual' | 'schedule' | 'homeassistant';
+  // setup_apply: modules applied
+  modules?: SetupModule[];
+  trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;
   finishedAt?: Date;

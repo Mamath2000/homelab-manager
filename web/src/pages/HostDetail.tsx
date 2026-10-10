@@ -7,6 +7,7 @@ import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupPanel } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
+import { SetupPanel } from '../components/SetupPanel';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
@@ -360,6 +361,7 @@ export function HostDetail() {
           </dl>
         </Panel>
         <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
+        <SetupPanel host={host} running={!!running} onStarted={setJobId} />
         </div>
         {hasApt(host) ? (
           <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
@@ -390,7 +392,7 @@ export function HostDetail() {
                     <JobStatusIcon status={j.status} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-zinc-200">{jobTitle(j)}{j.packages.length > 0 && ` (${j.packages.length})`}</span>
-                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}</span>
+                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}{j.trigger === 'enroll' && " · à l'ajout"}</span>
                     </span>
                   </button>
                 </li>

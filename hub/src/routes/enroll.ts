@@ -54,7 +54,8 @@ export function registerEnrollRoute(app: FastifyInstance) {
       const { certPem, fingerprint } = await signClientCsr(await loadPki(), req.body.csr, hostId);
       const updated = await hosts.findOneAndUpdate(
         { _id: host._id },
-        { $set: { certFingerprint: fingerprint, certIssuedAt: new Date() }, $unset: { tokenHash: '' } },
+        // a new host (never connected) gets the standard configuration at its first connection
+        { $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), ...(host.enrolledAt ? {} : { setupPending: true }) }, $unset: { tokenHash: '' } },
         { returnDocument: 'after' },
       );
       if (updated) publish('host', hostDto(updated));

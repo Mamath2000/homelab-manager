@@ -44,6 +44,7 @@ export const actionLabel: Record<string, string> = {
   docker_stop: 'Arrêt de stack',
   docker_restart: 'Redémarrage de stack',
   docker_update: 'Mise à jour de stack',
+  setup_apply: 'Standardisation',
 };
 
 // "Mise à jour de stack · web/app": action plus its stack (and service) for docker jobs

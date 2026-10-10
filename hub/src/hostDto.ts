@@ -16,6 +16,12 @@ export function summarize(report: AptReport): AptSummary {
   };
 }
 
+// last conformity check with the standard configuration; drift counts the modules to re-apply
+export function setupDto(h: HostDoc) {
+  if (!h.setup) return null;
+  return { ...h.setup, drift: h.setup.modules.filter((m) => m.state === 'drift' || m.state === 'error').length };
+}
+
 export function hostDto(h: HostDoc) {
   const docker = dockerView(h);
   return {
@@ -45,5 +51,7 @@ export function hostDto(h: HostDoc) {
     // compose stacks, with the update state of each service (null without Docker)
     docker,
     dockerSummary: dockerSummary(docker),
+    setupUser: h.setupUser ?? null,
+    setup: setupDto(h),
   };
 }

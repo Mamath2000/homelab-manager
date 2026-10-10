@@ -8,6 +8,7 @@ import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
 import { recentlyInstalled } from './installed.js';
 import { appendJobLog, failRunningJobs, finishJob } from './jobs.js';
+import { checkHostSetup, onAgentHello } from './setup.js';
 import { isDockerReport, isDockerUpdates } from './docker.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
@@ -170,6 +171,8 @@ export function registerAgentSocket(app: FastifyInstance) {
               );
               await emitHost(host._id);
               await maybeAutoUpdate(host._id);
+              // answered through this socket: not awaited
+              onAgentHello(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
               break;
             case 'apt_report':
               if (!isReport(msg.report)) return;
@@ -206,7 +209,10 @@ export function registerAgentSocket(app: FastifyInstance) {
               if (msg.jobId && typeof msg.data === 'string') appendJobLog(msg.jobId, id, msg.data);
               break;
             case 'job_done':
-              if (msg.jobId) await finishJob(msg.jobId, id, msg.exitCode ?? 0, msg.error);
+              if (msg.jobId) {
+                const job = await finishJob(msg.jobId, id, msg.exitCode ?? 0, msg.error);
+                if (job?.action === 'setup_apply') checkHostSetup(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
+              }
               break;
           }
         } catch (err) {

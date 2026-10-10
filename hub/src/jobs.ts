@@ -3,7 +3,7 @@ import { agentBinary } from './agentBinaries.js';
 import { sendToAgent } from './agents.js';
 import { jobs } from './db.js';
 import { publish } from './events.js';
-import type { HostDoc, JobAction, JobDoc } from './types.js';
+import type { HostDoc, JobAction, JobDoc, SetupModule } from './types.js';
 
 const MAX_LOG = 512 * 1024;
 const PKG_RE = /^[a-z0-9][a-z0-9+.\-:]*$/;
@@ -30,6 +30,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     packages: j.packages,
     stack: j.stack ?? null,
     service: j.service ?? null,
+    modules: j.modules ?? null,
     trigger: j.trigger,
     status: j.status,
     createdAt: j.createdAt,
@@ -48,6 +49,8 @@ export function hasRunningJob(hostId: string) {
 export interface JobTarget {
   stack?: string;
   service?: string;
+  // setup_apply: what the agent applies (built by setup.ts from the profile, never from the request)
+  setup?: { modules: SetupModule[] } & Record<string, unknown>;
 }
 
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
@@ -59,6 +62,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     packages,
     ...(target.stack ? { stack: target.stack } : {}),
     ...(target.service ? { service: target.service } : {}),
+    ...(target.setup ? { modules: target.setup.modules } : {}),
     trigger,
     status: 'running',
     createdAt: new Date(),
@@ -101,6 +105,7 @@ export async function finishJob(jobId: string, hostId: string, exitCode: number,
     { returnDocument: 'after' },
   );
   if (updated) publish('job', jobDto(updated));
+  return updated;
 }
 
 export async function failRunningJobs(hostId: string, reason: string) {

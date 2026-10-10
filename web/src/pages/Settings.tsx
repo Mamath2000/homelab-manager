@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { Home, Lock, Server, Settings as SettingsIcon, Terminal } from 'lucide-react';
+import { Home, Lock, Server, Settings as SettingsIcon, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
+import { SetupSettings } from '../components/SetupSettings';
 import { Button, Modal, PageHeader, Panel, Tabs } from '../components/ui';
 
 const tabs = [
   { id: 'hub', label: 'Hub et agents', icon: Server },
+  { id: 'setup', label: 'Standardisation', icon: Wand2 },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
 ] as const;
 
@@ -46,6 +48,7 @@ export function Settings() {
           </Panel>
         </div>
       )}
+      {tab === 'setup' && <SetupSettings />}
       {tab === 'homeassistant' && <HomeAssistantPanel />}
       <Modal open={security} onClose={() => setSecurity(false)} title="Sécurité" wide>
         <div className="text-sm">
