@@ -81,6 +81,22 @@ test('alerts roll up from the sub-component to the host and the root', () => {
   assert.equal(devices.some((d) => d.id === `${id(off)}_apt`), false);
 });
 
+test('a roaming host offline is neither an alert nor counted offline', () => {
+  const away = { ...host('laptop', { listsUpdatedAt: Date.now() - 10 * 24 * 3600 * 1000 }), roaming: true };
+  const { devices } = build([{ host: away, online: false, busy: false }], opts);
+  const state = (id: string, key: string, suffix = 'state') =>
+    devices.flatMap((d) => d.states).find(([t]) => t === `hm/${id}/${key}/${suffix}`)?.[1];
+  const id = `hm_${away._id.toHexString()}`;
+
+  assert.equal(state(id, 'agent'), 'OFF');
+  assert.equal(state(id, 'problem'), 'OFF');
+  assert.equal(state(id, 'alerts'), '0');
+  // stale package lists are expected while away
+  assert.equal(state(`${id}_apt`, 'alerts'), '0');
+  assert.equal(state(ROOT_ID, 'hosts_offline'), '0');
+  assert.equal(state(ROOT_ID, 'alerts'), '0');
+});
+
 test('update entity and commands map to jobs', () => {
   const h = host('pve1', { upgradable: [pkg('linux-image-6.12.48-amd64', true), pkg('curl')] });
   const offline = host('off', { upgradable: [pkg('curl')] });

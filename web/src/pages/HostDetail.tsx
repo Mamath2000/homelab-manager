@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
+import { RoamingField } from '../components/RoamingField';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
@@ -32,6 +33,7 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
 function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
   const [name, setName] = useState(host.name);
   const [group, setGroup] = useState(host.group);
+  const [roaming, setRoaming] = useState(host.roaming);
   const [busy, setBusy] = useState(false);
   const upsert = useUpdateHostCache();
   const toast = useToast();
@@ -39,7 +41,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
     e.preventDefault();
     setBusy(true);
     try {
-      upsert(await api.updateHost(host.id, { name, group }));
+      upsert(await api.updateHost(host.id, { name, group, roaming }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -58,6 +60,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
           <span className="mb-1.5 block text-xs font-medium text-muted">Groupe</span>
           <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} />
         </label>
+        <RoamingField checked={roaming} onChange={setRoaming} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" variant="primary" loading={busy}>Enregistrer</Button>
@@ -287,6 +290,7 @@ export function HostDetail() {
       >
         <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
         {host.group && <Tag>{host.group}</Tag>}
+        {host.roaming && <Tag>Itinérant</Tag>}
       </PageHeader>
 
       {host.aptSummary?.rebootRequired && (

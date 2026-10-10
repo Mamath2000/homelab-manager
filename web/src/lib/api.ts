@@ -113,6 +113,8 @@ export interface Host {
   enrolledAt: string | null;
   lastSeenAt: string | null;
   online: boolean;
+  // not connected permanently: offline is its normal state
+  roaming: boolean;
   agentVersion: string | null;
   // cert: TLS client certificate; legacy: plain-text token of the first versions, reinstall needed;
   // none: not enrolled yet, or revoked
@@ -302,9 +304,9 @@ export const api = {
   resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
-  createHost: (name: string, group: string) =>
-    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group }),
-  updateHost: (id: string, patch: { name?: string; group?: string }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  createHost: (name: string, group: string, roaming: boolean) =>
+    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group, roaming }),
+  updateHost: (id: string, patch: { name?: string; group?: string; roaming?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),

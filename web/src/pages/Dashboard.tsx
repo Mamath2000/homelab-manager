@@ -14,7 +14,7 @@ import { allStacks, connection, hasApt, connectionMeta, listsStale, needsReinsta
 import type { Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 
-const connOrder = { offline: 0, pending: 1, online: 2 };
+const connOrder = { offline: 0, pending: 1, online: 2, away: 3 };
 const updOrder = { reboot: 0, security: 1, updates: 2, unknown: 3, uptodate: 4 };
 
 function HostTags({ h }: { h: Host }) {
@@ -101,6 +101,7 @@ export function Dashboard() {
               { label: 'En ligne', value: count(connection, 'online', hosts), tone: 'ok' },
               { label: 'Hors ligne', value: count(connection, 'offline', hosts), tone: 'bad' },
               { label: 'En attente', value: count(connection, 'pending', hosts), tone: 'unknown' },
+              { label: 'Absents (itinérants)', value: count(connection, 'away', hosts), tone: 'neutral' },
               { label: 'Agent à mettre à jour', value: outdated.length, tone: 'warn', ringless: true },
             ]}
             cardsTitle="Tous les hôtes"

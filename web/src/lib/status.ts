@@ -30,16 +30,19 @@ export const toneBadge: Record<Tone, string> = {
   neutral: 'bg-zinc-500/10 text-zinc-300 ring-zinc-500/25',
 };
 
-export type Connection = 'online' | 'offline' | 'pending';
+export type Connection = 'online' | 'offline' | 'away' | 'pending';
 
 export function connection(h: Host): Connection {
   if (h.online) return 'online';
-  return h.enrolledAt ? 'offline' : 'pending';
+  if (!h.enrolledAt) return 'pending';
+  // roaming host: being offline is expected, not an error
+  return h.roaming ? 'away' : 'offline';
 }
 
 export const connectionMeta: Record<Connection, { label: string; tone: Tone }> = {
   online: { label: 'En ligne', tone: 'ok' },
   offline: { label: 'Hors ligne', tone: 'bad' },
+  away: { label: 'Absent', tone: 'neutral' },
   pending: { label: 'En attente', tone: 'unknown' },
 };
 
@@ -67,6 +70,8 @@ const STALE_MS = 2 * 24 * 3600 * 1000;
 
 // Package lists older than two days mean the update counts can't be trusted.
 export function listsStale(h: Host) {
+  // roaming host away: its lists can only be refreshed once it is back
+  if (h.roaming && !h.online) return false;
   const t = h.apt?.listsUpdatedAt;
   return !!h.apt && (!t || Date.now() - t > STALE_MS);
 }

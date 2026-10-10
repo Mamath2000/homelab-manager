@@ -150,7 +150,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     const r = host.apt;
 
     // --- APT sub-component: the details
-    const apt = aptAlerts(host);
+    const apt = aptAlerts(host, isOnline);
     if (r) {
       const sec = r.upgradable.filter((p) => p.security).length;
       const rebootPending = r.upgradable.filter((p) => needsReboot(p.name)).length;
@@ -280,7 +280,8 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   });
   const ids = (list: HostState[]) => list.map((h) => h.host._id.toHexString());
   root.sensor('hosts', 'Hôtes', hosts.length, { icon: 'mdi:server' });
-  root.sensor('hosts_offline', 'Hôtes hors ligne', hosts.length - online.length, { icon: 'mdi:server-network-off' });
+  // a roaming host is expected to be offline
+  root.sensor('hosts_offline', 'Hôtes hors ligne', hosts.filter((h) => !h.online && !h.host.roaming).length, { icon: 'mdi:server-network-off' });
   root.sensor('updates', 'Mises à jour disponibles', updates, { icon: 'mdi:package-up' });
   root.sensor('security', 'Mises à jour de sécurité', security, { icon: 'mdi:shield-alert-outline' });
   root.sensor('hosts_to_update', 'Hôtes à mettre à jour', toUpdate, { icon: 'mdi:server-plus' });

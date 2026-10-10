@@ -52,7 +52,7 @@ Homelab Manager
 
 | Entité | Type |
 |---|---|
-| Hôtes, Hôtes hors ligne | capteurs |
+| Hôtes, Hôtes hors ligne | capteurs (les hôtes itinérants ne comptent pas comme hors ligne) |
 | Mises à jour disponibles, Mises à jour de sécurité | capteurs (totaux de tous les hôtes) |
 | Hôtes à mettre à jour, Hôtes à redémarrer, Hôtes à nettoyer | capteurs |
 | Agents à mettre à jour | capteur (les agents se mettent à jour automatiquement, voir Paramètres → Agent) |
@@ -103,12 +103,12 @@ Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker
 
 | Composant | Niveau | Alerte |
 |---|---|---|
-| Agent | critique | Agent hors ligne |
+| Agent | critique | Agent hors ligne (sauf hôte itinérant) |
 | Agent | avertissement | Agent jamais connecté |
 | Agent | avertissement | Agent à mettre à jour |
 | APT | avertissement | Mises à jour de sécurité disponibles |
 | APT | avertissement | Redémarrage requis |
-| APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours |
+| APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours (sauf hôte itinérant hors ligne) |
 | Docker | avertissement | Stack partielle (une partie des conteneurs seulement tourne) |
 | Docker | avertissement | Conteneur en mauvaise santé (`unhealthy`) |
 | Docker | avertissement | Conteneur qui redémarre en boucle |

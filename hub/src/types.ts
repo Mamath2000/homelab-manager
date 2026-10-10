@@ -142,6 +142,8 @@ export interface HostDoc {
   setup?: SetupState;
   // new host: the standard configuration is applied at its first connection (Paramètres > Standardisation)
   setupPending?: boolean;
+  // not connected permanently (laptop...): being offline is expected, neither an error nor an alert
+  roaming?: boolean;
 }
 
 // Standardisation of the hosts (see setup.ts and agent/setup.go).
