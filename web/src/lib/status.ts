@@ -70,6 +70,8 @@ const STALE_MS = 2 * 24 * 3600 * 1000;
 
 // Package lists older than two days mean the update counts can't be trusted.
 export function listsStale(h: Host) {
+  // roaming host away: its lists can only be refreshed once it is back
+  if (h.roaming && !h.online) return false;
   const t = h.apt?.listsUpdatedAt;
   return !!h.apt && (!t || Date.now() - t > STALE_MS);
 }

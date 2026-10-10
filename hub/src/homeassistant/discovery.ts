@@ -150,7 +150,7 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     const r = host.apt;
 
     // --- APT sub-component: the details
-    const apt = aptAlerts(host);
+    const apt = aptAlerts(host, isOnline);
     if (r) {
       const sec = r.upgradable.filter((p) => p.security).length;
       const rebootPending = r.upgradable.filter((p) => needsReboot(p.name)).length;

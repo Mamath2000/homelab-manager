@@ -82,7 +82,7 @@ test('alerts roll up from the sub-component to the host and the root', () => {
 });
 
 test('a roaming host offline is neither an alert nor counted offline', () => {
-  const away = { ...host('laptop'), roaming: true };
+  const away = { ...host('laptop', { listsUpdatedAt: Date.now() - 10 * 24 * 3600 * 1000 }), roaming: true };
   const { devices } = build([{ host: away, online: false, busy: false }], opts);
   const state = (id: string, key: string, suffix = 'state') =>
     devices.flatMap((d) => d.states).find(([t]) => t === `hm/${id}/${key}/${suffix}`)?.[1];
@@ -91,6 +91,8 @@ test('a roaming host offline is neither an alert nor counted offline', () => {
   assert.equal(state(id, 'agent'), 'OFF');
   assert.equal(state(id, 'problem'), 'OFF');
   assert.equal(state(id, 'alerts'), '0');
+  // stale package lists are expected while away
+  assert.equal(state(`${id}_apt`, 'alerts'), '0');
   assert.equal(state(ROOT_ID, 'hosts_offline'), '0');
   assert.equal(state(ROOT_ID, 'alerts'), '0');
 });

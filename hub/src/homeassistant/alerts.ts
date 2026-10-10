@@ -20,14 +20,15 @@ export function agentAlerts(h: HostDoc, online: boolean, outdated?: boolean | nu
   return [{ level: 'critical', source: 'agent', message: 'Agent hors ligne' }];
 }
 
-export function aptAlerts(h: HostDoc, now = Date.now()): Alert[] {
+export function aptAlerts(h: HostDoc, online = true, now = Date.now()): Alert[] {
   const r = h.apt;
   if (!r) return [];
   const out: Alert[] = [];
   const security = r.upgradable.filter((p) => p.security).length;
   if (security) out.push({ level: 'warning', source: 'apt', message: `${security} mise(s) à jour de sécurité` });
   if (r.rebootRequired) out.push({ level: 'warning', source: 'apt', message: 'Redémarrage requis' });
-  if (!r.listsUpdatedAt || now - r.listsUpdatedAt > STALE_MS) {
+  // roaming host away: its lists can only be refreshed once it is back
+  if (!(h.roaming && !online) && (!r.listsUpdatedAt || now - r.listsUpdatedAt > STALE_MS)) {
     out.push({ level: 'warning', source: 'apt', message: 'Listes de paquets non rafraîchies depuis plus de 2 jours' });
   }
   return out;

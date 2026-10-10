@@ -108,7 +108,7 @@ Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker
 | Agent | avertissement | Agent à mettre à jour |
 | APT | avertissement | Mises à jour de sécurité disponibles |
 | APT | avertissement | Redémarrage requis |
-| APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours |
+| APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours (sauf hôte itinérant hors ligne) |
 | Docker | avertissement | Stack partielle (une partie des conteneurs seulement tourne) |
 | Docker | avertissement | Conteneur en mauvaise santé (`unhealthy`) |
 | Docker | avertissement | Conteneur qui redémarre en boucle |
