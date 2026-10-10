@@ -5,11 +5,11 @@ import { RefreshCw, Save, Wand2 } from 'lucide-react';
 import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import { describeValue, hostHasUser, isListOption, setupOptionInfo, setupSections, showSetup, type SetupSection } from '../lib/setup';
+import { describeValue, hostHasUser, isListOption, sectionIcons, setupOptionInfo, setupSections, showSetup, type SetupSection } from '../lib/setup';
 import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
-import { Badge, Button, Modal, Spinner, Tag } from './ui';
+import { Badge, Button, Modal, Spinner, Tag, VerticalTabs } from './ui';
 
 function StateBadge({ check, managed }: { check?: SetupState['modules'][number]; managed: boolean }) {
   if (!managed) return <span className="text-xs text-zinc-600">non géré</span>;
@@ -123,7 +123,7 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
   );
 }
 
-// Standardisation of one host, in three sections: for each option the standard value, a value of its
+// Standardisation of one host, in vertical tabs (system, root, user): for each option the standard value, a value of its
 // own, the standard list plus additions, or not managed; and the conformity of each one.
 export function SetupModal({ host, open, onClose, running, onStarted }: { host: Host; open: boolean; onClose: () => void; running: boolean; onStarted: (jobId: string) => void }) {
   const { canWrite, canManage } = useMe();
@@ -132,6 +132,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   const { data: standard } = useQuery({ queryKey: ['setup'], queryFn: api.setupStandard, enabled: open });
   const [draft, setDraft] = useState<SetupOverrides | null>(null);
   const [busy, setBusy] = useState<'save' | 'apply' | 'check' | null>(null);
+  const [tab, setTab] = useState<SetupSection>('system');
 
   const close = () => {
     setDraft(null);
@@ -233,24 +234,14 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
     />
   );
 
-  const section = (id: SetupSection, listClass = '') => {
-    const s = setupSections.find((x) => x.id === id)!;
-    return (
-      <section className="min-w-0">
-        <h3 className="border-b border-line pb-1 text-xs font-medium uppercase tracking-wide text-muted">{s.title}</h3>
-        <ul className={listClass}>
-          {id === 'user' ? (
-            <>
-              {row('user')}
-              {withUser ? s.options.filter((k) => k !== 'user').map(row) : <li className="py-3 text-xs text-muted">Aucun utilisateur sur cet hôte : seul root est configuré.</li>}
-            </>
-          ) : (
-            s.options.map(row)
-          )}
-        </ul>
-      </section>
-    );
-  };
+  // options that differ from the values of the host, per section
+  const sectionDrift = (sec: (typeof setupSections)[number]) =>
+    sec.options.filter((k) => isManaged(standard.options, overrides, k) && ['drift', 'error'].includes(checks.get(k)?.state ?? '')).length;
+  const tabs = setupSections.map((sec) => {
+    const n = sectionDrift(sec);
+    return { id: sec.id, label: sec.title, icon: sectionIcons[sec.id], count: n ? <Badge tone="warn">{n}</Badge> : undefined };
+  });
+  const sec = setupSections.find((x) => x.id === tab)!;
 
   return (
     <Modal
@@ -273,11 +264,20 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
             </Button>
           </div>
         )}
-        {/* system on two columns, then root and the user side by side */}
-        {section('system', 'grid gap-x-6 md:grid-cols-2 *:border-b-0')}
-        <div className="grid gap-x-6 gap-y-4 md:grid-cols-2">
-          {section('root')}
-          {section('user')}
+        <div className="overflow-hidden rounded-md border border-line">
+          <VerticalTabs tabs={tabs} value={tab} onChange={setTab} bodyClassName="px-4 py-2">
+            <p className="pt-2 text-xs text-muted">{sec.hint}</p>
+            <ul>
+              {sec.id === 'user' ? (
+                <>
+                  {row('user')}
+                  {withUser ? sec.options.filter((k) => k !== 'user').map(row) : <li className="py-3 text-xs text-muted">Aucun utilisateur sur cet hôte : seul root est configuré.</li>}
+                </>
+              ) : (
+                sec.options.map(row)
+              )}
+            </ul>
+          </VerticalTabs>
         </div>
         <p className="text-xs text-muted">
           {host.setup ? <>Vérifié {timeAgo(host.setup.checkedAt)}. </> : null}

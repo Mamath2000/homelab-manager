@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Monitor, Save, Server, Settings2, Terminal, User, UserCog, Wand2, type LucideIcon } from 'lucide-react';
+import { Monitor, Save, Settings2, Terminal, Wand2, type LucideIcon } from 'lucide-react';
 import { api, type SetupOption, type SetupProfile, type SetupValues } from '../lib/api';
-import { setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
+import { sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
 import { useToast } from '../lib/toast';
 import { OptionEditor, OptionNotes, textarea } from './SetupFields';
-import { Button, Panel, Spinner } from './ui';
+import { Button, Panel, Spinner, VerticalTabs } from './ui';
 
 type Tab = 'general' | SetupSection | 'starship' | 'fastfetch';
-const sectionIcons: Record<SetupSection, LucideIcon> = { system: Server, root: UserCog, user: User };
 
 // Standard configuration of the hosts (Paramètres > Standardisation), in vertical tabs: general, the
 // three sections (system, root, an optional user) and the Starship / fastfetch configurations. Checked options are applied to the hosts and checked for conformity;
@@ -86,23 +85,7 @@ export function SetupSettings() {
 
   return (
     <Panel title="Configuration standard" icon={Wand2} bodyClassName="" actions={<Button size="sm" variant="primary" icon={Save} loading={busy} onClick={save}>Enregistrer</Button>}>
-      <div className="flex flex-col md:flex-row">
-        <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-line p-2 md:w-52 md:flex-col md:border-r md:border-b-0">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm whitespace-nowrap ${current === t.id ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-muted hover:bg-raised hover:text-zinc-200'}`}
-            >
-              <t.icon className="h-4 w-4 shrink-0" />
-              <span className="flex-1">{t.label}</span>
-              {t.count && <span className="text-xs tabular-nums text-zinc-500">{t.count}</span>}
-            </button>
-          ))}
-        </nav>
-
-        <div className="min-w-0 flex-1 space-y-3 p-4 text-sm">
+      <VerticalTabs tabs={tabs} value={current} onChange={setTab} bodyClassName="space-y-3 p-4 text-sm">
           {current === 'general' && (
             <>
               <p className="text-muted">
@@ -156,8 +139,7 @@ export function SetupSettings() {
               <textarea className={`${textarea} min-h-[24rem]`} value={form.fastfetch} onChange={(e) => setForm({ ...form, fastfetch: e.target.value })} spellCheck={false} />
             </label>
           )}
-        </div>
-      </div>
+      </VerticalTabs>
     </Panel>
   );
 }

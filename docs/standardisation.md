@@ -49,7 +49,7 @@ Deux onglets de configuration, communs à root et à l'utilisateur, apparaissent
 
 ## Sur un hôte
 
-Sur la fiche hôte, l'icône **baguette** de l'en-tête (avec le nombre d'écarts) et la ligne **Standard** du panneau Système (« conforme » ou « 2 écarts ») ouvrent la fenêtre de standardisation. On y retrouve les trois sections : Système en haut, root à gauche, l'utilisateur à droite.
+Sur la fiche hôte, l'icône **baguette** de l'en-tête (avec le nombre d'écarts) et la ligne **Standard** du panneau Système (« conforme » ou « 2 écarts ») ouvrent la fenêtre de standardisation. On y retrouve les trois sections en onglets verticaux (Système, root, Utilisateur), chacun avec son nombre d'écarts.
 
 Chaque option a son état (**conforme**, **écart** avec le détail, **sans objet**, **non géré**) et un choix :
 

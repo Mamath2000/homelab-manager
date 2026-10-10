@@ -1,9 +1,11 @@
+import { Server, User, UserCog, type LucideIcon } from 'lucide-react';
 import type { Host, SetupOption, SetupOptions, SetupOverrides, SetupValues } from './api';
 
 // Hosts where the standardisation exists, or will once their agent is updated.
 export const showSetup = (host: Host) => host.capabilities.includes('setup') || !!host.apt;
 
 export type SetupSection = 'system' | 'root' | 'user';
+export const sectionIcons: Record<SetupSection, LucideIcon> = { system: Server, root: UserCog, user: User };
 
 // Sections of the standardisation, in display order.
 export const setupSections: { id: SetupSection; title: string; hint: string; options: SetupOption[] }[] = [
