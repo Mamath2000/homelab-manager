@@ -91,8 +91,18 @@ export function backupClient(caps: string[]) {
 
 // Kind of a backup: full image of the guest (vzdump of Proxmox VE), directories run by the agent (job
 // of the hub), or made by something else and attached by hand (backup_pbs_scripts...).
+export type BackupKind = 'image' | 'directories' | 'external';
+
+export const backupKinds: Record<BackupKind, { label: string; title: string }> = {
+  image: { label: 'image PVE', title: 'Image complète du CT / de la VM, sauvegardée par un job vzdump de Proxmox VE' },
+  directories: { label: 'répertoires', title: "Sauvegarde de répertoires définie ici et lancée par l'agent de l'hôte" },
+  external: { label: 'externe', title: 'Sauvegarde faite hors Homelab Manager (scripts…), rattachée à la main' },
+};
+
+export function backupKindOf(g: Pick<BackupGroup, 'source'>): BackupKind {
+  return g.source === 'vzdump' ? 'image' : g.source === 'managed' ? 'directories' : 'external';
+}
+
 export function backupKind(g: Pick<BackupGroup, 'source'>) {
-  if (g.source === 'vzdump') return { label: 'image PVE', title: 'Image complète du CT / de la VM, sauvegardée par un job vzdump de Proxmox VE' };
-  if (g.source === 'managed') return { label: 'répertoires', title: "Sauvegarde de répertoires définie ici et lancée par l'agent de l'hôte" };
-  return { label: 'externe', title: 'Sauvegarde faite hors Homelab Manager (scripts…), rattachée à la main' };
+  return backupKinds[backupKindOf(g)];
 }

@@ -6,7 +6,7 @@ import { BackupTimeline } from '../components/HostBackups';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupKind, backupStateMeta, formatBytes, groupLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
+import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -108,6 +108,14 @@ export function Backups() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const filter = (params.get('f') as Filter) || 'all';
+  // type of backup (?t=image|directories|external), combined with the other filters
+  const kindFilter = (Object.keys(backupKinds) as BackupKind[]).find((k) => k === params.get('t')) ?? null;
+  const setParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
   const hostFilter = params.get('host');
   const [q, setQ] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -142,6 +150,7 @@ export function Backups() {
     .filter(
       (g) =>
         (hostFilter ? g.hostId === hostFilter : filter === 'late' ? g.state !== 'ok' : true) &&
+        (!kindFilter || backupKindOf(g) === kindFilter) &&
         (!needle || g.backupId.toLowerCase().includes(needle) || (g.comment ?? '').toLowerCase().includes(needle) || hostName(g.hostId).toLowerCase().includes(needle)),
     )
     .sort((a, b) => hostName(a.hostId).localeCompare(hostName(b.hostId)) || a.backupId.localeCompare(b.backupId));
@@ -237,7 +246,7 @@ export function Backups() {
                   <input className="input w-64 pl-8" placeholder="Sauvegarde ou hôte…" value={q} onChange={(e) => setQ(e.target.value)} />
                 </label>
                 {filteredHost ? (
-                  <button onClick={() => setParams({}, { replace: true })} className="rounded-md border border-line bg-raised px-2.5 py-1 text-xs text-zinc-200 hover:text-white">
+                  <button onClick={() => setParam('host', null)} className="rounded-md border border-line bg-raised px-2.5 py-1 text-xs text-zinc-200 hover:text-white">
                     Hôte : {filteredHost.name} ✕
                   </button>
                 ) : (
@@ -245,7 +254,7 @@ export function Backups() {
                     {filters.map((f) => (
                       <button
                         key={f.key}
-                        onClick={() => setParams(f.key === 'all' ? {} : { f: f.key }, { replace: true })}
+                        onClick={() => setParam('f', f.key === 'all' ? null : f.key)}
                         className={clsx(
                           'rounded-sm px-2.5 py-1 text-xs font-medium transition',
                           filter === f.key ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200',
@@ -256,16 +265,32 @@ export function Backups() {
                     ))}
                   </div>
                 )}
+                <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
+                  {([null, ...Object.keys(backupKinds)] as (BackupKind | null)[]).map((k) => (
+                    <button
+                      key={k ?? 'all'}
+                      onClick={() => setParam('t', k)}
+                      title={k ? backupKinds[k].title : undefined}
+                      className={clsx(
+                        'rounded-sm px-2.5 py-1 text-xs font-medium transition',
+                        kindFilter === k ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200',
+                      )}
+                    >
+                      {k ? backupKinds[k].label : 'Tous types'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="panel overflow-x-auto">
                 {list.length === 0 ? (
                   <p className="p-6 text-sm text-muted">Aucune sauvegarde pour ce filtre.</p>
                 ) : (
-                  <table className="w-full min-w-[1100px] text-sm">
+                  <table className="w-full min-w-[1200px] text-sm">
                     <thead className="border-b border-line">
                       <tr>
                         <th className="th">Sauvegarde</th>
+                        <th className="th">Type</th>
                         <th className="th">Hôte</th>
                         <th className="th">30 derniers jours</th>
                         <th className="th">Dernière</th>
@@ -282,12 +307,7 @@ export function Backups() {
                         return (
                           <tr key={g.id} className="hover:bg-raised/40">
                             <td className="td">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-zinc-100">{groupLabel(g)}</span>
-                                <span title={backupKind(g).title}>
-                                  <Badge tone="neutral">{backupKind(g).label}</Badge>
-                                </span>
-                              </div>
+                              <div className="font-medium text-zinc-100">{groupLabel(g)}</div>
                               <div className="text-xs text-muted">
                                 {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && rhythm && ` · ${rhythm}`}
                               </div>
@@ -303,6 +323,9 @@ export function Backups() {
                                   {g.managed.lastRun && !g.managed.lastRun.ok && <span className="text-red-400"> · {g.managed.lastRun.error}</span>}
                                 </div>
                               )}
+                            </td>
+                            <td className="td" title={backupKind(g).title}>
+                              <Badge tone="neutral">{backupKind(g).label}</Badge>
                             </td>
                             <td className="td">
                               {g.source ? (
