@@ -1,8 +1,8 @@
-import { Agent, request } from 'node:https';
-import { connect, type TLSSocket } from 'node:tls';
 import type { FastifyBaseLogger } from 'fastify';
 import { backups, settings } from './db.js';
 import { publish } from './events.js';
+import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
+import { ApiError, apiGet, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import type { BackupDoc, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
 // Backups kept on a Proxmox Backup Server, read through its API with a read-only token
@@ -18,101 +18,30 @@ export const DEFAULT_PBS: PbsSettings = {
   staleHours: 26,
 };
 
-export const PBS_URL_RE = /^https:\/\/[A-Za-z0-9.\-[\]:]+(:\d{1,5})?\/?$/;
+export const PBS_URL_RE = SERVER_URL_RE;
 export const TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$/;
-export const FINGERPRINT_RE = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
+export { ApiError as PbsError, FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint };
 
 export async function loadPbsSettings(): Promise<PbsSettings> {
   return { ...DEFAULT_PBS, ...((await settings.findOne({ _id: 'pbs' })) as PbsSettings | null), _id: 'pbs' };
 }
 
-export function normalizeFingerprint(f: string) {
-  const hex = f.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
-  return hex.length === 64 ? hex.match(/../g)!.join(':') : f.trim().toUpperCase();
-}
-
-export class PbsError extends Error {}
-
 type Conn = Pick<PbsSettings, 'url' | 'fingerprint' | 'tokenId' | 'tokenSecret'>;
 
-function tlsSocket(url: URL, timeoutMs: number): Promise<TLSSocket> {
-  return new Promise((resolve, reject) => {
-    const socket = connect({ host: url.hostname, port: Number(url.port || 8007), servername: url.hostname, rejectUnauthorized: false, timeout: timeoutMs }, () => {
-      socket.setTimeout(0);
-      resolve(socket);
-    });
-    socket.on('timeout', () => socket.destroy(new PbsError('le PBS ne répond pas')));
-    socket.on('error', (err) => reject(err instanceof PbsError ? err : new PbsError(err.message)));
-  });
-}
-
-// TLS connection whose certificate has the pinned fingerprint, checked once the handshake is done
-// and before anything (the token) is written. Works whatever issued the certificate: self-signed
-// (PBS default), ACME, internal CA.
-async function pinnedSocket(url: URL, pinned: string, timeoutMs: number) {
-  const socket = await tlsSocket(url, timeoutMs);
-  const fp = socket.getPeerCertificate()?.fingerprint256?.toUpperCase();
-  if (fp !== pinned) {
-    socket.destroy();
-    throw new PbsError(`empreinte du certificat inattendue : ${fp ?? 'aucun certificat'}`);
-  }
-  return socket;
-}
-
-function oneSocketAgent(socket: TLSSocket) {
-  const agent = new Agent({ keepAlive: false });
-  agent.createConnection = () => socket;
-  return agent;
-}
-
-// GET on the PBS API. Pinned fingerprint: the certificate must be that one (the chain and host name
-// are not checked); otherwise the system CAs and the host name.
-export async function pbsGet<T>(c: Conn, path: string, timeoutMs = 20_000): Promise<T> {
-  const url = new URL(`/api2/json${path}`, c.url);
-  const pinned = c.fingerprint ? normalizeFingerprint(c.fingerprint) : '';
-  const socket = pinned ? await pinnedSocket(url, pinned, timeoutMs) : null;
-  return new Promise<T>((resolve, reject) => {
-    const req = request(
-      url,
-      {
-        method: 'GET',
-        headers: { Authorization: `PBSAPIToken=${c.tokenId}:${c.tokenSecret}`, Accept: 'application/json', Connection: 'close' },
-        timeout: timeoutMs,
-        // pinned: an agent handing over the connection already checked (agent: false would open another)
-        agent: socket ? oneSocketAgent(socket) : false,
-      },
-      (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (d) => {
-          body += d;
-          if (body.length > 32 << 20) req.destroy(new PbsError('réponse trop volumineuse'));
-        });
-        res.on('end', () => {
-          if (res.statusCode === 401) return reject(new PbsError('jeton refusé (401) : vérifie l’identifiant et le secret'));
-          if (res.statusCode === 403) return reject(new PbsError('accès refusé (403) : le jeton doit avoir le rôle DatastoreAudit'));
-          if (res.statusCode !== 200) return reject(new PbsError(`HTTP ${res.statusCode} sur ${path}`));
-          try {
-            resolve((JSON.parse(body) as { data: T }).data);
-          } catch {
-            reject(new PbsError(`réponse illisible sur ${path}`));
-          }
-        });
-      },
-    );
-    req.on('timeout', () => req.destroy(new PbsError('le PBS ne répond pas')));
-    req.on('error', (err) => reject(err instanceof PbsError ? err : new PbsError(err.message)));
-    req.end();
-  });
-}
-
-// Fingerprint of the certificate the PBS presents, to pin it (shown to the admin before saving).
-export async function fetchFingerprint(rawUrl: string, timeoutMs = 10_000): Promise<string> {
-  const socket = await tlsSocket(new URL(rawUrl), timeoutMs);
-  const fp = socket.getPeerCertificate()?.fingerprint256;
-  socket.end();
-  if (!fp) throw new PbsError('aucun certificat présenté');
-  return fp.toUpperCase();
+// GET on the PBS API (see tlsApi.ts).
+export function pbsGet<T>(c: Conn, path: string, timeoutMs = 20_000): Promise<T> {
+  return apiGet<T>(
+    {
+      url: c.url,
+      fingerprint: c.fingerprint,
+      authorization: `PBSAPIToken=${c.tokenId}:${c.tokenSecret}`,
+      defaultPort: 8007,
+      denied: { 401: 'jeton refusé (401) : vérifie l’identifiant et le secret', 403: 'accès refusé (403) : le jeton doit avoir le rôle DatastoreAudit' },
+      unreachable: 'le PBS ne répond pas',
+    },
+    path,
+    timeoutMs,
+  );
 }
 
 // --- API answers (subset) ---------------------------------------------------------------
@@ -211,30 +140,78 @@ export function retentionInterval(k: KeepOptions): number | null {
   return null;
 }
 
-export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'default';
+export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'default' | 'schedule';
 
-// Age after which a group is late: its own threshold, else 1.5 x its rhythm (2 h of margin at least),
-// the rhythm being learned from its history, else given by the retention, else the default threshold.
-export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention'>, defaultHours: number) {
+// a scheduled backup is expected at most this long after its start time
+export const SCHEDULE_GRACE = 2 * HOUR;
+
+type StateInput = Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone' | 'times' | 'retention' | 'pve' | 'managed'>;
+
+// Schedule of a group: the PVE jobs writing it, or the backup job of the hub; with the last run.
+export function planOf(b: Pick<BackupDoc, 'pve' | 'managed'>) {
+  if (b.pve) return { tz: b.pve.tz, jobs: b.pve.jobs, last: b.pve.lastTask ?? null };
+  if (b.managed) return { tz: b.managed.tz, jobs: [{ schedule: b.managed.schedule, enabled: b.managed.enabled }], last: b.managed.lastRun ?? null };
+  return null;
+}
+
+// Expected snapshot of a scheduled group: the last start of its enabled jobs, more than the grace
+// period ago (a job that just started has until then). null: no enabled job with a schedule this hub
+// understands (the group then falls back to its rhythm).
+export function scheduleExpectation(b: Pick<BackupDoc, 'pve' | 'managed'>, now = Date.now()) {
+  const plan = planOf(b);
+  if (!plan?.jobs.length) return null;
+  const enabled = plan.jobs.filter((j) => j.enabled);
+  if (!enabled.length) return { disabled: true as const };
+  let expected: number | null = null;
+  let period: number | null = null;
+  for (const j of enabled) {
+    const spec = parseCalendar(j.schedule);
+    if (!spec) continue;
+    const prev = previousRun(spec, now - SCHEDULE_GRACE, plan.tz);
+    if (prev === null) continue;
+    const next = nextRun(spec, prev, plan.tz);
+    if (expected === null || prev > expected) expected = prev;
+    if (next !== null && (period === null || next - prev < period)) period = next - prev;
+  }
+  return expected === null ? null : { disabled: false as const, expected, period: period ?? 24 * HOUR };
+}
+
+// Age after which a group is late: its own threshold; else, written by PVE jobs, one period of its
+// schedule plus the grace; else 1.5 x its rhythm (2 h of margin at least), the rhythm being learned from
+// its history, else given by the retention, else the default threshold.
+export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed'>, defaultHours: number, now = Date.now()) {
   const learned = learnedInterval(b.times ?? []);
   if (b.staleHours) return { hours: b.staleHours, source: 'manual' as ThresholdSource, interval: learned };
+  const sched = scheduleExpectation(b, now);
+  if (sched && !sched.disabled) {
+    return { hours: Math.round(((sched.period + SCHEDULE_GRACE) / HOUR) * 10) / 10, source: 'schedule' as ThresholdSource, interval: sched.period };
+  }
   const interval = learned ?? b.retention ?? null;
   if (!interval) return { hours: defaultHours, source: 'default' as ThresholdSource, interval: null };
   const ms = Math.max(1.5 * interval, interval + 2 * HOUR);
   return { hours: Math.round((ms / HOUR) * 10) / 10, source: (learned ? 'learned' : 'retention') as ThresholdSource, interval };
 }
 
-export type BackupState = 'ok' | 'stale' | 'failed' | 'gone';
+// task_failed: the last run (vzdump task, or run of the agent) failed after the last snapshot;
+// disabled: every job writing the group is disabled; not_synced: the agent has not applied the
+// current definition of a backup job of the hub.
+export type BackupState = 'ok' | 'stale' | 'failed' | 'gone' | 'task_failed' | 'disabled' | 'not_synced';
 
-export function backupState(b: Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone' | 'times' | 'retention'>, defaultHours: number, now = Date.now()): BackupState {
+export function backupState(b: StateInput, defaultHours: number, now = Date.now()): BackupState {
   if (b.gone) return 'gone';
   if (b.verify === 'failed') return 'failed';
-  return now - b.lastBackup > effectiveThreshold(b, defaultHours).hours * HOUR ? 'stale' : 'ok';
+  const last = planOf(b)?.last;
+  if (last && !last.ok && last.at > b.lastBackup) return 'task_failed';
+  if (b.managed && !b.managed.synced) return 'not_synced';
+  const sched = b.staleHours ? null : scheduleExpectation(b, now);
+  if (sched?.disabled) return 'disabled';
+  if (sched) return b.lastBackup < sched.expected ? 'stale' : 'ok';
+  return now - b.lastBackup > effectiveThreshold(b, defaultHours, now).hours * HOUR ? 'stale' : 'ok';
 }
 
 export function backupDto(b: BackupDoc, defaultHours: number, now = Date.now()) {
   const { _id, hostId, seenAt, ...rest } = b;
-  const t = effectiveThreshold(b, defaultHours);
+  const t = effectiveThreshold(b, defaultHours, now);
   return {
     id: _id,
     ...rest,
@@ -244,6 +221,9 @@ export function backupDto(b: BackupDoc, defaultHours: number, now = Date.now()) 
     threshold: t.hours,
     thresholdSource: t.source,
     interval: t.interval,
+    // PVE jobs and backup job of the hub, with their schedule in words
+    pve: b.pve ? { ...b.pve, jobs: b.pve.jobs.map((j) => ({ ...j, scheduleText: describeCalendar(j.schedule) })) } : null,
+    managed: b.managed ? { ...b.managed, scheduleText: describeCalendar(b.managed.schedule) } : null,
   };
 }
 
@@ -320,12 +300,13 @@ async function doPoll(log?: FastifyBaseLogger) {
     for (const g of found) {
       await backups.updateOne(
         { _id: g._id },
-        { $set: { ...g, retention: retention(g.store, g.ns), seenAt: now }, $setOnInsert: { hostId: null }, $unset: { gone: '' } },
+        { $set: { ...g, retention: retention(g.store, g.ns), seenAt: now }, $setOnInsert: { hostId: null }, $unset: { gone: '', placeholder: '' } },
         { upsert: true },
       );
     }
     // groups pruned from the PBS are kept as gone: an attached one is reported, an orphan can be forgotten
-    await backups.updateMany({ seenAt: { $lt: now } }, { $set: { gone: true } });
+    // placeholders of PVE jobs (never backed up yet) are not on the PBS by definition
+    await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true } }, { $set: { gone: true } });
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
   } catch (err) {
@@ -337,7 +318,8 @@ async function doPoll(log?: FastifyBaseLogger) {
 
 // Groups of a deleted host become orphans.
 export async function forgetHost(hostId: HostDoc['_id']) {
-  await backups.updateMany({ hostId }, { $set: { hostId: null } });
+  await backups.deleteMany({ hostId, placeholder: true });
+  await backups.updateMany({ hostId }, { $set: { hostId: null }, $unset: { source: '', pve: '', managed: '' } });
 }
 
 export function startPbsPoller(log: FastifyBaseLogger) {

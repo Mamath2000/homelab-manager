@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, SessionDoc, SetupProfile, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, SessionDoc, SetupProfile, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -8,7 +8,9 @@ export let hosts: Collection<HostDoc>;
 export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
-export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings>;
+export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PveSettings>;
+export let guests: Collection<GuestDoc>;
+export let backupJobs: Collection<BackupJobDoc>;
 export let backups: Collection<BackupDoc>;
 
 export async function connectDb() {
@@ -20,6 +22,8 @@ export async function connectDb() {
   sessions = db.collection('sessions');
   settings = db.collection('settings');
   backups = db.collection('backups');
+  guests = db.collection('guests');
+  backupJobs = db.collection('backupJobs');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -33,6 +37,9 @@ export async function connectDb() {
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     sessions.createIndex({ userId: 1 }),
     backups.createIndex({ hostId: 1 }),
+    backupJobs.createIndex({ hostId: 1 }),
+    // backup results reported by the agents, recorded once
+    jobs.createIndex({ resultId: 1 }, { sparse: true }),
     // accounts created before roles existed keep full access
     users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
     // "monitor" was renamed "operator" (and lost the settings)

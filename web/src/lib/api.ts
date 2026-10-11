@@ -26,6 +26,7 @@ export interface HostInfo {
   uptime: number;
   ips: string[] | null;
   virt: string;
+  macs?: string[] | null;
 }
 
 export interface AptSummary {
@@ -135,6 +136,17 @@ export interface Host {
   // standardisation: values of this host that differ from the standard, last conformity check
   setupOverrides: SetupOverrides;
   setup: SetupState | null;
+  // Proxmox VE guest this host is (one of its MAC addresses), null: none or not a single one
+  pve: HostPveLink | null;
+}
+
+export interface HostPveLink {
+  cluster: string;
+  vmid: number;
+  type: 'lxc' | 'qemu';
+  node: string;
+  name: string;
+  covered: boolean; // part of an enabled backup job
 }
 
 // options of the standardisation (see hub/src/types.ts)
@@ -189,7 +201,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -201,6 +213,7 @@ export interface Job {
   stack: string | null;
   service: string | null;
   modules: SetupOption[] | null;
+  backupJobName?: string | null;
   trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: string;
@@ -313,7 +326,26 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 // Backups of the Proxmox Backup Server (hub/src/pbs.ts)
-export type BackupState = 'ok' | 'stale' | 'failed' | 'gone';
+export type BackupState = 'ok' | 'stale' | 'failed' | 'gone' | 'task_failed' | 'disabled' | 'not_synced';
+
+// PVE backup job writing a group (hub/src/pve.ts)
+export interface PveJobRef {
+  id: string;
+  schedule: string;
+  scheduleText: string;
+  enabled: boolean;
+  nextRun: number | null;
+  storage: string;
+  store: string | null;
+  ns: string | null;
+}
+
+export interface PveTaskResult {
+  upid: string;
+  at: number;
+  ok: boolean;
+  error?: string;
+}
 
 export interface BackupGroup {
   id: string;
@@ -334,8 +366,13 @@ export interface BackupGroup {
   state: BackupState;
   times?: number[]; // last snapshots, oldest first
   threshold: number; // hours
-  thresholdSource: 'manual' | 'learned' | 'retention' | 'default';
-  interval: number | null; // rhythm (ms), learned or from the retention
+  thresholdSource: 'manual' | 'learned' | 'retention' | 'default' | 'schedule';
+  interval: number | null; // rhythm (ms), learned, from the retention or the PVE schedule
+  // vzdump: attached by Proxmox VE; managed: written by a backup job of the hub (not by hand)
+  source?: 'vzdump' | 'managed';
+  pve: { cluster: string; vmid: number; tz: string; jobs: PveJobRef[]; lastTask?: PveTaskResult | null } | null;
+  managed: { jobId: string; name: string; tz: string; schedule: string; scheduleText: string; enabled: boolean; synced: boolean; lastRun?: { at: number; ok: boolean; error?: string | null } | null } | null;
+  placeholder?: boolean; // expected by a job, never seen on the PBS
 }
 
 // Group of the PBS attached to no host: not followed
@@ -357,6 +394,7 @@ export interface BackupsView {
   pollError: string | null;
   staleHours: number;
   datastores: { store: string; total: number; used: number; avail: number }[];
+  clusters: { id: string; name: string; polledAt: string | null; pollError: string | null; guests: number }[];
   groups: BackupGroup[];
   orphans: BackupOrphan[];
 }
@@ -379,6 +417,73 @@ export interface PbsSettingsInput {
   tokenId: string;
   tokenSecret?: string;
   staleHours: number;
+}
+
+// Backups of directories run by the agent (hub/src/backupJobs.ts)
+export interface BackupArchive {
+  name: string;
+  path: string;
+}
+
+export interface BackupJob {
+  id: string;
+  hostId: string;
+  name: string;
+  archives: BackupArchive[];
+  excludes: string[];
+  store: string;
+  ns: string;
+  backupId: string;
+  group: string;
+  schedule: string;
+  timezone: string;
+  enabled: boolean;
+  lastRun: { start: number; end: number; ok: boolean; error: string | null; trigger: string; jobId: string | null } | null;
+}
+
+export interface BackupJobInput {
+  name: string;
+  archives: BackupArchive[];
+  excludes: string[];
+  store: string;
+  ns: string;
+  backupId?: string;
+  schedule: string;
+  timezone?: string;
+  enabled: boolean;
+}
+
+export interface HostBackupJobs {
+  mode: 'native' | 'docker' | null;
+  credential: { tokenId: string; updatedAt: string } | null;
+  sync: { hash: string; at: string; error: string | null; current: boolean } | null;
+  pbsReady: boolean;
+  datastores: string[];
+  timezone: string;
+  jobs: BackupJob[];
+}
+
+export interface PveCluster {
+  id: string;
+  name: string;
+  url: string;
+  fingerprint: string;
+  tokenId: string;
+  hasSecret: boolean;
+  enabled: boolean;
+  timezone?: string;
+  polledAt: string | null;
+  pollError: string | null;
+  guests?: number;
+}
+
+export interface PveClusterInput {
+  name: string;
+  url: string;
+  fingerprint: string;
+  tokenId: string;
+  tokenSecret?: string;
+  enabled: boolean;
 }
 
 export const api = {
@@ -441,6 +546,18 @@ export const api = {
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
   testPbsSettings: (s: PbsSettingsInput) => request<{ ok: boolean; error?: string; datastores?: string[] }>('POST', '/api/settings/pbs/test', s),
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
+  hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
+  createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),
+  updateBackupJob: (id: string, j: BackupJobInput) => request<BackupJob>('PUT', `/api/backup-jobs/${id}`, j),
+  deleteBackupJob: (id: string) => request<void>('DELETE', `/api/backup-jobs/${id}`),
+  runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
+  setPbsCredential: (hostId: string, c: { tokenId: string; tokenSecret?: string } | null) => request<{ ok: boolean }>('PUT', `/api/hosts/${hostId}/pbs-credential`, c),
+  pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
+  savePveCluster: (id: string, c: PveClusterInput) => request<PveCluster>('PUT', `/api/settings/pve/clusters/${encodeURIComponent(id)}`, c),
+  deletePveCluster: (id: string) => request<void>('DELETE', `/api/settings/pve/clusters/${encodeURIComponent(id)}`),
+  testPveCluster: (id: string, c: PveClusterInput) =>
+    request<{ ok: boolean; error?: string; cluster?: string | null; nodes?: string[]; jobs?: number }>('POST', `/api/settings/pve/clusters/${encodeURIComponent(id)}/test`, c),
+  pveFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pve/fingerprint', { url }),
   runBulk: (hostIds: string[], action: JobAction, options?: SetupOption[]) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action, options }),
 
   setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),

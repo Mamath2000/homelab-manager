@@ -230,7 +230,9 @@ export function Hosts() {
                         {(() => {
                           const b = hostBackups(backups?.groups, h.id);
                           return b && b.state !== 'ok' && (
-                            <Badge tone={b.state === 'failed' ? 'bad' : 'warn'} className="gap-1"><DatabaseBackup className="h-3 w-3" />sauvegarde {b.state === 'failed' ? 'en échec' : 'en retard'}</Badge>
+                            <Badge tone={b.state === 'failed' || b.state === 'task_failed' ? 'bad' : 'warn'} className="gap-1">
+                              <DatabaseBackup className="h-3 w-3" />sauvegarde {b.state === 'failed' || b.state === 'task_failed' ? 'en échec' : b.state === 'disabled' ? 'désactivée' : 'en retard'}
+                            </Badge>
                           );
                         })()}
                         {needsReinstall(h) && <ReinstallBadge short />}

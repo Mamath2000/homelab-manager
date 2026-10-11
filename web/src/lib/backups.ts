@@ -5,6 +5,9 @@ export const backupStateMeta: Record<BackupState, { label: string; tone: 'ok' | 
   stale: { label: 'en retard', tone: 'warn' },
   failed: { label: 'vérification en échec', tone: 'bad' },
   gone: { label: 'disparue du PBS', tone: 'unknown' },
+  task_failed: { label: 'dernière exécution en échec', tone: 'bad' },
+  disabled: { label: 'job désactivé', tone: 'warn' },
+  not_synced: { label: "pas encore appliquée par l'agent", tone: 'warn' },
 };
 
 export function formatBytes(n: number | null | undefined) {
@@ -19,6 +22,18 @@ export function formatBytes(n: number | null | undefined) {
   return `${v < 10 && i ? v.toFixed(1) : Math.round(v)} ${units[i]}`.replace('.', ',');
 }
 
+// "CT 171 · pve1" style label of a host's Proxmox VE guest
+export function guestLabel(p: { type: 'lxc' | 'qemu'; vmid: number }) {
+  return `${p.type === 'lxc' ? 'CT' : 'VM'} ${p.vmid}`;
+}
+
+// Jobs of a vzdump group, in words: "tous les jours à 06:00 (pbs-ds0)"
+export function scheduleLabel(g: Pick<BackupGroup, 'pve' | 'managed'>) {
+  if (g.managed) return `${g.managed.scheduleText}${g.managed.enabled ? '' : ' (désactivé)'}`;
+  const jobs = g.pve?.jobs ?? [];
+  return jobs.map((j) => `${j.scheduleText}${j.enabled ? '' : ' (désactivé)'}`).join(' · ');
+}
+
 // "Hosts › host/pve-docker01" style label of a group
 export function groupLabel(g: Pick<BackupGroup, 'type' | 'backupId' | 'comment'>) {
   return g.type === 'host' ? g.backupId : `${g.type}/${g.backupId}${g.comment ? ` (${g.comment})` : ''}`;
@@ -28,7 +43,7 @@ export function groupLabel(g: Pick<BackupGroup, 'type' | 'backupId' | 'comment'>
 export function hostBackups(groups: BackupGroup[] | undefined, hostId: string) {
   const mine = (groups ?? []).filter((g) => g.hostId === hostId);
   if (!mine.length) return null;
-  const order: BackupState[] = ['failed', 'gone', 'stale', 'ok'];
+  const order: BackupState[] = ['failed', 'task_failed', 'gone', 'stale', 'not_synced', 'disabled', 'ok'];
   const state = order.find((s) => mine.some((g) => g.state === s)) ?? 'ok';
   return { state, last: Math.max(...mine.map((g) => g.lastBackup)), count: mine.length, late: mine.filter((g) => g.state !== 'ok').length };
 }
@@ -47,7 +62,7 @@ export function rhythmLabel(ms: number | null) {
   return h < 48 ? `toutes les ${Math.round(h)} h` : `tous les ${Math.round(h / 24)} j`;
 }
 
-export const thresholdSourceLabel = { manual: 'manuel', learned: 'appris', retention: 'rétention', default: 'défaut' } as const;
+export const thresholdSourceLabel = { manual: 'manuel', learned: 'appris', retention: 'rétention', default: 'défaut', schedule: 'planification' } as const;
 
 export function hoursLabel(h: number) {
   return h >= 48 ? `${Math.round((h / 24) * 10) / 10} j`.replace('.', ',') : `${Math.round(h * 10) / 10} h`.replace('.', ',');

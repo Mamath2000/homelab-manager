@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -57,10 +58,35 @@ func collectInfo() *HostInfo {
 		}
 	}
 
+	info.MACs = interfaceMACs()
+
 	if out, err := exec.Command("systemd-detect-virt").Output(); err == nil {
 		info.Virt = strings.TrimSpace(string(out))
 	} else {
 		info.Virt = "none"
 	}
 	return info
+}
+
+// Hardware addresses of the interfaces that are up (not loopback): the hub finds the Proxmox VE
+// guest this host is by them. Sorted, so that the hello only changes when they do.
+func interfaceMACs() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, i := range ifaces {
+		if i.Flags&net.FlagLoopback != 0 || i.Flags&net.FlagUp == 0 || len(i.HardwareAddr) != 6 {
+			continue
+		}
+		m := i.HardwareAddr.String()
+		if !seen[m] {
+			seen[m] = true
+			out = append(out, m)
+		}
+	}
+	sort.Strings(out)
+	return out
 }

@@ -8,7 +8,7 @@
 // Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
 import { hasApt, type HostDoc, type JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
-import { agentAlerts, aptAlerts, backupAlerts, dockerAlerts, type Alert } from './alerts.js';
+import { agentAlerts, aptAlerts, backupAlerts, dockerAlerts, pveAlerts, type Alert } from './alerts.js';
 import { dockerView } from '../docker.js';
 
 export const PRESS = 'PRESS';
@@ -245,18 +245,19 @@ export function build(hosts: HostState[], opts: BuildOptions) {
 
     // --- backups of the host (Proxmox Backup Server)
     const mine = tracked.filter((g) => g.hostId === hid);
-    const backup = backupAlerts(mine, !!host.roaming && !isOnline);
+    const backup = [...backupAlerts(mine, !!host.roaming && !isOnline), ...pveAlerts(host)];
     if (mine.length) {
       const d = device(`${hostId}_backup`, {
         name: `${host.name} · Sauvegardes`, model: 'Proxmox Backup Server', via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/backups?host=${hid}` } : {}),
       });
       const last = Math.max(...mine.map((g) => g.lastBackup));
-      d.sensor('last_backup', 'Dernière sauvegarde', new Date(last).toISOString(), {
+      // placeholders of PVE jobs never backed up have no date
+      d.sensor('last_backup', 'Dernière sauvegarde', last ? new Date(last).toISOString() : null, {
         device_class: 'timestamp', json_attributes_topic: `${topic}/${hostId}_backup/last_backup/attributes`,
       });
       d.attributes('last_backup', {
-        groups: mine.map((g) => ({ id: g.backupId, state: g.state, last: new Date(g.lastBackup).toISOString() })),
+        groups: mine.map((g) => ({ id: g.backupId, state: g.state, last: g.lastBackup ? new Date(g.lastBackup).toISOString() : null })),
       });
       d.sensor('late', 'Sauvegardes en retard', mine.filter((g) => g.state === 'stale').length, { icon: 'mdi:backup-restore', state_class: 'measurement' });
       d.alerts(backup, diag);

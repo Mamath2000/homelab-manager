@@ -56,5 +56,7 @@ export function hostDto(h: HostDoc) {
     dockerSummary: dockerSummary(docker),
     setupOverrides: h.setupOverrides ?? {},
     setup: setupDto(h),
+    // Proxmox VE guest this host is (see pve.ts)
+    pve: h.pve ?? null,
   };
 }

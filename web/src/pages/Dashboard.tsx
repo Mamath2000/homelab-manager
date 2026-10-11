@@ -225,7 +225,7 @@ export function Dashboard() {
                 { label: 'À jour', value: trackedBackups.filter((g) => g.state === 'ok').length, tone: 'ok' },
                 { label: 'En retard', value: trackedBackups.filter((g) => g.state === 'stale').length, tone: 'warn' },
                 { label: 'Disparues du PBS', value: trackedBackups.filter((g) => g.state === 'gone').length, tone: 'bad' },
-                { label: 'Vérification en échec', value: trackedBackups.filter((g) => g.state === 'failed').length, tone: 'bad' },
+                { label: 'En échec', value: trackedBackups.filter((g) => g.state === 'failed' || g.state === 'task_failed').length, tone: 'bad' },
               ]}
               cardsTitle="Sauvegardes à surveiller"
               cardsIcon={DatabaseBackup}
@@ -239,10 +239,10 @@ export function Dashboard() {
             >
               {lateBackups.map((g) => (
                 <ItemCard key={g.id} to={g.hostId ? `/backups?host=${g.hostId}` : '/backups?f=late'} icon={DatabaseBackup}
-                  tone={g.state === 'failed' ? 'bad' : 'warn'} title={groupLabel(g)}
+                  tone={g.state === 'failed' || g.state === 'task_failed' ? 'bad' : 'warn'} title={groupLabel(g)}
                   right={<Badge tone={backupStateMeta[g.state].tone}>{backupStateMeta[g.state].label}</Badge>}>
                   {hostName(g.hostId) && <Tag>{hostName(g.hostId)}</Tag>}
-                  <span className="self-center text-xs text-muted">{timeAgo(g.lastBackup)}</span>
+                  <span className="self-center text-xs text-muted">{g.lastBackup ? timeAgo(g.lastBackup) : 'jamais'}</span>
                 </ItemCard>
               ))}
             </StatusSection>

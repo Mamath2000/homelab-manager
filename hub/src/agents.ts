@@ -10,6 +10,8 @@ import { maybeAutoUpdate } from './agentUpdate.js';
 import { recentlyInstalled } from './installed.js';
 import { appendJobLog, createJob, failRunningJobs, finishJob, hasRunningJob } from './jobs.js';
 import { checkHostSetup, onAgentHello } from './setup.js';
+import { refreshLinks } from './pve.js';
+import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
 import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
@@ -166,7 +168,8 @@ export function registerAgentSocket(app: FastifyInstance) {
         }
         try {
           switch (msg.type) {
-            case 'hello':
+            case 'hello': {
+              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1 } });
               await hosts.updateOne(
                 { _id: host._id },
                 {
@@ -183,7 +186,14 @@ export function registerAgentSocket(app: FastifyInstance) {
               await maybeAutoUpdate(host._id);
               // answered through this socket: not awaited
               onAgentHello(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
+              // its backups: the agent keeps them on disk, this resends the current definition
+              syncHost(host._id).catch((err) => log.warn({ err }, 'backup sync failed'));
+              // new MAC addresses: the link with a Proxmox VE guest may change
+              if (JSON.stringify(before?.info?.macs ?? null) !== JSON.stringify(msg.info?.macs ?? null)) {
+                refreshLinks().then(() => publish('backups', {})).catch((err) => log.warn({ err }, 'PVE link failed'));
+              }
               break;
+            }
             case 'apt_report':
               if (!isReport(msg.report)) return;
               {
@@ -220,6 +230,16 @@ export function registerAgentSocket(app: FastifyInstance) {
               if (!isDockerUpdates(msg.updates)) return;
               await hosts.updateOne({ _id: host._id }, { $set: { dockerUpdates: msg.updates }, $unset: { dockerRecheck: '' } });
               await emitHost(host._id);
+              break;
+            case 'backup_synced':
+              await onSynced(host._id, msg.data, msg.error);
+              break;
+            case 'backup_result':
+              if (!isResult(msg.result)) return;
+              {
+                const current = await hosts.findOne({ _id: host._id });
+                if (current) await onResult(current, msg.result);
+              }
               break;
             case 'rpc_result':
               settle(id, msg.reqId, msg.result, msg.error);

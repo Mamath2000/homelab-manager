@@ -17,6 +17,7 @@ import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { HostBackups } from '../components/HostBackups';
+import { ManagedBackups } from '../components/ManagedBackups';
 import { agentRevoked, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
@@ -379,7 +380,10 @@ export function HostDetail() {
               <p className="text-sm text-muted">Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi.</p>
             </Panel>
           )}
-          <HostBackups host={host} />
+          <div className="min-w-0 space-y-5">
+            <HostBackups host={host} />
+            <ManagedBackups host={host} />
+          </div>
         </div>
       </div>
 

@@ -13,7 +13,10 @@ import {
   pbsGet,
   pollPbs,
 } from '../pbs.js';
-import type { PbsSettings } from '../types.js';
+import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from '../pve.js';
+import { validTimeZone } from '../calendar.js';
+import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
+import type { PbsSettings, PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
 function settingsDto(s: PbsSettings) {
@@ -28,6 +31,8 @@ interface SettingsBody {
   tokenId: string;
   tokenSecret?: string; // absent: unchanged
   staleHours: number;
+  clientImage?: string;
+  timezone?: string;
 }
 
 const settingsBody = {
@@ -41,6 +46,8 @@ const settingsBody = {
     tokenId: { type: 'string', maxLength: 128 },
     tokenSecret: { type: 'string', maxLength: 128 },
     staleHours: { type: 'integer', minimum: 1, maximum: 24 * 60 },
+    clientImage: { type: 'string', maxLength: 256 },
+    timezone: { type: 'string', maxLength: 64 },
   },
 } as const;
 
@@ -60,6 +67,9 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
   if (next.tokenId && !TOKEN_ID_RE.test(next.tokenId)) return 'identifiant du jeton invalide (utilisateur@royaume!jeton)';
   if (next.enabled && (!next.url || !next.tokenId || !next.tokenSecret)) return 'URL, identifiant et secret du jeton sont requis';
+  if (next.clientImage) next.clientImage = next.clientImage.trim();
+  if (next.clientImage && !IMAGE_RE.test(next.clientImage)) return 'image du client invalide (dépôt/nom:tag)';
+  if (next.timezone && !validTimeZone(next.timezone)) return 'fuseau horaire inconnu (ex. Europe/Paris)';
   return next;
 }
 
@@ -73,6 +83,10 @@ export function registerBackupRoutes(app: FastifyInstance) {
     await settings.replaceOne({ _id: 'pbs' }, next, { upsert: true });
     if (next.enabled) pollPbs(req.log).catch(() => {});
     else publish('backups', {});
+    // server, fingerprint and image are part of the definition the agents run
+    refreshManaged()
+      .then(syncAll)
+      .catch((err) => req.log.warn({ err }, 'backup sync failed'));
     return settingsDto(next);
   });
 
@@ -111,6 +125,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       pollError: s.pollError ?? null,
       staleHours: s.staleHours,
       datastores: s.datastores ?? [],
+      clusters: (await loadPveSettings()).clusters.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null, guests: c.guests ?? 0 })),
       // followed: the groups attached to a host; the others are only listed, to be attached
       groups: list.filter((b) => b.hostId).map((b) => backupDto(b, s.staleHours)),
       orphans: list.filter((b) => !b.hostId).map(orphanDto),
@@ -121,6 +136,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const s = await loadPbsSettings();
     if (!s.enabled) return reply.code(409).send({ error: 'suivi PBS désactivé (Paramètres > Sauvegardes)' });
     await pollPbs(req.log);
+    await pollPve(req.log);
     const after = await loadPbsSettings();
     if (after.pollError) return reply.code(502).send({ error: after.pollError });
     return { ok: true };
@@ -145,6 +161,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const b = await backups.findOne({ _id: req.params.id });
       if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
+      if (req.body.hostId !== undefined && b.source) {
+        return reply.code(409).send({ error: b.source === 'vzdump' ? 'sauvegarde rattachée automatiquement par Proxmox VE' : 'sauvegarde écrite par un job du hub : rattachée à son hôte' });
+      }
       const set: Record<string, unknown> = {};
       if (req.body.hostId !== undefined) {
         if (req.body.hostId === null) set.hostId = null;
@@ -181,8 +200,10 @@ export function registerBackupRoutes(app: FastifyInstance) {
       if (!_id || !(await hosts.findOne({ _id }, { projection: { _id: 1 } }))) return reply.code(404).send({ error: 'host not found' });
       const found = await backups.countDocuments({ _id: { $in: req.body.ids } });
       if (found !== req.body.ids.length) return reply.code(400).send({ error: 'sauvegarde introuvable' });
-      await backups.updateMany({ hostId: _id, _id: { $nin: req.body.ids } }, { $set: { hostId: null } });
-      await backups.updateMany({ _id: { $in: req.body.ids } }, { $set: { hostId: _id } });
+      // groups attached by Proxmox VE or written by a job of the hub are left as they are
+      const manual = { source: { $exists: false } };
+      await backups.updateMany({ ...manual, hostId: _id, _id: { $nin: req.body.ids } }, { $set: { hostId: null } });
+      await backups.updateMany({ ...manual, _id: { $in: req.body.ids } }, { $set: { hostId: _id } });
       publish('backups', {});
       const s = await loadPbsSettings();
       return (await backups.find({ hostId: _id }).toArray()).map((b) => backupDto(b, s.staleHours));
@@ -196,4 +217,109 @@ export function registerBackupRoutes(app: FastifyInstance) {
     publish('backups', {});
     return reply.code(204).send();
   });
+
+  // --- Proxmox VE clusters (admin: /api/settings/*); the token secrets never leave the hub
+  app.get('/api/settings/pve', async () => {
+    const s = await loadPveSettings();
+    return { clusters: s.clusters.map(pveDto) };
+  });
+
+  app.put<{ Params: { id: string }; Body: PveBody }>('/api/settings/pve/clusters/:id', { schema: { body: pveBody } }, async (req, reply) => {
+    const s = await loadPveSettings();
+    const current = s.clusters.find((c) => c.id === req.params.id);
+    const next = resolvePve(req.params.id, req.body, current);
+    if (typeof next === 'string') return reply.code(400).send({ error: next });
+    const clusters = current ? s.clusters.map((c) => (c.id === next.id ? next : c)) : [...s.clusters, next];
+    await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
+    if (next.enabled) pollPve(req.log).catch(() => {});
+    else publish('backups', {});
+    return pveDto(next);
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/settings/pve/clusters/:id', async (req, reply) => {
+    const s = await loadPveSettings();
+    if (!s.clusters.some((c) => c.id === req.params.id)) return reply.code(404).send({ error: 'cluster introuvable' });
+    await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters: s.clusters.filter((c) => c.id !== req.params.id) }, { upsert: true });
+    // its guests go, and with them the links and the groups they attached
+    pollPve(req.log).catch(() => {});
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { id: string }; Body: PveBody }>('/api/settings/pve/clusters/:id/test', { schema: { body: pveBody } }, async (req, reply) => {
+    const s = await loadPveSettings();
+    const next = resolvePve(req.params.id, { ...req.body, enabled: true }, s.clusters.find((c) => c.id === req.params.id));
+    if (typeof next === 'string') return reply.code(400).send({ error: next });
+    try {
+      const [status, jobs] = await Promise.all([
+        pveGet<{ type: string; name: string }[]>(next, '/cluster/status'),
+        pveGet<unknown[]>(next, '/cluster/backup'),
+      ]);
+      const nodes = status.filter((n) => n.type === 'node').map((n) => n.name);
+      return { ok: true, cluster: status.find((n) => n.type === 'cluster')?.name ?? null, nodes, jobs: jobs.length };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+
+  app.post<{ Body: { url: string } }>(
+    '/api/settings/pve/fingerprint',
+    { schema: { body: { type: 'object', required: ['url'], additionalProperties: false, properties: { url: { type: 'string', maxLength: 256 } } } } },
+    async (req, reply) => {
+      const url = req.body.url.trim().replace(/\/+$/, '');
+      if (!PBS_URL_RE.test(url)) return reply.code(400).send({ error: 'URL invalide (https://pve:8006)' });
+      try {
+        return { fingerprint: await fetchFingerprint(url, 8006) };
+      } catch (err) {
+        return reply.code(502).send({ error: (err as Error).message });
+      }
+    },
+  );
+}
+
+interface PveBody {
+  name: string;
+  url: string;
+  fingerprint: string;
+  tokenId: string;
+  tokenSecret?: string; // absent: unchanged
+  enabled: boolean;
+}
+
+const pveBody = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'url', 'fingerprint', 'tokenId', 'enabled'],
+  properties: {
+    name: { type: 'string', maxLength: 64 },
+    url: { type: 'string', maxLength: 256 },
+    fingerprint: { type: 'string', maxLength: 128 },
+    tokenId: { type: 'string', maxLength: 128 },
+    tokenSecret: { type: 'string', maxLength: 128 },
+    enabled: { type: 'boolean' },
+  },
+} as const;
+
+function pveDto(c: PveCluster) {
+  const { tokenSecret, ...rest } = c;
+  return { ...rest, hasSecret: !!tokenSecret, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null };
+}
+
+function resolvePve(id: string, body: PveBody, current?: PveCluster): PveCluster | string {
+  if (!CLUSTER_ID_RE.test(id)) return 'identifiant invalide (minuscules, chiffres, - et _)';
+  const next: PveCluster = {
+    ...current,
+    id,
+    name: body.name.trim() || id,
+    url: body.url.trim().replace(/\/+$/, ''),
+    fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
+    tokenId: body.tokenId.trim(),
+    tokenSecret: body.tokenSecret ?? current?.tokenSecret ?? '',
+    enabled: body.enabled,
+  };
+  if (!PBS_URL_RE.test(next.url)) return 'URL invalide (https://pve:8006)';
+  if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
+  if (!PVE_TOKEN_ID_RE.test(next.tokenId)) return 'identifiant du jeton invalide (utilisateur@royaume!jeton)';
+  if (!next.tokenSecret) return 'secret du jeton requis';
+  if (next.timezone && !validTimeZone(next.timezone)) delete next.timezone;
+  return next;
 }

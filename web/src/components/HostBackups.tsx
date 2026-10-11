@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { DatabaseBackup, Link2, Search, Unlink } from 'lucide-react';
+import { AlertTriangle, DatabaseBackup, Link2, Search, Unlink } from 'lucide-react';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupStateMeta, formatBytes, groupLabel, hoursLabel, rhythmLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -38,7 +38,8 @@ export function BackupTimeline({ group, days = 30 }: { group: Pick<BackupGroup, 
 // Choose the backups of a host among the orphans (and the ones it already has).
 function AttachModal({ host, groups, orphans, open, onClose }: { host: Host; groups: BackupGroup[]; orphans: BackupOrphan[]; open: boolean; onClose: () => void }) {
   const toast = useToast();
-  const mine = groups.filter((g) => g.hostId === host.id);
+  // groups attached by Proxmox VE are not chosen here
+  const mine = groups.filter((g) => g.hostId === host.id && !g.source);
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
@@ -132,10 +133,21 @@ export function HostBackups({ host }: { host: Host }) {
 
   return (
     <Panel
-      title={<>Sauvegardes{mine.length > 0 && <span className="text-muted"> ({mine.length})</span>}</>}
+      title={
+        <>
+          Sauvegardes{mine.length > 0 && <span className="text-muted"> ({mine.length})</span>}
+          {host.pve && <span className="ml-2 text-xs font-normal text-muted" title={`Guest ${host.pve.name} du cluster ${host.pve.cluster}, trouvé par son adresse MAC`}>{guestLabel(host.pve)} · {host.pve.node}</span>}
+        </>
+      }
       icon={DatabaseBackup}
       actions={canManage && <Button size="sm" icon={Link2} onClick={() => setAttaching(true)}>Rattacher</Button>}
     >
+      {host.pve && !host.pve.covered && (
+        <p className="mb-3 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {guestLabel(host.pve)} n'est couvert par aucun job de sauvegarde actif du cluster {host.pve.cluster}.
+        </p>
+      )}
       {mine.length === 0 ? (
         <p className="text-sm text-muted">
           Aucune sauvegarde rattachée.{canManage && ' « Rattacher » liste les sauvegardes du PBS qui ne sont rattachées à aucun hôte.'}
@@ -151,18 +163,21 @@ export function HostBackups({ host }: { host: Host }) {
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
                     <Badge tone={meta.tone}>{meta.label}</Badge>
-                    {canManage && (
+                    {canManage && !g.source && (
                       <Button size="sm" variant="ghost" icon={Unlink} className="ml-auto" title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
                     )}
                   </div>
                   <div className="mt-0.5 text-xs text-muted">
-                    {g.store}{g.ns ? ` › ${g.ns}` : ''} · {timeAgo(g.lastBackup)} · {formatBytes(g.size)}
+                    {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.lastBackup ? timeAgo(g.lastBackup) : 'jamais sauvegardée'} · {formatBytes(g.size)}
                     {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
                     {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
                   </div>
                   <div className="text-xs text-zinc-500">
-                    {rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · en retard après {hoursLabel(g.threshold)} ({thresholdSourceLabel[g.thresholdSource]})
+                    {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed ? `agent · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · en retard après {hoursLabel(g.threshold)} ({thresholdSourceLabel[g.thresholdSource]})
                   </div>
+                  {g.pve?.lastTask && !g.pve.lastTask.ok && (
+                    <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>
+                  )}
                 </div>
                 <BackupTimeline group={g} />
               </li>

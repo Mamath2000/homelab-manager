@@ -45,11 +45,13 @@ export const actionLabel: Record<string, string> = {
   docker_restart: 'Redémarrage de stack',
   docker_update: 'Mise à jour de stack',
   setup_apply: 'Standardisation',
+  backup_run: 'Sauvegarde',
 };
 
 // "Mise à jour de stack · web/app": action plus its stack (and service) for docker jobs
-export function jobTitle(j: { action: string; stack?: string | null; service?: string | null }) {
+export function jobTitle(j: { action: string; stack?: string | null; service?: string | null; backupJobName?: string | null }) {
   const label = actionLabel[j.action] ?? j.action;
+  if (j.backupJobName) return `${label} · ${j.backupJobName}`;
   if (!j.stack) return label;
   return `${label} · ${j.stack}${j.service ? `/${j.service}` : ''}`;
 }

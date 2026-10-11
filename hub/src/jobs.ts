@@ -31,6 +31,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     stack: j.stack ?? null,
     service: j.service ?? null,
     modules: j.modules ?? null,
+    backupJobName: j.backupJobName ?? null,
     trigger: j.trigger,
     status: j.status,
     createdAt: j.createdAt,
@@ -51,6 +52,9 @@ export interface JobTarget {
   service?: string;
   // setup_apply: what the agent applies (built by setup.ts from the profile, never from the request)
   setup?: { modules: SetupOption[] } & Record<string, unknown>;
+  // backup_run: id and name of the backup job
+  backupJob?: string;
+  backupJobName?: string;
 }
 
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
@@ -63,6 +67,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     ...(target.stack ? { stack: target.stack } : {}),
     ...(target.service ? { service: target.service } : {}),
     ...(target.setup ? { modules: target.setup.modules } : {}),
+    ...(target.backupJob ? { backupJobId: new ObjectId(target.backupJob), backupJobName: target.backupJobName } : {}),
     trigger,
     status: 'running',
     createdAt: new Date(),
@@ -77,7 +82,19 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
   const bin = action === 'agent_update' ? agentBinary(host.info?.arch) : null;
   if (action === 'agent_update' && !bin) {
     await finishJob(id, hostId, -1, `pas de binaire de l'agent pour l'architecture ${host.info?.arch ?? 'inconnue'}`);
-  } else if (!sendToAgent(hostId, { type: 'run', jobId: id, action, packages, ...target, ...(bin ? { sha256: bin.sha256 } : {}) })) {
+  } else if (
+    !sendToAgent(hostId, {
+      type: 'run',
+      jobId: id,
+      action,
+      packages,
+      ...(target.stack ? { stack: target.stack } : {}),
+      ...(target.service ? { service: target.service } : {}),
+      ...(target.setup ? { setup: target.setup } : {}),
+      ...(target.backupJob ? { backupJob: target.backupJob } : {}),
+      ...(bin ? { sha256: bin.sha256 } : {}),
+    })
+  ) {
     await finishJob(id, hostId, -1, 'host is offline');
   } else {
     publish('job', jobDto(job));

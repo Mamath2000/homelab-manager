@@ -6,7 +6,7 @@ import { BackupTimeline } from '../components/HostBackups';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupStateMeta, formatBytes, groupLabel, hoursLabel, rhythmLabel, thresholdSourceLabel } from '../lib/backups';
+import { backupStateMeta, formatBytes, groupLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -89,7 +89,7 @@ function ThresholdCell({ g, canManage, onChange }: { g: BackupGroup; canManage: 
       className="input h-8 w-40 py-1 text-xs"
       value={g.staleHours ?? ''}
       onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-      title="Âge au-delà duquel la sauvegarde est en retard. Automatique : 1,5 × le rythme appris des derniers snapshots, sinon de la rétention du PBS, sinon le seuil par défaut."
+      title="Âge au-delà duquel la sauvegarde est en retard. Automatique : la planification du job Proxmox, sinon 1,5 × le rythme appris des derniers snapshots, sinon de la rétention du PBS, sinon le seuil par défaut."
     >
       <option value="">{g.thresholdSource === 'manual' ? 'automatique' : label}</option>
       <option value="26">26 h</option>
@@ -119,7 +119,7 @@ export function Backups() {
     setRefreshing(true);
     try {
       await api.refreshBackups();
-      toast.success('Sauvegardes relevées sur le PBS');
+      toast.success(data.clusters.length ? 'Sauvegardes relevées (PBS et Proxmox VE)' : 'Sauvegardes relevées sur le PBS');
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -149,7 +149,7 @@ export function Backups() {
     { label: 'Sauvegardes suivies', value: data.groups.length },
     { label: 'À jour', value: data.groups.filter((g) => g.state === 'ok').length },
     { label: 'En retard', value: data.groups.filter((g) => g.state === 'stale').length },
-    { label: 'Échec / disparues', value: data.groups.filter((g) => g.state === 'failed' || g.state === 'gone').length },
+    { label: 'Échec / disparues', value: data.groups.filter((g) => g.state === 'failed' || g.state === 'task_failed' || g.state === 'gone').length },
   ];
   const filteredHost = hostFilter && hostList.find((h) => h.id === hostFilter);
 
@@ -169,7 +169,14 @@ export function Backups() {
           )
         }
       >
-        {data.enabled && <span className="text-xs text-muted">Proxmox Backup Server · relevé {timeAgo(data.polledAt)}</span>}
+        {data.enabled && (
+          <span className="text-xs text-muted">
+            Proxmox Backup Server · relevé {timeAgo(data.polledAt)}
+            {data.clusters.map((c) => (
+              <span key={c.id}> · PVE {c.name} {c.pollError ? <span className="text-red-400">en erreur</span> : `relevé ${timeAgo(c.polledAt)}`}</span>
+            ))}
+          </span>
+        )}
       </PageHeader>
 
       {!data.enabled ? (
@@ -184,6 +191,9 @@ export function Backups() {
           {data.pollError && (
             <div className="panel mb-5 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-200">Dernier relevé en échec : {data.pollError}</div>
           )}
+          {data.clusters.filter((c) => c.pollError).map((c) => (
+            <div key={c.id} className="panel mb-5 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-200">Relevé du cluster {c.name} en échec : {c.pollError}</div>
+          ))}
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {tiles.map((t) => (
               <div key={t.label} className="panel px-5 py-4">
@@ -274,11 +284,31 @@ export function Backups() {
                             <td className="td">
                               <div className="font-medium text-zinc-100">{groupLabel(g)}</div>
                               <div className="text-xs text-muted">
-                                {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{rhythm && ` · ${rhythm}`}
+                                {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && rhythm && ` · ${rhythm}`}
                               </div>
+                              {g.pve && (
+                                <div className="text-xs text-muted">
+                                  PVE {g.pve.cluster} · {scheduleLabel(g)}
+                                  {g.pve.lastTask && !g.pve.lastTask.ok && <span className="text-red-400"> · {g.pve.lastTask.error}</span>}
+                                </div>
+                              )}
+                              {g.managed && (
+                                <div className="text-xs text-muted">
+                                  agent · {g.managed.name} · {scheduleLabel(g)}
+                                  {g.managed.lastRun && !g.managed.lastRun.ok && <span className="text-red-400"> · {g.managed.lastRun.error}</span>}
+                                </div>
+                              )}
                             </td>
                             <td className="td">
-                              {canManage ? (
+                              {g.source ? (
+                                <Link
+                                  to={`/hosts/${g.hostId}`}
+                                  className="text-zinc-300 hover:text-emerald-300"
+                                  title={g.source === 'vzdump' ? 'Rattachée automatiquement : le guest Proxmox de cet hôte' : 'Écrite par une sauvegarde définie sur cet hôte'}
+                                >
+                                  {hostName(g.hostId)} <span className="text-xs text-muted">· auto</span>
+                                </Link>
+                              ) : canManage ? (
                                 <select
                                   className="input h-8 max-w-[11rem] py-1 text-xs"
                                   value={g.hostId ?? ''}
@@ -293,7 +323,7 @@ export function Backups() {
                               )}
                             </td>
                             <td className="td"><BackupTimeline group={g} /></td>
-                            <td className="td" title={dateTime(g.lastBackup)}>{timeAgo(g.lastBackup)}</td>
+                            <td className="td" title={g.lastBackup ? dateTime(g.lastBackup) : undefined}>{g.lastBackup ? timeAgo(g.lastBackup) : <span className="text-zinc-500">jamais</span>}</td>
                             <td className="td tabular-nums text-zinc-300">{formatBytes(g.size)}</td>
                             <td className="td text-xs">
                               {g.verify === 'ok' ? <span className="text-emerald-400">ok</span> : g.verify === 'failed' ? <span className="text-red-400">échec</span> : <span className="text-zinc-500">—</span>}

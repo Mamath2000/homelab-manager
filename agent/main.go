@@ -142,6 +142,10 @@ func (s *session) hello(ctx context.Context) error {
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
 	}
+	// backups to the PBS: "backup" and how the client runs (backup:native, backup:docker)
+	if mode := backupMode(ctx); mode != "" {
+		caps = append(caps, "backup", "backup:"+mode)
+	}
 	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
 }
 
@@ -243,9 +247,6 @@ func (s *session) report(ctx context.Context) {
 }
 
 func (s *session) runJob(ctx context.Context, in Inbound) {
-	jobLock.Lock()
-	defer jobLock.Unlock()
-
 	emit := func(d string) { _ = s.send(ctx, Outbound{Type: "job_log", JobID: in.JobID, Data: d}) }
 	done := func(code int, err error) {
 		o := Outbound{Type: "job_done", JobID: in.JobID, ExitCode: code}
@@ -254,6 +255,16 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}
 		_ = s.send(ctx, o)
 	}
+
+	// a backup can take hours: it has its own lock and does not hold the other jobs back
+	if in.Action == "backup_run" {
+		code, err := backups.runJob(ctx, in.BackupJob, "manual", in.JobID, emit)
+		done(code, err)
+		return
+	}
+
+	jobLock.Lock()
+	defer jobLock.Unlock()
 
 	// Deliberately not derived from the session: losing the hub connection must never
 	// interrupt dpkg halfway through an upgrade.
@@ -344,6 +355,9 @@ func (s *session) loop(ctx context.Context) error {
 	if err := s.hello(ctx); err != nil {
 		return err
 	}
+	// pending backup results go to this connection
+	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
+	defer backups.detach()
 	go s.report(ctx)
 	if !onWSL { // WSL: Docker is not managed
 		go s.dockerReport(ctx)
@@ -379,6 +393,20 @@ func (s *session) loop(ctx context.Context) error {
 			go s.runJob(ctx, in)
 		case "rpc":
 			go s.rpc(ctx, in)
+		case "backup_sync":
+			go func() {
+				o := Outbound{Type: "backup_synced"}
+				if in.Backup == nil {
+					o.Error = "missing definition"
+				} else if err := backups.apply(in.Backup); err != nil {
+					o.Error = err.Error()
+				} else {
+					o.Data = in.Backup.Hash
+				}
+				_ = s.send(ctx, o)
+			}()
+		case "backup_result_ack":
+			backups.ack(in.ReqID)
 		}
 	}
 }
@@ -408,6 +436,9 @@ func main() {
 		log.Fatal(err)
 	}
 	client := httpClient(tlsConfig(roots, cert))
+
+	// scheduled backups run whether the hub is reachable or not
+	go backups.loop(ctx)
 
 	endpoint := wsURL(cfg.Hub)
 	backoff := backoffMin

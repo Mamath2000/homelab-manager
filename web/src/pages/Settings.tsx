@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { DatabaseBackup, Home, Lock, Server, Settings as SettingsIcon, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { BackupSettings } from '../components/BackupSettings';
+import { PveSettings } from '../components/PveSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { SetupSettings } from '../components/SetupSettings';
 import { Button, Modal, PageHeader, Panel, Tabs } from '../components/ui';
@@ -51,7 +52,12 @@ export function Settings() {
         </div>
       )}
       {tab === 'setup' && <SetupSettings />}
-      {tab === 'backups' && <BackupSettings />}
+      {tab === 'backups' && (
+        <div className="space-y-4">
+          <BackupSettings />
+          <PveSettings />
+        </div>
+      )}
       {tab === 'homeassistant' && <HomeAssistantPanel />}
       <Modal open={security} onClose={() => setSecurity(false)} title="Sécurité" wide>
         <div className="text-sm">

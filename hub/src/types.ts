@@ -37,6 +37,8 @@ export interface HostInfo {
   uptime: number;
   ips: string[] | null;
   virt: string;
+  // MAC addresses of the network interfaces (agents >= 0.2): link with a Proxmox VE guest
+  macs?: string[] | null;
 }
 
 export interface AptSummary {
@@ -144,6 +146,21 @@ export interface HostDoc {
   setupPending?: boolean;
   // not connected permanently (laptop...): being offline is expected, neither an error nor an alert
   roaming?: boolean;
+  // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
+  pve?: HostPveLink | null;
+  // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied
+  pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date };
+  backupSync?: { hash: string; at: Date; error?: string | null };
+}
+
+export interface HostPveLink {
+  cluster: string;
+  vmid: number;
+  type: 'lxc' | 'qemu';
+  node: string;
+  name: string;
+  // part of an enabled backup job of the cluster
+  covered: boolean;
 }
 
 // Standardisation of the hosts (see setup.ts and agent/setup.go): options in three sections, the
@@ -228,7 +245,8 @@ export const JOB_ACTIONS = [
   ...DOCKER_ACTIONS,
   'setup_apply',
 ] as const;
-export type JobAction = (typeof JOB_ACTIONS)[number];
+// backup_run: launched from the backup job only (it names the job), never through the generic job routes
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface JobDoc {
@@ -242,6 +260,9 @@ export interface JobDoc {
   service?: string;
   // setup_apply: options applied
   modules?: SetupOption[];
+  // backup_run: the backup job (BackupJobDoc) and its name
+  backupJobId?: ObjectId;
+  backupJobName?: string;
   trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;
@@ -333,6 +354,9 @@ export interface PbsSettings {
   polledAt?: Date;
   pollError?: string | null;
   datastores?: PbsDatastoreUsage[];
+  // backups run by the agents: client image where proxmox-backup-client is not installed, default time zone
+  clientImage?: string;
+  timezone?: string;
 }
 
 // One backup group of the PBS: datastore + namespace + type + id.
@@ -355,4 +379,117 @@ export interface BackupDoc {
   retention?: number | null; // finest period kept by the prune policy (ms)
   seenAt: Date; // last poll that saw it
   gone?: boolean; // no longer on the PBS
+  // vzdump: attached by the PVE poll to the host of the guest; managed: written by a backup job of the
+  // hub (backupJobs.ts). Neither is attached by hand.
+  source?: 'vzdump' | 'managed';
+  pve?: BackupPve;
+  managed?: BackupManaged;
+  // expected by a PVE job but never seen on the PBS yet
+  placeholder?: boolean;
+}
+
+// --- Proxmox VE clusters (see pve.ts) -------------------------------------------------------
+
+export interface PveCluster {
+  id: string; // short name, e.g. vouille
+  name: string;
+  url: string; // https://pve1:8006
+  fingerprint: string;
+  tokenId: string; // user@realm!token
+  tokenSecret: string;
+  enabled: boolean;
+  // filled by the poll
+  timezone?: string; // of the nodes: the schedules are wall-clock times of it
+  polledAt?: Date;
+  pollError?: string | null;
+  guests?: number;
+}
+
+export interface PveSettings {
+  _id: 'pve';
+  clusters: PveCluster[];
+}
+
+// Backup job of a cluster, as seen by one guest.
+export interface PveJobRef {
+  id: string;
+  schedule: string;
+  enabled: boolean;
+  nextRun: number | null; // unix ms
+  storage: string;
+  // datastore and namespace of the storage on the followed PBS; null: another target
+  store: string | null;
+  ns: string | null;
+}
+
+export interface PveTaskResult {
+  upid: string;
+  at: number; // end, unix ms
+  ok: boolean;
+  error?: string;
+}
+
+export interface GuestDoc {
+  _id: string; // <cluster>/<vmid>
+  cluster: string;
+  vmid: number;
+  type: 'lxc' | 'qemu';
+  node: string;
+  name: string;
+  macs: string[];
+  jobs: PveJobRef[];
+  lastTask?: PveTaskResult | null;
+  tz: string;
+  seenAt: Date;
+}
+
+// Backup of directories defined in the hub and run by the agent of the host (see backupJobs.ts).
+export interface BackupArchive {
+  name: string; // <name>.pxar
+  path: string;
+}
+
+export interface BackupRun {
+  start: number; // unix ms
+  end: number;
+  ok: boolean;
+  error?: string | null;
+  trigger: string; // schedule | catchup | manual
+  jobId?: ObjectId | null; // JobDoc of the run
+}
+
+export interface BackupJobDoc {
+  _id: ObjectId;
+  hostId: ObjectId;
+  name: string;
+  archives: BackupArchive[];
+  excludes: string[];
+  store: string;
+  ns: string;
+  backupId: string; // fixed at creation: the group on the PBS
+  schedule: string; // calendar event (calendar.ts)
+  timezone: string;
+  enabled: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  lastRun?: BackupRun | null;
+}
+
+export interface BackupManaged {
+  jobId: string;
+  name: string;
+  tz: string;
+  schedule: string;
+  enabled: boolean;
+  lastRun?: { at: number; ok: boolean; error?: string | null } | null;
+  // the agent applied the current definition
+  synced: boolean;
+}
+
+export interface BackupPve {
+  cluster: string;
+  vmid: number;
+  tz: string;
+  jobs: PveJobRef[]; // jobs writing this group
+  lastTask?: PveTaskResult | null;
 }

@@ -30,6 +30,7 @@ type HostInfo struct {
 	Uptime   int64    `json:"uptime"` // seconds
 	IPs      []string `json:"ips"`
 	Virt     string   `json:"virt"` // lxc, kvm, none...
+	MACs     []string `json:"macs"` // hardware addresses of the interfaces, link with a Proxmox VE guest
 }
 
 // Docker compose stacks, discovered from the labels compose puts on its containers.
@@ -92,7 +93,7 @@ type DockerUpdates struct {
 
 // agent -> hub
 type Outbound struct {
-	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result
+	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result | backup_synced | backup_result
 	Version string    `json:"version,omitempty"`
 	Info    *HostInfo `json:"info,omitempty"`
 	// actions this agent can run, so that the hub only offers those
@@ -111,7 +112,7 @@ type Outbound struct {
 
 // hub -> agent
 type Inbound struct {
-	Type     string   `json:"type"` // run | rpc
+	Type     string   `json:"type"` // run | rpc | backup_sync | backup_result_ack
 	JobID    string   `json:"jobId"`
 	Action   string   `json:"action"` // apt_update, apt_upgrade, docker_up...
 	Packages []string `json:"packages,omitempty"`
@@ -125,4 +126,7 @@ type Inbound struct {
 	Tail  int    `json:"tail,omitempty"`
 	// setup_apply / setup_check: modules of the standardisation and their parameters
 	Setup *SetupSpec `json:"setup,omitempty"`
+	// backup_sync: definition of the backups of this host; backup_run: the job to run
+	Backup    *BackupSpec `json:"backup,omitempty"`
+	BackupJob string      `json:"backupJob,omitempty"`
 }

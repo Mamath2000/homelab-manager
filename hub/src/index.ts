@@ -12,7 +12,10 @@ import { registerHostRoutes } from './routes/hosts.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerBackupRoutes } from './routes/backups.js';
+import { registerBackupJobRoutes } from './routes/backupJobs.js';
+import { refreshManaged } from './backupJobs.js';
 import { startPbsPoller } from './pbs.js';
+import { startPvePoller } from './pve.js';
 import { registerUserRoutes } from './routes/users.js';
 import { loadHomeAssistantSettings, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
@@ -29,6 +32,8 @@ const app = Fastify({
 await connectDb();
 await recoverJobs();
 await bootstrapSuperadmin();
+// groups of the backup jobs: also covers the definitions stored by an older hub
+await refreshManaged();
 
 await app.register(cookie);
 
@@ -38,6 +43,7 @@ registerHostRoutes(app);
 registerJobRoutes(app);
 registerSetupRoutes(app);
 registerBackupRoutes(app);
+registerBackupJobRoutes(app);
 registerUserRoutes(app);
 const bridge = new HomeAssistantBridge(app.log);
 registerSettingsRoutes(app, bridge);
@@ -66,6 +72,7 @@ app.setNotFoundHandler((req, reply) => {
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
 const stopPbsPoller = startPbsPoller(app.log);
+const stopPvePoller = startPvePoller(app.log);
 await bridge.apply(await loadHomeAssistantSettings());
 
 let agentServer: Awaited<ReturnType<typeof startAgentServer>> | null = null;
@@ -76,6 +83,7 @@ async function shutdown() {
   clearInterval(flushTimer);
   stopScheduler();
   stopPbsPoller();
+  stopPvePoller();
   await bridge.stop(false);
   await flushLogs().catch(() => {});
   await app.close();

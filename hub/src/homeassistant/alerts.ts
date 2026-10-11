@@ -52,10 +52,21 @@ export function backupAlerts(groups: BackupAlertInput[], hostAway = false, now =
   for (const g of groups) {
     if (g.state === 'failed') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : vérification en échec` });
     if (g.state === 'gone') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : disparue du PBS` });
-    if (g.state === 'stale' && !hostAway) {
+    if (g.state === 'task_failed') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : dernière sauvegarde en échec` });
+    if (g.state === 'disabled') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : job de sauvegarde désactivé` });
+    if (g.state === 'not_synced') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : définition pas encore appliquée par l'agent` });
+    if (g.state === 'stale' && !hostAway && !g.lastBackup) out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : jamais sauvegardée` });
+    else if (g.state === 'stale' && !hostAway) {
       const days = Math.floor((now - g.lastBackup) / 86_400_000);
       out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : pas de sauvegarde depuis ${days ? `${days} j` : 'plus d’un jour'}` });
     }
   }
   return out;
+}
+
+// Proxmox VE guest of the host that no enabled backup job covers.
+export function pveAlerts(h: Pick<HostDoc, 'pve'>): Alert[] {
+  if (!h.pve || h.pve.covered) return [];
+  const what = h.pve.type === 'lxc' ? 'CT' : 'VM';
+  return [{ level: 'warning', source: 'backup', message: `${what} ${h.pve.vmid} couvert par aucun job de sauvegarde Proxmox` }];
 }
