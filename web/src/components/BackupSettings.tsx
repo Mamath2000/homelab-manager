@@ -22,7 +22,6 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     tokenId: data.tokenId || DEFAULT_TOKEN,
     staleHours: data.staleHours,
     clientImage: data.clientImage ?? '',
-    timezone: data.timezone ?? '',
   });
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
@@ -87,18 +86,15 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             <label className="block max-w-xs">
               <span className={field}>Seuil de retard par défaut (heures)</span>
               <input className="input" type="number" min={1} max={1440} value={form.staleHours} onChange={(e) => set({ staleHours: Math.max(1, Number(e.target.value) || 26) })} />
-              <span className="mt-1 block text-xs text-muted">Quand ni la planification, ni le rythme appris, ni la rétention du PBS ne donnent de rythme.</span>
+              <span className="mt-1 block text-xs text-muted">
+                Dernier recours : une sauvegarde externe récente (moins de 4 snapshots) dans un namespace sans élagage. Les autres sont jugées sur leur planification,
+                leur rythme appris ou la rétention du PBS.
+              </span>
             </label>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className={field}>Image du client (hôtes sans client installé)</span>
-                <input className="input font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />
-              </label>
-              <label className="block">
-                <span className={field}>Fuseau des sauvegardes de répertoires</span>
-                <input className="input font-mono text-xs" value={form.timezone ?? ''} onChange={(e) => set({ timezone: e.target.value.trim() })} placeholder="Europe/Paris" spellCheck={false} />
-              </label>
-            </div>
+            <label className="block">
+              <span className={field}>Image du client (hôtes sans client installé)</span>
+              <input className="input font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />
+            </label>
           </div>
         </div>
         <TokenAside

@@ -26,6 +26,7 @@ services:
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
       LOG_LEVEL: info         # fatal | error | warn | info | debug
+      TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
       # SESSION_DAYS: 30
       # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
       # COOKIE_SECURE: "true" # si le hub est servi en HTTPS

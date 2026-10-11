@@ -32,7 +32,6 @@ interface SettingsBody {
   tokenSecret?: string; // absent: unchanged
   staleHours: number;
   clientImage?: string;
-  timezone?: string;
 }
 
 const settingsBody = {
@@ -47,7 +46,6 @@ const settingsBody = {
     tokenSecret: { type: 'string', maxLength: 128 },
     staleHours: { type: 'integer', minimum: 1, maximum: 24 * 60 },
     clientImage: { type: 'string', maxLength: 256 },
-    timezone: { type: 'string', maxLength: 64 },
   },
 } as const;
 
@@ -69,7 +67,6 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
   if (next.enabled && (!next.url || !next.tokenId || !next.tokenSecret)) return 'URL, identifiant et secret du jeton sont requis';
   if (next.clientImage) next.clientImage = next.clientImage.trim();
   if (next.clientImage && !IMAGE_RE.test(next.clientImage)) return 'image du client invalide (dépôt/nom:tag)';
-  if (next.timezone && !validTimeZone(next.timezone)) return 'fuseau horaire inconnu (ex. Europe/Paris)';
   return next;
 }
 

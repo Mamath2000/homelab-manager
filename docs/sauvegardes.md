@@ -22,7 +22,7 @@ Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc *
 
 ### Jetons : une commande à usage unique
 
-Les jetons ne se recopient pas à la main. **Générer la commande** donne une ligne à coller dans un shell root du serveur (le PBS, ou un nœud du cluster) :
+Les jetons ne se recopient pas à la main. À côté de **Générer la commande**, l'**identifiant du jeton** (`utilisateur@royaume!nom`) est pré-rempli et modifiable ; le bouton donne une ligne à coller dans un shell root du serveur (le PBS, ou un nœud du cluster) :
 
 ```bash
 curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -- <code>
@@ -31,7 +31,7 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 - Le script vient du port des agents du hub, dont la clé est épinglée : rien d'autre ne peut répondre.
 - Le **hub décide** de ce qui est créé (utilisateur, jeton, chemin et rôle) ; le script crée l'utilisateur s'il manque, le jeton, les droits de l'utilisateur **et** du jeton (les droits d'un jeton sont l'intersection des siens et de ceux de son utilisateur), puis renvoie le jeton au hub, qui le range au bon endroit. **Le secret n'est jamais affiché.**
 - Code à usage unique, valable 1 heure. Le serveur doit joindre le port des agents du hub.
-- Le **nom du jeton** est modifiable (devant le bouton) : utile quand un jeton de ce nom existe déjà sur le serveur sans que le hub connaisse son secret.
+- L'**identifiant** se change quand un jeton de ce nom existe déjà sur le serveur sans que le hub connaisse son secret ; le royaume est `pbs` pour le PBS et les hôtes, `pve` pour un cluster.
 - Recoller une commande pour un jeton **que le hub détient** met seulement ses droits à jour (secret conservé).
 - Repli : le bloc « Sans la commande » fait la même chose et affiche le secret à recopier dans le formulaire.
 
@@ -48,9 +48,10 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 | Adresse | `https://192.168.100.8:8007` |
 | Empreinte du certificat | **Récupérer** lit celle que présente le PBS ; à comparer avec **Tableau de bord › Afficher l'empreinte** |
 | Jeton | `homelab@pbs!monitor` (créé par la commande) |
-| Seuil de retard par défaut | `26` heures, quand ni planification, ni historique, ni rétention ne donnent de rythme |
+| Seuil de retard par défaut | `26` heures : dernier recours, pour une sauvegarde externe récente (moins de 4 snapshots) dans un namespace sans élagage |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
-| Fuseau des sauvegardes de répertoires | `Europe/Paris` |
+
+Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : variable `TZ` du compose (défaut `Europe/Paris`).
 
 **Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les droits). Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite.
 
@@ -89,7 +90,7 @@ Depuis la fiche hôte, carte **Sauvegardes** › **Répertoires** :
 
    L'installation est une tâche de l'agent (visible dans Activité). Un hôte en mode Docker peut passer au client APT, qui est alors préféré. Ailleurs (arm64, autre distribution), installer le client à la main : l'agent le détecte.
 2. **Accès PBS** : le jeton propre à l'hôte, créé par la commande à usage unique. Il a `DatastoreBackup` sur le namespace `Hosts` de chaque datastore : il ne voit et ne modifie que les sauvegardes dont il est propriétaire, et ne peut pas écrire dans les namespaces de Proxmox VE.
-3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : nom, répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification, fuseau. Le namespace est toujours `Hosts`.
+3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : nom, répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification, fuseau (par défaut celui du hub, variable `TZ`). Le namespace est toujours `Hosts`.
 
 Planification : syntaxe des calendriers Proxmox — `03:00`, `sun 01:00`, `mon..fri 22:30`, `*/5` (toutes les 5 minutes), `daily`, `weekly`, `monthly`. Les dates et les secondes ne sont pas acceptées.
 

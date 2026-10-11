@@ -15,7 +15,8 @@ import type { BackupArchive, BackupJobDoc, HostDoc, JobDoc, PbsSettings } from '
 // group is attached to the host by construction.
 
 export const DEFAULT_CLIENT_IMAGE = 'mathmath350/pbs-client:latest';
-export const DEFAULT_TIMEZONE = 'Europe/Paris';
+// Default time zone of the backup jobs: the one of the hub (TZ of the container), else Europe/Paris.
+export const DEFAULT_TIMEZONE = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'Europe/Paris';
 // namespace of the backups of the hosts: the only one their token may write (see tokenSetup.ts)
 export const HOSTS_NS = 'Hosts';
 

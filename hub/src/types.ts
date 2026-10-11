@@ -357,9 +357,9 @@ export interface PbsSettings {
   polledAt?: Date;
   pollError?: string | null;
   datastores?: PbsDatastoreUsage[];
-  // backups run by the agents: client image where proxmox-backup-client is not installed, default time zone
+  // backups run by the agents: client image where proxmox-backup-client is not installed (the default
+  // time zone of their jobs is the TZ of the hub, see backupJobs.ts)
   clientImage?: string;
-  timezone?: string;
 }
 
 // One backup group of the PBS: datastore + namespace + type + id.

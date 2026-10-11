@@ -53,7 +53,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
       pbsReady: pbs.enabled && !!pbs.url,
       datastores: (pbs.datastores ?? []).map((d) => d.store),
-      timezone: pbs.timezone || DEFAULT_TIMEZONE,
+      timezone: DEFAULT_TIMEZONE,
       jobs: list.map(jobView),
     };
   });
@@ -98,7 +98,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       if (!host) return reply.code(404).send({ error: 'host not found' });
       if (!clientState(host.capabilities).mode) return reply.code(409).send({ error: "client PBS absent sur cet hôte : l'installer d'abord" });
       const pbs = await loadPbsSettings();
-      const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || pbs.timezone || DEFAULT_TIMEZONE };
+      const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || DEFAULT_TIMEZONE };
       const err = checkJob(body, true);
       if (err) return reply.code(400).send({ error: err });
       const conflict = await groupConflict(_id, body.store, body.ns, body.backupId!);
