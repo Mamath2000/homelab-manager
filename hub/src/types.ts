@@ -309,3 +309,50 @@ export interface HomeAssistantSettings {
   discoveryPrefix: string;
   publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
 }
+
+// --- Backups (Proxmox Backup Server, see pbs.ts) ------------------------------------------
+
+export interface PbsDatastoreUsage {
+  store: string;
+  total: number; // bytes
+  used: number;
+  avail: number;
+}
+
+export interface PbsSettings {
+  _id: 'pbs';
+  enabled: boolean;
+  url: string; // https://pbs:8007
+  // sha256 of the PBS certificate (AB:CD:...), pinned; empty: verified against the system CAs
+  fingerprint: string;
+  tokenId: string; // user@realm!token
+  tokenSecret: string;
+  // a group whose last snapshot is older is late (the scripts run daily)
+  staleHours: number;
+  // last poll
+  polledAt?: Date;
+  pollError?: string | null;
+  datastores?: PbsDatastoreUsage[];
+}
+
+// One backup group of the PBS: datastore + namespace + type + id.
+export interface BackupDoc {
+  _id: string; // <store>/<ns>/<type>/<id>
+  store: string;
+  ns: string; // "" : root namespace
+  type: string; // host | vm | ct
+  backupId: string;
+  comment?: string; // notes of the group (guest name for vm / ct)
+  owner?: string;
+  count: number;
+  lastBackup: number; // unix ms of the last snapshot
+  size: number | null; // bytes of the last snapshot
+  verify: 'ok' | 'failed' | null; // verification of the last snapshot
+  // host it belongs to; pinned: chosen by hand, kept across polls
+  hostId: ObjectId | null;
+  hostPinned?: boolean;
+  staleHours?: number | null; // own threshold, else the settings one
+  ignored?: boolean; // listed, no state nor alert (old group...)
+  seenAt: Date; // last poll that saw it
+  gone?: boolean; // no longer on the PBS
+}

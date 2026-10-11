@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { Home, Lock, Server, Settings as SettingsIcon, Terminal, Wand2 } from 'lucide-react';
+import { DatabaseBackup, Home, Lock, Server, Settings as SettingsIcon, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
+import { BackupSettings } from '../components/BackupSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { SetupSettings } from '../components/SetupSettings';
 import { Button, Modal, PageHeader, Panel, Tabs } from '../components/ui';
@@ -9,6 +10,7 @@ import { Button, Modal, PageHeader, Panel, Tabs } from '../components/ui';
 const tabs = [
   { id: 'hub', label: 'Hub et agents', icon: Server },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
+  { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
 ] as const;
 
@@ -49,6 +51,7 @@ export function Settings() {
         </div>
       )}
       {tab === 'setup' && <SetupSettings />}
+      {tab === 'backups' && <BackupSettings />}
       {tab === 'homeassistant' && <HomeAssistantPanel />}
       <Modal open={security} onClose={() => setSecurity(false)} title="Sécurité" wide>
         <div className="text-sm">

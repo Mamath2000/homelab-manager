@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { CircleArrowUp, Container, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert, ShieldX } from 'lucide-react';
+import { CircleArrowUp, Container, DatabaseBackup, History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert, ShieldX } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { ImageUpdateBadge } from '../components/Docker';
@@ -9,7 +9,8 @@ import { RebootStatus } from '../components/Reboot';
 import { ItemCard, StatusSection } from '../components/StatusSection';
 import { Badge, Button, Empty, PageHeader, Spinner, Tag } from '../components/ui';
 import { jobTitle, timeAgo } from '../lib/format';
-import { useHosts, useJobs, useRunBulk } from '../lib/queries';
+import { useBackups, useHosts, useJobs, useRunBulk } from '../lib/queries';
+import { backupStateMeta, groupLabel } from '../lib/backups';
 import { allStacks, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel, stackMeta, stackPath, updateMeta, updateState } from '../lib/status';
 import type { Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -41,6 +42,7 @@ function stackState(s: ReturnType<typeof allStacks>[number]): StackState {
 export function Dashboard() {
   const { data: hosts, isLoading } = useHosts();
   const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
+  const { data: backups } = useBackups();
   const bulk = useRunBulk();
   const { canWrite, canManage } = useMe();
   const [adding, setAdding] = useState(false);
@@ -63,6 +65,10 @@ export function Dashboard() {
     .filter((s) => s.problems.length > 0 || s.updates > 0)
     .sort((a, b) => b.problems.length - a.problems.length || b.updates - a.updates);
   const sortedHosts = [...hosts].sort((a, b) => connOrder[connection(a)] - connOrder[connection(b)] || a.name.localeCompare(b.name));
+
+  const trackedBackups = (backups?.groups ?? []).filter((g) => !g.ignored && !g.gone);
+  const lateBackups = trackedBackups.filter((g) => g.state !== 'ok').sort((a, b) => a.lastBackup - b.lastBackup);
+  const hostName = (id: string | null) => hosts.find((h) => h.id === id)?.name;
 
   const dayAgo = jobsAt - 24 * 3600 * 1000;
   const recentJobs = (jobs ?? []).filter((j) => Date.parse(j.createdAt) > dayAgo);
@@ -204,6 +210,37 @@ export function Dashboard() {
                   <Tag>{s.host.name}</Tag>
                   {s.updates > 0 && <ImageUpdateBadge update={s.update} count={s.updates} />}
                   {s.problems.map((p) => <Badge key={p} tone="bad">{p}</Badge>)}
+                </ItemCard>
+              ))}
+            </StatusSection>
+          )}
+
+          {backups?.enabled && (
+            <StatusSection
+              icon={DatabaseBackup}
+              title="Sauvegardes"
+              to="/backups"
+              stats={[
+                { label: 'À jour', value: trackedBackups.filter((g) => g.state === 'ok').length, tone: 'ok' },
+                { label: 'En retard', value: trackedBackups.filter((g) => g.state === 'stale').length, tone: 'warn' },
+                { label: 'Vérification en échec', value: trackedBackups.filter((g) => g.state === 'failed').length, tone: 'bad' },
+              ]}
+              cardsTitle="Sauvegardes à surveiller"
+              cardsIcon={DatabaseBackup}
+              empty={
+                lateBackups.length === 0 ? (
+                  <p className="py-6 text-sm text-muted">
+                    {backups.pollError ? `Relevé du PBS en échec : ${backups.pollError}` : 'Toutes les sauvegardes sont à jour.'}
+                  </p>
+                ) : undefined
+              }
+            >
+              {lateBackups.map((g) => (
+                <ItemCard key={g.id} to={g.hostId ? `/backups?host=${g.hostId}` : '/backups?f=late'} icon={DatabaseBackup}
+                  tone={g.state === 'failed' ? 'bad' : 'warn'} title={groupLabel(g)}
+                  right={<Badge tone={backupStateMeta[g.state].tone}>{backupStateMeta[g.state].label}</Badge>}>
+                  {hostName(g.hostId) && <Tag>{hostName(g.hostId)}</Tag>}
+                  <span className="self-center text-xs text-muted">{timeAgo(g.lastBackup)}</span>
                 </ItemCard>
               ))}
             </StatusSection>

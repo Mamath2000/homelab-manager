@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, CircleArrowUp, Container, Plus, RefreshCw, Search, Server, Wand2 } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Plus, RefreshCw, Search, Server, Wand2 } from 'lucide-react';
+import { hostBackups } from '../lib/backups';
 import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
@@ -9,7 +10,7 @@ import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Age
 import { BulkSetupModal } from '../components/SetupPanel';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
-import { useHosts, useRunBulk, useRunJob } from '../lib/queries';
+import { useBackups, useHosts, useRunBulk, useRunJob } from '../lib/queries';
 import { canSelfUpdate, connection, connectionMeta, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { Host } from '../lib/api';
@@ -32,6 +33,7 @@ const filters: { key: Filter; label: string }[] = [
 
 export function Hosts() {
   const { data: hosts, isLoading } = useHosts();
+  const { data: backups } = useBackups();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const q = params.get('q') ?? '';
@@ -225,6 +227,12 @@ export function Hosts() {
                         <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
                         {h.agentOutdated && <AgentBadge short />}
                         {!!h.setup?.drift && <Badge tone="warn" className="gap-1"><Wand2 className="h-3 w-3" />non standard</Badge>}
+                        {(() => {
+                          const b = hostBackups(backups?.groups, h.id);
+                          return b && b.state !== 'ok' && (
+                            <Badge tone={b.state === 'failed' ? 'bad' : 'warn'} className="gap-1"><DatabaseBackup className="h-3 w-3" />sauvegarde {b.state === 'failed' ? 'en échec' : 'en retard'}</Badge>
+                          );
+                        })()}
                         {needsReinstall(h) && <ReinstallBadge short />}
                       </div>
                     </td>

@@ -312,6 +312,60 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   return data as T;
 }
 
+// Backups of the Proxmox Backup Server (hub/src/pbs.ts)
+export type BackupState = 'ok' | 'stale' | 'failed' | 'ignored' | 'gone';
+
+export interface BackupGroup {
+  id: string;
+  store: string;
+  ns: string;
+  type: string; // host | vm | ct
+  backupId: string;
+  comment?: string;
+  owner?: string;
+  count: number;
+  lastBackup: number;
+  size: number | null;
+  verify: 'ok' | 'failed' | null;
+  hostId: string | null;
+  hostPinned?: boolean;
+  staleHours?: number | null;
+  ignored?: boolean;
+  gone?: boolean;
+  seenAt: string;
+  state: BackupState;
+  threshold: number; // hours
+}
+
+export interface BackupsView {
+  enabled: boolean;
+  polledAt: string | null;
+  pollError: string | null;
+  staleHours: number;
+  datastores: { store: string; total: number; used: number; avail: number }[];
+  groups: BackupGroup[];
+}
+
+export interface PbsSettings {
+  enabled: boolean;
+  url: string;
+  fingerprint: string;
+  tokenId: string;
+  hasSecret: boolean;
+  staleHours: number;
+  polledAt?: string;
+  pollError?: string | null;
+}
+
+export interface PbsSettingsInput {
+  enabled: boolean;
+  url: string;
+  fingerprint: string;
+  tokenId: string;
+  tokenSecret?: string;
+  staleHours: number;
+}
+
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
   login: (username: string, password: string) =>
@@ -362,6 +416,15 @@ export const api = {
   forgetStack: (hostId: string, stack: string) => request<void>('DELETE', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}`),
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
+  backups: () => request<BackupsView>('GET', '/api/backups'),
+  refreshBackups: () => request<{ ok: boolean }>('POST', '/api/backups/refresh'),
+  updateBackup: (id: string, patch: { hostId?: string | null; staleHours?: number | null; ignored?: boolean }) =>
+    request<BackupGroup>('PATCH', `/api/backups/${encodeURIComponent(id)}`, patch),
+  forgetBackup: (id: string) => request<void>('DELETE', `/api/backups/${encodeURIComponent(id)}`),
+  pbsSettings: () => request<PbsSettings>('GET', '/api/settings/pbs'),
+  savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
+  testPbsSettings: (s: PbsSettingsInput) => request<{ ok: boolean; error?: string; datastores?: string[] }>('POST', '/api/settings/pbs/test', s),
+  pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   runBulk: (hostIds: string[], action: JobAction, options?: SetupOption[]) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action, options }),
 
   setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),

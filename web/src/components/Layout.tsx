@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
-import { Container, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { StatusDot } from './ui';
@@ -24,6 +24,7 @@ const sections: { title?: string; items: NavItem[] }[] = [
       { to: '/hosts', label: 'Hôtes', icon: Server },
       { to: '/updates', label: 'Mises à jour', icon: PackageCheck },
       { to: '/docker', label: 'Docker', icon: Container },
+      { to: '/backups', label: 'Sauvegardes', icon: DatabaseBackup },
     ],
   },
   {

@@ -8,6 +8,7 @@ import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
+import { forgetHost } from '../pbs.js';
 import { applySetup, canSetup } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type HostDoc, type JobAction } from '../types.js';
 
@@ -137,6 +138,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     if (!res || res.deletedCount === 0) return reply.code(404).send({ error: 'host not found' });
     disconnectAgent(req.params.id);
     await jobs.deleteMany({ hostId: _id });
+    await forgetHost(_id);
     publish('host.deleted', { id: req.params.id });
     return reply.code(204).send();
   });
