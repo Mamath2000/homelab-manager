@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import { Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { ChangePasswordModal } from './ChangePasswordModal';
-import { StatusDot } from './ui';
+import { Spinner, StatusDot } from './ui';
 
 interface NavItem {
   to: string;
@@ -194,7 +194,10 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
 
       <main className="px-4 py-6 md:ml-60 md:px-8">
         <div>
-          <Outlet />
+          {/* pages are lazy chunks: the menu stays in place while one loads */}
+          <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
     </div>

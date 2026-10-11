@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, useEffect, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
@@ -6,18 +6,22 @@ import { Spinner } from './components/ui';
 import { api, type Me } from './lib/api';
 import { MeContext, rights } from './lib/auth';
 import { useLiveEvents } from './lib/live';
-import { Accounts } from './pages/Accounts';
-import { Activity } from './pages/Activity';
-import { Dashboard } from './pages/Dashboard';
-import { Docker } from './pages/Docker';
-import { Backups } from './pages/Backups';
-import { HostDetail } from './pages/HostDetail';
-import { Hosts } from './pages/Hosts';
-import { JobDetail } from './pages/JobDetail';
 import { ForcePasswordChange, Login } from './pages/Login';
-import { Settings } from './pages/Settings';
-import { Stack } from './pages/Stack';
-import { Updates } from './pages/Updates';
+
+// One chunk per page, fetched on first visit (Login stays in the main bundle: shown before the Layout).
+// Pages use named exports, lazy() wants a default one.
+const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) => lazy(() => load().then((m) => ({ default: m[name] })));
+const Accounts = page(() => import('./pages/Accounts'), 'Accounts');
+const Activity = page(() => import('./pages/Activity'), 'Activity');
+const Backups = page(() => import('./pages/Backups'), 'Backups');
+const Dashboard = page(() => import('./pages/Dashboard'), 'Dashboard');
+const Docker = page(() => import('./pages/Docker'), 'Docker');
+const HostDetail = page(() => import('./pages/HostDetail'), 'HostDetail');
+const Hosts = page(() => import('./pages/Hosts'), 'Hosts');
+const JobDetail = page(() => import('./pages/JobDetail'), 'JobDetail');
+const Settings = page(() => import('./pages/Settings'), 'Settings');
+const Stack = page(() => import('./pages/Stack'), 'Stack');
+const Updates = page(() => import('./pages/Updates'), 'Updates');
 
 export default function App() {
   const qc = useQueryClient();
