@@ -340,14 +340,7 @@ export async function forgetHost(hostId: HostDoc['_id']) {
   await backups.updateMany({ hostId }, { $set: { hostId: null } });
 }
 
-// Up to 0.1.24 groups were matched to hosts automatically: only the ones chosen by hand stay attached.
-export async function migrateBackups() {
-  await backups.updateMany({ hostId: { $ne: null }, hostPinned: { $ne: true } }, { $set: { hostId: null } });
-  await backups.updateMany({ $or: [{ hostPinned: { $exists: true } }, { ignored: { $exists: true } }] }, { $unset: { hostPinned: '', ignored: '' } });
-}
-
 export function startPbsPoller(log: FastifyBaseLogger) {
-  migrateBackups().catch((err) => log.error({ err }, 'backups migration failed'));
   const run = () => pollPbs(log).catch((err) => log.error({ err }, 'PBS poll failed'));
   const first = setTimeout(run, 30_000);
   const timer = setInterval(run, 15 * 60_000);
