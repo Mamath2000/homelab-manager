@@ -322,7 +322,7 @@ export function Backups() {
                                 <Link to={`/hosts/${g.hostId}`} className="text-zinc-300 hover:text-emerald-300">{hostName(g.hostId)}</Link>
                               )}
                             </td>
-                            <td className="td"><BackupTimeline group={g} /></td>
+                            <td className="td"><BackupTimeline group={g} className="w-56" /></td>
                             <td className="td" title={g.lastBackup ? dateTime(g.lastBackup) : undefined}>{g.lastBackup ? timeAgo(g.lastBackup) : <span className="text-zinc-500">jamais</span>}</td>
                             <td className="td tabular-nums text-zinc-300">{formatBytes(g.size)}</td>
                             <td className="td text-xs">

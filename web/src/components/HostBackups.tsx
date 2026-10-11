@@ -14,20 +14,21 @@ const DAY = 24 * 3600_000;
 
 // One square per day over the last 30 days: a snapshot that day, or a missing day for a backup
 // expected at least daily (days before its oldest known snapshot are left neutral).
-export function BackupTimeline({ group, days = 30 }: { group: Pick<BackupGroup, 'times' | 'interval'>; days?: number }) {
+// Full width of its container by default; className sets another width (table cell).
+export function BackupTimeline({ group, days = 30, className }: { group: Pick<BackupGroup, 'times' | 'interval'>; days?: number; className?: string }) {
   const cells = timeline(group.times, days);
   const daily = !!group.interval && group.interval <= 1.2 * DAY;
   const oldest = group.times?.[0] ?? Infinity;
   const today = cells[cells.length - 1].day;
   return (
-    <div className="flex gap-[3px]" aria-label="Snapshots des 30 derniers jours">
+    <div className={clsx('flex gap-[3px]', className ?? 'w-full')} aria-label="Snapshots des 30 derniers jours">
       {cells.map((c) => {
         const missing = daily && !c.count && c.day + DAY > oldest && c.day < today;
         return (
           <span
             key={c.day}
             title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}` : 'aucun snapshot'}`}
-            className={clsx('h-3.5 w-1.5 rounded-[2px]', c.count ? 'bg-emerald-500' : missing ? 'bg-red-500/70' : 'bg-raised')}
+            className={clsx('h-3.5 min-w-1.5 flex-1 rounded-[2px]', c.count ? 'bg-emerald-500' : missing ? 'bg-red-500/70' : 'bg-raised')}
           />
         );
       })}
