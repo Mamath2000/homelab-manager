@@ -7,6 +7,7 @@
 export function pbsTokenScript(o: { user: string; token: string; path: string; role: string }) {
   return `(
 set -e
+command -v proxmox-backup-manager >/dev/null || { echo "À coller sur le serveur PBS : proxmox-backup-manager est introuvable ici."; exit 1; }
 U='${o.user}'; T='${o.token}'; ID='${o.user}!${o.token}'
 proxmox-backup-manager user list --output-format json | jq -e --arg u "$U" 'any(.[]; .userid == $u)' >/dev/null \\
   || proxmox-backup-manager user create "$U"
@@ -27,6 +28,7 @@ echo "Secret du jeton      : $(echo "$J" | jq -r .value)"
 export function pveTokenScript(o: { user: string; token: string; path: string; role: string }) {
   return `(
 set -e
+command -v pveum >/dev/null || { echo "À coller sur un nœud du cluster Proxmox VE : pveum est introuvable ici."; exit 1; }
 U='${o.user}'; T='${o.token}'; ID='${o.user}!${o.token}'
 pveum user list --output-format json | jq -e --arg u "$U" 'any(.[]; .userid == $u)' >/dev/null \\
   || pveum user add "$U"
