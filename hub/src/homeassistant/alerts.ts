@@ -39,7 +39,7 @@ export function dockerAlerts(stack: Pick<StackView, 'name' | 'problems'>): Alert
   return stack.problems.map((p) => ({ level: 'warning', source: 'docker', message: `${stack.name} : ${p}` }));
 }
 
-// Backup groups of a host (or without host): late or failed verification. A roaming host away
+// Backup groups of a host: late, failed verification, or no longer on the PBS. A roaming host away
 // cannot back up: being late is expected then.
 export interface BackupAlertInput {
   backupId: string;
@@ -51,6 +51,7 @@ export function backupAlerts(groups: BackupAlertInput[], hostAway = false, now =
   const out: Alert[] = [];
   for (const g of groups) {
     if (g.state === 'failed') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : vérification en échec` });
+    if (g.state === 'gone') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : disparue du PBS` });
     if (g.state === 'stale' && !hostAway) {
       const days = Math.floor((now - g.lastBackup) / 86_400_000);
       out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : pas de sauvegarde depuis ${days ? `${days} j` : 'plus d’un jour'}` });

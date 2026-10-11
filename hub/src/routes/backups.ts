@@ -6,6 +6,7 @@ import {
   PBS_URL_RE,
   TOKEN_ID_RE,
   backupDto,
+  orphanDto,
   fetchFingerprint,
   loadPbsSettings,
   normalizeFingerprint,
@@ -110,7 +111,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
       pollError: s.pollError ?? null,
       staleHours: s.staleHours,
       datastores: s.datastores ?? [],
-      groups: list.map((b) => backupDto(b, s.staleHours)),
+      // followed: the groups attached to a host; the others are only listed, to be attached
+      groups: list.filter((b) => b.hostId).map((b) => backupDto(b, s.staleHours)),
+      orphans: list.filter((b) => !b.hostId).map(orphanDto),
     };
   });
 
@@ -123,8 +126,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // host it belongs to (null: no host; "auto": automatic matching again), own threshold, ignored (admin)
-  app.patch<{ Params: { id: string }; Body: { hostId?: string | null; staleHours?: number | null; ignored?: boolean } }>(
+  // host of a group (null: detached) and own threshold, from the list of the backups page (admin)
+  app.patch<{ Params: { id: string }; Body: { hostId?: string | null; staleHours?: number | null } }>(
     '/api/backups/:id',
     {
       schema: {
@@ -135,7 +138,6 @@ export function registerBackupRoutes(app: FastifyInstance) {
           properties: {
             hostId: { type: ['string', 'null'], maxLength: 24 },
             staleHours: { type: ['integer', 'null'], minimum: 1, maximum: 24 * 60 },
-            ignored: { type: 'boolean' },
           },
         },
       },
@@ -144,35 +146,53 @@ export function registerBackupRoutes(app: FastifyInstance) {
       const b = await backups.findOne({ _id: req.params.id });
       if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
       const set: Record<string, unknown> = {};
-      const unset: Record<string, ''> = {};
       if (req.body.hostId !== undefined) {
-        if (req.body.hostId === 'auto') {
-          unset.hostPinned = '';
-          set.hostId = null; // matched again at the next poll
-        } else if (req.body.hostId === null) {
-          set.hostId = null;
-          set.hostPinned = true;
-        } else {
+        if (req.body.hostId === null) set.hostId = null;
+        else {
           const _id = parseId(req.body.hostId);
           if (!_id || !(await hosts.findOne({ _id }, { projection: { _id: 1 } }))) return reply.code(400).send({ error: 'hôte introuvable' });
           set.hostId = _id;
-          set.hostPinned = true;
         }
       }
       if (req.body.staleHours !== undefined) set.staleHours = req.body.staleHours;
-      if (req.body.ignored !== undefined) set.ignored = req.body.ignored;
-      await backups.updateOne({ _id: b._id }, { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+      await backups.updateOne({ _id: b._id }, { $set: set });
       publish('backups', {});
-      if (req.body.hostId === 'auto') pollPbs(req.log).catch(() => {});
       const s = await loadPbsSettings();
       return backupDto((await backups.findOne({ _id: b._id }))!, s.staleHours);
     },
   );
 
-  // a group no longer on the PBS (gone) can be forgotten (admin)
+  // Backups of a host, chosen on its page: these groups are attached to it (moved from another host
+  // if need be), the ones it had and that are not in the list become orphans (admin).
+  app.put<{ Params: { id: string }; Body: { ids: string[] } }>(
+    '/api/hosts/:id/backups',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['ids'],
+          additionalProperties: false,
+          properties: { ids: { type: 'array', maxItems: 500, uniqueItems: true, items: { type: 'string', maxLength: 512 } } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      if (!_id || !(await hosts.findOne({ _id }, { projection: { _id: 1 } }))) return reply.code(404).send({ error: 'host not found' });
+      const found = await backups.countDocuments({ _id: { $in: req.body.ids } });
+      if (found !== req.body.ids.length) return reply.code(400).send({ error: 'sauvegarde introuvable' });
+      await backups.updateMany({ hostId: _id, _id: { $nin: req.body.ids } }, { $set: { hostId: null } });
+      await backups.updateMany({ _id: { $in: req.body.ids } }, { $set: { hostId: _id } });
+      publish('backups', {});
+      const s = await loadPbsSettings();
+      return (await backups.find({ hostId: _id }).toArray()).map((b) => backupDto(b, s.staleHours));
+    },
+  );
+
+  // an orphan no longer on the PBS (gone) can be forgotten (admin)
   app.delete<{ Params: { id: string } }>('/api/backups/:id', async (req, reply) => {
-    const res = await backups.deleteOne({ _id: req.params.id, gone: true });
-    if (!res.deletedCount) return reply.code(409).send({ error: 'seul un groupe disparu du PBS peut être oublié' });
+    const res = await backups.deleteOne({ _id: req.params.id, gone: true, hostId: null });
+    if (!res.deletedCount) return reply.code(409).send({ error: 'seule une sauvegarde orpheline disparue du PBS peut être oubliée' });
     publish('backups', {});
     return reply.code(204).send();
   });
