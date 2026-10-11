@@ -5,7 +5,7 @@ import { AlertTriangle, Container, DatabaseBackup, FolderArchive, Link2, Package
 import { ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -13,13 +13,17 @@ import { Badge, Button, Modal, Panel } from './ui';
 
 const DAY = 24 * 3600_000;
 
-// One square per day over the last 30 days: a snapshot that day, or a missing day for a backup
-// expected at least daily (days before its oldest known snapshot are left neutral).
+// One square per day over the last 30 days: snapshots that day (green when all verified, orange when one
+// is not verified yet, red when a verification failed), or a missing day for a backup expected at least
+// daily (days before its oldest known snapshot are left neutral).
 // Full width of its container by default; className sets another width (table cell).
+const verifyColor: Record<DayVerify, string> = { ok: 'bg-emerald-500', unverified: 'bg-amber-500', failed: 'bg-red-500' };
+const verifyLabel: Record<DayVerify, string> = { ok: ', vérifié', unverified: ', non vérifié', failed: ', vérification en échec' };
+
 export function BackupTimeline({ group, days = 30, className }: { group: Pick<BackupGroup, 'times' | 'interval'>; days?: number; className?: string }) {
   const cells = timeline(group.times, days);
   const daily = !!group.interval && group.interval <= 1.2 * DAY;
-  const oldest = group.times?.[0] ?? Infinity;
+  const oldest = group.times?.[0]?.t ?? Infinity;
   const today = cells[cells.length - 1].day;
   return (
     // cells share the width (no minimum: 30 of them never overflow a narrow box)
@@ -29,8 +33,8 @@ export function BackupTimeline({ group, days = 30, className }: { group: Pick<Ba
         return (
           <span
             key={c.day}
-            title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}` : 'aucun snapshot'}`}
-            className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.count ? 'bg-emerald-500' : missing ? 'bg-red-500/70' : 'bg-raised')}
+            title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}${verifyLabel[c.verify]}` : 'aucun snapshot'}`}
+            className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.count ? verifyColor[c.verify] : missing ? 'bg-red-500/70' : 'bg-raised')}
           />
         );
       })}

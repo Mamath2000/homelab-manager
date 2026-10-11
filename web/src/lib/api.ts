@@ -365,7 +365,7 @@ export interface BackupGroup {
   gone?: boolean;
   seenAt: string;
   state: BackupState;
-  times?: number[]; // last snapshots, oldest first
+  times?: { t: number; verify: 'ok' | 'failed' | null }[]; // last snapshots, oldest first
   threshold: number | null; // hours; null: no rhythm known, never late
   thresholdSource: 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
   interval: number | null; // rhythm (ms), learned, from the retention or the PVE schedule

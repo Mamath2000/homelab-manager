@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import clsx from 'clsx';
 import { Container, KeyRound, Package, Pencil, Play, Plus, Save, Trash2, X } from 'lucide-react';
 import { api, type BackupJob, type BackupJobInput, type Host, type HostBackupJobs } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -19,7 +20,7 @@ const PRESETS = [
   { label: 'Du lundi au vendredi à 21:00', value: 'mon..fri 21:00' },
 ];
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
+const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
 function tokenHelp(host: Host, tokenId: string) {
   // DatastoreBackup on the namespace Hosts of every datastore: it only sees and changes the backups it owns
@@ -113,7 +114,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const initial: BackupJobInput = job
     ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, enabled: job.enabled }
     : {
-        name: 'home',
+        // named after the machine: the PBS identifier is deduced from it
+        name: host.name,
         archives: [{ name: 'home', path: '/home' }],
         excludes: [],
         // the datastore the token of the host has rights on
@@ -123,6 +125,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         enabled: true,
       };
   const [form, setForm] = useState<BackupJobInput>(initial);
+  // creation: the identifier follows the name until it is typed by hand
+  const [idAuto, setIdAuto] = useState(true);
   const [excludes, setExcludes] = useState(initial.excludes.join('\n'));
   const [busy, setBusy] = useState(false);
   const set = (patch: Partial<BackupJobInput>) => setForm({ ...form, ...patch });
@@ -144,6 +148,13 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
     }
   };
 
+  // a new row is shown at the bottom of the list, scrolled into view
+  const archivesRef = useRef<HTMLDivElement>(null);
+  const addArchive = () => {
+    set({ archives: [...form.archives, { name: '', path: '' }] });
+    requestAnimationFrame(() => archivesRef.current?.scrollTo({ top: archivesRef.current.scrollHeight, behavior: 'smooth' }));
+  };
+
   const field = 'mb-1.5 block text-xs font-medium text-muted';
   return (
     <Modal
@@ -162,15 +173,39 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
             <span className={field}>Nom</span>
-            <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
+            <input
+              className="input"
+              value={form.name}
+              onChange={(e) => set({ name: e.target.value, ...(!job && idAuto ? { backupId: slug(e.target.value) } : {}) })}
+            />
           </label>
           <label className="block">
-            <span className={field}>Identifiant sur le PBS</span>
+            <span className={clsx(field, 'flex items-center justify-between')}>
+              Identifiant sur le PBS
+              {!job && (idAuto ? (
+                <span className="font-normal text-zinc-500">déduit du nom</span>
+              ) : (
+                <button
+                  type="button"
+                  className="font-normal text-emerald-400 hover:underline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setIdAuto(true);
+                    set({ backupId: slug(form.name) });
+                  }}
+                >
+                  déduire du nom
+                </button>
+              ))}
+            </span>
             <input
               className="input font-mono text-xs"
               value={job ? job.backupId : form.backupId ?? ''}
               disabled={!!job}
-              onChange={(e) => set({ backupId: e.target.value.trim() })}
+              onChange={(e) => {
+                setIdAuto(false);
+                set({ backupId: e.target.value.trim() });
+              }}
               title="Groupe host/<identifiant> du PBS ; fixé à la création (un autre identifiant commence un nouvel historique)"
             />
           </label>
@@ -178,14 +213,17 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         <div>
           <span className={field}>Répertoires (une archive .pxar chacun)</span>
           <div className="space-y-2">
-            {form.archives.map((a, i) => (
-              <div key={i} className="flex gap-2">
-                <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
-                <input className="input flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
-                <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
-              </div>
-            ))}
-            <Button size="sm" icon={Plus} onClick={() => set({ archives: [...form.archives, { name: '', path: '' }] })}>Répertoire</Button>
+            {/* about 6 rows, then the list scrolls: the modal keeps its height */}
+            <div ref={archivesRef} className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {form.archives.map((a, i) => (
+                <div key={i} className="flex gap-2">
+                  <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
+                  <input className="input flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
+                  <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
+                </div>
+              ))}
+            </div>
+            <Button size="sm" icon={Plus} onClick={addArchive}>Répertoire</Button>
           </div>
         </div>
         <label className="block">

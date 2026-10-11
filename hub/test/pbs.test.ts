@@ -29,12 +29,17 @@ test('groups get the size and verification of their last snapshot', () => {
   assert.equal(g[1].verify, 'failed');
   assert.equal(g[2].size, null);
   assert.equal(g[2].comment, 'pihole');
-  // history of the snapshots, oldest first
-  assert.deepEqual(g[0].times, [1759964400000, 1760050800000]);
+  // history of the snapshots with their verification, oldest first
+  assert.deepEqual(g[0].times, [
+    { t: 1759964400000, verify: 'ok' },
+    { t: 1760050800000, verify: null },
+  ]);
 });
 
 const H = 3600_000;
 const D = 24 * H;
+// history of snapshots at these dates, not verified
+const snaps = (ts: number[]) => ts.map((t) => ({ t, verify: null }));
 
 test('rhythm learned from the history: median interval, at least 4 snapshots', () => {
   const now = Date.UTC(2026, 9, 11, 2);
@@ -66,9 +71,9 @@ test('retention: finest period kept, most specific namespace first', () => {
 });
 
 test('threshold: own one, else 1.5 x the learned rhythm, else the retention, else the default', () => {
-  const daily = [5, 4, 3, 2, 1].map((d) => -d * D);
-  const weekly = [5, 4, 3, 2, 1].map((w) => -w * 7 * D);
-  const hourly = [5, 4, 3, 2, 1].map((h) => -h * H);
+  const daily = snaps([5, 4, 3, 2, 1].map((d) => -d * D));
+  const weekly = snaps([5, 4, 3, 2, 1].map((w) => -w * 7 * D));
+  const hourly = snaps([5, 4, 3, 2, 1].map((h) => -h * H));
   assert.deepEqual(effectiveThreshold({ staleHours: 50, times: daily }), { hours: 50, source: 'manual', interval: D });
   assert.deepEqual(effectiveThreshold({ times: daily }), { hours: 36, source: 'learned', interval: D });
   assert.deepEqual(effectiveThreshold({ times: weekly }), { hours: 252, source: 'learned', interval: 7 * D });
@@ -81,7 +86,7 @@ test('threshold: own one, else 1.5 x the learned rhythm, else the retention, els
 
 test('state: late after the effective threshold, failed verification, gone', () => {
   const now = Date.UTC(2026, 9, 11, 12);
-  const weekly = [5, 4, 3, 2, 1].map((w) => now - 3 * D - w * 7 * D);
+  const weekly = snaps([5, 4, 3, 2, 1].map((w) => now - 3 * D - w * 7 * D));
   // weekly group, last backup 3 days ago: not late
   assert.equal(backupState({ lastBackup: now - 3 * D, verify: null, times: weekly }, now), 'ok');
   assert.equal(backupState({ lastBackup: now - 11 * D, verify: null, times: weekly }, now), 'stale');

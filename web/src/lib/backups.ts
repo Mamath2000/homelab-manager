@@ -69,15 +69,22 @@ export function hoursLabel(h: number) {
   return h >= 48 ? `${Math.round((h / 24) * 10) / 10} j`.replace('.', ',') : `${Math.round(h * 10) / 10} h`.replace('.', ',');
 }
 
-// Last `days` days (oldest first): did a snapshot happen that day?
-export function timeline(times: number[] | undefined, days = 30, now = Date.now()) {
+// Last `days` days (oldest first): the snapshots of each day and their worst verification
+// (failed, then not verified yet, then ok).
+export type DayVerify = 'ok' | 'unverified' | 'failed';
+
+export function timeline(times: BackupGroup['times'], days = 30, now = Date.now()) {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const first = start.getTime() - (days - 1) * 24 * HOUR;
-  const out = Array.from({ length: days }, (_, i) => ({ day: first + i * 24 * HOUR, count: 0 }));
-  for (const t of times ?? []) {
-    const i = Math.floor((t - first) / (24 * HOUR));
-    if (i >= 0 && i < days) out[i].count++;
+  const out = Array.from({ length: days }, (_, i) => ({ day: first + i * 24 * HOUR, count: 0, verify: 'ok' as DayVerify }));
+  for (const s of times ?? []) {
+    const i = Math.floor((s.t - first) / (24 * HOUR));
+    if (i < 0 || i >= days) continue;
+    const c = out[i];
+    c.count++;
+    if (s.verify === 'failed') c.verify = 'failed';
+    else if (s.verify === null && c.verify === 'ok') c.verify = 'unverified';
   }
   return out;
 }

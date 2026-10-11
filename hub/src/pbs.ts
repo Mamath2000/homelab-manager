@@ -3,7 +3,7 @@ import { backups, settings } from './db.js';
 import { publish } from './events.js';
 import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
 import { ApiError, apiGet, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
-import type { BackupDoc, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
+import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
 // Backups kept on a Proxmox Backup Server, read through its API with a read-only token
 // (DatastoreAudit). Nothing runs on the hosts: the PBS is the source of truth.
@@ -78,18 +78,19 @@ export const groupKey = (store: string, ns: string, type: string, id: string) =>
 // Groups of one namespace, with the size and verification of their last snapshot.
 export const HISTORY = 30;
 
+const verifyState = (s: ApiSnapshot): BackupSnapshot['verify'] => (s.verification?.state === 'ok' ? 'ok' : s.verification?.state === 'failed' ? 'failed' : null);
+
 export function mergeGroups(store: string, ns: string, groups: ApiGroup[], snapshots: ApiSnapshot[]) {
   const last = new Map<string, ApiSnapshot>();
-  const times = new Map<string, number[]>();
+  const times = new Map<string, BackupSnapshot[]>();
   for (const s of snapshots) {
     const k = `${s['backup-type']}/${s['backup-id']}`;
     const cur = last.get(k);
     if (!cur || s['backup-time'] > cur['backup-time']) last.set(k, s);
-    times.set(k, [...(times.get(k) ?? []), s['backup-time'] * 1000]);
+    times.set(k, [...(times.get(k) ?? []), { t: s['backup-time'] * 1000, verify: verifyState(s) }]);
   }
   return groups.map((g) => {
     const s = last.get(`${g['backup-type']}/${g['backup-id']}`);
-    const verify = s?.verification?.state === 'ok' ? 'ok' : s?.verification?.state === 'failed' ? 'failed' : null;
     return {
       _id: groupKey(store, ns, g['backup-type'], g['backup-id']),
       store,
@@ -101,9 +102,9 @@ export function mergeGroups(store: string, ns: string, groups: ApiGroup[], snaps
       count: g['backup-count'],
       lastBackup: g['last-backup'] * 1000,
       size: s?.size ?? null,
-      verify,
-      // dates of the last snapshots, oldest first: the rhythm of the backups and the timeline
-      times: (times.get(`${g['backup-type']}/${g['backup-id']}`) ?? []).sort((a, b) => a - b).slice(-HISTORY),
+      verify: s ? verifyState(s) : null,
+      // last snapshots, oldest first: the rhythm of the backups and the timeline
+      times: (times.get(`${g['backup-type']}/${g['backup-id']}`) ?? []).sort((a, b) => a.t - b.t).slice(-HISTORY),
     } as const;
   });
 }
@@ -183,7 +184,7 @@ export function scheduleExpectation(b: Pick<BackupDoc, 'pve' | 'managed'>, now =
 // schedule plus the grace; else 1.5 x its rhythm (2 h of margin at least), the rhythm being learned from
 // its history, else given by the retention; none of them: no threshold (hours null, never late).
 export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed'>, now = Date.now()): { hours: number | null; source: ThresholdSource; interval: number | null } {
-  const learned = learnedInterval(b.times ?? []);
+  const learned = learnedInterval((b.times ?? []).map((s) => s.t));
   if (b.staleHours) return { hours: b.staleHours, source: 'manual' as ThresholdSource, interval: learned };
   const sched = scheduleExpectation(b, now);
   if (sched && !sched.disabled) {

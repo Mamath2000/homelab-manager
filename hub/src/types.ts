@@ -378,7 +378,7 @@ export interface BackupDoc {
   // host it belongs to, chosen by hand from the host page; null: orphan, not followed
   hostId: ObjectId | null;
   staleHours?: number | null; // own threshold (hours), else the rhythm of the group
-  times?: number[]; // dates of the last snapshots (unix ms, oldest first)
+  times?: BackupSnapshot[]; // last snapshots, oldest first
   retention?: number | null; // finest period kept by the prune policy (ms)
   seenAt: Date; // last poll that saw it
   gone?: boolean; // no longer on the PBS
@@ -389,6 +389,12 @@ export interface BackupDoc {
   managed?: BackupManaged;
   // expected by a PVE job but never seen on the PBS yet
   placeholder?: boolean;
+}
+
+// One snapshot of the history of a group: its date and its verification.
+export interface BackupSnapshot {
+  t: number; // unix ms
+  verify: 'ok' | 'failed' | null;
 }
 
 // --- Proxmox VE clusters (see pve.ts) -------------------------------------------------------

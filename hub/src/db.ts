@@ -49,6 +49,10 @@ export async function connectDb() {
     users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
     // "monitor" was renamed "operator" (and lost the settings)
     users.updateMany({ role: 'monitor' as never }, { $set: { role: 'operator' } }),
+    // the history of the snapshots was plain dates before it carried their verification
+    backups.updateMany({ 'times.0': { $type: 'number' } } as never, [
+      { $set: { times: { $map: { input: '$times', in: { $cond: [{ $isNumber: '$$this' }, { t: '$$this', verify: null }, '$$this'] } } } } },
+    ]),
   ]);
 }
 
