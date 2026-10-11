@@ -101,7 +101,7 @@ test('running a backup job: operator; defining it: admin', () => {
 });
 
 test('API tokens created by a pasted command: what the hub asks for, admin only', async () => {
-  const { setupPlan } = await import('../src/tokenSetup.js');
+  const { parseTokenId, setupPlan } = await import('../src/tokenSetup.js');
   // the namespace Hosts of every datastore: the script applies the path to each one
   assert.deepEqual(setupPlan('host', { hostName: 'Canicoif PProd' }), {
     tool: 'pbs',
@@ -111,8 +111,12 @@ test('API tokens created by a pasted command: what the hub asks for, admin only'
     role: 'DatastoreBackup',
   });
   assert.equal(setupPlan('pve', {}).role, 'PVEAuditor');
-  // another name when the default token already exists on the server
+  // another id when the default token already exists on the server
   assert.equal(setupPlan('pve', { tokenName: 'hlm2' }).token, 'hlm2');
+  assert.deepEqual(parseTokenId('hlm@pve!backup2', 'pve'), { user: 'hlm@pve', token: 'backup2' });
+  assert.equal(parseTokenId('hlm@pam!x', 'pve'), null);
+  assert.equal(parseTokenId('hlm@pve!x', 'pbs'), null);
+  assert.equal(parseTokenId('hlm@pbs!1x', 'pbs'), null);
   assert.equal(setupPlan('pbs', {}).path, '/datastore');
   assert.equal(authorize('operator', 'POST', '/api/settings/token-setups'), false);
   assert.equal(authorize('admin', 'POST', '/api/settings/token-setups'), true);

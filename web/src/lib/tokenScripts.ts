@@ -56,3 +56,9 @@ S=$(printf '%s\n' "$J" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 if [ -n "$S" ]; then echo "Secret du jeton      : $S"; else echo "Secret du jeton : à relever dans la sortie ci-dessous"; printf '%s\n' "$J"; fi
 )`;
 }
+
+// "user@realm!name" -> its user and token name (for the manual blocks); fallback when malformed
+export function splitTokenId(id: string, fallbackUser: string, fallbackToken: string) {
+  const i = id.indexOf('!');
+  return i > 0 ? { user: id.slice(0, i), token: id.slice(i + 1) || fallbackToken } : { user: fallbackUser, token: fallbackToken };
+}

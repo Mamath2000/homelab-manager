@@ -7,13 +7,13 @@ import { Button, CopyField } from './ui';
 
 // Command to paste on the PBS / a PVE node: it creates the token and sends it to the hub (single-use
 // code, 1 h). The secret is never shown; onDone runs once the hub has it.
-// token: its default name, editable (another name when that token already exists on the server).
-export function TokenSetup({ request, where, user, token, onTokenChange, disabled, onDone }: {
+// tokenId: user@realm!name of the token, prefilled with a generic one and editable (another one when that
+// token already exists on the server); the same value as the token id saved with the settings.
+export function TokenSetup({ request, where, tokenId, onTokenIdChange, disabled, onDone }: {
   request: () => TokenSetupRequest;
   where: string;
-  user: string;
-  token: string;
-  onTokenChange: (t: string) => void;
+  tokenId: string;
+  onTokenIdChange: (t: string) => void;
   disabled?: boolean;
   onDone: () => void;
 }) {
@@ -37,7 +37,7 @@ export function TokenSetup({ request, where, user, token, onTokenChange, disable
   const generate = async () => {
     setBusy(true);
     try {
-      setSetup(await api.createTokenSetup({ ...request(), tokenName: token }));
+      setSetup(await api.createTokenSetup({ ...request(), tokenId }));
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -52,12 +52,12 @@ export function TokenSetup({ request, where, user, token, onTokenChange, disable
         affiché. Commande à usage unique, valable 1 heure.
       </p>
       {!setup || status?.status === 'expired' ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5" title="Si ce jeton existe déjà sur le serveur sans que le hub connaisse son secret, choisir un autre nom">
-            <span className="font-mono">{user}!</span>
-            <input className="input h-8 w-32 py-1 font-mono text-xs" value={token} onChange={(e) => onTokenChange(e.target.value.trim())} spellCheck={false} />
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block min-w-0 flex-1" title="Si ce jeton existe déjà sur le serveur sans que le hub connaisse son secret, choisir un autre nom">
+            <span className="mb-1 block font-medium">Identifiant du jeton</span>
+            <input className="input h-8 py-1 font-mono text-xs" value={tokenId} onChange={(e) => onTokenIdChange(e.target.value.trim())} spellCheck={false} />
           </label>
-          <Button size="sm" icon={KeyRound} loading={busy} disabled={disabled || !token} onClick={generate}>
+          <Button size="sm" icon={KeyRound} loading={busy} disabled={disabled || !tokenId} onClick={generate}>
             {status?.status === 'expired' ? 'Commande expirée : en générer une autre' : 'Générer la commande'}
           </Button>
         </div>

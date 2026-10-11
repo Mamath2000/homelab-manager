@@ -51,13 +51,13 @@ export function ServerRow({ name, tag, url, enabled, polledAt, pollError, detail
   );
 }
 
-// Address, pinned certificate, token and polling switch of a server.
-export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, tokenPlaceholder, fingerprintHint, fetchFingerprint, enabledLabel }: {
+// Address, pinned certificate, secret of the token and polling switch of a server (the token id is set
+// next to the command that creates it, see TokenSetup).
+export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerprintHint, fetchFingerprint, enabledLabel }: {
   form: Connection;
   set: (patch: Partial<Connection>) => void;
   hasSecret: boolean;
   urlPlaceholder: string;
-  tokenPlaceholder: string;
   fingerprintHint: ReactNode;
   fetchFingerprint: (url: string) => Promise<{ fingerprint: string }>;
   enabledLabel: string;
@@ -88,23 +88,17 @@ export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, tokenPl
         </div>
         <p className="mt-1 text-xs text-muted">{fingerprintHint}</p>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <label className="block">
-          <span className={field}>Identifiant du jeton</span>
-          <input className="input font-mono text-xs" value={form.tokenId} onChange={(e) => set({ tokenId: e.target.value.trim() })} placeholder={tokenPlaceholder} spellCheck={false} />
-        </label>
-        <label className="block">
-          <span className={field}>Secret du jeton</span>
-          <input
-            className="input font-mono text-xs"
-            type="password"
-            autoComplete="off"
-            value={form.tokenSecret ?? ''}
-            onChange={(e) => set({ tokenSecret: e.target.value.trim() })}
-            placeholder={hasSecret ? '•••••••• (inchangé)' : 'xxxxxxxx-xxxx-…'}
-          />
-        </label>
-      </div>
+      <label className="block">
+        <span className={field}>Secret du jeton {form.tokenId && <span className="font-mono font-normal">({form.tokenId})</span>}</span>
+        <input
+          className="input font-mono text-xs"
+          type="password"
+          autoComplete="off"
+          value={form.tokenSecret ?? ''}
+          onChange={(e) => set({ tokenSecret: e.target.value.trim() })}
+          placeholder={hasSecret ? '•••••••• (inchangé)' : 'reçu par la commande, ou à coller'}
+        />
+      </label>
       <label className="flex cursor-pointer items-center gap-3">
         <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
         <span>{enabledLabel}</span>

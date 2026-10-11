@@ -476,8 +476,7 @@ export interface HostBackupJobs {
 export interface TokenSetupRequest {
   kind: 'pbs' | 'pve' | 'host';
   hostId?: string;
-  tokenName?: string;
-  store?: string;
+  tokenId?: string; // user@realm!name, default: the generic one of the hub
   cluster?: { id: string; name: string; url: string; fingerprint: string };
 }
 

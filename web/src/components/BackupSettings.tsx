@@ -2,14 +2,15 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatabaseBackup, Pencil, Plug, Save } from 'lucide-react';
 import { api, type PbsSettings, type PbsSettingsInput } from '../lib/api';
-import { pbsTokenScript } from '../lib/tokenScripts';
+import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
 import { withoutEmptySecret } from '../lib/forms';
 import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
 import { TokenSetup } from './TokenSetup';
 import { Button, Modal, Panel, Spinner } from './ui';
 
-const pbsSetup = (token: string) => pbsTokenScript({ user: 'homelab@pbs', token, path: '/datastore', role: 'DatastoreAudit' });
+const DEFAULT_TOKEN = 'homelab@pbs!monitor';
+const pbsSetup = (tokenId: string) => pbsTokenScript({ ...splitTokenId(tokenId, 'homelab@pbs', 'monitor'), path: '/datastore', role: 'DatastoreAudit' });
 
 function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
@@ -18,14 +19,13 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     enabled: data.enabled,
     url: data.url,
     fingerprint: data.fingerprint,
-    tokenId: data.tokenId,
+    tokenId: data.tokenId || DEFAULT_TOKEN,
     staleHours: data.staleHours,
     clientImage: data.clientImage ?? '',
     timezone: data.timezone ?? '',
   });
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
-  const [token, setToken] = useState(data.tokenId.split('!')[1] || 'monitor');
   const set = (patch: Partial<PbsSettingsInput>) => setForm({ ...form, ...patch });
 
   const save = async () => {
@@ -78,7 +78,6 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             set={set}
             hasSecret={data.hasSecret}
             urlPlaceholder="https://192.168.100.8:8007"
-            tokenPlaceholder="homelab@pbs!monitor"
             fingerprintHint="Certificat auto-signé : son empreinte est épinglée. À comparer avec celle du PBS (Tableau de bord › Afficher l'empreinte)."
             fetchFingerprint={api.pbsFingerprint}
             enabledLabel="Suivre les sauvegardes du PBS"
@@ -113,17 +112,16 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
           setup={
             <TokenSetup
               where="du PBS"
-              user="homelab@pbs"
-              token={token}
-              onTokenChange={setToken}
+              tokenId={form.tokenId}
+              onTokenIdChange={(tokenId) => set({ tokenId })}
               request={() => ({ kind: 'pbs' })}
               onDone={() => {
                 qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
-                set({ tokenId: `homelab@pbs!${token}`, tokenSecret: undefined });
+                set({ tokenSecret: undefined });
               }}
             />
           }
-          manualScript={pbsSetup(token)}
+          manualScript={pbsSetup(form.tokenId)}
           manualUi={
             <>
               Ou dans l'interface du PBS, Configuration › Contrôle d'accès : <b>Gestion des utilisateurs</b> › Ajouter (realm <code>pbs</code>), <b>Jetons API</b> › Ajouter, puis{' '}

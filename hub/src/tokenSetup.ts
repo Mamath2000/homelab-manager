@@ -44,15 +44,21 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').repla
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // What the script creates, decided by the hub only.
-// Name of a token (part after the "!"): PVE wants a letter first.
-export const TOKEN_NAME_RE = /^[A-Za-z][A-Za-z0-9._-]{0,31}$/;
+// Token id chosen in the UI: user@realm!name, realm of the server's own users (pbs, pve: the script
+// creates the user there), name with a letter first (PVE).
+export const TOKEN_FULL_RE = /^([A-Za-z0-9._-]{1,64})@(pbs|pve)!([A-Za-z][A-Za-z0-9._-]{0,31})$/;
 
-export function setupPlan(kind: TokenSetupKind, o: { hostName?: string; tokenName?: string }) {
-  if (kind === 'pbs') return { tool: 'pbs' as const, user: 'homelab@pbs', token: o.tokenName || 'monitor', path: '/datastore', role: 'DatastoreAudit' };
-  if (kind === 'pve') return { tool: 'pve' as const, user: 'homelab@pve', token: o.tokenName || 'monitor', path: '/', role: 'PVEAuditor' };
+export function parseTokenId(id: string, realm: 'pbs' | 'pve') {
+  const m = TOKEN_FULL_RE.exec(id);
+  return m && m[2] === realm ? { user: `${m[1]}@${m[2]}`, token: m[3] } : null;
+}
+
+export function setupPlan(kind: TokenSetupKind, o: { hostName?: string; user?: string; tokenName?: string }) {
+  if (kind === 'pbs') return { tool: 'pbs' as const, user: o.user || 'homelab@pbs', token: o.tokenName || 'monitor', path: '/datastore', role: 'DatastoreAudit' };
+  if (kind === 'pve') return { tool: 'pve' as const, user: o.user || 'homelab@pve', token: o.tokenName || 'monitor', path: '/', role: 'PVEAuditor' };
   // a token per host, DatastoreBackup on the namespace of the hosts of every datastore ({store}: the script
   // applies it to each one): it only sees the groups it owns, and cannot write in the namespaces of PVE
-  return { tool: 'pbs' as const, user: `host-${slug(o.hostName ?? '')}@pbs`, token: o.tokenName || 'backup', path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' };
+  return { tool: 'pbs' as const, user: o.user || `host-${slug(o.hostName ?? '')}@pbs`, token: o.tokenName || 'backup', path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' };
 }
 
 // naive brute-force protection, as for the enrollment
@@ -102,7 +108,7 @@ async function apply(s: TokenSetupDoc, tokenId: string, secret: string | undefin
 
 // Admin side (UI port): create a command, follow it.
 export function registerTokenSetupRoutes(app: FastifyInstance) {
-  app.post<{ Body: { kind: TokenSetupKind; hostId?: string; tokenName?: string; cluster?: { id: string; name: string; url: string; fingerprint: string } } }>(
+  app.post<{ Body: { kind: TokenSetupKind; hostId?: string; tokenId?: string; cluster?: { id: string; name: string; url: string; fingerprint: string } } }>(
     '/api/settings/token-setups',
     {
       schema: {
@@ -113,8 +119,8 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
           properties: {
             kind: { type: 'string', enum: ['pbs', 'pve', 'host'] },
             hostId: { type: 'string', maxLength: 24 },
-            // name of the token, when the default one already exists on the server
-            tokenName: { type: 'string', maxLength: 32 },
+            // user@realm!name of the token (default: the one of setupPlan)
+            tokenId: { type: 'string', maxLength: 128 },
             cluster: {
               type: 'object',
               required: ['id', 'name', 'url', 'fingerprint'],
@@ -127,8 +133,11 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { kind } = req.body;
-      const tokenName = req.body.tokenName?.trim() || undefined;
-      if (tokenName && !TOKEN_NAME_RE.test(tokenName)) return reply.code(400).send({ error: 'nom du jeton invalide (lettre puis lettres, chiffres, . - _)' });
+      const wanted = req.body.tokenId?.trim();
+      const chosen = wanted ? parseTokenId(wanted, kind === 'pve' ? 'pve' : 'pbs') : null;
+      if (wanted && !chosen) {
+        return reply.code(400).send({ error: `identifiant du jeton invalide : utilisateur@${kind === 'pve' ? 'pve' : 'pbs'}!nom (le nom commence par une lettre)` });
+      }
       let hostId: ObjectId | undefined;
       let hostName: string | undefined;
       let cluster: TokenSetupDoc['cluster'];
@@ -156,7 +165,7 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
         _id: new ObjectId(),
         codeHash: sha256(code),
         kind,
-        ...setupPlan(kind, { hostName, tokenName }),
+        ...setupPlan(kind, { hostName, user: chosen?.user, tokenName: chosen?.token }),
         ...(hostId ? { hostId } : {}),
         ...(cluster ? { cluster } : {}),
         createdAt: new Date(now),

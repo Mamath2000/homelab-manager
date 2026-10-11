@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, Plus, Save, Server } from 'lucide-react';
 import { api, type PveCluster, type PveClusterInput } from '../lib/api';
 import { withoutEmptySecret } from '../lib/forms';
-import { pveTokenScript } from '../lib/tokenScripts';
+import { pveTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
 import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
 import { TokenSetup } from './TokenSetup';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
-const pveSetup = (token: string) => pveTokenScript({ user: 'homelab@pve', token, path: '/', role: 'PVEAuditor' });
+const DEFAULT_TOKEN = 'homelab@pve!monitor';
+const pveSetup = (tokenId: string) => pveTokenScript({ ...splitTokenId(tokenId, 'homelab@pve', 'monitor'), path: '/', role: 'PVEAuditor' });
 
 // One cluster: create (id typed) or edit (id fixed); the secret is never sent back by the hub.
 function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClose: () => void }) {
@@ -18,12 +19,11 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
   const [id, setId] = useState('');
   const [form, setForm] = useState<PveClusterInput>(
     cluster
-      ? { name: cluster.name, url: cluster.url, fingerprint: cluster.fingerprint, tokenId: cluster.tokenId, enabled: cluster.enabled }
-      : { name: '', url: '', fingerprint: '', tokenId: '', enabled: true },
+      ? { name: cluster.name, url: cluster.url, fingerprint: cluster.fingerprint, tokenId: cluster.tokenId || DEFAULT_TOKEN, enabled: cluster.enabled }
+      : { name: '', url: '', fingerprint: '', tokenId: DEFAULT_TOKEN, enabled: true },
   );
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
-  const [token, setToken] = useState(cluster?.tokenId.split('!')[1] || 'monitor');
   const set = (patch: Partial<PveClusterInput>) => setForm({ ...form, ...patch });
   const clusterId = cluster?.id ?? id;
 
@@ -89,7 +89,6 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
             set={set}
             hasSecret={!!cluster?.hasSecret}
             urlPlaceholder="https://192.168.100.241:8006"
-            tokenPlaceholder="homelab@pve!monitor"
             fingerprintHint="Adresse d'un nœud du cluster. À comparer avec l'empreinte du nœud (Système › Certificats, pve-ssl.pem)."
             fetchFingerprint={api.pveFingerprint}
             enabledLabel="Relever ce cluster"
@@ -108,21 +107,20 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
             <>
               <TokenSetup
                 where="d'un nœud du cluster"
-                user="homelab@pve"
-                token={token}
-                onTokenChange={setToken}
+                tokenId={form.tokenId}
+                onTokenIdChange={(tokenId) => set({ tokenId })}
                 disabled={!clusterId || !form.url}
                 request={() => ({ kind: 'pve', cluster: { id: clusterId, name: form.name, url: form.url, fingerprint: form.fingerprint } })}
                 onDone={() => {
                   qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
                   qc.invalidateQueries({ queryKey: ['backups'] });
-                  set({ tokenId: `homelab@pve!${token}`, tokenSecret: undefined });
+                  set({ tokenSecret: undefined });
                 }}
               />
               {(!clusterId || !form.url) && <p>Renseigne d'abord l'identifiant et l'adresse du cluster : le jeton reçu l'enregistre et lance son relevé.</p>}
             </>
           }
-          manualScript={pveSetup(token)}
+          manualScript={pveSetup(form.tokenId)}
           manualUi={
             <>
               Ou dans l'interface, Centre de données › Permissions : <b>Utilisateurs</b> › Ajouter (realm <code>pve</code>), <b>Jetons d'API</b> › Ajouter, puis

@@ -5,7 +5,7 @@ import { Container, KeyRound, Package, Pencil, Play, Plus, Save, Trash2, X } fro
 import { api, type BackupJob, type BackupJobInput, type Host, type HostBackupJobs } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { dateTime, timeAgo } from '../lib/format';
-import { pbsTokenScript } from '../lib/tokenScripts';
+import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { BackupTimeline } from './HostBackups';
@@ -21,9 +21,9 @@ const PRESETS = [
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
-function tokenHelp(host: Host, token: string) {
+function tokenHelp(host: Host, tokenId: string) {
   // DatastoreBackup on the namespace Hosts of every datastore: it only sees and changes the backups it owns
-  return pbsTokenScript({ user: `host-${slug(host.name)}@pbs`, token, path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' });
+  return pbsTokenScript({ ...splitTokenId(tokenId, `host-${slug(host.name)}@pbs`, 'backup'), path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' });
 }
 
 // PBS token of the host: the agent writes its backups with it.
@@ -32,7 +32,6 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
   const toast = useToast();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
   const [secret, setSecret] = useState('');
-  const [token, setToken] = useState(view.credential?.tokenId.split('!')[1] || 'backup');
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
@@ -68,18 +67,14 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
             fichier lisible par root seulement, et jamais renvoyé à l'interface.
           </p>
           <label className="block">
-            <span className={field}>Identifiant du jeton</span>
-            <input className="input font-mono text-xs" value={tokenId} onChange={(e) => setTokenId(e.target.value.trim())} spellCheck={false} />
-          </label>
-          <label className="block">
-            <span className={field}>Secret du jeton</span>
+            <span className={field}>Secret du jeton <span className="font-mono font-normal">({tokenId})</span></span>
             <input
               className="input font-mono text-xs"
               type="password"
               autoComplete="off"
               value={secret}
               onChange={(e) => setSecret(e.target.value.trim())}
-              placeholder={view.credential ? '•••••••• (inchangé)' : 'xxxxxxxx-xxxx-…'}
+              placeholder={view.credential ? '•••••••• (inchangé)' : 'reçu par la commande, ou à coller'}
             />
           </label>
         </div>
@@ -92,9 +87,8 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           </p>
           <TokenSetup
             where="du PBS"
-            user={`host-${slug(host.name)}@pbs`}
-            token={token}
-            onTokenChange={setToken}
+            tokenId={tokenId}
+            onTokenIdChange={setTokenId}
             request={() => ({ kind: 'host', hostId: host.id })}
             onDone={() => {
               qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
@@ -104,7 +98,7 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           <details>
             <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
             <div className="mt-2">
-              <CopyField multiline value={tokenHelp(host, token)} />
+              <CopyField multiline value={tokenHelp(host, tokenId)} />
             </div>
           </details>
         </aside>
