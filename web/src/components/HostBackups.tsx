@@ -5,7 +5,7 @@ import { AlertTriangle, Container, DatabaseBackup, FolderArchive, Link2, Package
 import { ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupClient, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -206,6 +206,9 @@ export function HostBackups({ host }: { host: Host }) {
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
                     <Badge tone={meta.tone}>{meta.label}</Badge>
+                    <span title={backupKind(g).title}>
+                      <Badge tone="neutral">{backupKind(g).label}</Badge>
+                    </span>
                     {canWrite && g.managed && (
                       <Button size="sm" icon={Play} className="ml-auto" loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
                         Lancer

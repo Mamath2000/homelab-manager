@@ -88,3 +88,11 @@ export function backupClient(caps: string[]) {
   const supported = caps.includes('backup_setup') || caps.includes('backup');
   return { mode, supported } as const;
 }
+
+// Kind of a backup: full image of the guest (vzdump of Proxmox VE), directories run by the agent (job
+// of the hub), or made by something else and attached by hand (backup_pbs_scripts...).
+export function backupKind(g: Pick<BackupGroup, 'source'>) {
+  if (g.source === 'vzdump') return { label: 'image PVE', title: 'Image complète du CT / de la VM, sauvegardée par un job vzdump de Proxmox VE' };
+  if (g.source === 'managed') return { label: 'répertoires', title: "Sauvegarde de répertoires définie ici et lancée par l'agent de l'hôte" };
+  return { label: 'externe', title: 'Sauvegarde faite hors Homelab Manager (scripts…), rattachée à la main' };
+}
