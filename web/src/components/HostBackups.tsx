@@ -202,37 +202,40 @@ export function HostBackups({ host }: { host: Host }) {
             const meta = backupStateMeta[g.state];
             const rhythm = rhythmLabel(g.interval);
             return (
-              // the timeline to the right of the text when the card is wide enough (container query), below otherwise
-              <li key={g.id} className="flex flex-col gap-2 py-3 @2xl:flex-row @2xl:items-center @2xl:gap-6">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
-                    <Badge tone={meta.tone}>{meta.label}</Badge>
-                    <span title={backupKind(g).title}>
-                      <Badge tone="neutral">{backupKind(g).label}</Badge>
-                    </span>
-                    {canWrite && g.managed && (
-                      <Button size="sm" icon={Play} className="ml-auto" loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
-                        Lancer
-                      </Button>
-                    )}
-                    {canManage && !g.source && (
-                      <Button size="sm" variant="ghost" icon={Unlink} className="ml-auto" title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
-                    )}
-                  </div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.lastBackup ? timeAgo(g.lastBackup) : 'jamais sauvegardée'} · {formatBytes(g.size)}
-                    {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
-                    {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
-                  </div>
-                  <div className="text-xs text-zinc-500">
-                    {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed ? `agent · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · {g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`}
-                  </div>
-                  {g.pve?.lastTask && !g.pve.lastTask.ok && (
-                    <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>
+              // name, badges and actions on top; below, the details and the timeline side by side (half each)
+              // when the card is wide enough (container query), the timeline below the details otherwise
+              <li key={g.id} className="space-y-1.5 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
+                  <Badge tone={meta.tone}>{meta.label}</Badge>
+                  <span title={backupKind(g).title}>
+                    <Badge tone="neutral">{backupKind(g).label}</Badge>
+                  </span>
+                  {canWrite && g.managed && (
+                    <Button size="sm" icon={Play} className="ml-auto" loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
+                      Lancer
+                    </Button>
+                  )}
+                  {canManage && !g.source && (
+                    <Button size="sm" variant="ghost" icon={Unlink} className="ml-auto" title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
                   )}
                 </div>
-                <BackupTimeline group={g} className="w-full @2xl:w-64 @2xl:shrink-0" />
+                <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:gap-6">
+                  <div className="min-w-0 @2xl:flex-1 @2xl:basis-0">
+                    <div className="text-xs text-muted">
+                      {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.lastBackup ? timeAgo(g.lastBackup) : 'jamais sauvegardée'} · {formatBytes(g.size)}
+                      {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
+                      {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
+                    </div>
+                    <div className="text-xs text-zinc-500">
+                      {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed ? `agent · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · {g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`}
+                    </div>
+                    {g.pve?.lastTask && !g.pve.lastTask.ok && (
+                      <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>
+                    )}
+                  </div>
+                  <BackupTimeline group={g} className="w-full @2xl:flex-1 @2xl:basis-0" />
+                </div>
               </li>
             );
           })}
