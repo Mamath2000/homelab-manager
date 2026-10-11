@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged } from '../src/docker.js';
+import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, staleRegistryCheck } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -157,4 +157,18 @@ test('malformed reports are refused', () => {
   assert.ok(!isDockerReport({ checkedAt: 1, stacks: [{ name: 'x' }], images: [] }));
   assert.ok(!isDockerReport({ stacks: [], images: [] }));
   assert.ok(!isDockerReport(null));
+});
+
+test('registry check stale after a local image change', () => {
+  const report = (id: string, digest: string) => dockerHost({ images: [{ ref: 'app:latest', id, digest, digests: [digest] }] }).docker!;
+  const MID = 'sha256:' + 'c'.repeat(64);
+  const checked = { checkedAt: 1, images: [{ ref: 'app:latest', digest: MID }] };
+  // release N checked, then N+1 pulled: the recorded digest is neither
+  assert.equal(staleRegistryCheck(report('img-old', OLD), report('img-new', NEW), checked), true);
+  // the pulled image is the one the check saw
+  assert.equal(staleRegistryCheck(report('img-old', OLD), report('img-new', MID), checked), false);
+  // nothing changed locally, no previous report, never checked
+  assert.equal(staleRegistryCheck(report('img-old', OLD), report('img-old', OLD), checked), false);
+  assert.equal(staleRegistryCheck(undefined, report('img-new', NEW), checked), false);
+  assert.equal(staleRegistryCheck(report('img-old', OLD), report('img-new', NEW), undefined), false);
 });

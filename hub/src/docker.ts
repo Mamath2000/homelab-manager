@@ -69,6 +69,20 @@ function serviceUpdate(svc: DockerService, report: DockerReport, updates?: Docke
   return { ...base, update: 'unknown' };
 }
 
+// The registry check is stale when an image changed locally (pull + up after a new release) and
+// the registry digest it recorded is not the new local one: compared as is, the image would show
+// an update that is already installed until the next scheduled check.
+export function staleRegistryCheck(prev: DockerReport | undefined, next: DockerReport, updates?: DockerUpdates) {
+  if (!prev || !updates) return false;
+  return next.images.some((img) => {
+    const before = prev.images.find((i) => i.ref === img.ref);
+    const remote = updates.images.find((i) => i.ref === img.ref)?.digest;
+    if (!before || !remote || !img.id || before.id === img.id) return false;
+    const digests = img.digests?.length ? img.digests : img.digest ? [img.digest] : [];
+    return !digests.includes(remote);
+  });
+}
+
 export function stackProblems(st: { status: string; running: number; total: number; services: DockerService[] }) {
   const out: string[] = [];
   if (st.status === 'partial') out.push(`${st.running}/${st.total} conteneurs en marche`);

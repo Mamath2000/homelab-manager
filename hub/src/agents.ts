@@ -1,3 +1,4 @@
+import type { ObjectId } from 'mongodb';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { TLSSocket } from 'node:tls';
@@ -7,9 +8,9 @@ import { publish } from './events.js';
 import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
 import { recentlyInstalled } from './installed.js';
-import { appendJobLog, failRunningJobs, finishJob } from './jobs.js';
+import { appendJobLog, createJob, failRunningJobs, finishJob, hasRunningJob } from './jobs.js';
 import { checkHostSetup, onAgentHello } from './setup.js';
-import { isDockerReport, isDockerUpdates } from './docker.js';
+import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
@@ -23,6 +24,15 @@ const connections = new Map<string, WebSocket>();
 
 export function isOnline(hostId: string) {
   return connections.has(hostId);
+}
+
+// Runs the registry check left due by a docker report, once the host is free (one job at a time):
+// the flag is cleared when the job starts, so a failing check is not retried in a loop.
+async function dockerRecheck(hostId: ObjectId) {
+  const id = hostId.toHexString();
+  if (!isOnline(id) || hasRunningJob(id)) return;
+  const host = await hosts.findOneAndUpdate({ _id: hostId, dockerRecheck: true }, { $unset: { dockerRecheck: '' } });
+  if (host) await createJob(host, 'docker_check', [], 'schedule');
 }
 
 export function sendToAgent(hostId: string, msg: unknown) {
@@ -194,12 +204,21 @@ export function registerAgentSocket(app: FastifyInstance) {
               break;
             case 'docker_report':
               if (!isDockerReport(msg.docker)) return;
-              await hosts.updateOne({ _id: host._id }, { $set: { docker: msg.docker, lastSeenAt: new Date() } });
-              await emitHost(host._id);
+              {
+                const current = await hosts.findOne({ _id: host._id }, { projection: { docker: 1, dockerUpdates: 1 } });
+                const recheck = staleRegistryCheck(current?.docker, msg.docker, current?.dockerUpdates);
+                await hosts.updateOne(
+                  { _id: host._id },
+                  { $set: { docker: msg.docker, lastSeenAt: new Date(), ...(recheck ? { dockerRecheck: true } : {}) } },
+                );
+                await emitHost(host._id);
+                if (recheck) log.info('local images changed since the registry check');
+                await dockerRecheck(host._id);
+              }
               break;
             case 'docker_updates':
               if (!isDockerUpdates(msg.updates)) return;
-              await hosts.updateOne({ _id: host._id }, { $set: { dockerUpdates: msg.updates } });
+              await hosts.updateOne({ _id: host._id }, { $set: { dockerUpdates: msg.updates }, $unset: { dockerRecheck: '' } });
               await emitHost(host._id);
               break;
             case 'rpc_result':
@@ -212,6 +231,8 @@ export function registerAgentSocket(app: FastifyInstance) {
               if (msg.jobId) {
                 const job = await finishJob(msg.jobId, id, msg.exitCode ?? 0, msg.error);
                 if (job?.action === 'setup_apply') checkHostSetup(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
+                // a report received during the job (docker_update...) may have left a registry check due
+                await dockerRecheck(host._id);
               }
               break;
           }
