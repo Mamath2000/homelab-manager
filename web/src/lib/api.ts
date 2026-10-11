@@ -472,6 +472,7 @@ export interface HostBackupJobs {
 export interface TokenSetupRequest {
   kind: 'pbs' | 'pve' | 'host';
   hostId?: string;
+  tokenName?: string;
   store?: string;
   cluster?: { id: string; name: string; url: string; fingerprint: string };
 }

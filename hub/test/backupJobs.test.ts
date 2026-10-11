@@ -111,6 +111,8 @@ test('API tokens created by a pasted command: what the hub asks for, admin only'
     role: 'DatastoreBackup',
   });
   assert.equal(setupPlan('pve', {}).role, 'PVEAuditor');
+  // another name when the default token already exists on the server
+  assert.equal(setupPlan('pve', { tokenName: 'hlm2' }).token, 'hlm2');
   assert.equal(setupPlan('pbs', {}).path, '/datastore');
   assert.equal(authorize('operator', 'POST', '/api/settings/token-setups'), false);
   assert.equal(authorize('admin', 'POST', '/api/settings/token-setups'), true);

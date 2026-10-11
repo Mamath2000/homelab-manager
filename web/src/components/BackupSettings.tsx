@@ -8,7 +8,7 @@ import { useToast } from '../lib/toast';
 import { TokenSetup } from './TokenSetup';
 import { Button, CopyField, Panel, Spinner } from './ui';
 
-const PBS_SETUP = pbsTokenScript({ user: 'homelab@pbs', token: 'monitor', path: '/datastore', role: 'DatastoreAudit' });
+const pbsSetup = (token: string) => pbsTokenScript({ user: 'homelab@pbs', token, path: '/datastore', role: 'DatastoreAudit' });
 
 // Proxmox Backup Server followed through its API (Paramètres > Sauvegardes).
 export function BackupSettings() {
@@ -19,6 +19,7 @@ export function BackupSettings() {
   const [draft, setDraft] = useState<PbsSettingsInput | null>(null);
   const [busy, setBusy] = useState<'save' | 'test' | 'fp' | null>(null);
   const [test, setTest] = useState<{ level: 'ok' | 'warn' | 'error'; text: string } | null>(null);
+  const [token, setToken] = useState('monitor');
 
   if (!data) return <div className="flex justify-center p-10"><Spinner /></div>;
   const form: PbsSettingsInput = draft ?? { enabled: data.enabled, url: data.url, fingerprint: data.fingerprint, tokenId: data.tokenId, staleHours: data.staleHours };
@@ -133,21 +134,24 @@ export function BackupSettings() {
         <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
           <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
           <p>
-            Jeton <code>homelab@pbs!monitor</code>, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule), donné à l'utilisateur <b>et</b> au jeton : les
+            Jeton de l'utilisateur <code>homelab@pbs</code>, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule), donné à l'utilisateur <b>et</b> au jeton : les
             droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur.
           </p>
           <TokenSetup
             where="du PBS"
+            user="homelab@pbs"
+            token={token}
+            onTokenChange={setToken}
             request={() => ({ kind: 'pbs' })}
             onDone={() => {
               qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
-              if (draft) setDraft({ ...draft, tokenId: 'homelab@pbs!monitor', tokenSecret: undefined });
+              if (draft) setDraft({ ...draft, tokenId: `homelab@pbs!${token}`, tokenSecret: undefined });
             }}
           />
           <details>
             <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
             <div className="mt-2 space-y-2">
-              <CopyField multiline value={PBS_SETUP} />
+              <CopyField multiline value={pbsSetup(token)} />
               <p>
                 Ou dans l'interface du PBS, Configuration › Contrôle d'accès : <b>Gestion des utilisateurs</b> › Ajouter (realm <code>pbs</code>), <b>Jetons API</b> ›
                 Ajouter, puis <b>Permissions</b> : « Permission utilisateur » et « Permission de jeton API », chemin <code>/datastore</code>, rôle{' '}

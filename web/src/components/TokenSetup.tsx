@@ -7,7 +7,16 @@ import { Button, CopyField } from './ui';
 
 // Command to paste on the PBS / a PVE node: it creates the token and sends it to the hub (single-use
 // code, 1 h). The secret is never shown; onDone runs once the hub has it.
-export function TokenSetup({ request, where, disabled, onDone }: { request: () => TokenSetupRequest; where: string; disabled?: boolean; onDone: () => void }) {
+// token: its default name, editable (another name when that token already exists on the server).
+export function TokenSetup({ request, where, user, token, onTokenChange, disabled, onDone }: {
+  request: () => TokenSetupRequest;
+  where: string;
+  user: string;
+  token: string;
+  onTokenChange: (t: string) => void;
+  disabled?: boolean;
+  onDone: () => void;
+}) {
   const toast = useToast();
   const [setup, setSetup] = useState<{ id: string; command: string; tokenId: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,7 +37,7 @@ export function TokenSetup({ request, where, disabled, onDone }: { request: () =
   const generate = async () => {
     setBusy(true);
     try {
-      setSetup(await api.createTokenSetup(request()));
+      setSetup(await api.createTokenSetup({ ...request(), tokenName: token }));
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -43,9 +52,15 @@ export function TokenSetup({ request, where, disabled, onDone }: { request: () =
         affiché. Commande à usage unique, valable 1 heure.
       </p>
       {!setup || status?.status === 'expired' ? (
-        <Button size="sm" icon={KeyRound} loading={busy} disabled={disabled} onClick={generate}>
-          {status?.status === 'expired' ? 'Commande expirée : en générer une autre' : 'Générer la commande'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5" title="Si ce jeton existe déjà sur le serveur sans que le hub connaisse son secret, choisir un autre nom">
+            <span className="font-mono">{user}!</span>
+            <input className="input h-8 w-32 py-1 font-mono text-xs" value={token} onChange={(e) => onTokenChange(e.target.value.trim())} spellCheck={false} />
+          </label>
+          <Button size="sm" icon={KeyRound} loading={busy} disabled={disabled || !token} onClick={generate}>
+            {status?.status === 'expired' ? 'Commande expirée : en générer une autre' : 'Générer la commande'}
+          </Button>
+        </div>
       ) : (
         <>
           <CopyField value={setup.command} />

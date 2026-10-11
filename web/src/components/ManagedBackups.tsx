@@ -21,9 +21,9 @@ const PRESETS = [
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
-function tokenHelp(host: Host) {
+function tokenHelp(host: Host, token: string) {
   // DatastoreBackup on the namespace Hosts of every datastore: it only sees and changes the backups it owns
-  return pbsTokenScript({ user: `host-${slug(host.name)}@pbs`, token: 'backup', path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' });
+  return pbsTokenScript({ user: `host-${slug(host.name)}@pbs`, token, path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' });
 }
 
 // PBS token of the host: the agent writes its backups with it.
@@ -32,6 +32,7 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
   const toast = useToast();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
   const [secret, setSecret] = useState('');
+  const [token, setToken] = useState(view.credential?.tokenId.split('!')[1] || 'backup');
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
@@ -91,6 +92,9 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           </p>
           <TokenSetup
             where="du PBS"
+            user={`host-${slug(host.name)}@pbs`}
+            token={token}
+            onTokenChange={setToken}
             request={() => ({ kind: 'host', hostId: host.id })}
             onDone={() => {
               qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
@@ -100,7 +104,7 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           <details>
             <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
             <div className="mt-2">
-              <CopyField multiline value={tokenHelp(host)} />
+              <CopyField multiline value={tokenHelp(host, token)} />
             </div>
           </details>
         </aside>

@@ -8,7 +8,7 @@ import { useToast } from '../lib/toast';
 import { TokenSetup } from './TokenSetup';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
 
-const PVE_SETUP = pveTokenScript({ user: 'homelab@pve', token: 'monitor', path: '/', role: 'PVEAuditor' });
+const pveSetup = (token: string) => pveTokenScript({ user: 'homelab@pve', token, path: '/', role: 'PVEAuditor' });
 
 const EMPTY: PveClusterInput = { name: '', url: '', fingerprint: '', tokenId: '', enabled: true };
 
@@ -20,6 +20,7 @@ function ClusterModal({ cluster, open, onClose }: { cluster: PveCluster | null; 
   const [draft, setDraft] = useState<PveClusterInput | null>(null);
   const [busy, setBusy] = useState<'save' | 'test' | 'fp' | null>(null);
   const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [token, setToken] = useState(cluster?.tokenId.split('!')[1] || 'monitor');
   const form: PveClusterInput = draft ?? (cluster ? { name: cluster.name, url: cluster.url, fingerprint: cluster.fingerprint, tokenId: cluster.tokenId, enabled: cluster.enabled } : EMPTY);
   const set = (patch: Partial<PveClusterInput>) => setDraft({ ...form, ...patch });
   const clusterId = cluster?.id ?? id;
@@ -136,24 +137,27 @@ function ClusterModal({ cluster, open, onClose }: { cluster: PveCluster | null; 
         <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
           <p className="font-medium text-zinc-100">Créer le jeton sur le cluster</p>
           <p>
-            Jeton <code>homelab@pve!monitor</code>, rôle <b>PVEAuditor</b> sur <code>/</code> : lecture des guests, de leur configuration réseau, des jobs de
+            Jeton de l'utilisateur <code>homelab@pve</code>, rôle <b>PVEAuditor</b> sur <code>/</code> : lecture des guests, de leur configuration réseau, des jobs de
             sauvegarde et des tâches. Avec la séparation des privilèges, le rôle est donné à l'utilisateur <b>et</b> au jeton.
           </p>
           <TokenSetup
             where="d'un nœud du cluster"
+            user="homelab@pve"
+            token={token}
+            onTokenChange={setToken}
             disabled={!clusterId || !form.url}
             request={() => ({ kind: 'pve', cluster: { id: clusterId, name: form.name, url: form.url, fingerprint: form.fingerprint } })}
             onDone={() => {
               qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
               qc.invalidateQueries({ queryKey: ['backups'] });
-              set({ tokenId: 'homelab@pve!monitor', tokenSecret: undefined });
+              set({ tokenId: `homelab@pve!${token}`, tokenSecret: undefined });
             }}
           />
           {(!clusterId || !form.url) && <p>Renseigne d'abord l'identifiant et l'adresse du cluster : le jeton reçu l'enregistre et lance son relevé.</p>}
           <details>
             <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
             <div className="mt-2 space-y-2">
-              <CopyField multiline value={PVE_SETUP} />
+              <CopyField multiline value={pveSetup(token)} />
               <p>
                 Ou dans l'interface, Centre de données › Permissions : <b>Utilisateurs</b> › Ajouter (realm <code>pve</code>), <b>Jetons d'API</b> › Ajouter, puis
                 <b> Permissions</b> › « Permission utilisateur » et « Permission de jeton d'API », chemin <code>/</code>, rôle <code>PVEAuditor</code>.
