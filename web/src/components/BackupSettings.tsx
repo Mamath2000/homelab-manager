@@ -3,18 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatabaseBackup, Fingerprint, Plug, Save } from 'lucide-react';
 import { api, type PbsSettingsInput } from '../lib/api';
 import { timeAgo } from '../lib/format';
+import { pbsTokenScript } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
 import { Button, CopyField, Panel, Spinner } from './ui';
 
-const PBS_SETUP = `# utilisateur dédié, sans mot de passe : il ne sert pas à se connecter
-proxmox-backup-manager user create homelab@pbs
-# son jeton : noter le secret affiché, il n'est montré qu'une fois
-proxmox-backup-manager user generate-token homelab@pbs monitor
-# lecture seule sur tous les datastores, pour l'utilisateur ET le jeton
-proxmox-backup-manager acl update /datastore DatastoreAudit --auth-id homelab@pbs
-proxmox-backup-manager acl update /datastore DatastoreAudit --auth-id 'homelab@pbs!monitor'
-# contrôle : doit lister Datastore.Audit
-proxmox-backup-manager user permissions 'homelab@pbs!monitor' --path /datastore`;
+const PBS_SETUP = pbsTokenScript({ user: 'homelab@pbs', token: 'monitor', path: '/datastore', role: 'DatastoreAudit' });
 
 // Proxmox Backup Server followed through its API (Paramètres > Sauvegardes).
 export function BackupSettings() {
@@ -140,7 +133,8 @@ export function BackupSettings() {
           <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
           <p>
             Les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur : le rôle <b>DatastoreAudit</b> sur <code>/datastore</code> doit être
-            donné à l'utilisateur <b>et</b> au jeton. En ligne de commande sur le PBS :
+            donné à l'utilisateur <b>et</b> au jeton. Colle ce bloc dans un shell root du PBS : il crée l'utilisateur, le jeton et les droits, puis affiche
+            l'identifiant et le secret à recopier ici.
           </p>
           <CopyField multiline value={PBS_SETUP} />
           <p>

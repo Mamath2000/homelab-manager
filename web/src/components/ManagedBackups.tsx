@@ -5,6 +5,7 @@ import { FolderArchive, KeyRound, Pencil, Play, Plus, Save, Trash2, X } from 'lu
 import { api, type BackupJob, type BackupJobInput, type Host, type HostBackupJobs } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { dateTime, timeAgo } from '../lib/format';
+import { pbsTokenScript } from '../lib/tokenScripts';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
@@ -19,13 +20,8 @@ const PRESETS = [
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
 function tokenHelp(host: Host, store: string) {
-  const user = `host-${slug(host.name)}@pbs`;
-  return `# sur le PBS : un utilisateur et un jeton propres à cet hôte
-proxmox-backup-manager user create ${user}
-proxmox-backup-manager user generate-token ${user} backup
-# DatastoreBackup : il ne voit et ne modifie que les sauvegardes dont il est propriétaire
-proxmox-backup-manager acl update /datastore/${store}/Hosts DatastoreBackup --auth-id ${user}
-proxmox-backup-manager acl update /datastore/${store}/Hosts DatastoreBackup --auth-id '${user}!backup'`;
+  // DatastoreBackup: it only sees and changes the backups it owns
+  return pbsTokenScript({ user: `host-${slug(host.name)}@pbs`, token: 'backup', path: `/datastore/${store}/Hosts`, role: 'DatastoreBackup' });
 }
 
 // PBS token of the host: the agent writes its backups with it.
@@ -88,7 +84,8 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
           <p>
             Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace des hôtes : un hôte compromis ne peut ni lire ni modifier les sauvegardes des
-            autres. Le rôle est donné à l'utilisateur <b>et</b> au jeton (intersection des droits).
+            autres. Colle ce bloc dans un shell root du PBS : il crée l'utilisateur, le jeton et les droits, puis affiche l'identifiant et le secret à
+            recopier ici.
           </p>
           <CopyField multiline value={tokenHelp(host, view.datastores[0] ?? 'ds2')} />
         </aside>

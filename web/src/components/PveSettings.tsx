@@ -3,16 +3,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fingerprint, Pencil, Plug, Plus, Save, Server, Trash2 } from 'lucide-react';
 import { api, type PveCluster, type PveClusterInput } from '../lib/api';
 import { timeAgo } from '../lib/format';
+import { pveTokenScript } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
 
-const PVE_SETUP = `# utilisateur dédié, sans mot de passe : il ne sert pas à se connecter
-pveum user add homelab@pve
-# son jeton (séparation des privilèges) : noter le secret affiché, il n'est montré qu'une fois
-pveum user token add homelab@pve monitor --privsep 1
-# lecture seule sur tout le cluster, pour l'utilisateur ET le jeton
-pveum acl modify / --roles PVEAuditor --users homelab@pve
-pveum acl modify / --roles PVEAuditor --tokens 'homelab@pve!monitor'`;
+const PVE_SETUP = pveTokenScript({ user: 'homelab@pve', token: 'monitor', path: '/', role: 'PVEAuditor' });
 
 const EMPTY: PveClusterInput = { name: '', url: '', fingerprint: '', tokenId: '', enabled: true };
 
@@ -141,7 +136,8 @@ function ClusterModal({ cluster, open, onClose }: { cluster: PveCluster | null; 
           <p className="font-medium text-zinc-100">Créer le jeton sur le cluster</p>
           <p>
             Le rôle <b>PVEAuditor</b> sur <code>/</code> suffit : lecture des guests, de leur configuration réseau, des jobs de sauvegarde et des tâches. Avec la
-            séparation des privilèges, il doit être donné à l'utilisateur <b>et</b> au jeton. Sur un nœud du cluster :
+            séparation des privilèges, il doit être donné à l'utilisateur <b>et</b> au jeton. Colle ce bloc dans un shell root d'un nœud du cluster : il crée
+            l'utilisateur, le jeton et les droits, puis affiche l'identifiant et le secret à recopier ici.
           </p>
           <CopyField multiline value={PVE_SETUP} />
           <p>
