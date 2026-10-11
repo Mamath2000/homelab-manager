@@ -22,14 +22,15 @@ export function BackupTimeline({ group, days = 30, className }: { group: Pick<Ba
   const oldest = group.times?.[0] ?? Infinity;
   const today = cells[cells.length - 1].day;
   return (
-    <div className={clsx('flex gap-[3px]', className ?? 'w-full')} aria-label="Snapshots des 30 derniers jours">
+    // cells share the width (no minimum: 30 of them never overflow a narrow box)
+    <div className={clsx('flex gap-[2px]', className ?? 'w-full')} aria-label="Snapshots des 30 derniers jours">
       {cells.map((c) => {
         const missing = daily && !c.count && c.day + DAY > oldest && c.day < today;
         return (
           <span
             key={c.day}
             title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}` : 'aucun snapshot'}`}
-            className={clsx('h-3.5 min-w-1.5 flex-1 rounded-[2px]', c.count ? 'bg-emerald-500' : missing ? 'bg-red-500/70' : 'bg-raised')}
+            className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.count ? 'bg-emerald-500' : missing ? 'bg-red-500/70' : 'bg-raised')}
           />
         );
       })}
@@ -231,7 +232,7 @@ export function HostBackups({ host }: { host: Host }) {
                     <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>
                   )}
                 </div>
-                <BackupTimeline group={g} className="w-full @2xl:w-56 @2xl:shrink-0" />
+                <BackupTimeline group={g} className="w-full @2xl:w-64 @2xl:shrink-0" />
               </li>
             );
           })}
