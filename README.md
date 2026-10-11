@@ -1,6 +1,6 @@
 # Homelab Manager
 
-Administration d'un homelab (une vingtaine de serveurs, VM et LXC) depuis une seule interface : état des hôtes, mises à jour système (APT), stacks Docker, et bientôt sauvegardes et standardisation des hôtes.
+Administration d'un homelab (une vingtaine de serveurs, VM et LXC) depuis une seule interface : état des hôtes, mises à jour système (APT), stacks Docker, sauvegardes et standardisation des hôtes.
 
 Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, aucun port à ouvrir sur les hôtes.
 
@@ -18,7 +18,7 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 - **Échanges sécurisés** avec les agents : TLS avec la clé du hub épinglée, commande d'installation à usage unique, un certificat par agent, révocation en un clic. Voir [docs/securite.md](docs/securite.md).
 - **Nettoyage** : paquets devenus inutiles (anciens noyaux, dépendances orphelines) détectés par simulation d'`apt autoremove`, supprimables depuis l'interface ou Home Assistant.
 - **Docker** : stacks compose des hôtes découvertes automatiquement, état des conteneurs et santé, images à mettre à jour (vérifiées auprès du registre sans rien télécharger), démarrer / arrêter / redémarrer / mettre à jour une stack ou un service, logs et fichiers compose (`.env` masqué). Voir [docs/docker.md](docs/docker.md).
-- **Sauvegardes** : suivi d'un Proxmox Backup Server par son API (jeton en lecture seule, certificat épinglé) : dernière sauvegarde, taille, vérification et espace des datastores, rattachés aux hôtes, alertes de retard dans l'interface et Home Assistant. Voir [docs/sauvegardes.md](docs/sauvegardes.md).
+- **Sauvegardes** : suivi d'un Proxmox Backup Server par son API ; jobs vzdump des clusters Proxmox VE rattachés automatiquement aux hôtes (lien par adresse MAC), retard jugé sur leur planification ; sauvegardes de répertoires définies dans le hub et lancées par les agents (client APT ou conteneur) ; jetons créés par une commande à usage unique ; alertes dans l'interface et Home Assistant. Voir [docs/sauvegardes.md](docs/sauvegardes.md).
 - **Standardisation** : configuration standard des hôtes en trois sections (système : paquets, connexion SSH par mot de passe ; root et un utilisateur : clés SSH, alias, prompt, écran d'accueil), surchargeable option par option sur chaque hôte, appliquée à un hôte, à une sélection d'hôtes ou automatiquement à l'ajout, avec un état de conformité par option. Voir [docs/standardisation.md](docs/standardisation.md).
 - **Historique** des tâches avec leurs sorties (conservé 90 jours).
 - **Home Assistant** (option, dans les Paramètres) : publication MQTT avec découverte automatique *device-based*. Hiérarchie Homelab Manager > hôtes > composants (APT…), alertes remontées vers l'hôte puis la racine, mises à jour installables depuis HA. Voir [docs/home-assistant.md](docs/home-assistant.md).
@@ -180,6 +180,6 @@ L'agent a sa propre version, `agent/VERSION` (X.Y.Z), indépendante de celle de 
 - [x] Docker : état des stacks compose et des conteneurs, mises à jour des images, actions, logs
 - [ ] Docker : stacks synchronisées hôte ↔ hub (édition, détection de dérive, push, rollback)
 - [ ] Alertes (ntfy, MQTT, Telegram…)
-- [ ] Suivi des sauvegardes (heartbeats, alertes en cas d'échec ou d'absence)
+- [x] Sauvegardes : suivi PBS et Proxmox VE, sauvegardes de répertoires pilotées, alertes
 - [ ] Standardisation : profils de paquets, clés SSH, accès
 - [ ] Métriques système légères
