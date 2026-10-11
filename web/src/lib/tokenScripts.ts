@@ -1,7 +1,8 @@
 // Blocks to paste in a root shell of the PBS / PVE: they create the user and its token, give the
 // role to both, and end by printing the token id and secret to copy into the form. Safe to paste
 // again: an existing user is kept, an existing token is never replaced silently (its secret cannot
-// be read back). Run in a subshell so that `set -e` does not close the shell it is pasted in; the
+// be read back). The creation commands do not take --output-format: the secret (a UUID) is taken
+// from their plain output. Run in a subshell so that `set -e` does not close the shell it is pasted in; the
 // '!' of the token id stays in single quotes (history expansion of interactive bash).
 
 export function pbsTokenScript(o: { user: string; token: string; path: string; role: string }) {
@@ -15,13 +16,15 @@ if proxmox-backup-manager user list-tokens "$U" --output-format json | jq -e --a
   echo "Le jeton $ID existe déjà et son secret n'est plus lisible. Pour le remplacer : proxmox-backup-manager user delete-token $U $T, puis recoller ce bloc."
   exit 1
 fi
-J=$(proxmox-backup-manager user generate-token "$U" "$T" --output-format json)
+J=$(proxmox-backup-manager user generate-token "$U" "$T")
 # droits de l'utilisateur ET du jeton (intersection)
 proxmox-backup-manager acl update '${o.path}' ${o.role} --auth-id "$U"
 proxmox-backup-manager acl update '${o.path}' ${o.role} --auth-id "$ID"
 echo
 echo "Identifiant du jeton : $ID"
-echo "Secret du jeton      : $(echo "$J" | jq -r .value)"
+# the secret is a UUID, whatever the output format of the command
+S=$(printf '%s\n' "$J" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | tail -n 1)
+if [ -n "$S" ]; then echo "Secret du jeton      : $S"; else echo "Secret du jeton : à relever dans la sortie ci-dessous"; printf '%s\n' "$J"; fi
 )`;
 }
 
@@ -36,12 +39,14 @@ if pveum user token list "$U" --output-format json | jq -e --arg t "$T" 'any(.[]
   echo "Le jeton $ID existe déjà et son secret n'est plus lisible. Pour le remplacer : pveum user token remove $U $T, puis recoller ce bloc."
   exit 1
 fi
-J=$(pveum user token add "$U" "$T" --privsep 1 --output-format json)
+J=$(pveum user token add "$U" "$T" --privsep 1)
 # droits de l'utilisateur ET du jeton (séparation des privilèges)
 pveum acl modify '${o.path}' --roles ${o.role} --users "$U"
 pveum acl modify '${o.path}' --roles ${o.role} --tokens "$ID"
 echo
 echo "Identifiant du jeton : $ID"
-echo "Secret du jeton      : $(echo "$J" | jq -r .value)"
+# the secret is a UUID, whatever the output format of the command
+S=$(printf '%s\n' "$J" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | tail -n 1)
+if [ -n "$S" ]; then echo "Secret du jeton      : $S"; else echo "Secret du jeton : à relever dans la sortie ci-dessous"; printf '%s\n' "$J"; fi
 )`;
 }
