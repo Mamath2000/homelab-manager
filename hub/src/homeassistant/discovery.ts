@@ -8,7 +8,7 @@
 // Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
 import { hasApt, type HostDoc, type JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
-import { agentAlerts, aptAlerts, dockerAlerts, type Alert } from './alerts.js';
+import { agentAlerts, aptAlerts, backupAlerts, dockerAlerts, type Alert } from './alerts.js';
 import { dockerView } from '../docker.js';
 
 export const PRESS = 'PRESS';
@@ -59,12 +59,19 @@ export interface BuildOptions {
   discoveryPrefix: string;
   version: string;
   hubUrl?: string;
+  // backup groups of the PBS (see pbs.ts) and the space of its datastores
+  backups?: {
+    groups: { id: string; backupId: string; hostId: string | null; state: string; lastBackup: number }[];
+    datastores: { store: string; total: number; used: number }[];
+  };
 }
 
 type Component = Record<string, unknown>;
 
 export function build(hosts: HostState[], opts: BuildOptions) {
-  const { topic, discoveryPrefix, version, hubUrl } = opts;
+  const { topic, discoveryPrefix, version, hubUrl, backups } = opts;
+  // ignored and gone groups are not published
+  const tracked = (backups?.groups ?? []).filter((g) => g.state !== 'ignored' && g.state !== 'gone');
   const devices: Device[] = [];
   const commands = new Map<string, Command>();
   const availability = [{ topic: `${topic}/lwt` }];
@@ -236,8 +243,28 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       d.finish();
     }
 
+    // --- backups of the host (Proxmox Backup Server)
+    const mine = tracked.filter((g) => g.hostId === hid);
+    const backup = backupAlerts(mine, !!host.roaming && !isOnline);
+    if (mine.length) {
+      const d = device(`${hostId}_backup`, {
+        name: `${host.name} · Sauvegardes`, model: 'Proxmox Backup Server', via_device: hostId,
+        ...(hubUrl ? { configuration_url: `${hubUrl}/backups?host=${hid}` } : {}),
+      });
+      const last = Math.max(...mine.map((g) => g.lastBackup));
+      d.sensor('last_backup', 'Dernière sauvegarde', new Date(last).toISOString(), {
+        device_class: 'timestamp', json_attributes_topic: `${topic}/${hostId}_backup/last_backup/attributes`,
+      });
+      d.attributes('last_backup', {
+        groups: mine.map((g) => ({ id: g.backupId, state: g.state, last: new Date(g.lastBackup).toISOString() })),
+      });
+      d.sensor('late', 'Sauvegardes en retard', mine.filter((g) => g.state === 'stale').length, { icon: 'mdi:backup-restore', state_class: 'measurement' });
+      d.alerts(backup, diag);
+      d.finish();
+    }
+
     // --- host: connectivity + alerts rolled up from the sub-components
-    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt, ...docker];
+    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt, ...docker, ...backup];
     const selfUpdate = !!host.capabilities?.includes('agent_update');
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 
@@ -291,6 +318,18 @@ export function build(hosts: HostState[], opts: BuildOptions) {
   if (withDocker) {
     root.sensor('stacks', 'Stacks Docker', stacks, { icon: 'mdi:docker' });
     root.sensor('stacks_to_update', 'Stacks à mettre à jour', stacksToUpdate, { icon: 'mdi:update' });
+  }
+  if (backups) {
+    // groups without host roll up to the root directly
+    const hostIds = new Set(hosts.map((h) => h.host._id.toHexString()));
+    allAlerts.push(...backupAlerts(tracked.filter((g) => !g.hostId || !hostIds.has(g.hostId))));
+    root.sensor('backups_late', 'Sauvegardes en retard', tracked.filter((g) => g.state === 'stale').length, { icon: 'mdi:backup-restore' });
+    for (const ds of backups.datastores) {
+      const key = `datastore_${ds.store.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
+      root.sensor(key, `Datastore ${ds.store}`, ds.total ? Math.round((ds.used / ds.total) * 1000) / 10 : null, {
+        icon: 'mdi:harddisk', unit_of_measurement: '%', state_class: 'measurement',
+      });
+    }
   }
   root.alerts(allAlerts);
   root.button('check_all', 'Tout vérifier', { action: 'apt_update', hostIds: ids(online.filter((h) => hasApt(h.host))) }, { icon: 'mdi:refresh' });

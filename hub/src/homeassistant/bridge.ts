@@ -6,7 +6,8 @@ import { loadAgentSettings } from '../agentUpdate.js';
 import { isOnline } from '../agents.js';
 import { config } from '../config.js';
 import { isUnmanaged } from '../docker.js';
-import { hosts } from '../db.js';
+import { backups, hosts } from '../db.js';
+import { backupState, loadPbsSettings } from '../pbs.js';
 import { subscribe } from '../events.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import type { HomeAssistantSettings } from '../types.js';
@@ -90,7 +91,7 @@ export class HomeAssistantBridge {
 
     // hosts, jobs and agent connections all change what Home Assistant shows
     this.unsubscribe = subscribe((event) => {
-      if (event === 'host' || event === 'host.deleted' || event === 'job') this.schedule(1000);
+      if (event === 'host' || event === 'host.deleted' || event === 'job' || event === 'backups') this.schedule(1000);
     });
     // time based states (stale package lists) without any event
     this.timer = setInterval(() => this.schedule(0), 60_000);
@@ -194,7 +195,7 @@ export class HomeAssistantBridge {
           latestAgentVersion: bin?.version ?? null,
         };
       }),
-      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl },
+      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, backups: await backupsForHa() },
     );
     this.commands = built.commands;
     const ids = new Set(built.devices.map((d) => d.id));
@@ -274,4 +275,21 @@ export function testConnection(broker: string, username: string, password: strin
     client.once('close', () => done(new Error('connexion fermée par le broker')));
     setTimeout(() => done(new Error('délai dépassé (5 s)')), 6000).unref();
   });
+}
+
+// Backup groups and datastores for the discovery; undefined when the PBS is not followed.
+async function backupsForHa() {
+  const s = await loadPbsSettings();
+  if (!s.enabled) return undefined;
+  const list = await backups.find().toArray();
+  return {
+    groups: list.map((b) => ({
+      id: b._id,
+      backupId: b.backupId,
+      hostId: b.hostId ? b.hostId.toHexString() : null,
+      state: backupState(b, s.staleHours),
+      lastBackup: b.lastBackup,
+    })),
+    datastores: s.datastores ?? [],
+  };
 }

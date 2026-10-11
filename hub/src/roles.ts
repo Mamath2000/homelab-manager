@@ -21,7 +21,7 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
       if (read) return !accounts && !settings;
       return (
         ownPassword ||
-        (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk' || route === '/api/hosts/:id/setup/check')) ||
+        (method === 'POST' && (route === '/api/hosts/:id/jobs' || route === '/api/jobs/bulk' || route === '/api/hosts/:id/setup/check' || route === '/api/backups/refresh')) ||
         (method === 'PUT' && route === '/api/hosts/:id/setup')
       );
     case 'viewer':

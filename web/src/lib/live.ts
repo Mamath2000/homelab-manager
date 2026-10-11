@@ -30,6 +30,7 @@ export function useLiveEvents(enabled: boolean) {
       qc.setQueryData<Job>(keys.job(job.id), (old) => (old ? { ...old, ...job, log: old.log } : old));
       if (job.status !== 'running') qc.invalidateQueries({ queryKey: keys.job(job.id) });
     });
+    es.addEventListener('backups', () => qc.invalidateQueries({ queryKey: keys.backups }));
     es.addEventListener('job.log', (e) => {
       const { jobId, data } = JSON.parse((e as MessageEvent).data) as { jobId: string; data: string };
       qc.setQueryData<Job>(keys.job(jobId), (old) => (old ? { ...old, log: (old.log ?? '') + data } : old));

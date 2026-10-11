@@ -11,6 +11,8 @@ import { bootstrapSuperadmin } from './superadmin.js';
 import { registerHostRoutes } from './routes/hosts.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerSetupRoutes } from './routes/setup.js';
+import { registerBackupRoutes } from './routes/backups.js';
+import { startPbsPoller } from './pbs.js';
 import { registerUserRoutes } from './routes/users.js';
 import { loadHomeAssistantSettings, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
@@ -35,6 +37,7 @@ registerEvents(app);
 registerHostRoutes(app);
 registerJobRoutes(app);
 registerSetupRoutes(app);
+registerBackupRoutes(app);
 registerUserRoutes(app);
 const bridge = new HomeAssistantBridge(app.log);
 registerSettingsRoutes(app, bridge);
@@ -62,6 +65,7 @@ app.setNotFoundHandler((req, reply) => {
 
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
+const stopPbsPoller = startPbsPoller(app.log);
 await bridge.apply(await loadHomeAssistantSettings());
 
 let agentServer: Awaited<ReturnType<typeof startAgentServer>> | null = null;
@@ -71,6 +75,7 @@ async function shutdown() {
   shuttingDown = true;
   clearInterval(flushTimer);
   stopScheduler();
+  stopPbsPoller();
   await bridge.stop(false);
   await flushLogs().catch(() => {});
   await app.close();

@@ -10,6 +10,7 @@ import { Accounts } from './pages/Accounts';
 import { Activity } from './pages/Activity';
 import { Dashboard } from './pages/Dashboard';
 import { Docker } from './pages/Docker';
+import { Backups } from './pages/Backups';
 import { HostDetail } from './pages/HostDetail';
 import { Hosts } from './pages/Hosts';
 import { JobDetail } from './pages/JobDetail';
@@ -78,6 +79,7 @@ export default function App() {
                 <Route path="updates" element={<Updates />} />
                 <Route path="docker" element={<Docker />} />
                 <Route path="docker/:hostId/:stack" element={<Stack />} />
+                <Route path="backups" element={<Backups />} />
                 <Route path="activity" element={<Activity />} />
                 <Route path="jobs/:id" element={<JobDetail />} />
                 {me.canAccounts && <Route path="accounts" element={<Accounts />} />}

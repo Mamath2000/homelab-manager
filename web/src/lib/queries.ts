@@ -7,7 +7,12 @@ export const keys = {
   jobs: ['jobs'] as const,
   hostJobs: (id: string) => ['jobs', 'host', id] as const,
   job: (id: string) => ['job', id] as const,
+  backups: ['backups'] as const,
 };
+
+export function useBackups() {
+  return useQuery({ queryKey: keys.backups, queryFn: api.backups });
+}
 
 export function useHosts() {
   return useQuery({ queryKey: keys.hosts, queryFn: api.hosts });

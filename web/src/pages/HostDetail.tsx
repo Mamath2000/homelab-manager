@@ -15,10 +15,32 @@ import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
-import { useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
+import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
+import { backupStateMeta, hostBackups } from '../lib/backups';
 import { agentRevoked, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
+
+// Last backup of the host on the PBS, linking to its backups (nothing when the PBS is not followed).
+function BackupRow({ hostId }: { hostId: string }) {
+  const { data } = useBackups();
+  if (!data?.enabled) return null;
+  const b = hostBackups(data.groups, hostId);
+  return (
+    <InfoRow label="Sauvegarde">
+      {!b ? (
+        <span className="text-zinc-500">aucune</span>
+      ) : (
+        <Link to={`/backups?host=${hostId}`} className="hover:underline">
+          <span className={b.state === 'ok' ? 'text-zinc-200' : b.state === 'stale' ? 'text-amber-300' : 'text-red-400'}>
+            {timeAgo(b.last)}
+            {b.state !== 'ok' && ` · ${backupStateMeta[b.state].label}`}
+          </span>
+        </Link>
+      )}
+    </InfoRow>
+  );
+}
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -359,6 +381,7 @@ export function HostDetail() {
             </InfoRow>
             <InfoRow label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</InfoRow>
             <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
+            <BackupRow hostId={host.id} />
             {showSetup(host) && <InfoRow label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></InfoRow>}
           </dl>
         </Panel>
