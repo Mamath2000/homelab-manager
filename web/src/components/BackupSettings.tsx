@@ -159,7 +159,6 @@ export function BackupSettings() {
             polledAt={data.polledAt}
             pollError={data.pollError}
             details={data.tokenId ? `jeton ${data.tokenId}` : 'aucun jeton'}
-            onEdit={() => setEditing(true)}
           />
         </ul>
       )}
