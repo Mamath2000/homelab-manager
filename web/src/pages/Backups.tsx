@@ -6,7 +6,7 @@ import { BackupTimeline } from '../components/HostBackups';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupStateMeta, formatBytes, groupLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
+import { backupKind, backupStateMeta, formatBytes, groupLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -282,7 +282,12 @@ export function Backups() {
                         return (
                           <tr key={g.id} className="hover:bg-raised/40">
                             <td className="td">
-                              <div className="font-medium text-zinc-100">{groupLabel(g)}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-zinc-100">{groupLabel(g)}</span>
+                                <span title={backupKind(g).title}>
+                                  <Badge tone="neutral">{backupKind(g).label}</Badge>
+                                </span>
+                              </div>
                               <div className="text-xs text-muted">
                                 {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && rhythm && ` · ${rhythm}`}
                               </div>
