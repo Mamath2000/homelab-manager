@@ -5,7 +5,8 @@ import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, clientState, checkJob, current
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
-import { loadPbsSettings } from '../pbs.js';
+import { keepText, loadPbsSettings, policyFor } from '../pbs.js';
+import { describeCalendar } from '../calendar.js';
 
 const jobProps = {
   name: { type: 'string', minLength: 1, maxLength: 64 },
@@ -53,6 +54,13 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
       pbsReady: pbs.enabled && !!pbs.url,
       datastores: (pbs.datastores ?? []).map((d) => d.store),
+      // retention the PBS applies to the namespace of each datastore (null: none, snapshots pile up)
+      retention: Object.fromEntries(
+        (pbs.datastores ?? []).map((d) => {
+          const p = policyFor(pbs.prune ?? [], d.store, HOSTS_NS);
+          return [d.store, p ? { keep: keepText(p.keep), schedule: p.schedule ? describeCalendar(p.schedule) : null, ns: p.ns } : null];
+        }),
+      ),
       timezone: DEFAULT_TIMEZONE,
       jobs: list.map(jobView),
     };

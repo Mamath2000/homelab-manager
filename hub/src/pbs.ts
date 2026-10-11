@@ -236,12 +236,53 @@ export function orphanDto(b: BackupDoc) {
   return { id: b._id, store: b.store, ns: b.ns, type: b.type, backupId: b.backupId, comment: b.comment ?? null, lastBackup: b.lastBackup, count: b.count, gone: !!b.gone };
 }
 
-// Prune jobs (PBS 2.2+) and the keep-* options of the datastores (older ones): the finest
-// period kept per "<store>/<ns>". A job also covers the namespaces below its own.
-export function retentionMap(
-  jobs: ({ store: string; ns?: string; disable?: boolean } & KeepOptions)[],
-  stores: ({ name: string } & KeepOptions)[],
-) {
+type PruneJob = { store: string; ns?: string; disable?: boolean; schedule?: string } & KeepOptions & { 'keep-last'?: number };
+type StoreConf = { name: string; 'prune-schedule'?: string } & KeepOptions & { 'keep-last'?: number };
+
+// Retention the PBS applies to "<store>/<ns>": its prune jobs (PBS 2.2+, a job also covers the
+// namespaces below its own) and the keep-* options of the datastores (older ones).
+export interface PrunePolicy {
+  store: string;
+  ns: string;
+  schedule: string | null;
+  keep: KeepOptions & { 'keep-last'?: number };
+}
+
+const KEEPS = ['keep-last', 'keep-hourly', 'keep-daily', 'keep-weekly', 'keep-monthly', 'keep-yearly'] as const;
+
+export function prunePolicies(jobs: PruneJob[], stores: StoreConf[]): PrunePolicy[] {
+  const keepOf = (o: PrunePolicy['keep']) => Object.fromEntries(KEEPS.filter((k) => o[k]).map((k) => [k, o[k]])) as PrunePolicy['keep'];
+  const out: PrunePolicy[] = [];
+  for (const d of stores) if (Object.keys(keepOf(d)).length) out.push({ store: d.name, ns: '', schedule: d['prune-schedule'] ?? null, keep: keepOf(d) });
+  for (const j of jobs) if (!j.disable && Object.keys(keepOf(j)).length) out.push({ store: j.store, ns: j.ns ?? '', schedule: j.schedule ?? null, keep: keepOf(j) });
+  return out;
+}
+
+// The policy that applies to a namespace: the job of the deepest namespace covering it.
+export function policyFor(list: PrunePolicy[], store: string, ns: string) {
+  let best: PrunePolicy | null = null;
+  for (const p of list) {
+    const covers = p.store === store && (p.ns === '' || ns === p.ns || ns.startsWith(`${p.ns}/`));
+    if (covers && (!best || p.ns.length > best.ns.length)) best = p;
+  }
+  return best;
+}
+
+// "10 quotidiennes · 3 mensuelles · 2 annuelles"
+export function keepText(k: PrunePolicy['keep']) {
+  const words: Record<(typeof KEEPS)[number], string> = {
+    'keep-last': 'dernières',
+    'keep-hourly': 'horaires',
+    'keep-daily': 'quotidiennes',
+    'keep-weekly': 'hebdomadaires',
+    'keep-monthly': 'mensuelles',
+    'keep-yearly': 'annuelles',
+  };
+  return KEEPS.filter((x) => k[x]).map((x) => `${k[x]} ${words[x]}`).join(' · ');
+}
+
+// The finest period kept per "<store>/<ns>": the rhythm a group is expected at least.
+export function retentionMap(jobs: PruneJob[], stores: StoreConf[]) {
   const out: { store: string; ns: string; interval: number }[] = [];
   for (const d of stores) {
     const i = retentionInterval(d);
@@ -291,9 +332,11 @@ async function doPoll(log?: FastifyBaseLogger) {
       }
     }
     // retention: read when the token may (Datastore.Audit is not always enough), ignored otherwise
-    const jobs = await pbsGet<Parameters<typeof retentionMap>[0]>(s, '/config/prune').catch(() => []);
-    const storeConfs = await pbsGet<Parameters<typeof retentionMap>[1]>(s, '/config/datastore').catch(() => []);
+    const jobs = await pbsGet<PruneJob[]>(s, '/config/prune').catch(() => []);
+    const storeConfs = await pbsGet<StoreConf[]>(s, '/config/datastore').catch(() => []);
     const retention = retentionMap(jobs, storeConfs);
+    // shown with the backup jobs of the hub: the retention of their namespace
+    const prune = prunePolicies(jobs, storeConfs);
     const usage = await pbsGet<ApiUsage[]>(s, '/status/datastore-usage').catch(() => []);
     const datastores: PbsDatastoreUsage[] = usage
       .filter((u) => typeof u.total === 'number')
@@ -311,7 +354,7 @@ async function doPoll(log?: FastifyBaseLogger) {
     // groups pruned from the PBS are kept as gone: an attached one is reported, an orphan can be forgotten
     // placeholders of PVE jobs (never backed up yet) are not on the PBS by definition
     await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true } }, { $set: { gone: true } });
-    await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores } }, { upsert: true });
+    await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores, prune } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
   } catch (err) {
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: new Date(), pollError: (err as Error).message } }, { upsert: true });

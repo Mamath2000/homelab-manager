@@ -463,6 +463,8 @@ export interface HostBackupJobs {
   sync: { hash: string; at: string; error: string | null; current: boolean } | null;
   pbsReady: boolean;
   datastores: string[];
+  // retention the PBS applies to the namespace Hosts of each datastore; null: no pruning
+  retention: Record<string, { keep: string; schedule: string | null; ns: string } | null>;
   timezone: string;
   jobs: BackupJob[];
 }

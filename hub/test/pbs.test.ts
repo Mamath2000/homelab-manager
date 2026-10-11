@@ -152,3 +152,21 @@ test('roles: settings admin only, every role reads the backups, operators refres
   assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/backups'));
   assert.ok(authorize('admin', 'PATCH', '/api/backups/:id'));
 });
+
+test('retention the PBS applies to a namespace, in words', async () => {
+  const { keepText, policyFor, prunePolicies } = await import('../src/pbs.js');
+  // shapes of /config/prune and /config/datastore (vouille, 2026-10-11)
+  const list = prunePolicies(
+    [
+      { store: 'ds2', ns: 'Hosts', schedule: '21:00', 'keep-daily': 10, 'keep-monthly': 3, 'keep-yearly': 2 },
+      { store: 'ds2', ns: 'database', schedule: '21:00', 'keep-daily': 10, disable: true },
+    ],
+    [{ name: 'ds2' }, { name: 'ds9', 'keep-last': 5, 'prune-schedule': 'daily' }],
+  );
+  const p = policyFor(list, 'ds2', 'Hosts')!;
+  assert.equal(p.schedule, '21:00');
+  assert.equal(keepText(p.keep), '10 quotidiennes · 3 mensuelles · 2 annuelles');
+  // disabled job: nothing; options of the datastore cover every namespace
+  assert.equal(policyFor(list, 'ds2', 'database'), null);
+  assert.equal(keepText(policyFor(list, 'ds9', 'Hosts')!.keep), '5 dernières');
+});

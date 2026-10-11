@@ -196,13 +196,14 @@ export function HostBackups({ host }: { host: Host }) {
           Aucune sauvegarde rattachée.{canManage && ' « Rattacher » liste les sauvegardes du PBS qui ne sont rattachées à aucun hôte.'}
         </p>
       ) : (
-        <ul className="-my-2 divide-y divide-line">
+        <ul className="@container -my-2 divide-y divide-line">
           {mine.map((g) => {
             const meta = backupStateMeta[g.state];
             const rhythm = rhythmLabel(g.interval);
             return (
-              <li key={g.id} className="space-y-2 py-3">
-                <div>
+              // the timeline to the right of the text when the card is wide enough (container query), below otherwise
+              <li key={g.id} className="flex flex-col gap-2 py-3 @2xl:flex-row @2xl:items-center @2xl:gap-6">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
                     <Badge tone={meta.tone}>{meta.label}</Badge>
@@ -230,7 +231,7 @@ export function HostBackups({ host }: { host: Host }) {
                     <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>
                   )}
                 </div>
-                <BackupTimeline group={g} />
+                <BackupTimeline group={g} className="w-full @2xl:w-56 @2xl:shrink-0" />
               </li>
             );
           })}

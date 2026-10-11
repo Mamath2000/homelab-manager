@@ -355,6 +355,8 @@ export interface PbsSettings {
   polledAt?: Date;
   pollError?: string | null;
   datastores?: PbsDatastoreUsage[];
+  // retention applied by the PBS (prune jobs, options of the datastores), see pbs.ts
+  prune?: { store: string; ns: string; schedule: string | null; keep: Record<string, number> }[];
   // backups run by the agents: client image where proxmox-backup-client is not installed (the default
   // time zone of their jobs is the TZ of the hub, see backupJobs.ts)
   clientImage?: string;

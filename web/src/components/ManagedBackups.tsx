@@ -210,6 +210,19 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
             <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : le jeton de l'hôte n'écrit que dans Hosts">Hosts</div>
           </div>
         </div>
+        <div className="-mt-2 text-xs">
+          {(() => {
+            const r = view.retention?.[form.store];
+            if (r === undefined) return null;
+            return r ? (
+              <span className="text-muted" title={`Job d'élagage du PBS sur ${form.store}${r.ns ? ` › ${r.ns}` : ''} ; modifiable dans le PBS (Datastore › Élagage et GC)`}>
+                Rétention (élagage du PBS{r.schedule ? `, ${r.schedule}` : ''}) : <span className="text-zinc-300">{r.keep}</span>
+              </span>
+            ) : (
+              <span className="text-amber-400">Aucun élagage sur {form.store} › Hosts : les snapshots s'accumulent (à régler dans le PBS, Datastore › Élagage et GC).</span>
+            );
+          })()}
+        </div>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="block">
             <span className={field}>Planification</span>
