@@ -33,7 +33,8 @@ test('job definitions are checked like the agent does', () => {
   assert.match(checkJob(input({ backupId: '../x' }), true)!, /identifiant/);
   // the backup id is only checked at creation (fixed afterwards)
   assert.equal(checkJob(input({ backupId: undefined }), false), null);
-  assert.match(checkJob(input({ ns: '/Hosts' }), true)!, /namespace/);
+  // the namespace is fixed: the token of a host only writes Hosts
+  assert.match(checkJob(input({ ns: 'Vouille' }), true)!, /namespace/);
   assert.match(checkJob(input({ timezone: 'Mars/Olympus' }), true)!, /fuseau/);
 });
 

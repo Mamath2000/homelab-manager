@@ -182,6 +182,9 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
   );
 }
 
+// open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
+const modalStack: symbol[] = [];
+
 export function Modal({ open, onClose, title, children, footer, wide }: {
   open: boolean;
   onClose: () => void;
@@ -193,9 +196,14 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
 }) {
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const me = Symbol('modal');
+    modalStack.push(me);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && modalStack[modalStack.length - 1] === me && onClose();
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      modalStack.splice(modalStack.indexOf(me), 1);
+    };
   }, [open, onClose]);
   if (!open) return null;
   return (

@@ -446,7 +446,7 @@ export interface BackupJobInput {
   archives: BackupArchive[];
   excludes: string[];
   store: string;
-  ns: string;
+  ns?: string; // fixed by the hub (Hosts)
   backupId?: string;
   schedule: string;
   timezone?: string;

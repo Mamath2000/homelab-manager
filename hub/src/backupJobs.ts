@@ -16,6 +16,8 @@ import type { BackupArchive, BackupJobDoc, HostDoc, JobDoc, PbsSettings } from '
 
 export const DEFAULT_CLIENT_IMAGE = 'mathmath350/pbs-client:latest';
 export const DEFAULT_TIMEZONE = 'Europe/Paris';
+// namespace of the backups of the hosts: the only one their token may write (see tokenSetup.ts)
+export const HOSTS_NS = 'Hosts';
 
 export const ARCHIVE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 export const BACKUP_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
@@ -29,7 +31,7 @@ export interface JobInput {
   archives: BackupArchive[];
   excludes: string[];
   store: string;
-  ns: string;
+  ns?: string; // ignored: always HOSTS_NS
   backupId?: string; // creation only
   schedule: string;
   timezone?: string;
@@ -57,7 +59,7 @@ export function checkJob(j: JobInput, creating: boolean): string | null {
   }
   for (const e of j.excludes) if (!e || e.length > 256 || /[\n\0]/.test(e)) return 'exclusion invalide';
   if (!STORE_RE.test(j.store)) return 'datastore invalide';
-  if (j.ns && !NS_RE.test(j.ns)) return 'namespace invalide';
+  if (j.ns !== undefined && j.ns !== HOSTS_NS) return `namespace fixé : ${HOSTS_NS}`;
   if (creating && !BACKUP_ID_RE.test(j.backupId ?? '')) return 'identifiant de sauvegarde invalide (lettres, chiffres, . - _)';
   if (!parseCalendar(j.schedule)) return 'planification non reconnue (ex. 03:00, sun 01:00, mon..fri 22:30, daily)';
   if (j.timezone && !validTimeZone(j.timezone)) return 'fuseau horaire inconnu';

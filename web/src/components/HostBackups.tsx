@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { AlertTriangle, DatabaseBackup, Link2, Search, Unlink } from 'lucide-react';
+import { AlertTriangle, DatabaseBackup, FolderArchive, Link2, Play, Search, Unlink } from 'lucide-react';
+import { ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
@@ -118,11 +119,27 @@ function AttachModal({ host, groups, orphans, open, onClose }: { host: Host; gro
 // Backups of the host page: the PBS groups attached to it, with their last 30 days.
 export function HostBackups({ host }: { host: Host }) {
   const { data } = useBackups();
-  const { canManage } = useMe();
+  const { canManage, canWrite } = useMe();
   const toast = useToast();
   const [attaching, setAttaching] = useState(false);
+  const [directories, setDirectories] = useState(false);
+  const [running, setRunning] = useState<string | null>(null);
   if (!data?.enabled) return null;
   const mine = data.groups.filter((g) => g.hostId === host.id).sort((a, b) => a.backupId.localeCompare(b.backupId));
+
+  // backup job of the hub writing this group, run now
+  const run = async (g: BackupGroup) => {
+    if (!g.managed) return;
+    setRunning(g.id);
+    try {
+      await api.runBackupJob(g.managed.jobId);
+      toast.success(`Sauvegarde ${g.managed.name} lancée`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setRunning(null);
+    }
+  };
 
   const detach = async (g: BackupGroup) => {
     try {
@@ -141,7 +158,14 @@ export function HostBackups({ host }: { host: Host }) {
         </>
       }
       icon={DatabaseBackup}
-      actions={canManage && <Button size="sm" icon={Link2} onClick={() => setAttaching(true)}>Rattacher</Button>}
+      actions={
+        <>
+          <Button size="sm" variant="ghost" icon={FolderArchive} onClick={() => setDirectories(true)} title="Sauvegardes de répertoires lancées par l'agent de cet hôte">
+            Répertoires
+          </Button>
+          {canManage && <Button size="sm" icon={Link2} onClick={() => setAttaching(true)}>Rattacher</Button>}
+        </>
+      }
     >
       {host.pve && !host.pve.covered && (
         <p className="mb-3 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
@@ -164,6 +188,11 @@ export function HostBackups({ host }: { host: Host }) {
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
                     <Badge tone={meta.tone}>{meta.label}</Badge>
+                    {canWrite && g.managed && (
+                      <Button size="sm" icon={Play} className="ml-auto" loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
+                        Lancer
+                      </Button>
+                    )}
                     {canManage && !g.source && (
                       <Button size="sm" variant="ghost" icon={Unlink} className="ml-auto" title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
                     )}
@@ -190,6 +219,7 @@ export function HostBackups({ host }: { host: Host }) {
         <Link to={`/backups?host=${host.id}`} className="text-emerald-400 hover:underline">Voir dans la page Sauvegardes</Link>
       </p>
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
+      <ManagedBackupsModal host={host} open={directories} onClose={() => setDirectories(false)} />
     </Panel>
   );
 }

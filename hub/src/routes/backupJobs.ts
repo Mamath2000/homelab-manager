@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, TOKEN_ID_RE, checkJob, currentHash, groupConflict, jobView, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkJob, currentHash, groupConflict, jobView, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
@@ -29,7 +29,7 @@ const jobProps = {
   enabled: { type: 'boolean' },
 } as const;
 
-const required = ['name', 'archives', 'excludes', 'store', 'ns', 'schedule', 'enabled'] as const;
+const required = ['name', 'archives', 'excludes', 'store', 'schedule', 'enabled'] as const;
 
 async function changed(hostId: ObjectId) {
   await refreshManaged();
@@ -97,7 +97,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const pbs = await loadPbsSettings();
-      const body = { ...req.body, timezone: req.body.timezone || pbs.timezone || DEFAULT_TIMEZONE };
+      const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || pbs.timezone || DEFAULT_TIMEZONE };
       const err = checkJob(body, true);
       if (err) return reply.code(400).send({ error: err });
       const conflict = await groupConflict(_id, body.store, body.ns, body.backupId!);
@@ -135,7 +135,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const cur = _id && (await backupJobs.findOne({ _id }));
       if (!cur) return reply.code(404).send({ error: 'job introuvable' });
       if (req.body.backupId !== undefined && req.body.backupId !== cur.backupId) return reply.code(400).send({ error: "l'identifiant de sauvegarde ne change pas" });
-      const body = { ...req.body, timezone: req.body.timezone || cur.timezone };
+      const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || cur.timezone };
       const err = checkJob(body, false);
       if (err) return reply.code(400).send({ error: err });
       if (body.store !== cur.store || body.ns !== cur.ns) {
