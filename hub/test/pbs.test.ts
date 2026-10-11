@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
 import { backupAlerts } from '../src/homeassistant/alerts.js';
 import { ROOT_ID, build } from '../src/homeassistant/discovery.js';
-import { backupState, matchHost, mergeGroups, normalizeFingerprint } from '../src/pbs.js';
+import { backupState, effectiveThreshold, learnedInterval, mergeGroups, normalizeFingerprint, retentionInterval, retentionMap } from '../src/pbs.js';
 import { authorize } from '../src/roles.js';
 import type { HostDoc } from '../src/types.js';
 
@@ -29,35 +29,65 @@ test('groups get the size and verification of their last snapshot', () => {
   assert.equal(g[1].verify, 'failed');
   assert.equal(g[2].size, null);
   assert.equal(g[2].comment, 'pihole');
+  // history of the snapshots, oldest first
+  assert.deepEqual(g[0].times, [1759964400000, 1760050800000]);
 });
 
-test('groups are matched to hosts by name, hostname, host_xxx prefix, or guest notes', () => {
-  const h = (name: string, hostname?: string) => ({ _id: new ObjectId(), name, info: hostname ? ({ hostname } as HostDoc['info']) : undefined });
-  const docker = h('Docker 01', 'pve-docker01');
-  const pg = h('pgsql');
-  const pihole = h('pihole');
-  const pg2 = h('pgsql_next');
-  const list = [docker, pg, pihole, pg2];
-  assert.equal(matchHost({ backupId: 'PVE-Docker01', type: 'host' }, list), docker._id);
-  // pgsql_nextcloud is a database of the host pgsql; the longest name wins: pgsql_next over pgsql
-  assert.equal(matchHost({ backupId: 'pgsql_nextcloud', type: 'host' }, list), pg._id);
-  assert.equal(matchHost({ backupId: 'pgsql_next_db', type: 'host' }, list), pg2._id);
-  assert.equal(matchHost({ backupId: 'pgsql_full', type: 'host' }, list), pg._id);
-  assert.equal(matchHost({ backupId: '105', comment: 'pihole', type: 'ct' }, list), pihole._id);
-  // notes are only used for guests: a host backup named otherwise stays without host
-  assert.equal(matchHost({ backupId: 'nextcloud', comment: 'pihole', type: 'host' }, list), null);
-  assert.equal(matchHost({ backupId: 'pgsqlx', type: 'host' }, list), null);
+const H = 3600_000;
+const D = 24 * H;
+
+test('rhythm learned from the history: median interval, at least 4 snapshots', () => {
+  const now = Date.UTC(2026, 9, 11, 2);
+  // daily at 02:00 with a missed day: still daily
+  const daily = [10, 9, 8, 6, 5, 4, 3, 2, 1].map((d) => now - d * D);
+  assert.equal(learnedInterval(daily), D);
+  assert.equal(learnedInterval([now - 3 * D, now - 2 * D, now - D]), null);
+  assert.equal(learnedInterval([0, H, 2 * H, 3 * H, 4 * H]), H);
 });
 
-test('state: late after the threshold (own one first), failed verification, ignored, gone', () => {
+test('retention: finest period kept, most specific namespace first', () => {
+  assert.equal(retentionInterval({ 'keep-daily': 7, 'keep-weekly': 4 }), D);
+  assert.equal(retentionInterval({ 'keep-weekly': 4, 'keep-monthly': 6 }), 7 * D);
+  assert.equal(retentionInterval({}), null);
+  const r = retentionMap(
+    [
+      { store: 'ds3', ns: 'Hosts', 'keep-daily': 7 },
+      { store: 'ds3', ns: 'Hosts/archives', 'keep-monthly': 12 },
+      { store: 'ds3', ns: 'Old', 'keep-hourly': 24, disable: true },
+    ],
+    [{ name: 'ds3', 'keep-weekly': 4 }],
+  );
+  assert.equal(r('ds3', 'Hosts'), D);
+  assert.equal(r('ds3', 'Hosts/archives'), 31 * D);
+  assert.equal(r('ds3', 'Hosts/other'), D);
+  assert.equal(r('ds3', ''), 7 * D);
+  assert.equal(r('ds3', 'Old'), 7 * D);
+  assert.equal(r('ds9', ''), null);
+});
+
+test('threshold: own one, else 1.5 x the learned rhythm, else the retention, else the default', () => {
+  const daily = [5, 4, 3, 2, 1].map((d) => -d * D);
+  const weekly = [5, 4, 3, 2, 1].map((w) => -w * 7 * D);
+  const hourly = [5, 4, 3, 2, 1].map((h) => -h * H);
+  assert.deepEqual(effectiveThreshold({ staleHours: 50, times: daily }, 26), { hours: 50, source: 'manual', interval: D });
+  assert.deepEqual(effectiveThreshold({ times: daily }, 26), { hours: 36, source: 'learned', interval: D });
+  assert.deepEqual(effectiveThreshold({ times: weekly }, 26), { hours: 252, source: 'learned', interval: 7 * D });
+  // hourly: 2 h of margin rather than 1.5 h
+  assert.equal(effectiveThreshold({ times: hourly }, 26).hours, 3);
+  assert.deepEqual(effectiveThreshold({ times: [], retention: 7 * D }, 26), { hours: 252, source: 'retention', interval: 7 * D });
+  assert.deepEqual(effectiveThreshold({ times: [] }, 26), { hours: 26, source: 'default', interval: null });
+});
+
+test('state: late after the effective threshold, failed verification, gone', () => {
   const now = Date.UTC(2026, 9, 11, 12);
-  const b = { lastBackup: now - 25 * 3600_000, verify: null as 'ok' | 'failed' | null };
-  assert.equal(backupState(b, 26, now), 'ok');
-  assert.equal(backupState({ ...b, lastBackup: now - 27 * 3600_000 }, 26, now), 'stale');
-  assert.equal(backupState({ ...b, lastBackup: now - 27 * 3600_000, staleHours: 24 * 8 }, 26, now), 'ok');
-  assert.equal(backupState({ ...b, verify: 'failed' }, 26, now), 'failed');
-  assert.equal(backupState({ ...b, verify: 'failed', ignored: true }, 26, now), 'ignored');
-  assert.equal(backupState({ ...b, gone: true }, 26, now), 'gone');
+  const weekly = [5, 4, 3, 2, 1].map((w) => now - 3 * D - w * 7 * D);
+  // weekly group, last backup 3 days ago: not late
+  assert.equal(backupState({ lastBackup: now - 3 * D, verify: null, times: weekly }, 26, now), 'ok');
+  assert.equal(backupState({ lastBackup: now - 11 * D, verify: null, times: weekly }, 26, now), 'stale');
+  assert.equal(backupState({ lastBackup: now - 25 * H, verify: null }, 26, now), 'ok');
+  assert.equal(backupState({ lastBackup: now - 27 * H, verify: null }, 26, now), 'stale');
+  assert.equal(backupState({ lastBackup: now, verify: 'failed' }, 26, now), 'failed');
+  assert.equal(backupState({ lastBackup: now, verify: null, gone: true }, 26, now), 'gone');
 });
 
 test('alerts: late and failed groups, none for a roaming host away', () => {
@@ -66,9 +96,10 @@ test('alerts: late and failed groups, none for a roaming host away', () => {
     { backupId: 'a', state: 'stale', lastBackup: now - 3 * 86_400_000 },
     { backupId: 'b', state: 'failed', lastBackup: now },
     { backupId: 'c', state: 'ok', lastBackup: now },
+    { backupId: 'd', state: 'gone', lastBackup: now },
   ];
-  assert.deepEqual(backupAlerts(list, false, now).map((a) => a.message), ['a : pas de sauvegarde depuis 3 j', 'b : vérification en échec']);
-  assert.deepEqual(backupAlerts(list, true, now).map((a) => a.message), ['b : vérification en échec']);
+  assert.deepEqual(backupAlerts(list, false, now).map((a) => a.message), ['a : pas de sauvegarde depuis 3 j', 'b : vérification en échec', 'd : disparue du PBS']);
+  assert.deepEqual(backupAlerts(list, true, now).map((a) => a.message), ['b : vérification en échec', 'd : disparue du PBS']);
 });
 
 test('Home Assistant: one backup sub-device per host, root counts and datastore space', () => {
@@ -81,8 +112,8 @@ test('Home Assistant: one backup sub-device per host, root counts and datastore 
     backups: {
       groups: [
         { id: '1', backupId: 'docker', hostId: hid, state: 'stale', lastBackup: Date.UTC(2026, 9, 8) },
+        // orphan: not followed, no alert anywhere
         { id: '2', backupId: 'nextcloud', hostId: null, state: 'stale', lastBackup: Date.UTC(2026, 9, 8) },
-        { id: '3', backupId: 'old', hostId: hid, state: 'ignored', lastBackup: 0 },
       ],
       datastores: [{ store: 'ds3', total: 1000, used: 250 }],
     },
@@ -96,10 +127,9 @@ test('Home Assistant: one backup sub-device per host, root counts and datastore 
   const hostDev = devices.find((d) => d.id === `hm_${hid}`)!;
   assert.match(hostDev.states.find(([t]) => t === `hm/hm_${hid}/alerts/attributes`)![1], /docker : pas de sauvegarde/);
   const root = devices.find((d) => d.id === ROOT_ID)!;
-  assert.equal(state(root, 'backups_late'), '2');
+  assert.equal(state(root, 'backups_late'), '1');
   assert.equal(state(root, 'datastore_ds3'), '25');
-  // the group without host is an alert of the root
-  assert.match(root.states.find(([t]) => t === `hm/${ROOT_ID}/alerts/attributes`)![1], /nextcloud/);
+  assert.doesNotMatch(root.states.find(([t]) => t === `hm/${ROOT_ID}/alerts/attributes`)![1], /nextcloud/);
   // without PBS: nothing about backups
   const none = build([{ host, online: true, busy: false }], { topic: 'hm', discoveryPrefix: 'homeassistant', version: '1' });
   assert.ok(!none.devices.some((d) => d.id.endsWith('_backup')));
@@ -117,5 +147,7 @@ test('roles: settings admin only, every role reads the backups, operators refres
   assert.ok(authorize('operator', 'POST', '/api/backups/refresh'));
   assert.ok(!authorize('viewer', 'POST', '/api/backups/refresh'));
   assert.ok(!authorize('operator', 'PATCH', '/api/backups/:id'));
+  assert.ok(!authorize('operator', 'PUT', '/api/hosts/:id/backups'));
+  assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/backups'));
   assert.ok(authorize('admin', 'PATCH', '/api/backups/:id'));
 });

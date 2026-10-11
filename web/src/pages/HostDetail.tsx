@@ -16,31 +16,10 @@ import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel,
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
-import { backupStateMeta, hostBackups } from '../lib/backups';
+import { HostBackups } from '../components/HostBackups';
 import { agentRevoked, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
-
-// Last backup of the host on the PBS, linking to its backups (nothing when the PBS is not followed).
-function BackupRow({ hostId }: { hostId: string }) {
-  const { data } = useBackups();
-  if (!data?.enabled) return null;
-  const b = hostBackups(data.groups, hostId);
-  return (
-    <InfoRow label="Sauvegarde">
-      {!b ? (
-        <span className="text-zinc-500">aucune</span>
-      ) : (
-        <Link to={`/backups?host=${hostId}`} className="hover:underline">
-          <span className={b.state === 'ok' ? 'text-zinc-200' : b.state === 'stale' ? 'text-amber-300' : 'text-red-400'}>
-            {timeAgo(b.last)}
-            {b.state !== 'ok' && ` · ${backupStateMeta[b.state].label}`}
-          </span>
-        </Link>
-      )}
-    </InfoRow>
-  );
-}
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -164,9 +143,7 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
               <tr>
                 <th className="th w-10">{pkgs.length > 0 && <Checkbox label="Tout sélectionner" checked={all} indeterminate={selected.size > 0} onChange={(on) => setSelected(on ? new Set(pkgs.map((p) => p.name)) : new Set())} />}</th>
                 <th className="th">Paquet</th>
-                <th className="th">Installé</th>
-                <th className="th">Disponible</th>
-                <th className="th">Dépôt</th>
+                <th className="th">Version</th>
                 <th className="th">État</th>
               </tr>
             </thead>
@@ -176,10 +153,12 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
                   <td className="td"><CheckCircle2 className="h-4 w-4 text-emerald-400" /></td>
                   <td className="td">
                     <span className="font-medium text-zinc-300">{p.name}</span>
+                    <span className="block text-xs text-muted">installé {timeAgo(p.at)}</span>
                   </td>
-                  <td className="td font-mono text-xs text-zinc-500 line-through">{p.from}</td>
-                  <td className="td font-mono text-xs text-emerald-300">{p.to}</td>
-                  <td className="td text-xs text-muted">{timeAgo(p.at)}</td>
+                  <td className="td max-w-[200px] font-mono text-xs">
+                    <span className="block truncate text-zinc-500 line-through" title={p.from}>{p.from}</span>
+                    <span className="block truncate text-emerald-300" title={p.to}>{p.to}</span>
+                  </td>
                   <td className="td">
                     <div className="flex flex-wrap gap-1.5">
                       <Badge tone="ok">Installé</Badge>
@@ -195,10 +174,12 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
                     <span className="font-medium text-zinc-100">{p.name}</span>
                     {p.security && <Badge tone="bad" className="ml-2">sécurité</Badge>}
                     {p.reboot && <RebootTag />}
+                    <span className="block max-w-[220px] truncate text-xs text-muted" title={p.repo}>{p.repo}</span>
                   </td>
-                  <td className="td font-mono text-xs text-zinc-500">{p.current}</td>
-                  <td className="td font-mono text-xs text-emerald-300">{p.candidate}</td>
-                  <td className="td max-w-[180px] truncate text-xs text-muted" title={p.repo}>{p.repo}</td>
+                  <td className="td max-w-[200px] font-mono text-xs">
+                    <span className="block truncate text-zinc-500" title={p.current}>{p.current}</span>
+                    <span className="block truncate text-emerald-300" title={p.candidate}>{p.candidate}</span>
+                  </td>
                   <td className="td">
                     {inProgress(p.name) ? (
                       <Badge tone="info" className="gap-1"><Loader2 className="h-3 w-3 animate-spin" />En cours</Badge>
@@ -227,6 +208,7 @@ export function HostDetail() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const backupsOn = !!useBackups().data?.enabled;
   const [deleting, setDeleting] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
@@ -381,21 +363,24 @@ export function HostDetail() {
             </InfoRow>
             <InfoRow label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</InfoRow>
             <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
-            <BackupRow hostId={host.id} />
             {showSetup(host) && <InfoRow label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></InfoRow>}
           </dl>
         </Panel>
         <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
         </div>
-        {hasApt(host) ? (
-          <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
-        ) : host.docker ? (
-          <DockerPanel host={host} running={!!running} onStarted={setJobId} />
-        ) : (
-          <Panel title="Système" icon={Package}>
-            <p className="text-sm text-muted">Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi.</p>
-          </Panel>
-        )}
+        {/* packages (or Docker without APT) and, when the PBS is followed, the backups beside them */}
+        <div className={clsx('grid min-w-0 items-start gap-5', backupsOn && '2xl:grid-cols-2')}>
+          {hasApt(host) ? (
+            <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
+          ) : host.docker ? (
+            <DockerPanel host={host} running={!!running} onStarted={setJobId} />
+          ) : (
+            <Panel title="Système" icon={Package}>
+              <p className="text-sm text-muted">Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi.</p>
+            </Panel>
+          )}
+          <HostBackups host={host} />
+        </div>
       </div>
 
       {host.docker && hasApt(host) && (

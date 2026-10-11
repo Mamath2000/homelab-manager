@@ -1,7 +1,7 @@
 import { Agent, request } from 'node:https';
 import { connect, type TLSSocket } from 'node:tls';
 import type { FastifyBaseLogger } from 'fastify';
-import { backups, hosts, settings } from './db.js';
+import { backups, settings } from './db.js';
 import { publish } from './events.js';
 import type { BackupDoc, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
@@ -148,12 +148,16 @@ interface ApiUsage {
 export const groupKey = (store: string, ns: string, type: string, id: string) => `${store}/${ns}/${type}/${id}`;
 
 // Groups of one namespace, with the size and verification of their last snapshot.
+export const HISTORY = 30;
+
 export function mergeGroups(store: string, ns: string, groups: ApiGroup[], snapshots: ApiSnapshot[]) {
   const last = new Map<string, ApiSnapshot>();
+  const times = new Map<string, number[]>();
   for (const s of snapshots) {
     const k = `${s['backup-type']}/${s['backup-id']}`;
     const cur = last.get(k);
     if (!cur || s['backup-time'] > cur['backup-time']) last.set(k, s);
+    times.set(k, [...(times.get(k) ?? []), s['backup-time'] * 1000]);
   }
   return groups.map((g) => {
     const s = last.get(`${g['backup-type']}/${g['backup-id']}`);
@@ -170,44 +174,106 @@ export function mergeGroups(store: string, ns: string, groups: ApiGroup[], snaps
       lastBackup: g['last-backup'] * 1000,
       size: s?.size ?? null,
       verify,
+      // dates of the last snapshots, oldest first: the rhythm of the backups and the timeline
+      times: (times.get(`${g['backup-type']}/${g['backup-id']}`) ?? []).sort((a, b) => a - b).slice(-HISTORY),
     } as const;
   });
 }
 
-// Host a group belongs to: its id (or, for a vm / ct, its notes) is the name or hostname of a host,
-// possibly followed by _xxx or -xxx (host_db for the PostgreSQL backups). Longest match wins.
-export function matchHost(g: Pick<BackupDoc, 'backupId' | 'comment' | 'type'>, list: Pick<HostDoc, '_id' | 'name' | 'info'>[]) {
-  const subjects = [g.backupId.toLowerCase()];
-  if (g.type !== 'host' && g.comment) subjects.push(g.comment.trim().toLowerCase());
-  let best: { id: HostDoc['_id']; len: number } | null = null;
-  for (const h of list) {
-    for (const cand of new Set([h.name, h.info?.hostname].filter(Boolean).map((x) => x!.toLowerCase()))) {
-      for (const s of subjects) {
-        if ((s === cand || s.startsWith(`${cand}_`) || s.startsWith(`${cand}-`)) && (!best || cand.length > best.len)) best = { id: h._id, len: cand.length };
-      }
-    }
-  }
-  return best?.id ?? null;
+// --- rhythm and threshold ------------------------------------------------------------------
+
+const HOUR = 3600_000;
+
+// Usual interval between two backups of a group: median of the last intervals (at least 3 of them).
+export function learnedInterval(times: number[]): number | null {
+  const t = [...new Set(times)].sort((a, b) => a - b);
+  if (t.length < 4) return null;
+  const gaps = t.slice(1).map((v, i) => v - t[i]).sort((a, b) => a - b);
+  const mid = Math.floor(gaps.length / 2);
+  return gaps.length % 2 ? gaps[mid] : (gaps[mid - 1] + gaps[mid]) / 2;
 }
 
-export type BackupState = 'ok' | 'stale' | 'failed' | 'ignored' | 'gone';
+// Finest period a prune policy keeps: backups are expected at least that often.
+export interface KeepOptions {
+  'keep-hourly'?: number;
+  'keep-daily'?: number;
+  'keep-weekly'?: number;
+  'keep-monthly'?: number;
+  'keep-yearly'?: number;
+}
 
-export function backupState(b: Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'ignored' | 'gone'>, staleHours: number, now = Date.now()): BackupState {
-  if (b.ignored) return 'ignored';
+export function retentionInterval(k: KeepOptions): number | null {
+  if (k['keep-hourly']) return HOUR;
+  if (k['keep-daily']) return 24 * HOUR;
+  if (k['keep-weekly']) return 7 * 24 * HOUR;
+  if (k['keep-monthly']) return 31 * 24 * HOUR;
+  if (k['keep-yearly']) return 366 * 24 * HOUR;
+  return null;
+}
+
+export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'default';
+
+// Age after which a group is late: its own threshold, else 1.5 x its rhythm (2 h of margin at least),
+// the rhythm being learned from its history, else given by the retention, else the default threshold.
+export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention'>, defaultHours: number) {
+  const learned = learnedInterval(b.times ?? []);
+  if (b.staleHours) return { hours: b.staleHours, source: 'manual' as ThresholdSource, interval: learned };
+  const interval = learned ?? b.retention ?? null;
+  if (!interval) return { hours: defaultHours, source: 'default' as ThresholdSource, interval: null };
+  const ms = Math.max(1.5 * interval, interval + 2 * HOUR);
+  return { hours: Math.round((ms / HOUR) * 10) / 10, source: (learned ? 'learned' : 'retention') as ThresholdSource, interval };
+}
+
+export type BackupState = 'ok' | 'stale' | 'failed' | 'gone';
+
+export function backupState(b: Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone' | 'times' | 'retention'>, defaultHours: number, now = Date.now()): BackupState {
   if (b.gone) return 'gone';
   if (b.verify === 'failed') return 'failed';
-  return now - b.lastBackup > (b.staleHours ?? staleHours) * 3600_000 ? 'stale' : 'ok';
+  return now - b.lastBackup > effectiveThreshold(b, defaultHours).hours * HOUR ? 'stale' : 'ok';
 }
 
-export function backupDto(b: BackupDoc, staleHours: number, now = Date.now()) {
+export function backupDto(b: BackupDoc, defaultHours: number, now = Date.now()) {
   const { _id, hostId, seenAt, ...rest } = b;
+  const t = effectiveThreshold(b, defaultHours);
   return {
     id: _id,
     ...rest,
     hostId: hostId ? hostId.toHexString() : null,
     seenAt,
-    state: backupState(b, staleHours, now),
-    threshold: b.staleHours ?? staleHours,
+    state: backupState(b, defaultHours, now),
+    threshold: t.hours,
+    thresholdSource: t.source,
+    interval: t.interval,
+  };
+}
+
+// Group of no host: just enough to recognise it and attach it from the host page.
+export function orphanDto(b: BackupDoc) {
+  return { id: b._id, store: b.store, ns: b.ns, type: b.type, backupId: b.backupId, comment: b.comment ?? null, lastBackup: b.lastBackup, count: b.count, gone: !!b.gone };
+}
+
+// Prune jobs (PBS 2.2+) and the keep-* options of the datastores (older ones): the finest
+// period kept per "<store>/<ns>". A job also covers the namespaces below its own.
+export function retentionMap(
+  jobs: ({ store: string; ns?: string; disable?: boolean } & KeepOptions)[],
+  stores: ({ name: string } & KeepOptions)[],
+) {
+  const out: { store: string; ns: string; interval: number }[] = [];
+  for (const d of stores) {
+    const i = retentionInterval(d);
+    if (i) out.push({ store: d.name, ns: '', interval: i });
+  }
+  for (const j of jobs) {
+    const i = retentionInterval(j);
+    if (i && !j.disable) out.push({ store: j.store, ns: j.ns ?? '', interval: i });
+  }
+  return (store: string, ns: string) => {
+    let best: { len: number; interval: number } | null = null;
+    for (const r of out) {
+      const covers = r.store === store && (r.ns === '' || ns === r.ns || ns.startsWith(`${r.ns}/`));
+      if (covers && (!best || r.ns.length > best.len || (r.ns.length === best.len && r.interval < best.interval))) best = { len: r.ns.length, interval: r.interval };
+    }
+    return best?.interval ?? null;
   };
 }
 
@@ -240,20 +306,25 @@ async function doPoll(log?: FastifyBaseLogger) {
         found.push(...mergeGroups(store, ns, groups, snapshots));
       }
     }
+    // retention: read when the token may (Datastore.Audit is not always enough), ignored otherwise
+    const jobs = await pbsGet<Parameters<typeof retentionMap>[0]>(s, '/config/prune').catch(() => []);
+    const storeConfs = await pbsGet<Parameters<typeof retentionMap>[1]>(s, '/config/datastore').catch(() => []);
+    const retention = retentionMap(jobs, storeConfs);
     const usage = await pbsGet<ApiUsage[]>(s, '/status/datastore-usage').catch(() => []);
     const datastores: PbsDatastoreUsage[] = usage
       .filter((u) => typeof u.total === 'number')
       .map((u) => ({ store: u.store, total: u.total!, used: u.used ?? 0, avail: u.avail ?? 0 }));
 
     const now = new Date();
-    const list = await hosts.find({}, { projection: { _id: 1, name: 1, info: 1 } }).toArray();
-    const known = new Map((await backups.find().toArray()).map((b) => [b._id, b]));
+    // the host of a group is only ever chosen by hand, from the host page
     for (const g of found) {
-      const prev = known.get(g._id);
-      const hostId = prev?.hostPinned ? prev.hostId : matchHost(g, list);
-      await backups.updateOne({ _id: g._id }, { $set: { ...g, hostId, seenAt: now }, $unset: { gone: '' } }, { upsert: true });
+      await backups.updateOne(
+        { _id: g._id },
+        { $set: { ...g, retention: retention(g.store, g.ns), seenAt: now }, $setOnInsert: { hostId: null }, $unset: { gone: '' } },
+        { upsert: true },
+      );
     }
-    // groups pruned from the PBS stay listed as gone, without alert, until forgotten
+    // groups pruned from the PBS are kept as gone: an attached one is reported, an orphan can be forgotten
     await backups.updateMany({ seenAt: { $lt: now } }, { $set: { gone: true } });
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
@@ -264,12 +335,19 @@ async function doPoll(log?: FastifyBaseLogger) {
   publish('backups', {});
 }
 
-// Group of a deleted host: back to "no host" (and to automatic matching).
+// Groups of a deleted host become orphans.
 export async function forgetHost(hostId: HostDoc['_id']) {
-  await backups.updateMany({ hostId }, { $set: { hostId: null }, $unset: { hostPinned: '' } });
+  await backups.updateMany({ hostId }, { $set: { hostId: null } });
+}
+
+// Up to 0.1.24 groups were matched to hosts automatically: only the ones chosen by hand stay attached.
+export async function migrateBackups() {
+  await backups.updateMany({ hostId: { $ne: null }, hostPinned: { $ne: true } }, { $set: { hostId: null } });
+  await backups.updateMany({ $or: [{ hostPinned: { $exists: true } }, { ignored: { $exists: true } }] }, { $unset: { hostPinned: '', ignored: '' } });
 }
 
 export function startPbsPoller(log: FastifyBaseLogger) {
+  migrateBackups().catch((err) => log.error({ err }, 'backups migration failed'));
   const run = () => pollPbs(log).catch((err) => log.error({ err }, 'PBS poll failed'));
   const first = setTimeout(run, 30_000);
   const timer = setInterval(run, 15 * 60_000);

@@ -70,8 +70,8 @@ type Component = Record<string, unknown>;
 
 export function build(hosts: HostState[], opts: BuildOptions) {
   const { topic, discoveryPrefix, version, hubUrl, backups } = opts;
-  // ignored and gone groups are not published
-  const tracked = (backups?.groups ?? []).filter((g) => g.state !== 'ignored' && g.state !== 'gone');
+  // followed: groups attached to a host (gone ones are reported as alerts only)
+  const tracked = (backups?.groups ?? []).filter((g) => g.hostId);
   const devices: Device[] = [];
   const commands = new Map<string, Command>();
   const availability = [{ topic: `${topic}/lwt` }];
@@ -320,9 +320,6 @@ export function build(hosts: HostState[], opts: BuildOptions) {
     root.sensor('stacks_to_update', 'Stacks à mettre à jour', stacksToUpdate, { icon: 'mdi:update' });
   }
   if (backups) {
-    // groups without host roll up to the root directly
-    const hostIds = new Set(hosts.map((h) => h.host._id.toHexString()));
-    allAlerts.push(...backupAlerts(tracked.filter((g) => !g.hostId || !hostIds.has(g.hostId))));
     root.sensor('backups_late', 'Sauvegardes en retard', tracked.filter((g) => g.state === 'stale').length, { icon: 'mdi:backup-restore' });
     for (const ds of backups.datastores) {
       const key = `datastore_${ds.store.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;

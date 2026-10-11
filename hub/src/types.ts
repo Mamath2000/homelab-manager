@@ -348,11 +348,11 @@ export interface BackupDoc {
   lastBackup: number; // unix ms of the last snapshot
   size: number | null; // bytes of the last snapshot
   verify: 'ok' | 'failed' | null; // verification of the last snapshot
-  // host it belongs to; pinned: chosen by hand, kept across polls
+  // host it belongs to, chosen by hand from the host page; null: orphan, not followed
   hostId: ObjectId | null;
-  hostPinned?: boolean;
-  staleHours?: number | null; // own threshold, else the settings one
-  ignored?: boolean; // listed, no state nor alert (old group...)
+  staleHours?: number | null; // own threshold (hours), else the rhythm of the group
+  times?: number[]; // dates of the last snapshots (unix ms, oldest first)
+  retention?: number | null; // finest period kept by the prune policy (ms)
   seenAt: Date; // last poll that saw it
   gone?: boolean; // no longer on the PBS
 }
