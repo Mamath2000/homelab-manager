@@ -150,7 +150,7 @@ type StateInput = Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone
 // Schedule of a group: the PVE jobs writing it, or the backup job of the hub; with the last run.
 export function planOf(b: Pick<BackupDoc, 'pve' | 'managed'>) {
   if (b.pve) return { tz: b.pve.tz, jobs: b.pve.jobs, last: b.pve.lastTask ?? null };
-  if (b.managed) return { tz: b.managed.tz, jobs: [{ schedule: b.managed.schedule, enabled: b.managed.enabled }], last: b.managed.lastRun ?? null };
+  if (b.managed) return { tz: b.managed.tz, jobs: [{ schedule: b.managed.schedule, enabled: b.managed.enabled }], last: b.managed.lastRun ?? null, since: b.managed.since };
   return null;
 }
 
@@ -173,7 +173,10 @@ export function scheduleExpectation(b: Pick<BackupDoc, 'pve' | 'managed'>, now =
     if (expected === null || prev > expected) expected = prev;
     if (next !== null && (period === null || next - prev < period)) period = next - prev;
   }
-  return expected === null ? null : { disabled: false as const, expected, period: period ?? 24 * HOUR };
+  if (expected === null) return null;
+  // a job created after its last scheduled time expects nothing yet
+  const since = 'since' in plan ? plan.since : undefined;
+  return { disabled: false as const, expected: since && expected < since ? 0 : expected, period: period ?? 24 * HOUR };
 }
 
 // Age after which a group is late: its own threshold; else, written by PVE jobs, one period of its

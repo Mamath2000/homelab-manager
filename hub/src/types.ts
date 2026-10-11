@@ -484,6 +484,8 @@ export interface BackupManaged {
   lastRun?: { at: number; ok: boolean; error?: string | null } | null;
   // the agent applied the current definition
   synced: boolean;
+  // creation of the job (unix ms): runs scheduled before it are not expected
+  since?: number;
 }
 
 export interface BackupPve {

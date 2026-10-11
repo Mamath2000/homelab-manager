@@ -5,7 +5,7 @@ import { sha256 } from './crypto.js';
 import { backupJobs, backups, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { jobDto } from './jobs.js';
-import { groupKey, loadPbsSettings } from './pbs.js';
+import { groupKey, loadPbsSettings, pollPbs } from './pbs.js';
 import type { BackupArchive, BackupJobDoc, HostDoc, JobDoc, PbsSettings } from './types.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
@@ -195,6 +195,8 @@ export async function onResult(host: HostDoc, r: AgentResult) {
   ack();
   await refreshManaged();
   publish('backups', {});
+  // the new snapshot is on the PBS: read it now rather than at the next poll
+  if (r.ok) pollPbs().catch(() => {});
 }
 
 // Groups written by the backup jobs: attached to their host (placeholder until the first snapshot),
@@ -220,6 +222,7 @@ export async function refreshManaged() {
       enabled: j.enabled,
       lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null } : null,
       synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid),
+      since: j.createdAt.getTime(),
     };
     await backups.updateOne(
       { _id: key },

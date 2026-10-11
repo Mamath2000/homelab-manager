@@ -82,6 +82,15 @@ test('state of a group written by a job of the hub', () => {
   );
 });
 
+test('a job created after its last scheduled time is not late', () => {
+  const run = Date.UTC(2026, 9, 11, 1); // 03:00 Paris
+  const created = Date.UTC(2026, 9, 11, 17, 49);
+  const g = { lastBackup: 0, verify: null, gone: false, managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: true, since: created } } as unknown as BackupDoc;
+  assert.equal(backupState(g, 26, created + H), 'ok');
+  // the next day, its first run is expected
+  assert.equal(backupState(g, 26, run + 24 * H + 3 * H), 'stale');
+});
+
 test('running a backup job: operator; defining it: admin', () => {
   assert.equal(authorize('operator', 'POST', '/api/backup-jobs/:jobId/run'), true);
   assert.equal(authorize('operator', 'POST', '/api/hosts/:id/backup-jobs'), false);
