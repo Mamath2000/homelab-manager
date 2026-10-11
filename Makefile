@@ -21,7 +21,7 @@ export RELEASE_KEY
 # Stack de prod (make publish) : hôte ssh, CT Proxmox (vide = l'hôte ssh lui-même), dossier du compose
 PROD_SSH  ?= pve1.lo
 PROD_PCT  ?= 171
-PROD_DIR  ?= /root/homelab-manager
+PROD_DIR  ?= /home/mamath/homelab-manager
 PROD_RUN   = ssh $(PROD_SSH) "$(if $(PROD_PCT),pct exec $(PROD_PCT) -- )sh -c 'cd $(PROD_DIR) && $(1)'"
 
 help: ## Affiche cette aide
