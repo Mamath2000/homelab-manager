@@ -14,16 +14,25 @@ Les sauvegardes [ElkarBackup](https://github.com/Mamath2000/homelab-manager/issu
 
 ### 1. Un jeton en lecture seule sur le PBS
 
+Les droits d'un jeton PBS sont l'**intersection** de ses propres ACL et de celles de son utilisateur : le rôle `DatastoreAudit` sur `/datastore` doit être donné à l'utilisateur **et** au jeton. Avec la seule ACL du jeton, le test de connexion réussit mais ne voit aucun datastore : le PBS filtre la liste au lieu de répondre 403.
+
 ```bash
-# un utilisateur dédié (ou un utilisateur existant)
+# utilisateur dédié, sans mot de passe : il ne sert pas à se connecter
 proxmox-backup-manager user create homelab@pbs
 # son jeton : noter le secret affiché, il n'est montré qu'une fois
 proxmox-backup-manager user generate-token homelab@pbs monitor
-# lecture seule sur tous les datastores
+# lecture seule sur tous les datastores, pour l'utilisateur ET le jeton
+proxmox-backup-manager acl update /datastore DatastoreAudit --auth-id homelab@pbs
 proxmox-backup-manager acl update /datastore DatastoreAudit --auth-id 'homelab@pbs!monitor'
+# contrôle : doit lister Datastore.Audit
+proxmox-backup-manager user permissions 'homelab@pbs!monitor' --path /datastore
 ```
 
-Ou dans l'interface du PBS : **Configuration › Contrôle d'accès** (onglet Jetons API, puis Permissions : rôle `DatastoreAudit` sur `/datastore` pour le jeton).
+Ou dans l'interface du PBS, **Configuration › Contrôle d'accès** :
+1. onglet **Gestion des utilisateurs** › Ajouter : `homelab`, realm `pbs` ;
+2. onglet **Jetons API** › Ajouter : utilisateur `homelab@pbs`, nom `monitor` (noter le secret, affiché une seule fois) ;
+3. onglet **Permissions** › Ajouter › **Permission utilisateur** : chemin `/datastore`, utilisateur `homelab@pbs`, rôle `DatastoreAudit`, Propager coché ;
+4. onglet **Permissions** › Ajouter › **Permission de jeton API** : chemin `/datastore`, jeton `homelab@pbs!monitor`, rôle `DatastoreAudit`, Propager coché.
 
 ### 2. Paramètres › Sauvegardes
 
@@ -35,7 +44,7 @@ Ou dans l'interface du PBS : **Configuration › Contrôle d'accès** (onglet Je
 | Secret du jeton | jamais renvoyé par le hub après l'enregistrement |
 | Seuil de retard par défaut | `26` heures, quand ni l'historique ni la rétention ne donnent de rythme |
 
-**Tester la connexion** liste les datastores visibles. Une fois enregistré, le hub relève le PBS toutes les 15 minutes ; **Relever** sur la page Sauvegardes le fait tout de suite.
+**Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les permissions ci-dessus). Une fois enregistré, le hub relève le PBS toutes les 15 minutes ; **Relever** sur la page Sauvegardes le fait tout de suite.
 
 :::info Certificat épinglé
 Le certificat du PBS est auto-signé : le hub n'accepte que celui dont l'empreinte est enregistrée, quel que soit son émetteur, et vérifie l'empreinte avant d'envoyer le jeton. Après un renouvellement du certificat du PBS, récupérer à nouveau l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système (certificat ACME, par exemple).

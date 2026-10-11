@@ -4,7 +4,17 @@ import { DatabaseBackup, Fingerprint, Plug, Save } from 'lucide-react';
 import { api, type PbsSettingsInput } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Button, Panel, Spinner } from './ui';
+import { Button, CopyField, Panel, Spinner } from './ui';
+
+const PBS_SETUP = `# utilisateur dédié, sans mot de passe : il ne sert pas à se connecter
+proxmox-backup-manager user create homelab@pbs
+# son jeton : noter le secret affiché, il n'est montré qu'une fois
+proxmox-backup-manager user generate-token homelab@pbs monitor
+# lecture seule sur tous les datastores, pour l'utilisateur ET le jeton
+proxmox-backup-manager acl update /datastore DatastoreAudit --auth-id homelab@pbs
+proxmox-backup-manager acl update /datastore DatastoreAudit --auth-id 'homelab@pbs!monitor'
+# contrôle : doit lister Datastore.Audit
+proxmox-backup-manager user permissions 'homelab@pbs!monitor' --path /datastore`;
 
 // Proxmox Backup Server followed through its API (Paramètres > Sauvegardes).
 export function BackupSettings() {
@@ -14,7 +24,7 @@ export function BackupSettings() {
   // local draft once edited, server values until then; the secret is never sent back by the hub
   const [draft, setDraft] = useState<PbsSettingsInput | null>(null);
   const [busy, setBusy] = useState<'save' | 'test' | 'fp' | null>(null);
-  const [test, setTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [test, setTest] = useState<{ level: 'ok' | 'warn' | 'error'; text: string } | null>(null);
 
   if (!data) return <div className="flex justify-center p-10"><Spinner /></div>;
   const form: PbsSettingsInput = draft ?? { enabled: data.enabled, url: data.url, fingerprint: data.fingerprint, tokenId: data.tokenId, staleHours: data.staleHours };
@@ -43,9 +53,12 @@ export function BackupSettings() {
     setTest(null);
     try {
       const r = await api.testPbsSettings(body());
-      setTest(r.ok ? { ok: true, text: `Connexion réussie · datastores : ${r.datastores?.join(', ') || 'aucun visible'}` } : { ok: false, text: r.error ?? 'échec' });
+      if (!r.ok) setTest({ level: 'error', text: r.error ?? 'échec' });
+      // the PBS filters the list by permission instead of answering 403
+      else if (!r.datastores?.length) setTest({ level: 'warn', text: 'Connexion réussie mais aucun datastore visible : vérifier DatastoreAudit sur /datastore pour l’utilisateur ET le jeton' });
+      else setTest({ level: 'ok', text: `Connexion réussie · datastores : ${r.datastores.join(', ')}` });
     } catch (err) {
-      setTest({ ok: false, text: (err as Error).message });
+      setTest({ level: 'error', text: (err as Error).message });
     } finally {
       setBusy(null);
     }
@@ -109,10 +122,19 @@ export function BackupSettings() {
             />
           </label>
         </div>
-        <p className="text-xs text-muted">
-          Sur le PBS : <code>proxmox-backup-manager user generate-token homelab@pbs monitor</code>, puis le rôle <b>DatastoreAudit</b> sur <code>/datastore</code> pour
-          le jeton (Configuration › Contrôle d'accès › Permissions).
-        </p>
+        <div className="space-y-2 rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
+          <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
+          <p>
+            Les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur : le rôle <b>DatastoreAudit</b> sur <code>/datastore</code> doit être
+            donné à l'utilisateur <b>et</b> au jeton. En ligne de commande sur le PBS :
+          </p>
+          <CopyField multiline value={PBS_SETUP} />
+          <p>
+            Ou dans l'interface du PBS, Configuration › Contrôle d'accès : onglet <b>Gestion des utilisateurs</b> › Ajouter (realm <code>pbs</code>), onglet{' '}
+            <b>Jetons API</b> › Ajouter sur cet utilisateur (le secret n'est affiché qu'une fois), puis onglet <b>Permissions</b> : « Ajouter › Permission utilisateur »
+            et « Ajouter › Permission de jeton API », chemin <code>/datastore</code>, rôle <code>DatastoreAudit</code>, Propager coché.
+          </p>
+        </div>
         <label className="block max-w-xs">
           <span className={field}>Seuil de retard par défaut (heures)</span>
           <input className="input" type="number" min={1} max={1440} value={form.staleHours} onChange={(e) => set({ staleHours: Math.max(1, Number(e.target.value) || 26) })} />
@@ -123,7 +145,7 @@ export function BackupSettings() {
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <Button icon={Plug} loading={busy === 'test'} disabled={!form.url || !form.tokenId} onClick={runTest}>Tester la connexion</Button>
-          {test && <span className={test.ok ? 'text-xs text-emerald-400' : 'text-xs text-red-400'}>{test.text}</span>}
+          {test && <span className={{ ok: 'text-xs text-emerald-400', warn: 'text-xs text-amber-400', error: 'text-xs text-red-400' }[test.level]}>{test.text}</span>}
         </div>
       </div>
     </Panel>
