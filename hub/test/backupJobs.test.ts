@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { buildSpec, checkJob, pbsServer, validPath, type JobInput } from '../src/backupJobs.js';
+import { buildSpec, checkJob, pbsServer, runError, validPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, BackupJobDoc, PbsSettings } from '../src/types.js';
@@ -101,15 +101,23 @@ test('running a backup job: operator; defining it: admin', () => {
 
 test('API tokens created by a pasted command: what the hub asks for, admin only', async () => {
   const { setupPlan } = await import('../src/tokenSetup.js');
-  assert.deepEqual(setupPlan('host', { hostName: 'Canicoif PProd', store: 'ds2' }), {
+  // the namespace Hosts of every datastore: the script applies the path to each one
+  assert.deepEqual(setupPlan('host', { hostName: 'Canicoif PProd' }), {
     tool: 'pbs',
     user: 'host-canicoif-pprod@pbs',
     token: 'backup',
-    path: '/datastore/ds2/Hosts',
+    path: '/datastore/{store}/Hosts',
     role: 'DatastoreBackup',
   });
   assert.equal(setupPlan('pve', {}).role, 'PVEAuditor');
   assert.equal(setupPlan('pbs', {}).path, '/datastore');
   assert.equal(authorize('operator', 'POST', '/api/settings/token-setups'), false);
   assert.equal(authorize('admin', 'POST', '/api/settings/token-setups'), true);
+});
+
+test('error of a failed run: the last "Error:" line of the client', () => {
+  const log = "Starting backup: [Hosts]:host/x\nError: missing permissions 'Datastore.Backup' on '/datastore/ds0/Hosts'\n";
+  assert.equal(runError({ ok: false, error: 'proxmox-backup-client a échoué (code 255)', log }), "missing permissions 'Datastore.Backup' on '/datastore/ds0/Hosts'");
+  assert.equal(runError({ ok: false, error: 'docker pull failed', log: 'pulling\n' }), 'docker pull failed');
+  assert.equal(runError({ ok: true, log }), null);
 });

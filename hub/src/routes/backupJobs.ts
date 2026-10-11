@@ -49,7 +49,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     return {
       // the agent can run the client, natively or in a container
       mode: host.capabilities?.includes('backup:native') ? 'native' : host.capabilities?.includes('backup:docker') ? 'docker' : null,
-      credential: host.pbsCredential ? { tokenId: host.pbsCredential.tokenId, updatedAt: host.pbsCredential.updatedAt } : null,
+      credential: host.pbsCredential ? { tokenId: host.pbsCredential.tokenId, updatedAt: host.pbsCredential.updatedAt, store: host.pbsCredential.store ?? null } : null,
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
       pbsReady: pbs.enabled && !!pbs.url,
       datastores: (pbs.datastores ?? []).map((d) => d.store),
@@ -81,6 +81,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         const tokenSecret = req.body.tokenSecret?.trim() || host.pbsCredential?.tokenSecret;
         if (!TOKEN_ID_RE.test(tokenId)) return reply.code(400).send({ error: 'identifiant du jeton invalide (utilisateur@royaume!jeton)' });
         if (!tokenSecret) return reply.code(400).send({ error: 'secret du jeton requis' });
+        // entered by hand: the datastore of its rights is not known
         await hosts.updateOne({ _id }, { $set: { pbsCredential: { tokenId, tokenSecret, updatedAt: new Date() } } });
       }
       await changed(_id);

@@ -41,15 +41,15 @@ export interface TokenSetupDoc {
 
 const TTL_MS = 3600_000;
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
-const STORE_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // What the script creates, decided by the hub only.
-export function setupPlan(kind: TokenSetupKind, o: { hostName?: string; store?: string }) {
+export function setupPlan(kind: TokenSetupKind, o: { hostName?: string }) {
   if (kind === 'pbs') return { tool: 'pbs' as const, user: 'homelab@pbs', token: 'monitor', path: '/datastore', role: 'DatastoreAudit' };
   if (kind === 'pve') return { tool: 'pve' as const, user: 'homelab@pve', token: 'monitor', path: '/', role: 'PVEAuditor' };
-  // a token per host, DatastoreBackup on the namespace of the hosts: it only sees the groups it owns
-  return { tool: 'pbs' as const, user: `host-${slug(o.hostName ?? '')}@pbs`, token: 'backup', path: `/datastore/${o.store}/Hosts`, role: 'DatastoreBackup' };
+  // a token per host, DatastoreBackup on the namespace of the hosts of every datastore ({store}: the script
+  // applies it to each one): it only sees the groups it owns, and cannot write in the namespaces of PVE
+  return { tool: 'pbs' as const, user: `host-${slug(o.hostName ?? '')}@pbs`, token: 'backup', path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' };
 }
 
 // naive brute-force protection, as for the enrollment
@@ -64,18 +64,32 @@ function fail(ip: string) {
   failures.set(ip, { count: fresh ? 1 : f.count + 1, until: Date.now() + 10 * 60_000 });
 }
 
-async function apply(s: TokenSetupDoc, tokenId: string, secret: string) {
+export class SetupError extends Error {}
+
+// The token received; no secret: the token already existed (its rights were updated), the hub must
+// already hold it.
+async function apply(s: TokenSetupDoc, tokenId: string, secret: string | undefined) {
+  const unknown = () => new SetupError('token already exists and the hub does not hold it: delete it on the server and run a new command');
   if (s.kind === 'host' && s.hostId) {
-    await hosts.updateOne({ _id: s.hostId }, { $set: { pbsCredential: { tokenId, tokenSecret: secret, updatedAt: new Date() } } });
+    const host = await hosts.findOne({ _id: s.hostId });
+    if (!host) throw new SetupError('host not found');
+    const keep = host.pbsCredential?.tokenId === tokenId ? host.pbsCredential.tokenSecret : undefined;
+    if (!secret && !keep) throw unknown();
+    // store '*': rights on the namespace Hosts of every datastore
+    await hosts.updateOne({ _id: s.hostId }, { $set: { pbsCredential: { tokenId, tokenSecret: (secret ?? keep)!, updatedAt: new Date(), store: '*' } } });
     await refreshManaged();
     await syncHost(s.hostId);
   } else if (s.kind === 'pbs') {
-    await settings.updateOne({ _id: 'pbs' }, { $set: { tokenId, tokenSecret: secret } }, { upsert: true });
+    const cur = (await settings.findOne({ _id: 'pbs' })) as { tokenId?: string; tokenSecret?: string } | null;
+    if (!secret && !(cur?.tokenId === tokenId && cur.tokenSecret)) throw unknown();
+    if (secret) await settings.updateOne({ _id: 'pbs' }, { $set: { tokenId, tokenSecret: secret } }, { upsert: true });
     pollPbs().catch(() => {});
   } else if (s.kind === 'pve' && s.cluster) {
     const cur = await loadPveSettings();
     const existing = cur.clusters.find((c) => c.id === s.cluster!.id);
-    const next: PveCluster = existing ? { ...existing, tokenId, tokenSecret: secret } : { ...s.cluster, tokenId, tokenSecret: secret, enabled: true };
+    const keep = existing?.tokenId === tokenId ? existing.tokenSecret : undefined;
+    if (!secret && !keep) throw unknown();
+    const next: PveCluster = existing ? { ...existing, tokenId, tokenSecret: (secret ?? keep)! } : { ...s.cluster, tokenId, tokenSecret: secret!, enabled: true };
     const clusters = existing ? cur.clusters.map((c) => (c.id === next.id ? next : c)) : [...cur.clusters, next];
     await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
     pollPve().catch(() => {});
@@ -85,7 +99,7 @@ async function apply(s: TokenSetupDoc, tokenId: string, secret: string) {
 
 // Admin side (UI port): create a command, follow it.
 export function registerTokenSetupRoutes(app: FastifyInstance) {
-  app.post<{ Body: { kind: TokenSetupKind; hostId?: string; store?: string; cluster?: { id: string; name: string; url: string; fingerprint: string } } }>(
+  app.post<{ Body: { kind: TokenSetupKind; hostId?: string; cluster?: { id: string; name: string; url: string; fingerprint: string } } }>(
     '/api/settings/token-setups',
     {
       schema: {
@@ -96,7 +110,6 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
           properties: {
             kind: { type: 'string', enum: ['pbs', 'pve', 'host'] },
             hostId: { type: 'string', maxLength: 24 },
-            store: { type: 'string', maxLength: 64 },
             cluster: {
               type: 'object',
               required: ['id', 'name', 'url', 'fingerprint'],
@@ -116,7 +129,6 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
         const _id = parseId(req.body.hostId ?? '');
         const host = _id && (await hosts.findOne({ _id }));
         if (!host) return reply.code(404).send({ error: 'host not found' });
-        if (!STORE_RE.test(req.body.store ?? '')) return reply.code(400).send({ error: 'datastore invalide' });
         hostId = host._id;
         hostName = host.name;
       }
@@ -137,7 +149,7 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
         _id: new ObjectId(),
         codeHash: sha256(code),
         kind,
-        ...setupPlan(kind, { hostName, store: req.body.store }),
+        ...setupPlan(kind, { hostName }),
         ...(hostId ? { hostId } : {}),
         ...(cluster ? { cluster } : {}),
         createdAt: new Date(now),
@@ -187,13 +199,14 @@ export function registerTokenSetupScriptRoutes(app: FastifyInstance) {
   });
 
   // the token: used up atomically, only for the token id the hub asked for
-  app.post<{ Body: { code: string; tokenId: string; secret: string } }>(
+  app.post<{ Body: { code: string; tokenId: string; secret?: string } }>(
     '/token-setup/complete',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['code', 'tokenId', 'secret'],
+          // no secret: the token existed already, only its rights were updated
+          required: ['code', 'tokenId'],
           additionalProperties: false,
           properties: { code: { type: 'string', minLength: 16, maxLength: 128 }, tokenId: { type: 'string', maxLength: 128 }, secret: { type: 'string', maxLength: 64 } },
         },
@@ -201,7 +214,7 @@ export function registerTokenSetupScriptRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       if (blocked(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry later' });
-      if (!UUID_RE.test(req.body.secret)) return reply.code(400).send({ error: 'invalid secret' });
+      if (req.body.secret !== undefined && !UUID_RE.test(req.body.secret)) return reply.code(400).send({ error: 'invalid secret' });
       const s = await tokenSetups.findOneAndUpdate(
         { codeHash: sha256(req.body.code), expiresAt: { $gt: new Date() }, doneAt: { $exists: false } },
         { $set: { doneAt: new Date(), tokenId: req.body.tokenId } },
@@ -215,8 +228,14 @@ export function registerTokenSetupScriptRoutes(app: FastifyInstance) {
         await tokenSetups.updateOne({ _id: s._id }, { $unset: { doneAt: '', tokenId: '' } });
         return reply.code(400).send({ error: 'unexpected token id' });
       }
-      await apply(s, req.body.tokenId, req.body.secret);
-      req.log.info({ kind: s.kind, tokenId: s.tokenId }, 'API token received');
+      try {
+        await apply(s, req.body.tokenId, req.body.secret);
+      } catch (err) {
+        await tokenSetups.updateOne({ _id: s._id }, { $unset: { doneAt: '', tokenId: '' } });
+        if (err instanceof SetupError) return reply.code(409).send({ error: err.message });
+        throw err;
+      }
+      req.log.info({ kind: s.kind, tokenId: s.tokenId, existing: !req.body.secret }, 'API token received');
       return { ok: true };
     },
   );

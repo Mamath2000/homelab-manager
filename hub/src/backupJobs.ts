@@ -133,6 +133,13 @@ interface AgentResult {
   log: string;
 }
 
+// Error of a failed run: the last "Error: …" line of the client, more telling than its exit code.
+export function runError(r: Pick<AgentResult, 'ok' | 'error' | 'log'>) {
+  if (r.ok) return null;
+  const lines = r.log.split('\n').map((l) => l.trim()).filter((l) => /^Error: /.test(l));
+  return lines.length ? lines[lines.length - 1].slice(7) : (r.error ?? 'échec');
+}
+
 export function isResult(r: unknown): r is AgentResult {
   const x = r as AgentResult;
   return (
@@ -156,6 +163,7 @@ export async function onResult(host: HostDoc, r: AgentResult) {
   const bj = await backupJobs.findOne({ _id: new ObjectId(r.jobId), hostId: host._id });
   if (!bj) return ack(); // job deleted meanwhile
   const status = r.ok ? 'success' : 'failed';
+  const error = runError(r);
   const log = r.log.slice(-64 * 1024);
   let jobId: ObjectId | null = null;
   if (r.runId && ObjectId.isValid(r.runId)) {
@@ -163,7 +171,7 @@ export async function onResult(host: HostDoc, r: AgentResult) {
     jobId = new ObjectId(r.runId);
     const updated = await jobs.findOneAndUpdate(
       { _id: jobId, hostId: host._id, action: 'backup_run' },
-      { $set: { status, exitCode: r.ok ? 0 : 1, error: r.error || undefined, finishedAt: new Date(r.end) } },
+      { $set: { status, exitCode: r.ok ? 0 : 1, error: error || undefined, finishedAt: new Date(r.end) } },
       { returnDocument: 'after' },
     );
     if (updated) publish('job', jobDto(updated));
@@ -181,7 +189,7 @@ export async function onResult(host: HostDoc, r: AgentResult) {
       createdAt: new Date(r.start),
       finishedAt: new Date(r.end),
       exitCode: r.ok ? 0 : 1,
-      ...(r.error ? { error: r.error } : {}),
+      ...(error ? { error } : {}),
       log,
       resultId: r.id,
     };
@@ -190,7 +198,7 @@ export async function onResult(host: HostDoc, r: AgentResult) {
     publish('job', jobDto(doc));
   }
   if (!bj.lastRun || r.start >= bj.lastRun.start) {
-    await backupJobs.updateOne({ _id: bj._id }, { $set: { lastRun: { start: r.start, end: r.end, ok: r.ok, error: r.error ?? null, trigger: r.trigger, jobId } } });
+    await backupJobs.updateOne({ _id: bj._id }, { $set: { lastRun: { start: r.start, end: r.end, ok: r.ok, error, trigger: r.trigger, jobId } } });
   }
   ack();
   await refreshManaged();

@@ -455,7 +455,8 @@ export interface BackupJobInput {
 
 export interface HostBackupJobs {
   mode: 'native' | 'docker' | null;
-  credential: { tokenId: string; updatedAt: string } | null;
+  // store: datastore of the rights of the token, when created by the command of the UI
+  credential: { tokenId: string; updatedAt: string; store: string | null } | null;
   sync: { hash: string; at: string; error: string | null; current: boolean } | null;
   pbsReady: boolean;
   datastores: string[];

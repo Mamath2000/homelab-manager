@@ -21,9 +21,9 @@ const PRESETS = [
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
-function tokenHelp(host: Host, store: string) {
-  // DatastoreBackup: it only sees and changes the backups it owns
-  return pbsTokenScript({ user: `host-${slug(host.name)}@pbs`, token: 'backup', path: `/datastore/${store}/Hosts`, role: 'DatastoreBackup' });
+function tokenHelp(host: Host) {
+  // DatastoreBackup on the namespace Hosts of every datastore: it only sees and changes the backups it owns
+  return pbsTokenScript({ user: `host-${slug(host.name)}@pbs`, token: 'backup', path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' });
 }
 
 // PBS token of the host: the agent writes its backups with it.
@@ -32,7 +32,6 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
   const toast = useToast();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
   const [secret, setSecret] = useState('');
-  const [store, setStore] = useState(view.datastores[0] ?? '');
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
@@ -85,20 +84,14 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
         </div>
         <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
           <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
-          <label className="flex items-center gap-2">
-            <span>Datastore des sauvegardes de cet hôte</span>
-            <select className="input h-8 w-28 py-1 text-xs" value={store} onChange={(e) => setStore(e.target.value)}>
-              {view.datastores.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </label>
           <p>
-            Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace des hôtes : un hôte compromis ne peut ni lire ni modifier les sauvegardes des
-            autres.
+            Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace <code>Hosts</code> de chaque datastore : un hôte compromis ne peut ni lire ni
+            modifier les sauvegardes des autres, ni écrire dans les namespaces de Proxmox VE. Une commande collée pour un jeton existant met ses droits à jour (nouveau
+            datastore) en gardant son secret.
           </p>
           <TokenSetup
             where="du PBS"
-            disabled={!store}
-            request={() => ({ kind: 'host', hostId: host.id, store })}
+            request={() => ({ kind: 'host', hostId: host.id })}
             onDone={() => {
               qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
               onClose();
@@ -107,7 +100,7 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           <details>
             <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
             <div className="mt-2">
-              <CopyField multiline value={tokenHelp(host, store || 'ds2')} />
+              <CopyField multiline value={tokenHelp(host)} />
             </div>
           </details>
         </aside>
@@ -125,7 +118,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         name: 'home',
         archives: [{ name: 'home', path: '/home' }],
         excludes: [],
-        store: view.datastores[0] ?? '',
+        // the datastore the token of the host has rights on
+        store: view.credential?.store && view.credential.store !== '*' ? view.credential.store : (view.datastores[0] ?? ''),
         ns: 'Hosts',
         backupId: slug(host.name),
         schedule: '03:00',
@@ -209,6 +203,12 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
               {!view.datastores.includes(form.store) && <option value={form.store}>{form.store || '—'}</option>}
               {view.datastores.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
+            {view.credential?.store && ((view.credential.store !== '*' && form.store !== view.credential.store) || form.ns !== 'Hosts') && (
+              <span className="mt-1 block text-xs text-amber-400">
+                Le jeton de cet hôte n'a de droits que sur {view.credential.store === '*' ? 'le namespace Hosts des datastores' : `${view.credential.store} › Hosts`} : la sauvegarde
+                sera refusée par le PBS.
+              </span>
+            )}
           </label>
           <label className="block">
             <span className={field}>Namespace</span>
@@ -298,7 +298,14 @@ export function ManagedBackups({ host }: { host: Host }) {
         {data.mode === 'native' && <Badge tone="ok">client PBS installé</Badge>}
         {data.mode === 'docker' && <Badge tone="ok">client PBS en conteneur</Badge>}
         {!data.mode && <Badge tone="warn">ni client PBS ni Docker (ou agent à mettre à jour)</Badge>}
-        {data.credential ? <Badge tone="neutral">jeton {data.credential.tokenId}</Badge> : <Badge tone="warn">aucun jeton PBS</Badge>}
+        {data.credential ? (
+          <Badge tone="neutral">
+            jeton {data.credential.tokenId}
+            {data.credential.store && ` · ${data.credential.store === '*' ? 'tous les datastores' : data.credential.store} › Hosts`}
+          </Badge>
+        ) : (
+          <Badge tone="warn">aucun jeton PBS</Badge>
+        )}
         {data.sync?.error ? (
           <Badge tone="bad" className="max-w-full truncate">refusée par l'agent : {data.sync.error}</Badge>
         ) : data.jobs.length > 0 && data.sync?.current ? (

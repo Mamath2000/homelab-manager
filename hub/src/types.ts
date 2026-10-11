@@ -149,7 +149,8 @@ export interface HostDoc {
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
   // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied
-  pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date };
+  // store: datastore the token was given rights on (token created by the command of the UI); unknown otherwise
+  pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date; store?: string };
   backupSync?: { hash: string; at: Date; error?: string | null };
 }
 
