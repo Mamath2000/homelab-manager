@@ -66,7 +66,8 @@ export function Dashboard() {
     .sort((a, b) => b.problems.length - a.problems.length || b.updates - a.updates);
   const sortedHosts = [...hosts].sort((a, b) => connOrder[connection(a)] - connOrder[connection(b)] || a.name.localeCompare(b.name));
 
-  const trackedBackups = (backups?.groups ?? []).filter((g) => !g.ignored && !g.gone);
+  // only the backups attached to a host are followed
+  const trackedBackups = backups?.groups ?? [];
   const lateBackups = trackedBackups.filter((g) => g.state !== 'ok').sort((a, b) => a.lastBackup - b.lastBackup);
   const hostName = (id: string | null) => hosts.find((h) => h.id === id)?.name;
 
@@ -223,6 +224,7 @@ export function Dashboard() {
               stats={[
                 { label: 'À jour', value: trackedBackups.filter((g) => g.state === 'ok').length, tone: 'ok' },
                 { label: 'En retard', value: trackedBackups.filter((g) => g.state === 'stale').length, tone: 'warn' },
+                { label: 'Disparues du PBS', value: trackedBackups.filter((g) => g.state === 'gone').length, tone: 'bad' },
                 { label: 'Vérification en échec', value: trackedBackups.filter((g) => g.state === 'failed').length, tone: 'bad' },
               ]}
               cardsTitle="Sauvegardes à surveiller"

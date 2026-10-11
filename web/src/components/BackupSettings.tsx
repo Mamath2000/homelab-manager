@@ -114,9 +114,12 @@ export function BackupSettings() {
           le jeton (Configuration › Contrôle d'accès › Permissions).
         </p>
         <label className="block max-w-xs">
-          <span className={field}>En retard après (heures)</span>
+          <span className={field}>Seuil de retard par défaut (heures)</span>
           <input className="input" type="number" min={1} max={1440} value={form.staleHours} onChange={(e) => set({ staleHours: Math.max(1, Number(e.target.value) || 26) })} />
-          <span className="mt-1 block text-xs text-muted">26 h pour des sauvegardes quotidiennes ; modifiable par sauvegarde dans la page Sauvegardes.</span>
+          <span className="mt-1 block text-xs text-muted">
+            Une sauvegarde est en retard après 1,5 × son rythme, appris de ses derniers snapshots ou, à défaut, de la rétention du PBS. Ce seuil sert
+            quand aucun des deux n'est connu ; il peut aussi être fixé sauvegarde par sauvegarde.
+          </span>
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <Button icon={Plug} loading={busy === 'test'} disabled={!form.url || !form.tokenId} onClick={runTest}>Tester la connexion</Button>

@@ -313,7 +313,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 // Backups of the Proxmox Backup Server (hub/src/pbs.ts)
-export type BackupState = 'ok' | 'stale' | 'failed' | 'ignored' | 'gone';
+export type BackupState = 'ok' | 'stale' | 'failed' | 'gone';
 
 export interface BackupGroup {
   id: string;
@@ -328,13 +328,27 @@ export interface BackupGroup {
   size: number | null;
   verify: 'ok' | 'failed' | null;
   hostId: string | null;
-  hostPinned?: boolean;
   staleHours?: number | null;
-  ignored?: boolean;
   gone?: boolean;
   seenAt: string;
   state: BackupState;
+  times?: number[]; // last snapshots, oldest first
   threshold: number; // hours
+  thresholdSource: 'manual' | 'learned' | 'retention' | 'default';
+  interval: number | null; // rhythm (ms), learned or from the retention
+}
+
+// Group of the PBS attached to no host: not followed
+export interface BackupOrphan {
+  id: string;
+  store: string;
+  ns: string;
+  type: string;
+  backupId: string;
+  comment: string | null;
+  lastBackup: number;
+  count: number;
+  gone: boolean;
 }
 
 export interface BackupsView {
@@ -344,6 +358,7 @@ export interface BackupsView {
   staleHours: number;
   datastores: { store: string; total: number; used: number; avail: number }[];
   groups: BackupGroup[];
+  orphans: BackupOrphan[];
 }
 
 export interface PbsSettings {
@@ -418,7 +433,8 @@ export const api = {
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
   backups: () => request<BackupsView>('GET', '/api/backups'),
   refreshBackups: () => request<{ ok: boolean }>('POST', '/api/backups/refresh'),
-  updateBackup: (id: string, patch: { hostId?: string | null; staleHours?: number | null; ignored?: boolean }) =>
+  setHostBackups: (hostId: string, ids: string[]) => request<BackupGroup[]>('PUT', `/api/hosts/${hostId}/backups`, { ids }),
+  updateBackup: (id: string, patch: { hostId?: string | null; staleHours?: number | null }) =>
     request<BackupGroup>('PATCH', `/api/backups/${encodeURIComponent(id)}`, patch),
   forgetBackup: (id: string) => request<void>('DELETE', `/api/backups/${encodeURIComponent(id)}`),
   pbsSettings: () => request<PbsSettings>('GET', '/api/settings/pbs'),
