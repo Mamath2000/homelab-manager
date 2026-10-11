@@ -366,8 +366,8 @@ export interface BackupGroup {
   seenAt: string;
   state: BackupState;
   times?: number[]; // last snapshots, oldest first
-  threshold: number; // hours
-  thresholdSource: 'manual' | 'learned' | 'retention' | 'default' | 'schedule';
+  threshold: number | null; // hours; null: no rhythm known, never late
+  thresholdSource: 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
   interval: number | null; // rhythm (ms), learned, from the retention or the PVE schedule
   // vzdump: attached by Proxmox VE; managed: written by a backup job of the hub (not by hand)
   source?: 'vzdump' | 'managed';
@@ -393,7 +393,6 @@ export interface BackupsView {
   enabled: boolean;
   polledAt: string | null;
   pollError: string | null;
-  staleHours: number;
   datastores: { store: string; total: number; used: number; avail: number }[];
   clusters: { id: string; name: string; polledAt: string | null; pollError: string | null; guests: number }[];
   groups: BackupGroup[];
@@ -406,7 +405,6 @@ export interface PbsSettings {
   fingerprint: string;
   tokenId: string;
   hasSecret: boolean;
-  staleHours: number;
   clientImage?: string;
   polledAt?: string;
   pollError?: string | null;
@@ -418,7 +416,6 @@ export interface PbsSettingsInput {
   fingerprint: string;
   tokenId: string;
   tokenSecret?: string;
-  staleHours: number;
   clientImage?: string;
 }
 

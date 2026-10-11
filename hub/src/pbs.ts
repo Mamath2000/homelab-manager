@@ -15,7 +15,6 @@ export const DEFAULT_PBS: PbsSettings = {
   fingerprint: '',
   tokenId: '',
   tokenSecret: '',
-  staleHours: 26,
 };
 
 export const PBS_URL_RE = SERVER_URL_RE;
@@ -140,7 +139,8 @@ export function retentionInterval(k: KeepOptions): number | null {
   return null;
 }
 
-export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'default' | 'schedule';
+// none: no rhythm known (no schedule, fewer than 4 snapshots, no retention): never late
+export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
 
 // a scheduled backup is expected at most this long after its start time
 export const SCHEDULE_GRACE = 2 * HOUR;
@@ -181,8 +181,8 @@ export function scheduleExpectation(b: Pick<BackupDoc, 'pve' | 'managed'>, now =
 
 // Age after which a group is late: its own threshold; else, written by PVE jobs, one period of its
 // schedule plus the grace; else 1.5 x its rhythm (2 h of margin at least), the rhythm being learned from
-// its history, else given by the retention, else the default threshold.
-export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed'>, defaultHours: number, now = Date.now()) {
+// its history, else given by the retention; none of them: no threshold (hours null, never late).
+export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed'>, now = Date.now()): { hours: number | null; source: ThresholdSource; interval: number | null } {
   const learned = learnedInterval(b.times ?? []);
   if (b.staleHours) return { hours: b.staleHours, source: 'manual' as ThresholdSource, interval: learned };
   const sched = scheduleExpectation(b, now);
@@ -190,7 +190,7 @@ export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | '
     return { hours: Math.round(((sched.period + SCHEDULE_GRACE) / HOUR) * 10) / 10, source: 'schedule' as ThresholdSource, interval: sched.period };
   }
   const interval = learned ?? b.retention ?? null;
-  if (!interval) return { hours: defaultHours, source: 'default' as ThresholdSource, interval: null };
+  if (!interval) return { hours: null, source: 'none' as ThresholdSource, interval: null };
   const ms = Math.max(1.5 * interval, interval + 2 * HOUR);
   return { hours: Math.round((ms / HOUR) * 10) / 10, source: (learned ? 'learned' : 'retention') as ThresholdSource, interval };
 }
@@ -200,7 +200,7 @@ export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | '
 // current definition of a backup job of the hub.
 export type BackupState = 'ok' | 'stale' | 'failed' | 'gone' | 'task_failed' | 'disabled' | 'not_synced';
 
-export function backupState(b: StateInput, defaultHours: number, now = Date.now()): BackupState {
+export function backupState(b: StateInput, now = Date.now()): BackupState {
   if (b.gone) return 'gone';
   if (b.verify === 'failed') return 'failed';
   const last = planOf(b)?.last;
@@ -209,18 +209,19 @@ export function backupState(b: StateInput, defaultHours: number, now = Date.now(
   const sched = b.staleHours ? null : scheduleExpectation(b, now);
   if (sched?.disabled) return 'disabled';
   if (sched) return b.lastBackup < sched.expected ? 'stale' : 'ok';
-  return now - b.lastBackup > effectiveThreshold(b, defaultHours, now).hours * HOUR ? 'stale' : 'ok';
+  const hours = effectiveThreshold(b, now).hours;
+  return hours !== null && now - b.lastBackup > hours * HOUR ? 'stale' : 'ok';
 }
 
-export function backupDto(b: BackupDoc, defaultHours: number, now = Date.now()) {
+export function backupDto(b: BackupDoc, now = Date.now()) {
   const { _id, hostId, seenAt, ...rest } = b;
-  const t = effectiveThreshold(b, defaultHours, now);
+  const t = effectiveThreshold(b, now);
   return {
     id: _id,
     ...rest,
     hostId: hostId ? hostId.toHexString() : null,
     seenAt,
-    state: backupState(b, defaultHours, now),
+    state: backupState(b, now),
     threshold: t.hours,
     thresholdSource: t.source,
     interval: t.interval,

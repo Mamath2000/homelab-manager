@@ -224,7 +224,7 @@ export function HostBackups({ host }: { host: Host }) {
                     {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
                   </div>
                   <div className="text-xs text-zinc-500">
-                    {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed ? `agent · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · en retard après {hoursLabel(g.threshold)} ({thresholdSourceLabel[g.thresholdSource]})
+                    {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed ? `agent · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · {g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`}
                   </div>
                   {g.pve?.lastTask && !g.pve.lastTask.ok && (
                     <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>

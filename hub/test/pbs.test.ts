@@ -69,25 +69,26 @@ test('threshold: own one, else 1.5 x the learned rhythm, else the retention, els
   const daily = [5, 4, 3, 2, 1].map((d) => -d * D);
   const weekly = [5, 4, 3, 2, 1].map((w) => -w * 7 * D);
   const hourly = [5, 4, 3, 2, 1].map((h) => -h * H);
-  assert.deepEqual(effectiveThreshold({ staleHours: 50, times: daily }, 26), { hours: 50, source: 'manual', interval: D });
-  assert.deepEqual(effectiveThreshold({ times: daily }, 26), { hours: 36, source: 'learned', interval: D });
-  assert.deepEqual(effectiveThreshold({ times: weekly }, 26), { hours: 252, source: 'learned', interval: 7 * D });
+  assert.deepEqual(effectiveThreshold({ staleHours: 50, times: daily }), { hours: 50, source: 'manual', interval: D });
+  assert.deepEqual(effectiveThreshold({ times: daily }), { hours: 36, source: 'learned', interval: D });
+  assert.deepEqual(effectiveThreshold({ times: weekly }), { hours: 252, source: 'learned', interval: 7 * D });
   // hourly: 2 h of margin rather than 1.5 h
-  assert.equal(effectiveThreshold({ times: hourly }, 26).hours, 3);
-  assert.deepEqual(effectiveThreshold({ times: [], retention: 7 * D }, 26), { hours: 252, source: 'retention', interval: 7 * D });
-  assert.deepEqual(effectiveThreshold({ times: [] }, 26), { hours: 26, source: 'default', interval: null });
+  assert.equal(effectiveThreshold({ times: hourly }).hours, 3);
+  assert.deepEqual(effectiveThreshold({ times: [], retention: 7 * D }), { hours: 252, source: 'retention', interval: 7 * D });
+  // no rhythm known: no threshold, never late
+  assert.deepEqual(effectiveThreshold({ times: [] }), { hours: null, source: 'none', interval: null });
 });
 
 test('state: late after the effective threshold, failed verification, gone', () => {
   const now = Date.UTC(2026, 9, 11, 12);
   const weekly = [5, 4, 3, 2, 1].map((w) => now - 3 * D - w * 7 * D);
   // weekly group, last backup 3 days ago: not late
-  assert.equal(backupState({ lastBackup: now - 3 * D, verify: null, times: weekly }, 26, now), 'ok');
-  assert.equal(backupState({ lastBackup: now - 11 * D, verify: null, times: weekly }, 26, now), 'stale');
-  assert.equal(backupState({ lastBackup: now - 25 * H, verify: null }, 26, now), 'ok');
-  assert.equal(backupState({ lastBackup: now - 27 * H, verify: null }, 26, now), 'stale');
-  assert.equal(backupState({ lastBackup: now, verify: 'failed' }, 26, now), 'failed');
-  assert.equal(backupState({ lastBackup: now, verify: null, gone: true }, 26, now), 'gone');
+  assert.equal(backupState({ lastBackup: now - 3 * D, verify: null, times: weekly }, now), 'ok');
+  assert.equal(backupState({ lastBackup: now - 11 * D, verify: null, times: weekly }, now), 'stale');
+  // no rhythm known: never late, however old
+  assert.equal(backupState({ lastBackup: now - 30 * D, verify: null }, now), 'ok');
+  assert.equal(backupState({ lastBackup: now, verify: 'failed' }, now), 'failed');
+  assert.equal(backupState({ lastBackup: now, verify: null, gone: true }, now), 'gone');
 });
 
 test('alerts: late and failed groups, none for a roaming host away', () => {

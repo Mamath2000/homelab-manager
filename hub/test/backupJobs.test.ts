@@ -74,11 +74,11 @@ test('state of a group written by a job of the hub', () => {
   const run = Date.UTC(2026, 9, 11, 1); // 03:00 Paris
   const g = (o: Partial<BackupDoc> = {}) =>
     ({ lastBackup: run + 60_000, verify: null, gone: false, managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: true }, ...o }) as BackupDoc;
-  assert.equal(backupState(g(), 26, run + 3 * H), 'ok');
-  assert.equal(backupState(g({ lastBackup: run - 23 * H }), 26, run + 3 * H), 'stale');
-  assert.equal(backupState(g({ managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: false } }), 26, run + 3 * H), 'not_synced');
+  assert.equal(backupState(g(), run + 3 * H), 'ok');
+  assert.equal(backupState(g({ lastBackup: run - 23 * H }), run + 3 * H), 'stale');
+  assert.equal(backupState(g({ managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: false } }), run + 3 * H), 'not_synced');
   assert.equal(
-    backupState(g({ lastBackup: run - 23 * H, managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: true, lastRun: { at: run + 600_000, ok: false, error: 'x' } } }), 26, run + 3 * H),
+    backupState(g({ lastBackup: run - 23 * H, managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: true, lastRun: { at: run + 600_000, ok: false, error: 'x' } } }), run + 3 * H),
     'task_failed',
   );
 });
@@ -87,9 +87,9 @@ test('a job created after its last scheduled time is not late', () => {
   const run = Date.UTC(2026, 9, 11, 1); // 03:00 Paris
   const created = Date.UTC(2026, 9, 11, 17, 49);
   const g = { lastBackup: 0, verify: null, gone: false, managed: { jobId: 'j', name: 'home', tz: 'Europe/Paris', schedule: '03:00', enabled: true, synced: true, since: created } } as unknown as BackupDoc;
-  assert.equal(backupState(g, 26, created + H), 'ok');
+  assert.equal(backupState(g, created + H), 'ok');
   // the next day, its first run is expected
-  assert.equal(backupState(g, 26, run + 24 * H + 3 * H), 'stale');
+  assert.equal(backupState(g, run + 24 * H + 3 * H), 'stale');
 });
 
 test('running a backup job: operator; defining it: admin', () => {

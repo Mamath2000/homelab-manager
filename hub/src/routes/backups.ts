@@ -30,21 +30,19 @@ interface SettingsBody {
   fingerprint: string;
   tokenId: string;
   tokenSecret?: string; // absent: unchanged
-  staleHours: number;
   clientImage?: string;
 }
 
 const settingsBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['enabled', 'url', 'fingerprint', 'tokenId', 'staleHours'],
+  required: ['enabled', 'url', 'fingerprint', 'tokenId'],
   properties: {
     enabled: { type: 'boolean' },
     url: { type: 'string', maxLength: 256 },
     fingerprint: { type: 'string', maxLength: 128 },
     tokenId: { type: 'string', maxLength: 128 },
     tokenSecret: { type: 'string', maxLength: 128 },
-    staleHours: { type: 'integer', minimum: 1, maximum: 24 * 60 },
     clientImage: { type: 'string', maxLength: 256 },
   },
 } as const;
@@ -120,11 +118,10 @@ export function registerBackupRoutes(app: FastifyInstance) {
       enabled: s.enabled,
       polledAt: s.polledAt ?? null,
       pollError: s.pollError ?? null,
-      staleHours: s.staleHours,
       datastores: s.datastores ?? [],
       clusters: (await loadPveSettings()).clusters.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null, guests: c.guests ?? 0 })),
       // followed: the groups attached to a host; the others are only listed, to be attached
-      groups: list.filter((b) => b.hostId).map((b) => backupDto(b, s.staleHours)),
+      groups: list.filter((b) => b.hostId).map((b) => backupDto(b)),
       orphans: list.filter((b) => !b.hostId).map(orphanDto),
     };
   });
@@ -173,8 +170,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       if (req.body.staleHours !== undefined) set.staleHours = req.body.staleHours;
       await backups.updateOne({ _id: b._id }, { $set: set });
       publish('backups', {});
-      const s = await loadPbsSettings();
-      return backupDto((await backups.findOne({ _id: b._id }))!, s.staleHours);
+      return backupDto((await backups.findOne({ _id: b._id }))!);
     },
   );
 
@@ -202,8 +198,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       await backups.updateMany({ ...manual, hostId: _id, _id: { $nin: req.body.ids } }, { $set: { hostId: null } });
       await backups.updateMany({ ...manual, _id: { $in: req.body.ids } }, { $set: { hostId: _id } });
       publish('backups', {});
-      const s = await loadPbsSettings();
-      return (await backups.find({ hostId: _id }).toArray()).map((b) => backupDto(b, s.staleHours));
+      return (await backups.find({ hostId: _id }).toArray()).map((b) => backupDto(b));
     },
   );
 

@@ -100,24 +100,24 @@ test('state of a group written by a PVE job follows its schedule', () => {
   // sunday 2026-10-11, 6:00 Paris = 04:00 UTC
   const run = Date.UTC(2026, 9, 11, 4);
   // before the grace period: the previous day's run is expected
-  assert.equal(backupState(group({ lastBackup: run - 24 * H + 60_000 }), 26, run + H), 'ok');
+  assert.equal(backupState(group({ lastBackup: run - 24 * H + 60_000 }), run + H), 'ok');
   // after it: today's run must be there
-  assert.equal(backupState(group({ lastBackup: run - 24 * H + 60_000 }), 26, run + 3 * H), 'stale');
-  assert.equal(backupState(group({ lastBackup: run + 5 * 60_000 }), 26, run + 3 * H), 'ok');
+  assert.equal(backupState(group({ lastBackup: run - 24 * H + 60_000 }), run + 3 * H), 'stale');
+  assert.equal(backupState(group({ lastBackup: run + 5 * 60_000 }), run + 3 * H), 'ok');
   // never backed up (placeholder)
-  assert.equal(backupState(group(), 26, run + 3 * H), 'stale');
+  assert.equal(backupState(group(), run + 3 * H), 'stale');
   // last task failed after the last snapshot
   const failed = group({ lastBackup: run - 24 * H, pve: { cluster: 'vouille', vmid: 180, tz: 'Europe/Paris', jobs: [job()], lastTask: { upid: 'u', at: run + 600_000, ok: false, error: 'x' } } });
-  assert.equal(backupState(failed, 26, run + H), 'task_failed');
+  assert.equal(backupState(failed, run + H), 'task_failed');
   // every job disabled
-  assert.equal(backupState(group({ lastBackup: run, pve: { cluster: 'vouille', vmid: 180, tz: 'Europe/Paris', jobs: [job({ enabled: false })] } }), 26, run + H), 'disabled');
-  // a schedule this hub does not understand: back to the default threshold
+  assert.equal(backupState(group({ lastBackup: run, pve: { cluster: 'vouille', vmid: 180, tz: 'Europe/Paris', jobs: [job({ enabled: false })] } }), run + H), 'disabled');
+  // a schedule this hub does not understand, no history: no threshold
   const odd = group({ lastBackup: run, pve: { cluster: 'vouille', vmid: 180, tz: 'Europe/Paris', jobs: [job({ schedule: '2026-10-11 06:00' })] } });
-  assert.equal(effectiveThreshold(odd, 26, run).source, 'default');
+  assert.equal(effectiveThreshold(odd, run).source, 'none');
   // threshold shown: one period + the grace
-  assert.deepEqual(effectiveThreshold(group(), 26, run + 3 * H), { hours: 26, source: 'schedule', interval: 24 * H });
+  assert.deepEqual(effectiveThreshold(group(), run + 3 * H), { hours: 26, source: 'schedule', interval: 24 * H });
   // own threshold wins
-  assert.equal(effectiveThreshold(group({ staleHours: 72 }), 26, run).source, 'manual');
+  assert.equal(effectiveThreshold(group({ staleHours: 72 }), run).source, 'manual');
 });
 
 test('alerts of PVE groups and of a guest no job covers', () => {

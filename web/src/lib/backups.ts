@@ -63,7 +63,7 @@ export function rhythmLabel(ms: number | null) {
   return h < 48 ? `toutes les ${Math.round(h)} h` : `tous les ${Math.round(h / 24)} j`;
 }
 
-export const thresholdSourceLabel = { manual: 'manuel', learned: 'appris', retention: 'rétention', default: 'défaut', schedule: 'planification' } as const;
+export const thresholdSourceLabel = { manual: 'manuel', learned: 'appris', retention: 'rétention', schedule: 'planification', none: 'aucun rythme connu' } as const;
 
 export function hoursLabel(h: number) {
   return h >= 48 ? `${Math.round((h / 24) * 10) / 10} j`.replace('.', ',') : `${Math.round(h * 10) / 10} h`.replace('.', ',');

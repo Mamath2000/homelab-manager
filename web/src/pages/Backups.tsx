@@ -80,16 +80,16 @@ function OrphansModal({ data, open, onClose, canManage }: { data: BackupsView; o
   );
 }
 
-// Threshold of a group: automatic (learned rhythm, retention, default) or fixed (admin).
+// Threshold of a group: automatic (schedule, learned rhythm, retention; none: never late) or fixed (admin).
 function ThresholdCell({ g, canManage, onChange }: { g: BackupGroup; canManage: boolean; onChange: (h: number | null) => void }) {
-  const label = `${hoursLabel(g.threshold)} · ${thresholdSourceLabel[g.thresholdSource]}`;
+  const label = g.threshold === null ? '— · aucun rythme connu' : `${hoursLabel(g.threshold)} · ${thresholdSourceLabel[g.thresholdSource]}`;
   if (!canManage) return <span className="text-xs text-zinc-400">{label}</span>;
   return (
     <select
       className="input h-8 w-40 py-1 text-xs"
       value={g.staleHours ?? ''}
       onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-      title="Âge au-delà duquel la sauvegarde est en retard. Automatique : la planification du job Proxmox, sinon 1,5 × le rythme appris des derniers snapshots, sinon de la rétention du PBS, sinon le seuil par défaut."
+      title="Âge au-delà duquel la sauvegarde est en retard. Automatique : la planification du job, sinon 1,5 × le rythme appris des derniers snapshots, sinon de la rétention du PBS ; sans aucun des trois, pas de retard signalé."
     >
       <option value="">{g.thresholdSource === 'manual' ? 'automatique' : label}</option>
       <option value="26">26 h</option>

@@ -351,8 +351,6 @@ export interface PbsSettings {
   fingerprint: string;
   tokenId: string; // user@realm!token
   tokenSecret: string;
-  // a group whose last snapshot is older is late (the scripts run daily)
-  staleHours: number;
   // last poll
   polledAt?: Date;
   pollError?: string | null;

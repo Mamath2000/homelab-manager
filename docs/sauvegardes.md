@@ -48,7 +48,6 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 | Adresse | `https://192.168.100.8:8007` |
 | Empreinte du certificat | **Récupérer** lit celle que présente le PBS ; à comparer avec **Tableau de bord › Afficher l'empreinte** |
 | Jeton | `homelab@pbs!monitor` (créé par la commande) |
-| Seuil de retard par défaut | `26` heures : dernier recours, pour une sauvegarde externe récente (moins de 4 snapshots) dans un namespace sans élagage |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
 
 Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : variable `TZ` du compose (défaut `Europe/Paris`).
@@ -120,7 +119,7 @@ Les sauvegardes image PVE et répertoires ne se rattachent ni ne se détachent �
 | **planification** | image PVE et répertoires : en retard si aucun snapshot depuis la dernière heure prévue, 2 h de marge comprises ; seuil affiché = une période + 2 h |
 | **appris** | 1,5 × l'intervalle médian entre les derniers snapshots (au moins 4), 2 h de marge minimum |
 | **rétention** | même calcul avec la période la plus fine gardée par l'élagage du PBS (`keep-daily` → quotidienne…) |
-| **défaut** | le seuil des réglages du PBS (26 h) |
+| **aucun** | aucune des sources précédentes (sauvegarde externe récente, moins de 4 snapshots, namespace sans élagage) : pas de seuil, **jamais en retard** ni d'alerte |
 
 Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
@@ -148,4 +147,4 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
 ## Rôles
 
-Tous les rôles voient les sauvegardes. Les opérateurs peuvent relever et **lancer** une sauvegarde de répertoires. Seuls les administrateurs règlent les connexions (PBS, clusters), les jetons, les jobs, l'installation du client, le rattachement et les seuils.
+Tous les rôles voient les sauvegardes. Les opérateurs peuvent relever et **lancer** une sauvegarde de répertoires. Seuls les administrateurs règlent les connexions (PBS, clusters), les jetons, les jobs, l'installation du client, le rattachement et le seuil propre à une sauvegarde.
