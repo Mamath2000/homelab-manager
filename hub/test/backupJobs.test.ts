@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { buildSpec, checkJob, pbsServer, runError, validPath, type JobInput } from '../src/backupJobs.js';
+import { buildSpec, checkJob, clientState, pbsServer, runError, validPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, BackupJobDoc, PbsSettings } from '../src/types.js';
@@ -121,4 +121,11 @@ test('error of a failed run: the last "Error:" line of the client', () => {
   assert.equal(runError({ ok: false, error: 'proxmox-backup-client a échoué (code 255)', log }), "missing permissions 'Datastore.Backup' on '/datastore/ds0/Hosts'");
   assert.equal(runError({ ok: false, error: 'docker pull failed', log: 'pulling\n' }), 'docker pull failed');
   assert.equal(runError({ ok: true, log }), null);
+});
+
+test('state of the PBS client of a host, from its capabilities', () => {
+  assert.deepEqual(clientState(['backup_setup', 'backup_install:apt', 'backup_install:docker']), { mode: null, install: ['apt', 'docker'], supported: true });
+  assert.deepEqual(clientState(['backup_setup', 'backup', 'backup:docker', 'backup_install:apt']), { mode: 'docker', install: ['apt'], supported: true });
+  assert.deepEqual(clientState(['backup', 'backup:native']), { mode: 'native', install: [], supported: true });
+  assert.deepEqual(clientState(['apt_update']), { mode: null, install: [], supported: false });
 });

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { AlertTriangle, DatabaseBackup, FolderArchive, Link2, Play, Search, Unlink } from 'lucide-react';
+import { AlertTriangle, Container, DatabaseBackup, FolderArchive, Link2, Package, PackageX, Play, Search, Unlink } from 'lucide-react';
 import { ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { backupClient, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -116,6 +116,23 @@ function AttachModal({ host, groups, orphans, open, onClose }: { host: Host; gro
   );
 }
 
+// Small icon of the PBS client of the host: installed (APT), image (Docker), none.
+function ClientIcon({ host }: { host: Host }) {
+  const c = backupClient(host.capabilities);
+  if (!c.supported) return null;
+  const [Icon, tone, title] =
+    c.mode === 'native'
+      ? [Package, 'text-emerald-400', 'Client PBS installé (APT)']
+      : c.mode === 'docker'
+        ? [Container, 'text-sky-400', 'Client PBS en conteneur (image Docker)']
+        : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (bouton Répertoires pour l’installer)'];
+  return (
+    <span title={title} className="ml-2 inline-flex align-middle">
+      <Icon className={`h-4 w-4 ${tone}`} aria-label={title} />
+    </span>
+  );
+}
+
 // Backups of the host page: the PBS groups attached to it, with their last 30 days.
 export function HostBackups({ host }: { host: Host }) {
   const { data } = useBackups();
@@ -154,6 +171,7 @@ export function HostBackups({ host }: { host: Host }) {
       title={
         <>
           Sauvegardes{mine.length > 0 && <span className="text-muted"> ({mine.length})</span>}
+          <ClientIcon host={host} />
           {host.pve && <span className="ml-2 text-xs font-normal text-muted" title={`Guest ${host.pve.name} du cluster ${host.pve.cluster}, trouvé par son adresse MAC`}>{guestLabel(host.pve)} · {host.pve.node}</span>}
         </>
       }

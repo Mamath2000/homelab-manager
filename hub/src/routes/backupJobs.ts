@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkJob, currentHash, groupConflict, jobView, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, clientState, checkJob, currentHash, groupConflict, jobView, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
@@ -47,8 +47,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     const pbs = await loadPbsSettings();
     const list = await backupJobs.find({ hostId: _id }).sort({ name: 1 }).toArray();
     return {
-      // the agent can run the client, natively or in a container
-      mode: host.capabilities?.includes('backup:native') ? 'native' : host.capabilities?.includes('backup:docker') ? 'docker' : null,
+      // the agent runs the client natively or in a container; how it can be installed
+      ...clientState(host.capabilities),
       credential: host.pbsCredential ? { tokenId: host.pbsCredential.tokenId, updatedAt: host.pbsCredential.updatedAt, store: host.pbsCredential.store ?? null } : null,
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
       pbsReady: pbs.enabled && !!pbs.url,
@@ -96,6 +96,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const _id = parseId(req.params.id);
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!clientState(host.capabilities).mode) return reply.code(409).send({ error: "client PBS absent sur cet hôte : l'installer d'abord" });
       const pbs = await loadPbsSettings();
       const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || pbs.timezone || DEFAULT_TIMEZONE };
       const err = checkJob(body, true);
@@ -168,6 +169,26 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     await changed(cur.hostId);
     return reply.code(204).send();
   });
+
+  // Installs the PBS client on the host: Proxmox repository + package, or the client image (admin).
+  app.post<{ Params: { id: string }; Body: { method: 'apt' | 'docker' } }>(
+    '/api/hosts/:id/backup-client',
+    { schema: { body: { type: 'object', required: ['method'], additionalProperties: false, properties: { method: { type: 'string', enum: ['apt', 'docker'] } } } } },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'hôte hors ligne' });
+      if (!clientState(host.capabilities).install.includes(req.body.method)) {
+        return reply.code(400).send({ error: req.body.method === 'apt' ? 'installation APT impossible ici (Debian bookworm / trixie amd64 uniquement)' : 'installation Docker impossible ici (Docker sur amd64 uniquement)' });
+      }
+      // the image to pull is the one of the settings, sent with the definition
+      await syncHost(host._id);
+      const job = await createJob(host, 'backup_install', [], 'manual', { method: req.body.method });
+      reply.code(202);
+      return jobDto(job);
+    },
+  );
 
   app.post<{ Params: { jobId: string } }>('/api/backup-jobs/:jobId/run', async (req, reply) => {
     const _id = parseId(req.params.jobId);

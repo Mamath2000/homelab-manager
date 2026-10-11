@@ -247,7 +247,7 @@ export const JOB_ACTIONS = [
   'setup_apply',
 ] as const;
 // backup_run: launched from the backup job only (it names the job), never through the generic job routes
-export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run';
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface JobDoc {
@@ -264,6 +264,8 @@ export interface JobDoc {
   // backup_run: the backup job (BackupJobDoc) and its name
   backupJobId?: ObjectId;
   backupJobName?: string;
+  // backup_install: apt | docker
+  method?: 'apt' | 'docker';
   trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;

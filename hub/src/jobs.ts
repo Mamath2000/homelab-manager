@@ -32,6 +32,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     service: j.service ?? null,
     modules: j.modules ?? null,
     backupJobName: j.backupJobName ?? null,
+    method: j.method ?? null,
     trigger: j.trigger,
     status: j.status,
     createdAt: j.createdAt,
@@ -55,6 +56,8 @@ export interface JobTarget {
   // backup_run: id and name of the backup job
   backupJob?: string;
   backupJobName?: string;
+  // backup_install: how to install the client
+  method?: 'apt' | 'docker';
 }
 
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
@@ -68,6 +71,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     ...(target.service ? { service: target.service } : {}),
     ...(target.setup ? { modules: target.setup.modules } : {}),
     ...(target.backupJob ? { backupJobId: new ObjectId(target.backupJob), backupJobName: target.backupJobName } : {}),
+    ...(target.method ? { method: target.method } : {}),
     trigger,
     status: 'running',
     createdAt: new Date(),
@@ -92,6 +96,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
       ...(target.service ? { service: target.service } : {}),
       ...(target.setup ? { setup: target.setup } : {}),
       ...(target.backupJob ? { backupJob: target.backupJob } : {}),
+      ...(target.method ? { method: target.method } : {}),
       ...(bin ? { sha256: bin.sha256 } : {}),
     })
   ) {

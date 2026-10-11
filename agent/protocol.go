@@ -129,4 +129,6 @@ type Inbound struct {
 	// backup_sync: definition of the backups of this host; backup_run: the job to run
 	Backup    *BackupSpec `json:"backup,omitempty"`
 	BackupJob string      `json:"backupJob,omitempty"`
+	// backup_install: apt | docker
+	Method string `json:"method,omitempty"`
 }

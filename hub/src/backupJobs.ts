@@ -103,13 +103,25 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential'>, list: BackupJobD
 // Sends its definition to the agent of a host, when connected and able to back up.
 export async function syncHost(hostId: ObjectId) {
   const host = await hosts.findOne({ _id: hostId });
-  if (!host || !host.capabilities?.includes('backup') || !isOnline(hostId.toHexString())) return false;
+  // backup_setup: an agent that takes definitions (it may not have the client yet: the image to use)
+  const caps = host?.capabilities ?? [];
+  if (!host || !(caps.includes('backup_setup') || caps.includes('backup')) || !isOnline(hostId.toHexString())) return false;
   const spec = buildSpec(host, await backupJobs.find({ hostId }).toArray(), await loadPbsSettings());
   return sendToAgent(hostId.toHexString(), { type: 'backup_sync', backup: spec });
 }
 
 export async function syncAll() {
-  for (const h of await hosts.find({ capabilities: 'backup' }, { projection: { _id: 1 } }).toArray()) await syncHost(h._id);
+  for (const h of await hosts.find({ capabilities: { $in: ['backup', 'backup_setup'] } }, { projection: { _id: 1 } }).toArray()) await syncHost(h._id);
+}
+
+// State of the PBS client of a host, from the capabilities of its agent.
+export function clientState(caps: string[] = []) {
+  return {
+    mode: caps.includes('backup:native') ? ('native' as const) : caps.includes('backup:docker') ? ('docker' as const) : null,
+    install: (['apt', 'docker'] as const).filter((m) => caps.includes(`backup_install:${m}`)),
+    // agent that knows about backups at all (older ones: to update)
+    supported: caps.includes('backup_setup') || caps.includes('backup'),
+  };
 }
 
 // Hash of the definition the hub would send now, to tell whether the agent applied it.

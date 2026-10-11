@@ -81,3 +81,10 @@ export function timeline(times: number[] | undefined, days = 30, now = Date.now(
   }
   return out;
 }
+
+// PBS client of a host, from the capabilities of its agent (see hub backupJobs.ts clientState)
+export function backupClient(caps: string[]) {
+  const mode = caps.includes('backup:native') ? 'native' : caps.includes('backup:docker') ? 'docker' : null;
+  const supported = caps.includes('backup_setup') || caps.includes('backup');
+  return { mode, supported } as const;
+}

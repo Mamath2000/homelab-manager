@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Play, Plus, Save, Trash2, X } from 'lucide-react';
+import { Container, KeyRound, Package, Pencil, Play, Plus, Save, Trash2, X } from 'lucide-react';
 import { api, type BackupJob, type BackupJobInput, type Host, type HostBackupJobs } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { dateTime, timeAgo } from '../lib/format';
@@ -234,6 +234,59 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   );
 }
 
+// Installation of the PBS client, by the agent: Proxmox repository + package (APT), or the client image
+// (Docker); the choice when both are possible. Hosts in Docker mode may switch to APT.
+function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: HostBackupJobs['mode']; options: HostBackupJobs['install']; canManage: boolean }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const install = async (method: 'apt' | 'docker') => {
+    setBusy(method);
+    try {
+      await api.installBackupClient(host.id, method);
+      toast.success(`Installation du client PBS (${method === 'apt' ? 'APT' : 'Docker'}) lancée : suivi dans Activité`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  if (mode === 'docker') {
+    return canManage ? (
+      <p className="mb-3 text-xs text-muted">
+        Le client tourne en conteneur.{' '}
+        <Button size="sm" variant="ghost" icon={Package} loading={busy === 'apt'} disabled={!host.online} onClick={() => install('apt')}>Installer le client APT</Button> (il sera
+        alors préféré au conteneur).
+      </p>
+    ) : null;
+  }
+  return (
+    <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
+      <p className="mb-2">Le client PBS (proxmox-backup-client) n'est pas sur cet hôte : l'agent ne peut pas sauvegarder.</p>
+      {options.length === 0 ? (
+        <p className="text-xs text-amber-200/80">
+          Aucune installation automatique possible : le paquet APT n'existe que pour Debian bookworm / trixie amd64, l'image Docker que pour amd64. Installer
+          Docker, ou le client à la main, puis l'agent le détectera.
+        </p>
+      ) : canManage ? (
+        <div className="flex flex-wrap gap-2">
+          {options.includes('apt') && (
+            <Button size="sm" icon={Package} loading={busy === 'apt'} disabled={!host.online} onClick={() => install('apt')} title="Dépôt pbs-client de Proxmox + apt install proxmox-backup-client">
+              Installer via APT
+            </Button>
+          )}
+          {options.includes('docker') && (
+            <Button size="sm" icon={Container} loading={busy === 'docker'} disabled={!host.online} onClick={() => install('docker')} title="Télécharge l'image du client (mathmath350/pbs-client)">
+              Installer via Docker
+            </Button>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs">Installation possible par un administrateur.</p>
+      )}
+    </div>
+  );
+}
+
 // Backups of directories defined here and run by the agent of the host (window opened from the
 // Sauvegardes card of the host page).
 export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open: boolean; onClose: () => void }) {
@@ -285,9 +338,9 @@ export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open:
   return (
     <Modal open onClose={onClose} wide="xl" title={`Sauvegardes de répertoires de ${host.name}`}>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-        {data.mode === 'native' && <Badge tone="ok">client PBS installé</Badge>}
-        {data.mode === 'docker' && <Badge tone="ok">client PBS en conteneur</Badge>}
-        {!data.mode && <Badge tone="warn">ni client PBS ni Docker (ou agent à mettre à jour)</Badge>}
+        {data.mode === 'native' && <Badge tone="ok">client PBS installé (APT)</Badge>}
+        {data.mode === 'docker' && <Badge tone="ok">client PBS en conteneur (Docker)</Badge>}
+        {!data.mode && <Badge tone="warn">{data.supported ? 'client PBS absent' : 'agent à mettre à jour'}</Badge>}
         {data.credential ? (
           <Badge tone="neutral">
             jeton {data.credential.tokenId}
@@ -306,12 +359,21 @@ export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open:
         {canManage && (
           <span className="ml-auto flex gap-2">
             <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>
-            <Button size="sm" icon={Plus} disabled={!data.credential} onClick={() => setEditing('new')} title={data.credential ? undefined : "Renseigner d'abord l'accès au PBS"}>
+            <Button
+              size="sm"
+              icon={Plus}
+              disabled={!data.credential || !data.mode}
+              onClick={() => setEditing('new')}
+              title={!data.mode ? "Installer d'abord le client PBS" : data.credential ? undefined : "Renseigner d'abord l'accès au PBS"}
+            >
               Ajouter
             </Button>
           </span>
         )}
       </div>
+      {data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
+        <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
+      )}
       {data.jobs.length === 0 ? (
         <p className="text-sm text-muted">
           Aucune sauvegarde définie ici. L'agent sauvegarde les répertoires choisis sur le PBS, à l'heure prévue, même si le hub est arrêté.

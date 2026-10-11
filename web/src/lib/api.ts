@@ -201,7 +201,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -214,6 +214,7 @@ export interface Job {
   service: string | null;
   modules: SetupOption[] | null;
   backupJobName?: string | null;
+  method?: 'apt' | 'docker' | null;
   trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: string;
@@ -454,7 +455,10 @@ export interface BackupJobInput {
 }
 
 export interface HostBackupJobs {
+  // PBS client: installed (native), image present (docker), none; how it can be installed
   mode: 'native' | 'docker' | null;
+  install: ('apt' | 'docker')[];
+  supported: boolean;
   // store: datastore of the rights of the token, when created by the command of the UI
   credential: { tokenId: string; updatedAt: string; store: string | null } | null;
   sync: { hash: string; at: string; error: string | null; current: boolean } | null;
@@ -559,6 +563,7 @@ export const api = {
   createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),
   updateBackupJob: (id: string, j: BackupJobInput) => request<BackupJob>('PUT', `/api/backup-jobs/${id}`, j),
   deleteBackupJob: (id: string) => request<void>('DELETE', `/api/backup-jobs/${id}`),
+  installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
   setPbsCredential: (hostId: string, c: { tokenId: string; tokenSecret?: string } | null) => request<{ ok: boolean }>('PUT', `/api/hosts/${hostId}/pbs-credential`, c),
   createTokenSetup: (r: TokenSetupRequest) => request<{ id: string; command: string; tokenId: string; expiresAt: string }>('POST', '/api/settings/token-setups', r),

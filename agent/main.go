@@ -142,9 +142,15 @@ func (s *session) hello(ctx context.Context) error {
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
 	}
-	// backups to the PBS: "backup" and how the client runs (backup:native, backup:docker)
-	if mode := backupMode(ctx); mode != "" {
+	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
+	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)
+	caps = append(caps, "backup_setup")
+	mode := backupMode(ctx)
+	if mode != "" {
 		caps = append(caps, "backup", "backup:"+mode)
+	}
+	for _, m := range backupInstallOptions(ctx, mode) {
+		caps = append(caps, "backup_install:"+m)
 	}
 	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
 }
@@ -338,6 +344,10 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}
 	case "docker_up", "docker_stop", "docker_restart", "docker_update":
 		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
+	case "backup_install":
+		code, err = installBackupClient(jctx, in.Method, emit)
+		// the hub learns the new mode from the capabilities
+		_ = s.hello(ctx)
 	default:
 		done(-1, fmt.Errorf("unknown action %q", in.Action))
 		return

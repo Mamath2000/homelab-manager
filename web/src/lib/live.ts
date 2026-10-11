@@ -19,7 +19,12 @@ export function useLiveEvents(enabled: boolean) {
     };
     es.onerror = () => setConnected(false);
 
-    es.addEventListener('host', (e) => upsertHost(JSON.parse((e as MessageEvent).data) as Host));
+    es.addEventListener('host', (e) => {
+      const host = JSON.parse((e as MessageEvent).data) as Host;
+      upsertHost(host);
+      // capabilities (PBS client installed...) shown by the backups window
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+    });
     es.addEventListener('host.deleted', (e) => {
       const { id } = JSON.parse((e as MessageEvent).data) as { id: string };
       qc.setQueryData<Host[]>(keys.hosts, (old) => old?.filter((h) => h.id !== id));

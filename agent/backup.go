@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -76,14 +79,14 @@ var (
 )
 
 func validateBackupSpec(s *BackupSpec) error {
+	if s.Image != "" && !imageRe.MatchString(s.Image) {
+		return fmt.Errorf("invalid client image %q", s.Image)
+	}
 	if len(s.Jobs) == 0 {
 		return nil // nothing to run: credentials may be absent
 	}
 	if !serverRe.MatchString(s.Server) || !tokenIDRe.MatchString(s.TokenID) || s.TokenSecret == "" {
 		return errors.New("invalid PBS server or token")
-	}
-	if s.Image != "" && !imageRe.MatchString(s.Image) {
-		return fmt.Errorf("invalid client image %q", s.Image)
 	}
 	for _, j := range s.Jobs {
 		if !jobIDRe.MatchString(j.ID) || !backupIDRe.MatchString(j.BackupID) || !storeRe.MatchString(j.Store) || (j.NS != "" && !nsRe.MatchString(j.NS)) {
@@ -166,15 +169,137 @@ func (b *backupModule) saveLocked() {
 	}
 }
 
-// backupMode: how this host can run proxmox-backup-client ("" : it cannot).
+// Client image when the definition does not name one (the hub sends its setting with every definition).
+const defaultClientImage = "mathmath350/pbs-client:latest"
+
+func (b *backupModule) image() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state.Spec != nil && b.state.Spec.Image != "" {
+		return b.state.Spec.Image
+	}
+	return defaultClientImage
+}
+
+// The client image is published for amd64 only.
+func dockerBackupPossible(ctx context.Context) bool {
+	if onWSL || runtime.GOARCH != "amd64" || !dock.available(ctx) {
+		return false
+	}
+	_, err := exec.LookPath("docker")
+	return err == nil
+}
+
+func imagePresent(ctx context.Context, image string) bool {
+	return exec.CommandContext(ctx, "docker", "image", "inspect", image).Run() == nil
+}
+
+// Debian release the client repository of Proxmox serves (amd64 only); "" when not available here.
+func aptBackupCodename() string {
+	if runtime.GOARCH != "amd64" || !hasApt() {
+		return ""
+	}
+	rel := osRelease()
+	if rel["ID"] != "debian" {
+		return ""
+	}
+	switch c := rel["VERSION_CODENAME"]; c {
+	case "bookworm", "trixie":
+		return c
+	}
+	return ""
+}
+
+func osRelease() map[string]string {
+	out := map[string]string{}
+	raw, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return out
+	}
+	for _, l := range strings.Split(string(raw), "\n") {
+		if k, v, ok := strings.Cut(l, "="); ok {
+			out[k] = strings.Trim(v, `"`)
+		}
+	}
+	return out
+}
+
+// backupMode: how this host runs proxmox-backup-client: "native" (installed), "docker" (client
+// image present), "" (neither: to install).
 func backupMode(ctx context.Context) string {
 	if _, err := exec.LookPath("proxmox-backup-client"); err == nil {
 		return "native"
 	}
-	if !onWSL && dock.available(ctx) {
+	if dockerBackupPossible(ctx) && imagePresent(ctx, backups.image()) {
 		return "docker"
 	}
 	return ""
+}
+
+// backupInstallOptions: how the client can be installed here, given the current mode.
+func backupInstallOptions(ctx context.Context, mode string) []string {
+	var out []string
+	if mode != "native" && aptBackupCodename() != "" {
+		out = append(out, "apt")
+	}
+	if mode == "" && dockerBackupPossible(ctx) {
+		out = append(out, "docker")
+	}
+	return out
+}
+
+// installBackupClient installs the client: the client-only repository of Proxmox and its package,
+// or the client image.
+func installBackupClient(ctx context.Context, method string, emit func(string)) (int, error) {
+	switch method {
+	case "apt":
+		codename := aptBackupCodename()
+		if codename == "" {
+			return -1, errors.New("APT install: Debian bookworm or trixie on amd64 only")
+		}
+		keyring := "/usr/share/keyrings/proxmox-release-" + codename + ".gpg"
+		keyURL := "https://enterprise.proxmox.com/debian/proxmox-release-" + codename + ".gpg"
+		emit("downloading the Proxmox release key " + keyURL + "\n")
+		key, err := httpGetBytes(ctx, keyURL, 64*1024)
+		if err != nil {
+			return -1, fmt.Errorf("release key: %w", err)
+		}
+		if err := os.WriteFile(keyring, key, 0o644); err != nil {
+			return -1, err
+		}
+		list := "deb [signed-by=" + keyring + "] http://download.proxmox.com/debian/pbs-client " + codename + " main\n"
+		if err := os.WriteFile("/etc/apt/sources.list.d/pbs-client.list", []byte(list), 0o644); err != nil {
+			return -1, err
+		}
+		emit("/etc/apt/sources.list.d/pbs-client.list: " + list)
+		if code, err := runStreaming(ctx, aptEnv(), emit, "apt-get", "update"); err != nil || code != 0 {
+			return code, err
+		}
+		return runStreaming(ctx, aptEnv(), emit, "apt-get", "install", "-y", "proxmox-backup-client")
+	case "docker":
+		if !dockerBackupPossible(ctx) {
+			return -1, errors.New("Docker install: Docker on amd64 only (the client image is published for amd64)")
+		}
+		return runStreaming(ctx, os.Environ(), emit, "docker", "pull", backups.image())
+	default:
+		return -1, fmt.Errorf("unknown install method %q", method)
+	}
+}
+
+func httpGetBytes(ctx context.Context, url string, max int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := (&http.Client{Timeout: time.Minute}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", res.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(res.Body, max))
 }
 
 // apply stores a new definition sent by the hub.
