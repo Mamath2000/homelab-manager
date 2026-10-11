@@ -5,6 +5,7 @@ import { api, type PbsSettingsInput } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { pbsTokenScript } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
+import { TokenSetup } from './TokenSetup';
 import { Button, CopyField, Panel, Spinner } from './ui';
 
 const PBS_SETUP = pbsTokenScript({ user: 'homelab@pbs', token: 'monitor', path: '/datastore', role: 'DatastoreAudit' });
@@ -132,16 +133,28 @@ export function BackupSettings() {
         <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
           <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
           <p>
-            Les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur : le rôle <b>DatastoreAudit</b> sur <code>/datastore</code> doit être
-            donné à l'utilisateur <b>et</b> au jeton. Colle ce bloc dans un shell root du PBS : il crée l'utilisateur, le jeton et les droits, puis affiche
-            l'identifiant et le secret à recopier ici.
+            Jeton <code>homelab@pbs!monitor</code>, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule), donné à l'utilisateur <b>et</b> au jeton : les
+            droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur.
           </p>
-          <CopyField multiline value={PBS_SETUP} />
-          <p>
-            Ou dans l'interface du PBS, Configuration › Contrôle d'accès : onglet <b>Gestion des utilisateurs</b> › Ajouter (realm <code>pbs</code>), onglet{' '}
-            <b>Jetons API</b> › Ajouter sur cet utilisateur (le secret n'est affiché qu'une fois), puis onglet <b>Permissions</b> : « Ajouter › Permission utilisateur »
-            et « Ajouter › Permission de jeton API », chemin <code>/datastore</code>, rôle <code>DatastoreAudit</code>, Propager coché.
-          </p>
+          <TokenSetup
+            where="du PBS"
+            request={() => ({ kind: 'pbs' })}
+            onDone={() => {
+              qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
+              if (draft) setDraft({ ...draft, tokenId: 'homelab@pbs!monitor', tokenSecret: undefined });
+            }}
+          />
+          <details>
+            <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
+            <div className="mt-2 space-y-2">
+              <CopyField multiline value={PBS_SETUP} />
+              <p>
+                Ou dans l'interface du PBS, Configuration › Contrôle d'accès : <b>Gestion des utilisateurs</b> › Ajouter (realm <code>pbs</code>), <b>Jetons API</b> ›
+                Ajouter, puis <b>Permissions</b> : « Permission utilisateur » et « Permission de jeton API », chemin <code>/datastore</code>, rôle{' '}
+                <code>DatastoreAudit</code>, Propager coché.
+              </p>
+            </div>
+          </details>
         </aside>
       </div>
     </Panel>

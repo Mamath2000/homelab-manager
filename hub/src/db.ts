@@ -1,4 +1,5 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
+import type { TokenSetupDoc } from './tokenSetup.js';
 import { config } from './config.js';
 import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, SessionDoc, SetupProfile, UserDoc } from './types.js';
 
@@ -11,6 +12,7 @@ export let sessions: Collection<SessionDoc>;
 export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PveSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
+export let tokenSetups: Collection<TokenSetupDoc>;
 export let backups: Collection<BackupDoc>;
 
 export async function connectDb() {
@@ -24,6 +26,7 @@ export async function connectDb() {
   backups = db.collection('backups');
   guests = db.collection('guests');
   backupJobs = db.collection('backupJobs');
+  tokenSetups = db.collection('tokenSetups');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -40,6 +43,8 @@ export async function connectDb() {
     backupJobs.createIndex({ hostId: 1 }),
     // backup results reported by the agents, recorded once
     jobs.createIndex({ resultId: 1 }, { sparse: true }),
+    tokenSetups.createIndex({ codeHash: 1 }),
+    tokenSetups.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0, name: 'token_setups_ttl' }),
     // accounts created before roles existed keep full access
     users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
     // "monitor" was renamed "operator" (and lost the settings)

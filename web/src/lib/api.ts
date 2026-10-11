@@ -463,6 +463,14 @@ export interface HostBackupJobs {
   jobs: BackupJob[];
 }
 
+// API token created by a command pasted on the PBS / a PVE node (hub/src/tokenSetup.ts)
+export interface TokenSetupRequest {
+  kind: 'pbs' | 'pve' | 'host';
+  hostId?: string;
+  store?: string;
+  cluster?: { id: string; name: string; url: string; fingerprint: string };
+}
+
 export interface PveCluster {
   id: string;
   name: string;
@@ -552,6 +560,8 @@ export const api = {
   deleteBackupJob: (id: string) => request<void>('DELETE', `/api/backup-jobs/${id}`),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
   setPbsCredential: (hostId: string, c: { tokenId: string; tokenSecret?: string } | null) => request<{ ok: boolean }>('PUT', `/api/hosts/${hostId}/pbs-credential`, c),
+  createTokenSetup: (r: TokenSetupRequest) => request<{ id: string; command: string; tokenId: string; expiresAt: string }>('POST', '/api/settings/token-setups', r),
+  tokenSetupStatus: (id: string) => request<{ status: 'pending' | 'done' | 'expired'; tokenId: string | null }>('GET', `/api/settings/token-setups/${id}`),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
   savePveCluster: (id: string, c: PveClusterInput) => request<PveCluster>('PUT', `/api/settings/pve/clusters/${encodeURIComponent(id)}`, c),
   deletePveCluster: (id: string) => request<void>('DELETE', `/api/settings/pve/clusters/${encodeURIComponent(id)}`),

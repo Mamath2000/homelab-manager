@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { loadPki } from './pkiStore.js';
 import { registerEnrollRoute } from './routes/enroll.js';
 import { registerInstallRoutes } from './routes/install.js';
+import { registerTokenSetupScriptRoutes } from './tokenSetup.js';
 
 export async function startAgentServer() {
   const pki = await loadPki();
@@ -27,6 +28,7 @@ export async function startAgentServer() {
   await app.register(websocket, { options: { maxPayload: 1 << 20 } });
   registerInstallRoutes(app);
   registerEnrollRoute(app);
+  registerTokenSetupScriptRoutes(app);
   registerAgentSocket(app);
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'not found' }));
   await app.listen({ port: config.agentTlsPort, host: config.host });

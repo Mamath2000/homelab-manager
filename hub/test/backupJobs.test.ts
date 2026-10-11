@@ -89,3 +89,18 @@ test('running a backup job: operator; defining it: admin', () => {
   assert.equal(authorize('viewer', 'POST', '/api/backup-jobs/:jobId/run'), false);
   assert.equal(authorize('viewer', 'GET', '/api/hosts/:id/backup-jobs'), true);
 });
+
+test('API tokens created by a pasted command: what the hub asks for, admin only', async () => {
+  const { setupPlan } = await import('../src/tokenSetup.js');
+  assert.deepEqual(setupPlan('host', { hostName: 'Canicoif PProd', store: 'ds2' }), {
+    tool: 'pbs',
+    user: 'host-canicoif-pprod@pbs',
+    token: 'backup',
+    path: '/datastore/ds2/Hosts',
+    role: 'DatastoreBackup',
+  });
+  assert.equal(setupPlan('pve', {}).role, 'PVEAuditor');
+  assert.equal(setupPlan('pbs', {}).path, '/datastore');
+  assert.equal(authorize('operator', 'POST', '/api/settings/token-setups'), false);
+  assert.equal(authorize('admin', 'POST', '/api/settings/token-setups'), true);
+});

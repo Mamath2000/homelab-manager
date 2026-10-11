@@ -8,6 +8,7 @@ import { dateTime, timeAgo } from '../lib/format';
 import { pbsTokenScript } from '../lib/tokenScripts';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
+import { TokenSetup } from './TokenSetup';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
 
 const PRESETS = [
@@ -30,6 +31,7 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
   const toast = useToast();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
   const [secret, setSecret] = useState('');
+  const [store, setStore] = useState(view.datastores[0] ?? '');
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
@@ -82,12 +84,31 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
         </div>
         <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
           <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
+          <label className="flex items-center gap-2">
+            <span>Datastore des sauvegardes de cet hôte</span>
+            <select className="input h-8 w-28 py-1 text-xs" value={store} onChange={(e) => setStore(e.target.value)}>
+              {view.datastores.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
           <p>
             Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace des hôtes : un hôte compromis ne peut ni lire ni modifier les sauvegardes des
-            autres. Colle ce bloc dans un shell root du PBS : il crée l'utilisateur, le jeton et les droits, puis affiche l'identifiant et le secret à
-            recopier ici.
+            autres.
           </p>
-          <CopyField multiline value={tokenHelp(host, view.datastores[0] ?? 'ds2')} />
+          <TokenSetup
+            where="du PBS"
+            disabled={!store}
+            request={() => ({ kind: 'host', hostId: host.id, store })}
+            onDone={() => {
+              qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+              onClose();
+            }}
+          />
+          <details>
+            <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
+            <div className="mt-2">
+              <CopyField multiline value={tokenHelp(host, store || 'ds2')} />
+            </div>
+          </details>
         </aside>
       </div>
     </Modal>
