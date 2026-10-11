@@ -133,6 +133,8 @@ export interface HostDoc {
   docker?: DockerReport;
   dockerUpdates?: DockerUpdates;
   lastDockerAutoCheckAt?: Date;
+  // local images changed since the last registry check: a docker_check is due as soon as the host is free
+  dockerRecheck?: boolean;
   // compose stacks managed elsewhere (own update system...): listed, but no state nor action
   unmanagedStacks?: string[];
   // standardisation: what this host does differently from the standard configuration, last check

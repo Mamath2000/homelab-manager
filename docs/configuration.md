@@ -80,7 +80,7 @@ Exemple de dump quotidien avec 7 jours de rétention (crontab root de l'hôte du
 #!/bin/sh
 set -eu
 umask 077                      # le dump contient les clés privées du hub
-DIR=/root/homelab-manager/backups
+DIR=/home/mamath/homelab-manager/backups
 mkdir -p "$DIR"
 OUT="$DIR/homelab-$(date +%F).archive.gz"
 docker exec homelab-manager-mongo mongodump --quiet --db homelab --archive --gzip > "$OUT.tmp"
@@ -89,5 +89,5 @@ find "$DIR" -name "homelab-*.archive.gz" -mtime +7 -delete
 ```
 
 ```text
-15 3 * * * /root/homelab-manager/mongo-backup.sh >> /var/log/homelab-manager-backup.log 2>&1
+15 3 * * * /home/mamath/homelab-manager/mongo-backup.sh >> /var/log/homelab-manager-backup.log 2>&1
 ```

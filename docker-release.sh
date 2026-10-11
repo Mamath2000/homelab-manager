@@ -10,7 +10,7 @@
 #                   transférée par ssh dans le CT du hub (docker save | docker load), puis compose up du service.
 #                   Rien n'est publié ni commité ; tags locaux latest et X.Y.Z-<ref git>.
 #                   Variables : DIRECT_SSH (pve1.lo), DIRECT_PCT (171, vide = hôte ssh lui-même),
-#                   DIRECT_DIR (/root/homelab-manager), DIRECT_SERVICE (hub), YES=1 (sans confirmation)
+#                   DIRECT_DIR (/home/mamath/homelab-manager), DIRECT_SERVICE (hub), YES=1 (sans confirmation)
 # Les binaires de l'agent sont signés avec la clé de release (make release-key), passée en secret BuildKit :
 # obligatoire pour une release, facultative pour build (sans elle : agents de développement non signés).
 # Variables : DOCKER_USER (défaut mathmath350), PLATFORMS (défaut linux/amd64,linux/arm64),
@@ -65,7 +65,7 @@ fi
 if [ "$action" = "direct" ]; then
     DIRECT_SSH=${DIRECT_SSH:-"pve1.lo"}
     DIRECT_PCT=${DIRECT_PCT-"171"}
-    DIRECT_DIR=${DIRECT_DIR:-"/root/homelab-manager"}
+    DIRECT_DIR=${DIRECT_DIR:-"/home/mamath/homelab-manager"}
     DIRECT_SERVICE=${DIRECT_SERVICE:-"hub"}
     # commande exécutée sur la cible : dans le CT via pct exec, sinon sur l'hôte ssh
     remote() {
