@@ -407,6 +407,8 @@ export interface PbsSettings {
   tokenId: string;
   hasSecret: boolean;
   staleHours: number;
+  clientImage?: string;
+  timezone?: string;
   polledAt?: string;
   pollError?: string | null;
 }
@@ -418,6 +420,8 @@ export interface PbsSettingsInput {
   tokenId: string;
   tokenSecret?: string;
   staleHours: number;
+  clientImage?: string;
+  timezone?: string;
 }
 
 // Backups of directories run by the agent (hub/src/backupJobs.ts)
