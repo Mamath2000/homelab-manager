@@ -285,7 +285,8 @@ async function backupsForHa() {
   return {
     groups: list.map((b) => ({
       id: b._id,
-      backupId: b.backupId,
+      // a job of the hub writes it: its name, not the backup id (the host name)
+      backupId: b.managed?.name ?? b.backupId,
       hostId: b.hostId ? b.hostId.toHexString() : null,
       state: backupState(b, s.staleHours),
       lastBackup: b.lastBackup,

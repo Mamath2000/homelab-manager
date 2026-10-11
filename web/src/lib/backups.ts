@@ -34,8 +34,9 @@ export function scheduleLabel(g: Pick<BackupGroup, 'pve' | 'managed'>) {
   return jobs.map((j) => `${j.scheduleText}${j.enabled ? '' : ' (désactivé)'}`).join(' · ');
 }
 
-// "Hosts › host/pve-docker01" style label of a group
-export function groupLabel(g: Pick<BackupGroup, 'type' | 'backupId' | 'comment'>) {
+// Label of a group: the name of the job of the hub that writes it, else "host/pve-docker01" style
+export function groupLabel(g: Pick<BackupGroup, 'type' | 'backupId' | 'comment'> & { managed?: BackupGroup['managed'] }) {
+  if (g.managed) return g.managed.name;
   return g.type === 'host' ? g.backupId : `${g.type}/${g.backupId}${g.comment ? ` (${g.comment})` : ''}`;
 }
 
