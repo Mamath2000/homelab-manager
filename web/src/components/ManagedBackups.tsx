@@ -8,6 +8,7 @@ import { dateTime, timeAgo } from '../lib/format';
 import { pbsTokenScript } from '../lib/tokenScripts';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
+import { BackupTimeline } from './HostBackups';
 import { TokenSetup } from './TokenSetup';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
 
@@ -336,6 +337,8 @@ export function ManagedBackups({ host }: { host: Host }) {
                     {j.lastRun.jobId && <> · <Link to={`/jobs/${j.lastRun.jobId}`} className="hover:underline">journal</Link></>}
                   </div>
                 )}
+                {/* snapshots seen on the PBS over the last 30 days */}
+                {g && <BackupTimeline group={g} className="mt-2 w-full" />}
               </li>
             );
           })}
