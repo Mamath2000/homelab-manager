@@ -35,7 +35,7 @@ export interface JobInput {
   ns?: string; // ignored: always HOSTS_NS
   backupId?: string; // creation only
   schedule: string;
-  timezone?: string;
+  timezone?: string; // ignored: the time zone of the hub at creation
   enabled: boolean;
 }
 

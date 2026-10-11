@@ -98,7 +98,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       if (!host) return reply.code(404).send({ error: 'host not found' });
       if (!clientState(host.capabilities).mode) return reply.code(409).send({ error: "client PBS absent sur cet hôte : l'installer d'abord" });
       const pbs = await loadPbsSettings();
-      const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || DEFAULT_TIMEZONE };
+      // namespace and time zone are fixed: Hosts, and the time zone of the hub (TZ)
+      const body = { ...req.body, ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE };
       const err = checkJob(body, true);
       if (err) return reply.code(400).send({ error: err });
       const conflict = await groupConflict(_id, body.store, body.ns, body.backupId!);
@@ -136,7 +137,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const cur = _id && (await backupJobs.findOne({ _id }));
       if (!cur) return reply.code(404).send({ error: 'job introuvable' });
       if (req.body.backupId !== undefined && req.body.backupId !== cur.backupId) return reply.code(400).send({ error: "l'identifiant de sauvegarde ne change pas" });
-      const body = { ...req.body, ns: HOSTS_NS, timezone: req.body.timezone || cur.timezone };
+      const body = { ...req.body, ns: HOSTS_NS, timezone: cur.timezone };
       const err = checkJob(body, false);
       if (err) return reply.code(400).send({ error: err });
       if (body.store !== cur.store || body.ns !== cur.ns) {

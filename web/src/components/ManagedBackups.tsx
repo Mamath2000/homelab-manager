@@ -111,7 +111,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const qc = useQueryClient();
   const toast = useToast();
   const initial: BackupJobInput = job
-    ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, timezone: job.timezone, enabled: job.enabled }
+    ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, enabled: job.enabled }
     : {
         name: 'home',
         archives: [{ name: 'home', path: '/home' }],
@@ -120,7 +120,6 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         store: view.credential?.store && view.credential.store !== '*' ? view.credential.store : (view.datastores[0] ?? ''),
         backupId: slug(host.name),
         schedule: '03:00',
-        timezone: view.timezone,
         enabled: true,
       };
   const [form, setForm] = useState<BackupJobInput>(initial);
@@ -218,10 +217,12 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
             <datalist id="backup-presets">{PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</datalist>
             <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox : <code>03:00</code>, <code>sun 01:00</code>, <code>mon..fri 22:30</code>, <code>daily</code>.</span>
           </label>
-          <label className="block">
+          <div>
             <span className={field}>Fuseau horaire</span>
-            <input className="input font-mono text-xs" value={form.timezone ?? ''} onChange={(e) => set({ timezone: e.target.value.trim() })} />
-          </label>
+            <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : fuseau du hub (variable TZ du compose)">
+              {job ? job.timezone : view.timezone}
+            </div>
+          </div>
         </div>
         <label className="flex cursor-pointer items-center gap-3">
           <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />

@@ -89,7 +89,7 @@ Depuis la fiche hôte, carte **Sauvegardes** › **Répertoires** :
 
    L'installation est une tâche de l'agent (visible dans Activité). Un hôte en mode Docker peut passer au client APT, qui est alors préféré. Ailleurs (arm64, autre distribution), installer le client à la main : l'agent le détecte.
 2. **Accès PBS** : le jeton propre à l'hôte, créé par la commande à usage unique. Il a `DatastoreBackup` sur le namespace `Hosts` de chaque datastore : il ne voit et ne modifie que les sauvegardes dont il est propriétaire, et ne peut pas écrire dans les namespaces de Proxmox VE.
-3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : nom, répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification, fuseau (par défaut celui du hub, variable `TZ`). Le namespace est toujours `Hosts`.
+3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : nom, répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification. Le namespace (`Hosts`) et le fuseau (celui du hub, variable `TZ`, fixé à la création du job) sont affichés sans être modifiables.
 
 Planification : syntaxe des calendriers Proxmox — `03:00`, `sun 01:00`, `mon..fri 22:30`, `*/5` (toutes les 5 minutes), `daily`, `weekly`, `monthly`. Les dates et les secondes ne sont pas acceptées.
 
