@@ -82,7 +82,7 @@ Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, �
 
 ### Prérequis
 
-- Debian ou Ubuntu (APT) avec systemd, y compris sous **WSL2**, ou **Unraid** (voir plus bas) ;
+- Debian ou Ubuntu (APT) avec systemd, y compris sous **WSL2**, **Unraid** ou **Home Assistant OS** (voir plus bas) ;
 - `curl` (`apt install curl`) : il vérifie la clé du hub pendant l'installation, ce que wget ne sait pas faire ;
 - accès root ;
 - accès réseau de l'hôte vers le hub sur le port des agents (`3443` par défaut). Rien n'est à ouvrir sur l'hôte.
@@ -143,6 +143,26 @@ Unraid n'a ni systemd ni APT, et son système tourne en mémoire : tout ce qui n
 - au démarrage d'Unraid, cette ligne copie le binaire dans `/usr/local/bin` et lance l'agent, qui est relancé automatiquement s'il s'arrête (après une mise à jour, par exemple). Logs dans `/var/log/homelab-agent.log`.
 
 Sur Unraid, l'hôte remonte son état système et ses **stacks Docker** (voir [Docker](docker.md)). Il n'a pas de mises à jour APT ni de bouton Redémarrer : un redémarrage d'Unraid passe par son interface, qui arrête proprement l'array. La mise à jour automatique de l'agent met aussi à jour la copie gardée sur la clé USB.
+
+### Home Assistant OS
+
+HAOS est une appliance : on n'y lance pas de script. L'agent s'installe comme **application** (add-on) Home Assistant, publiée dans le repo [homelab-manager-haos](https://github.com/Mamath2000/homelab-manager-haos). Elle embarque le binaire de l'agent livré par le hub et tourne sur le réseau de l'hôte : l'agent voit l'interface réelle de la VM, donc sa MAC, et les sauvegardes Proxmox VE de la VM se rattachent à l'hôte (voir [Sauvegardes](sauvegardes.md#lien-hôte--guest-proxmox)).
+
+1. Dans Homelab Manager : **Ajouter un hôte**, puis l'onglet **Home Assistant OS** de la fenêtre d'installation, qui affiche un **jeton d'installation** (adresse du hub, clé épinglée et code à usage unique, valable 24 h).
+2. Dans Home Assistant : **Paramètres › Applications › Boutique › ⋮ › Dépôts**, ajouter `https://github.com/Mamath2000/homelab-manager-haos`.
+3. Installer **Homelab Manager Agent**, coller le jeton dans l'option `install_token` de l'onglet Configuration, puis démarrer l'application.
+4. Activer **Mise à jour automatique** sur l'application.
+
+Au premier démarrage, l'application récupère l'autorité du hub (clé vérifiée par le jeton) et enrôle l'agent ; certificat et clé restent dans les données de l'application. Coller un nouveau jeton réenrôle l'agent. Les erreurs (jeton illisible, hub injoignable, code expiré) sont dans le **Journal** de l'application.
+
+Ce que remonte un hôte HAOS :
+
+- **système** : version de Home Assistant OS, nom d'hôte et virtualisation lus par l'API Supervisor, adresses et MAC de la VM (les interfaces internes de HA et Docker sont ignorées) ;
+- **rien d'autre** : ni mises à jour APT, ni stacks Docker, ni standardisation, ni bouton Redémarrer, ni sauvegardes de répertoires (HA sauvegarde déjà ses fichiers).
+
+**Mises à jour.** L'agent ne se met pas à jour lui-même : un binaire remplacé dans le conteneur serait perdu à sa recréation. La version de l'application suit celle de l'agent : à chaque release du hub, une tâche GitHub Actions du repo (lancée par `make docker-release`, et chaque jour) publie une nouvelle version de l'application si l'agent a changé, que Home Assistant installe seul avec la mise à jour automatique. Un agent HAOS en retard est signalé sans bouton de mise à jour.
+
+**Désinstallation.** Désinstaller l'application dans Home Assistant, puis supprimer l'hôte dans Homelab Manager.
 
 ### WSL2 (Windows)
 
