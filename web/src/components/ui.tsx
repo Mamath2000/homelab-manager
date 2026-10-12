@@ -214,8 +214,8 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll }: 
         className={clsx(
           'panel w-full bg-panel shadow-2xl shadow-black/60',
           wide === 'xl' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
-          // 12vh on top, 1rem below: the window fits the screen
-          scroll && 'flex max-h-[calc(88vh-1rem)] flex-col',
+          // 12vh on top, at most 70vh high: the window stays clear of the bottom of the screen
+          scroll && 'flex max-h-[70vh] flex-col',
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
