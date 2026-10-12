@@ -29,7 +29,7 @@ PROD_DIR  ?= /home/mamath/homelab-manager
 PROD_RUN   = ssh $(PROD_SSH) "$(if $(PROD_PCT),pct exec $(PROD_PCT) -- )sh -c 'cd $(PROD_DIR) && $(1)'"
 
 help: ## Affiche cette aide
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[32m%-22s\033[0m %s\n", $$1, $$2}'
 
 version: ## Affiche la version courante
 	@echo $(VERSION)
