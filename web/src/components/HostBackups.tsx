@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { AlertTriangle, Container, DatabaseBackup, FolderArchive, Link2, Package, PackageX, Play, Search, Unlink } from 'lucide-react';
+import { AlertTriangle, Container, DatabaseBackup, FolderArchive, House, Link2, Package, PackageX, Play, Search, Unlink } from 'lucide-react';
 import { ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -121,12 +121,15 @@ function AttachModal({ host, groups, orphans, open, onClose }: { host: Host; gro
   );
 }
 
-// Small icon of the PBS client of the host: installed (APT), image (Docker), none.
+// Small icon of the PBS client of the host: installed (APT), image (Docker), none; on HAOS, the Home
+// Assistant backups read by the agent of the add-on.
 function ClientIcon({ host }: { host: Host }) {
   const c = backupClient(host.capabilities);
-  if (!c.supported) return null;
-  const [Icon, tone, title] =
-    c.mode === 'native'
+  const ha = host.capabilities.includes('ha_backups');
+  if (!c.supported && !ha) return null;
+  const [Icon, tone, title] = !c.supported
+    ? [House, 'text-sky-400', 'Sauvegardes de Home Assistant lues par l’agent (application Home Assistant OS)']
+    : c.mode === 'native'
       ? [Package, 'text-emerald-400', 'Client PBS installé (APT)']
       : c.mode === 'docker'
         ? [Container, 'text-sky-400', 'Client PBS en conteneur (image Docker)']
@@ -183,9 +186,12 @@ export function HostBackups({ host }: { host: Host }) {
       icon={DatabaseBackup}
       actions={
         <>
-          <Button size="sm" variant="ghost" icon={FolderArchive} onClick={() => setDirectories(true)} title="Sauvegardes de répertoires lancées par l'agent de cet hôte">
-            Répertoires
-          </Button>
+          {/* agent unable to run directory backups (HAOS add-on) */}
+          {backupClient(host.capabilities).supported && (
+            <Button size="sm" variant="ghost" icon={FolderArchive} onClick={() => setDirectories(true)} title="Sauvegardes de répertoires lancées par l'agent de cet hôte">
+              Répertoires
+            </Button>
+          )}
           {canManage && <Button size="sm" icon={Link2} onClick={() => setAttaching(true)}>Rattacher</Button>}
         </>
       }
