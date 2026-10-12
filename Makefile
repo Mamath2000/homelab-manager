@@ -5,7 +5,11 @@
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
-# Lancement local (make dev / make start), surchargeable : make start PORT=4000 LOG=debug
+# Réglages propres à cette machine (gitignoré) : ports du hub de test figés par `override`, ex. :
+#   override PORT := 3001
+#   override AGENT_TLS_PORT := 3444
+-include .env.local
+# Lancement local (make dev / make start), surchargeable (sauf ce que .env.local fige) : make start LOG=debug
 PORT      ?= 3000
 LOG       ?= info
 MONGO_URL ?= mongodb://localhost:27017/homelab
