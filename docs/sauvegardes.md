@@ -1,20 +1,21 @@
 ---
 title: Sauvegardes
-description: Suivi des sauvegardes d'un Proxmox Backup Server, des jobs vzdump de Proxmox VE rattachés aux CT et VM, et sauvegardes de répertoires lancées par les agents, avec alertes dans l'interface et Home Assistant
+description: Suivi des sauvegardes d'un Proxmox Backup Server, des jobs vzdump de Proxmox VE rattachés aux CT et VM, sauvegardes de répertoires lancées par les agents et sauvegardes internes de Home Assistant, avec alertes dans l'interface et Home Assistant
 sidebar_position: 3.7
 ---
 
 # Sauvegardes
 
-Homelab Manager suit les sauvegardes d'un **Proxmox Backup Server** (PBS) et les rattache aux hôtes. Il en connaît trois sortes, affichées dans la colonne **Type** :
+Homelab Manager suit les sauvegardes d'un **Proxmox Backup Server** (PBS) et les rattache aux hôtes. Il suit aussi les sauvegardes internes de **Home Assistant OS**, lues par l'agent. Quatre sortes, affichées dans la colonne **Type** :
 
 | Type | Origine | Rattachement à l'hôte | Retard jugé sur |
 |---|---|---|---|
 | **image PVE** | job de sauvegarde (vzdump) d'un cluster Proxmox VE : image complète du CT ou de la VM | automatique : l'hôte est le guest qui porte une de ses adresses MAC | la planification du job |
 | **répertoires** | sauvegarde définie dans Homelab Manager et lancée par l'agent de l'hôte | automatique : le hub a créé le job, il connaît son groupe | la planification du job |
 | **externe** | faite hors Homelab Manager (`backup_pbs_scripts` par cron, ElkarBackup…) | à la main, depuis la fiche hôte | le rythme appris de ses snapshots |
+| **Home Assistant** | sauvegarde faite par Home Assistant (Paramètres › Système › Sauvegardes), une ligne par destination | automatique : l'agent HAOS de l'hôte | la planification des sauvegardes automatiques de HA |
 
-Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur le PBS.
+Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur le PBS. Exception : les sauvegardes Home Assistant, dont la référence est Home Assistant lui-même.
 
 ## Mise en place
 
@@ -104,6 +105,18 @@ Fonctionnement :
 
 Supprimer un job laisse ses snapshots sur le PBS (le groupe devient orphelin).
 
+## Sauvegardes Home Assistant
+
+L'agent des hôtes Home Assistant OS (application `homelab_agent`, voir [Installation](installation.md#home-assistant-os)) lit toutes les 15 minutes, **en lecture seule**, les sauvegardes de Home Assistant Core par son API WebSocket (`backup/agents/info`, `backup/info`, `backup/config/info`, `get_config` pour le fuseau). L'application déclare `homeassistant_api` : seule l'API de Core voit les destinations apportées par des intégrations (SFTP, Google Drive, partage réseau…) ; Supervisor ne voit que le stockage local. Le mot de passe des sauvegardes n'est ni gardé ni envoyé.
+
+- **Une ligne par destination** (`haos/<hôte>/<destination>`, store « Home Assistant ») : stockage local et chaque emplacement d'intégration qui est une destination des sauvegardes automatiques ou porte des sauvegardes. Un emplacement inutilisé (Home Assistant Cloud non configuré…) est ignoré.
+- **Planification** : celle des sauvegardes automatiques de HA (récurrence, jours, heure, fuseau de HA) ; le retard se calcule comme pour une planification Proxmox.
+- **Échec** : la destination figure dans les échecs de la dernière sauvegarde automatique, ou la sauvegarde automatique entière a échoué ; l'erreur de la destination est affichée sur la ligne.
+- **Désactivée** : la destination ne reçoit pas les sauvegardes automatiques (sauf seuil manuel).
+- Une destination illisible garde son historique ; une destination retirée dans Home Assistant disparaît du hub.
+
+La capacité `ha_backups` n'apparaît sur l'hôte qu'après une première lecture réussie ; sinon le journal de l'application en donne la raison et l'agent réessaie au cycle suivant.
+
 ## Sauvegardes externes : rattachement manuel
 
 Pour les sauvegardes faites ailleurs (`backup_pbs_scripts`, ElkarBackup…) :
@@ -118,7 +131,7 @@ Les sauvegardes image PVE et répertoires ne se rattachent ni ne se détachent �
 | Source du seuil | Règle |
 |---|---|
 | **manuel** | valeur choisie dans la colonne Seuil (26 h, 2 jours, 8 jours, 32 jours) |
-| **planification** | image PVE et répertoires : en retard si aucun snapshot depuis la dernière heure prévue, 2 h de marge comprises ; seuil affiché = une période + 2 h |
+| **planification** | image PVE, répertoires et Home Assistant : en retard si aucun snapshot depuis la dernière heure prévue, 2 h de marge comprises ; seuil affiché = une période + 2 h |
 | **appris** | 1,5 × l'intervalle médian entre les derniers snapshots (au moins 4), 2 h de marge minimum |
 | **rétention** | même calcul avec la période la plus fine gardée par l'élagage du PBS (`keep-daily` → quotidienne…) |
 | **aucun** | aucune des sources précédentes (sauvegarde externe récente, moins de 4 snapshots, namespace sans élagage) : pas de seuil, **jamais en retard** ni d'alerte |
@@ -129,8 +142,8 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 |---|---|
 | à jour | snapshot présent pour la dernière échéance |
 | en retard | pas de snapshot depuis l'échéance (ou « jamais sauvegardée ») |
-| dernière exécution en échec | la dernière tâche vzdump du guest, ou la dernière exécution de l'agent, a échoué après le dernier snapshot |
-| job désactivé | tous les jobs qui écrivent cette sauvegarde sont désactivés |
+| dernière exécution en échec | la dernière tâche vzdump du guest, ou la dernière exécution de l'agent, a échoué après le dernier snapshot ; Home Assistant : la dernière sauvegarde automatique a échoué pour cette destination |
+| job désactivé | tous les jobs qui écrivent cette sauvegarde sont désactivés ; Home Assistant : la destination ne reçoit pas les sauvegardes automatiques |
 | pas encore appliquée par l'agent | l'agent n'a pas encore reçu la définition actuelle (hors ligne, client absent…) |
 | vérification en échec | la dernière vérification (verify job du PBS) a échoué |
 | disparue du PBS | le groupe n'existe plus sur le PBS |
