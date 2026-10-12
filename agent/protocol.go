@@ -123,15 +123,16 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_prepare_check
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check
 	Tail  int    `json:"tail,omitempty"`
 	// setup_apply / setup_check: modules of the standardisation and their parameters
 	Setup *SetupSpec `json:"setup,omitempty"`
 	// backup_sync: definition of the backups of this host; backup_run: the job to run
 	Backup    *BackupSpec `json:"backup,omitempty"`
 	BackupJob string      `json:"backupJob,omitempty"`
-	// backup_prepare_check: the preparation to check on the host (form of a backup job)
-	Prepare *BackupPrepare `json:"prepare,omitempty"`
+	// backup_database_check: the database job to check on the host (form of a backup job)
+	BackupKind string        `json:"backupKind,omitempty"`
+	Database   *DatabaseDump `json:"database,omitempty"`
 	// backup_install: apt | docker
 	Method string `json:"method,omitempty"`
 }

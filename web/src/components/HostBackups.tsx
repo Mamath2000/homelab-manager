@@ -6,7 +6,7 @@ import { SnapshotsButton } from './BackupSnapshots';
 import { BackupJobEditModal, ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, keepText, prepareSummary, preparedSizesText, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -248,12 +248,7 @@ export function HostBackups({ host }: { host: Host }) {
                     <div className="text-xs text-zinc-500">
                       {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? `${g.ha ? 'Home Assistant' : 'agent'} · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · {g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`}
                     </div>
-                    {g.managed?.prepare && (
-                      <div className="text-xs text-zinc-400">
-                        Avant : {prepareSummary(g.managed.prepare)} · après : {keepText(g.managed.prepare.keep)}
-                        {preparedSizesText(g.managed.lastRun?.prepared) && <span className="text-zinc-500"> · {preparedSizesText(g.managed.lastRun?.prepared)}</span>}
-                      </div>
-                    )}
+                    {g.managed && databaseJobText(g.managed) && <div className="text-xs text-zinc-400">{databaseJobText(g.managed)}</div>}
                     {g.ha?.failedAt && g.ha.failedAt > g.lastBackup && (
                       <div className="text-xs text-red-400" title={dateTime(g.ha.failedAt)}>Sauvegarde automatique non écrite sur cette destination {timeAgo(g.ha.failedAt)}</div>
                     )}

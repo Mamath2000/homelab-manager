@@ -8,7 +8,7 @@ import { BackupJobEditModal } from '../components/ManagedBackups';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, keepText, prepareSummary, preparedSizesText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
+import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -347,12 +347,7 @@ export function Backups() {
                                   {g.managed.lastRun && !g.managed.lastRun.ok && <span className="text-red-400"> · {g.managed.lastRun.error}</span>}
                                 </div>
                               )}
-                              {g.managed?.prepare && (
-                                <div className="text-xs text-zinc-500">
-                                  avant : {prepareSummary(g.managed.prepare)} · après : {keepText(g.managed.prepare.keep)}
-                                  {preparedSizesText(g.managed.lastRun?.prepared) && <> · {preparedSizesText(g.managed.lastRun?.prepared)}</>}
-                                </div>
-                              )}
+                              {g.managed && databaseJobText(g.managed) && <div className="text-xs text-zinc-500">{databaseJobText(g.managed)}</div>}
                             </td>
                             <td className="td" title={backupKind(g).title}>
                               <Badge tone="neutral">{backupKind(g).label}</Badge>

@@ -391,8 +391,9 @@ export interface BackupGroup {
     scheduleText: string;
     enabled: boolean;
     synced: boolean;
-    lastRun?: { at: number; ok: boolean; error?: string | null; prepared?: PreparedDump[] } | null;
-    prepare?: BackupPrepare | null;
+    lastRun?: { at: number; ok: boolean; error?: string | null; dumps?: DumpInfo[] } | null;
+    kind?: BackupJobKind;
+    database?: DatabaseDump | null;
   } | null;
   placeholder?: boolean; // expected by a job, never seen on the PBS
   ha?: {
@@ -457,9 +458,11 @@ export interface BackupArchive {
   path: string;
 }
 
-// Dump made by the agent before the backup (agent/prepare.go): one archive per dump, in workDir
-export interface BackupPrepare {
-  type: 'postgres' | 'mongodb';
+// Kind of backup job: directories, or the dump of databases (agent/database.go), one archive per dump in workDir
+export type BackupJobKind = 'directories' | 'postgres' | 'mongodb';
+export type DatabaseKind = 'postgres' | 'mongodb';
+
+export interface DatabaseDump {
   mode?: 'databases' | 'cluster'; // postgres
   databases: string[];
   container?: string; // mongodb
@@ -468,15 +471,15 @@ export interface BackupPrepare {
 }
 
 // Size of a dump of a run and of its database (-1: unknown)
-export interface PreparedDump {
+export interface DumpInfo {
   archive: string;
   database?: string;
   dbSize: number;
   dumpSize: number;
 }
 
-// What the agent found for a preparation (button Vérifier of the form)
-export interface PrepareCheck {
+// What the agent found for a database job (button Vérifier of the form)
+export interface DatabaseCheck {
   tools: string;
   databases: { name: string; size: number }[];
   missing: string[];
@@ -496,9 +499,9 @@ export interface BackupJob {
   schedule: string;
   timezone: string;
   enabled: boolean;
-  prepare: BackupPrepare | null;
-  archivesPrepared: BackupArchive[];
-  lastRun: { start: number; end: number; ok: boolean; error: string | null; trigger: string; jobId: string | null; prepared?: PreparedDump[] } | null;
+  kind: BackupJobKind;
+  database: DatabaseDump | null;
+  lastRun: { start: number; end: number; ok: boolean; error: string | null; trigger: string; jobId: string | null; dumps?: DumpInfo[] } | null;
 }
 
 export interface BackupJobInput {
@@ -511,15 +514,16 @@ export interface BackupJobInput {
   schedule: string;
   timezone?: string;
   enabled: boolean;
-  prepare?: BackupPrepare | null;
+  kind?: BackupJobKind; // creation only
+  database?: DatabaseDump | null;
 }
 
 export interface HostBackupJobs {
   // PBS client: installed (native), image present (docker), none; how it can be installed
   mode: 'native' | 'docker' | null;
   install: ('apt' | 'docker')[];
-  // preparations the agent knows, and the types it found usable on the host (null: agent to update)
-  prepare: ('postgres' | 'mongodb')[] | null;
+  // database jobs: kinds the agent found usable on the host (null: agent to update)
+  databases: DatabaseKind[] | null;
   supported: boolean;
   // store: datastore of the rights of the token, when created by the command of the UI
   credential: { tokenId: string; updatedAt: string; store: string | null } | null;
@@ -625,7 +629,8 @@ export const api = {
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
   createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),
-  checkBackupPrepare: (hostId: string, prepare: BackupPrepare) => request<PrepareCheck>('POST', `/api/hosts/${hostId}/backup-prepare-check`, { prepare }),
+  checkBackupDatabase: (hostId: string, kind: DatabaseKind, database: DatabaseDump) =>
+    request<DatabaseCheck>('POST', `/api/hosts/${hostId}/backup-database-check`, { kind, database }),
   updateBackupJob: (id: string, j: BackupJobInput) => request<BackupJob>('PUT', `/api/backup-jobs/${id}`, j),
   deleteBackupJob: (id: string) => request<void>('DELETE', `/api/backup-jobs/${id}`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),

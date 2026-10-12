@@ -6,7 +6,7 @@ import { backupJobs, backups, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { jobDto } from './jobs.js';
 import { groupKey, loadPbsSettings, pollPbs } from './pbs.js';
-import type { BackupArchive, BackupJobDoc, BackupPrepare, HostDoc, JobDoc, PbsSettings, PreparedDump } from './types.js';
+import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo, HostDoc, JobDoc, PbsSettings } from './types.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
 // the hub sends the whole definition of a host (backup_sync) whenever it changes and at each
@@ -41,7 +41,8 @@ export interface JobInput {
   schedule: string;
   timezone?: string; // ignored: the time zone of the hub at creation
   enabled: boolean;
-  prepare?: BackupPrepare | null;
+  kind?: BackupJobKind; // absent: directories
+  database?: DatabaseDump | null; // postgres, mongodb
 }
 
 // Absolute, normalised path, without ':' (separator of the archive spec and of docker volumes).
@@ -52,64 +53,81 @@ export function validPath(p: string) {
   return true;
 }
 
-// most dumps kept on the host (maxKeep in agent/prepare.go)
+// most dumps kept on the host (maxKeep in agent/database.go)
 export const MAX_KEEP = 30;
 
-// Only the fields of its type; keep from the first form (cleanup) when absent.
-export function normPrepare(p: BackupPrepare | null | undefined): BackupPrepare | null {
-  if (!p) return null;
-  const keep = typeof p.keep === 'number' ? p.keep : p.cleanup ? 0 : 1;
-  const base = { type: p.type, databases: p.databases.map((d) => d.trim()).filter(Boolean), workDir: p.workDir.trim(), keep };
-  return p.type === 'postgres' ? { ...base, mode: p.mode } : { ...base, container: p.container?.trim() ?? '' };
+export const isDatabaseKind = (k: BackupJobKind | undefined): k is 'postgres' | 'mongodb' => k === 'postgres' || k === 'mongodb';
+
+// Kind and database settings of a stored job, the first form (prepare, cleanup) included.
+export function jobKind(j: Pick<BackupJobDoc, 'kind' | 'prepare'>): BackupJobKind {
+  return j.kind ?? j.prepare?.type ?? 'directories';
+}
+export function jobDatabase(j: Pick<BackupJobDoc, 'kind' | 'database' | 'prepare'>): DatabaseDump | null {
+  const kind = jobKind(j);
+  if (!isDatabaseKind(kind)) return null;
+  const legacy = j.prepare && { ...j.prepare, keep: typeof j.prepare.keep === 'number' ? j.prepare.keep : j.prepare.cleanup ? 0 : 1 };
+  return normDatabase(kind, j.database ?? legacy ?? null);
 }
 
-// Archives written by the preparation (dumps in sub-directories of workDir): same as preparedArchives in agent/prepare.go.
-export function preparedArchives(p: BackupPrepare): BackupArchive[] {
-  const names = p.type === 'postgres' ? (p.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...p.databases.map((d) => `pg-${d}`)]) : p.databases.map((d) => `mongo-${d}`);
-  return names.map((name) => ({ name, path: `${p.workDir}/${name}` }));
+// Only the fields of its kind.
+export function normDatabase(kind: BackupJobKind, d: DatabaseDump | null | undefined): DatabaseDump | null {
+  if (!d || !isDatabaseKind(kind)) return null;
+  const base = { databases: d.databases.map((x) => x.trim()).filter(Boolean), workDir: d.workDir.trim(), keep: d.keep };
+  return kind === 'postgres' ? { mode: d.mode, ...base } : { container: d.container?.trim() ?? '', ...base };
 }
 
-// Error message, or null. Same rules as validatePrepare in agent/prepare.go.
-export function checkPrepare(p: BackupPrepare): string | null {
-  const w = p.workDir;
+// Archives of a database job, one per dump (sub-directory of workDir): same as dumpArchives in agent/database.go.
+export function dumpArchives(kind: 'postgres' | 'mongodb', d: DatabaseDump): BackupArchive[] {
+  const names = kind === 'postgres' ? (d.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...d.databases.map((x) => `pg-${x}`)]) : d.databases.map((x) => `mongo-${x}`);
+  return names.map((name) => ({ name, path: `${d.workDir}/${name}` }));
+}
+
+// Error message, or null. Same rules as validateDatabase in agent/database.go.
+export function checkDatabase(kind: 'postgres' | 'mongodb', d: DatabaseDump): string | null {
+  const w = d.workDir;
   if (!validPath(w) || w.split('/').length < 3) return 'répertoire de travail invalide (absolu, au moins deux niveaux, ex. /mnt/backup)';
   if (FORBIDDEN_WORK_ROOTS.some((r) => w === r || w.startsWith(`${r}/`))) return `répertoire de travail interdit sous ${w.split('/').slice(0, 2).join('/')}`;
-  if (!Number.isInteger(p.keep) || p.keep < 0 || p.keep > MAX_KEEP) return `dumps gardés sur l'hôte : 0 à ${MAX_KEEP}`;
+  if (!Number.isInteger(d.keep) || d.keep < 0 || d.keep > MAX_KEEP) return `dumps gardés sur l'hôte : 0 à ${MAX_KEEP}`;
   const seen = new Set<string>();
-  for (const d of p.databases) {
-    if (!DB_NAME_RE.test(d)) return `nom de base invalide : ${d} (lettres, chiffres, - et _)`;
-    if (seen.has(d)) return `base en double : ${d}`;
-    seen.add(d);
+  for (const x of d.databases) {
+    if (!DB_NAME_RE.test(x)) return `nom de base invalide : ${x} (lettres, chiffres, - et _)`;
+    if (seen.has(x)) return `base en double : ${x}`;
+    seen.add(x);
   }
-  if (p.type === 'postgres') {
-    if (p.container) return 'PostgreSQL : serveur local uniquement';
-    if (p.mode === 'databases') return p.databases.length ? null : 'PostgreSQL par base : au moins une base';
-    if (p.mode === 'cluster') return p.databases.length ? 'PostgreSQL cluster : tout le cluster, pas de liste de bases' : null;
+  if (kind === 'postgres') {
+    if (d.container) return 'PostgreSQL : serveur local uniquement';
+    if (d.mode === 'databases') return d.databases.length ? null : 'PostgreSQL par base : au moins une base';
+    if (d.mode === 'cluster') return d.databases.length ? 'PostgreSQL cluster : tout le cluster, pas de liste de bases' : null;
     return 'PostgreSQL : mode par base ou cluster';
   }
-  if (p.type === 'mongodb') {
-    if (p.mode) return 'MongoDB : pas de mode';
-    if (!CONTAINER_RE.test(p.container ?? '')) return 'MongoDB : nom du conteneur invalide';
-    return p.databases.length ? null : 'MongoDB : au moins une base';
-  }
-  return 'préparation inconnue';
+  if (d.mode) return 'MongoDB : pas de mode';
+  if (!CONTAINER_RE.test(d.container ?? '')) return 'MongoDB : nom du conteneur invalide';
+  return d.databases.length ? null : 'MongoDB : au moins une base';
 }
 
-// Directories of the job then the dumps of its preparation: what the agent sends.
-export function allArchives(j: Pick<JobInput, 'archives' | 'prepare'>) {
-  return j.prepare ? [...j.archives, ...preparedArchives(j.prepare)] : j.archives;
+// What the agent sends: the directories of a directories job, the dumps of a database job.
+export function jobArchives(j: Pick<JobInput, 'archives' | 'kind' | 'database'>) {
+  return isDatabaseKind(j.kind) && j.database ? dumpArchives(j.kind, j.database) : j.archives;
 }
 
 // Error message, or null. Same rules as validateBackupSpec in agent/backup.go.
 export function checkJob(j: JobInput, creating: boolean): string | null {
   if (!j.name.trim()) return 'nom requis';
-  if (j.prepare) {
-    const err = checkPrepare(j.prepare);
+  const kind = j.kind ?? 'directories';
+  if (isDatabaseKind(kind)) {
+    if (!j.database) return 'réglages de la base requis';
+    // a database job holds its dumps only
+    if (j.archives.length || j.excludes.length) return 'une sauvegarde de base ne contient que ses dumps (ni répertoire ni exclusion)';
+    const err = checkDatabase(kind, j.database);
     if (err) return err;
+  } else if (kind !== 'directories') {
+    return 'type de sauvegarde inconnu';
+  } else if (j.database) {
+    return 'réglages de base sur une sauvegarde de répertoires';
   }
-  if (!allArchives(j).length) return 'au moins un répertoire';
+  if (!jobArchives(j).length) return 'au moins un répertoire';
   const names = new Set<string>();
-  for (const a of allArchives(j)) {
+  for (const a of jobArchives(j)) {
     if (!ARCHIVE_NAME_RE.test(a.name)) return `nom d'archive invalide : ${a.name} (lettres, chiffres, - et _)`;
     if (names.has(a.name)) return `nom d'archive en double : ${a.name}`;
     names.add(a.name);
@@ -130,10 +148,10 @@ export function pbsServer(pbs: Pick<PbsSettings, 'url'>) {
   return `${u.hostname}:${u.port || '8007'}`;
 }
 
-// An agent too old for preparations would ignore it and send an empty work directory: such jobs are
-// held back until it is updated (shown as not applied).
-export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'prepare'>) {
-  return !!j.prepare && !(host.capabilities ?? []).includes('backup_prepare');
+// An agent too old for database jobs would back up nothing: such jobs are held back until it is
+// updated (shown as not applied).
+export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'kind' | 'prepare'>) {
+  return isDatabaseKind(jobKind(j)) && !(host.capabilities ?? []).includes('backup_database');
 }
 
 // Definition sent to the agent: empty (no job) when there is nothing to run, so that it stops.
@@ -146,20 +164,24 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities'>,
     tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',
     image: pbs.clientImage || DEFAULT_CLIENT_IMAGE,
     jobs: usable
-      ? list.filter((j) => !heldBack(host, j)).map((j) => ({
-          id: j._id.toHexString(),
-          name: j.name,
-          archives: j.archives,
-          excludes: j.excludes,
-          store: j.store,
-          ns: j.ns,
-          backupId: j.backupId,
-          schedule: j.schedule,
-          tz: j.timezone,
-          enabled: j.enabled,
-          // only when set: the definitions (and hashes) of the other jobs do not change
-          ...(j.prepare ? { prepare: normPrepare(j.prepare) } : {}),
-        }))
+      ? list.filter((j) => !heldBack(host, j)).map((j) => {
+          const kind = jobKind(j);
+          const db = isDatabaseKind(kind);
+          return {
+            id: j._id.toHexString(),
+            name: j.name,
+            archives: db ? [] : j.archives,
+            excludes: db ? [] : j.excludes,
+            store: j.store,
+            ns: j.ns,
+            backupId: j.backupId,
+            schedule: j.schedule,
+            tz: j.timezone,
+            enabled: j.enabled,
+            // database jobs only: the definitions (and hashes) of the directories jobs do not change
+            ...(db ? { kind, database: jobDatabase(j) } : {}),
+          };
+        })
       : [],
   };
   // the hash covers the secret too: a new token is a new definition
@@ -185,8 +207,8 @@ export function clientState(caps: string[] = []) {
   return {
     mode: caps.includes('backup:native') ? ('native' as const) : caps.includes('backup:docker') ? ('docker' as const) : null,
     install: (['apt', 'docker'] as const).filter((m) => caps.includes(`backup_install:${m}`)),
-    // preparations the agent knows (null: agent to update), and the types it found usable here
-    prepare: caps.includes('backup_prepare') ? (['postgres', 'mongodb'] as const).filter((t) => caps.includes(`backup_prepare:${t}`)) : null,
+    // database jobs: kinds the agent found usable here (null: agent to update)
+    databases: caps.includes('backup_database') ? (['postgres', 'mongodb'] as const).filter((t) => caps.includes(`backup_database:${t}`)) : null,
     // agent that knows about backups at all (older ones: to update)
     supported: caps.includes('backup_setup') || caps.includes('backup'),
   };
@@ -213,11 +235,11 @@ interface AgentResult {
   ok: boolean;
   error?: string;
   log: string;
-  prepared?: unknown;
+  dumps?: unknown;
 }
 
 // Sizes of the dumps reported by the agent: kept only when well formed.
-export function preparedOf(v: unknown): PreparedDump[] | undefined {
+export function dumpsOf(v: unknown): DumpInfo[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : -1);
   const out = v
@@ -296,8 +318,8 @@ export async function onResult(host: HostDoc, r: AgentResult) {
     publish('job', jobDto(doc));
   }
   if (!bj.lastRun || r.start >= bj.lastRun.start) {
-    const prepared = preparedOf(r.prepared);
-    await backupJobs.updateOne({ _id: bj._id }, { $set: { lastRun: { start: r.start, end: r.end, ok: r.ok, error, trigger: r.trigger, jobId, ...(prepared ? { prepared } : {}) } } });
+    const dumps = dumpsOf(r.dumps);
+    await backupJobs.updateOne({ _id: bj._id }, { $set: { lastRun: { start: r.start, end: r.end, ok: r.ok, error, trigger: r.trigger, jobId, ...(dumps ? { dumps } : {}) } } });
   }
   ack();
   await refreshManaged();
@@ -330,8 +352,9 @@ export async function refreshManaged() {
       tz: j.timezone,
       schedule: j.schedule,
       enabled: j.enabled,
-      lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null, ...(j.lastRun.prepared ? { prepared: j.lastRun.prepared } : {}) } : null,
-      prepare: normPrepare(j.prepare),
+      lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null, ...(j.lastRun.dumps ? { dumps: j.lastRun.dumps } : {}) } : null,
+      kind: jobKind(j),
+      database: jobDatabase(j),
       synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid) && !heldBack(host, j),
       since: j.createdAt.getTime(),
     };
@@ -376,8 +399,8 @@ export function jobView(j: BackupJobDoc) {
     schedule: j.schedule,
     timezone: j.timezone,
     enabled: j.enabled,
-    prepare: normPrepare(j.prepare),
-    archivesPrepared: j.prepare ? preparedArchives(j.prepare) : [],
+    kind: jobKind(j),
+    database: jobDatabase(j),
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
     lastRun: j.lastRun ? { ...j.lastRun, jobId: j.lastRun.jobId ? j.lastRun.jobId.toHexString() : null } : null,

@@ -43,7 +43,8 @@ type BackupJob struct {
 	Schedule string          `json:"schedule"`
 	TZ       string          `json:"tz"`
 	Enabled  bool            `json:"enabled"`
-	Prepare  *BackupPrepare  `json:"prepare,omitempty"` // dump made before the backup (prepare.go)
+	Kind     string          `json:"kind,omitempty"`     // directories (default) | postgres | mongodb (database.go)
+	Database *DatabaseDump   `json:"database,omitempty"` // postgres, mongodb: what to dump
 }
 
 type BackupSpec struct {
@@ -67,7 +68,7 @@ type BackupResult struct {
 	Error   string `json:"error,omitempty"`
 	Log     string `json:"log"` // end of the output
 	// dumps of the preparation: size of each and of its database
-	Prepared []PreparedDump `json:"prepared,omitempty"`
+	Dumps []DumpInfo `json:"dumps,omitempty"`
 }
 
 var (
@@ -101,10 +102,21 @@ func validateBackupSpec(s *BackupSpec) error {
 		if _, err := time.LoadLocation(j.TZ); err != nil || j.TZ == "" {
 			return fmt.Errorf("job %s: time zone %q", j.ID, j.TZ)
 		}
-		if j.Prepare != nil {
-			if err := validatePrepare(j.Prepare); err != nil {
+		switch {
+		case j.Kind == "" || j.Kind == "directories":
+			if j.Database != nil {
+				return fmt.Errorf("job %s: database settings on a directories job", j.ID)
+			}
+		case isDatabaseKind(j.Kind):
+			// only its dumps: no directory, no exclusion
+			if j.Database == nil || len(j.Archives) != 0 || len(j.Excludes) != 0 {
+				return fmt.Errorf("job %s: a database job holds its dumps only", j.ID)
+			}
+			if err := validateDatabase(j.Kind, j.Database); err != nil {
 				return fmt.Errorf("job %s: %w", j.ID, err)
 			}
+		default:
+			return fmt.Errorf("job %s: unknown kind %q", j.ID, j.Kind)
 		}
 		if len(jobArchives(j)) == 0 {
 			return fmt.Errorf("job %s: no directory", j.ID)
@@ -440,22 +452,23 @@ func (b *backupModule) runJob(ctx context.Context, jobID, trigger, runID string,
 	defer cancel()
 	var code int
 	var err error
-	var prepared []PreparedDump
-	if j.Prepare != nil {
-		out(fmt.Sprintf("préparation %s dans %s\n", j.Prepare.Type, j.Prepare.WorkDir))
-		if perr := prepareBackup(rctx, j.Prepare, out); perr != nil {
-			code, err = -1, fmt.Errorf("préparation %s : %w", j.Prepare.Type, perr)
+	var dumps []DumpInfo
+	db := isDatabaseKind(j.Kind)
+	if db {
+		out(fmt.Sprintf("dump %s dans %s\n", j.Kind, j.Database.WorkDir))
+		if derr := dumpDatabases(rctx, j.Kind, j.Database, out); derr != nil {
+			code, err = -1, fmt.Errorf("dump %s : %w", j.Kind, derr)
 		} else {
-			prepared = preparedSizes(rctx, j.Prepare)
+			dumps = dumpSizes(rctx, j.Kind, j.Database)
 		}
 	}
 	if err == nil {
 		code, err = runBackup(rctx, spec, j, out)
 	}
-	if j.Prepare != nil {
-		finishPrepared(j.Prepare, prepared != nil, start, out)
+	if db {
+		finishDumps(j.Kind, j.Database, dumps != nil, start, out)
 	}
-	res := BackupResult{ID: randomID(), JobID: j.ID, RunID: runID, Trigger: trigger, Start: start.UnixMilli(), End: time.Now().UnixMilli(), OK: err == nil && code == 0, Log: tail.String(), Prepared: prepared}
+	res := BackupResult{ID: randomID(), JobID: j.ID, RunID: runID, Trigger: trigger, Start: start.UnixMilli(), End: time.Now().UnixMilli(), OK: err == nil && code == 0, Log: tail.String(), Dumps: dumps}
 	if err != nil {
 		res.Error = err.Error()
 	} else if code != 0 {

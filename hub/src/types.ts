@@ -471,27 +471,27 @@ export interface BackupRun {
   error?: string | null;
   trigger: string; // schedule | catchup | manual
   jobId?: ObjectId | null; // JobDoc of the run
-  prepared?: PreparedDump[]; // dumps of the preparation of the run
+  dumps?: DumpInfo[]; // database job: the dumps of the run
 }
 
 // Size of a dump of a run and of its database, reported by the agent (-1: unknown).
-export interface PreparedDump {
+export interface DumpInfo {
   archive: string;
   database?: string; // empty: PostgreSQL globals, or the whole cluster
   dbSize: number;
   dumpSize: number;
 }
 
-// Dump made by the agent before the backup (agent/prepare.go): its sub-directories of workDir become
-// archives of the snapshot (preparedArchives in backupJobs.ts).
-export interface BackupPrepare {
-  type: 'postgres' | 'mongodb';
+// Kind of backup job: directories, or the dump of databases (agent/database.go), whose dumps (one
+// sub-directory of workDir each) are the archives of the snapshot (dumpArchives in backupJobs.ts).
+export type BackupJobKind = 'directories' | 'postgres' | 'mongodb';
+
+export interface DatabaseDump {
   mode?: 'databases' | 'cluster'; // postgres
   databases: string[];
   container?: string; // mongodb
   workDir: string;
   keep: number; // dumps kept on the host after the backup (0: removed once sent)
-  cleanup?: boolean; // first form (agent 0.2.0 in development): true = keep 0, false = keep 1
 }
 
 export interface BackupJobDoc {
@@ -506,7 +506,10 @@ export interface BackupJobDoc {
   schedule: string; // calendar event (calendar.ts)
   timezone: string;
   enabled: boolean;
-  prepare?: BackupPrepare | null;
+  kind?: BackupJobKind; // absent: directories
+  database?: DatabaseDump | null;
+  // first form of the database jobs (agent 0.2.0 in development): read as kind + database
+  prepare?: (DatabaseDump & { type: 'postgres' | 'mongodb'; cleanup?: boolean }) | null;
   createdAt: Date;
   updatedAt: Date;
   lastRun?: BackupRun | null;
@@ -518,9 +521,9 @@ export interface BackupManaged {
   tz: string;
   schedule: string;
   enabled: boolean;
-  lastRun?: { at: number; ok: boolean; error?: string | null; prepared?: PreparedDump[] } | null;
-  // dump made before the backup
-  prepare?: BackupPrepare | null;
+  lastRun?: { at: number; ok: boolean; error?: string | null; dumps?: DumpInfo[] } | null;
+  kind?: BackupJobKind;
+  database?: DatabaseDump | null;
   // the agent applied the current definition
   synced: boolean;
   // creation of the job (unix ms): runs scheduled before it are not expected

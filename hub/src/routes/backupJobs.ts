@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkPrepare, clientState, checkJob, currentHash, groupConflict, jobView, normPrepare, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobKind, jobView, normDatabase, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
-import type { BackupPrepare, HostDoc } from '../types.js';
+import type { BackupJobKind, DatabaseDump, HostDoc } from '../types.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
 import { keepText, loadPbsSettings, policyFor } from '../pbs.js';
@@ -29,12 +29,12 @@ const jobProps = {
   schedule: { type: 'string', maxLength: 128 },
   timezone: { type: 'string', maxLength: 64 },
   enabled: { type: 'boolean' },
-  prepare: {
+  kind: { type: 'string', enum: ['directories', 'postgres', 'mongodb'] },
+  database: {
     type: ['object', 'null'],
     additionalProperties: false,
-    required: ['type', 'databases', 'workDir', 'keep'],
+    required: ['databases', 'workDir', 'keep'],
     properties: {
-      type: { type: 'string', enum: ['postgres', 'mongodb'] },
       mode: { type: 'string', enum: ['databases', 'cluster'] },
       databases: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 64 } },
       container: { type: 'string', maxLength: 128 },
@@ -46,11 +46,16 @@ const jobProps = {
 
 const required = ['name', 'archives', 'excludes', 'store', 'schedule', 'enabled'] as const;
 
-// An agent that does not know preparations would back up an empty work directory.
-function prepareRefused(host: HostDoc, p: BackupPrepare | null) {
-  if (!p) return null;
-  const known = clientState(host.capabilities).prepare;
-  return known ? null : "l'agent de cet hôte ne connaît pas les préparations : le mettre à jour d'abord";
+// An agent that does not know database jobs would back up nothing.
+function databaseRefused(host: HostDoc, kind: BackupJobKind) {
+  if (!isDatabaseKind(kind)) return null;
+  return clientState(host.capabilities).databases ? null : "l'agent de cet hôte ne sait pas sauvegarder de base : le mettre à jour d'abord";
+}
+
+// What is stored for a job of this kind: a database job holds its dumps only.
+function normInput(b: JobInput, kind: BackupJobKind) {
+  const db = isDatabaseKind(kind);
+  return { ...b, kind, database: normDatabase(kind, b.database), archives: db ? [] : b.archives, excludes: db ? [] : b.excludes };
 }
 
 async function changed(hostId: ObjectId) {
@@ -128,10 +133,10 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       if (!clientState(host.capabilities).mode) return reply.code(409).send({ error: "client PBS absent sur cet hôte : l'installer d'abord" });
       const pbs = await loadPbsSettings();
       // namespace and time zone are fixed: Hosts, and the time zone of the hub (TZ)
-      const body = { ...req.body, ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE, prepare: normPrepare(req.body.prepare) };
+      const body = { ...normInput(req.body, req.body.kind ?? 'directories'), ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE };
       const err = checkJob(body, true);
       if (err) return reply.code(400).send({ error: err });
-      const refused = prepareRefused(host, body.prepare);
+      const refused = databaseRefused(host, body.kind);
       if (refused) return reply.code(409).send({ error: refused });
       const conflict = await groupConflict(_id, body.store, body.ns, body.backupId!);
       if (conflict) return reply.code(409).send({ error: conflict });
@@ -148,7 +153,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         schedule: body.schedule.trim(),
         timezone: body.timezone,
         enabled: body.enabled,
-        prepare: body.prepare,
+        kind: body.kind,
+        database: body.database,
         createdAt: now,
         updatedAt: now,
         lastRun: null,
@@ -169,11 +175,14 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const cur = _id && (await backupJobs.findOne({ _id }));
       if (!cur) return reply.code(404).send({ error: 'job introuvable' });
       if (req.body.backupId !== undefined && req.body.backupId !== cur.backupId) return reply.code(400).send({ error: "l'identifiant de sauvegarde ne change pas" });
-      const body = { ...req.body, ns: HOSTS_NS, timezone: cur.timezone, prepare: normPrepare(req.body.prepare) };
+      // the kind is fixed too: its archives are of another nature
+      const kind = jobKind(cur);
+      if (req.body.kind !== undefined && req.body.kind !== kind) return reply.code(400).send({ error: 'le type de sauvegarde ne change pas' });
+      const body = { ...normInput(req.body, kind), ns: HOSTS_NS, timezone: cur.timezone };
       const err = checkJob(body, false);
       if (err) return reply.code(400).send({ error: err });
       const host = await hosts.findOne({ _id: cur.hostId });
-      const refused = host && prepareRefused(host, body.prepare);
+      const refused = host && databaseRefused(host, kind);
       if (refused) return reply.code(409).send({ error: refused });
       if (body.store !== cur.store || body.ns !== cur.ns) {
         const conflict = await groupConflict(cur.hostId, body.store, body.ns, cur.backupId, cur._id);
@@ -188,12 +197,14 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         schedule: body.schedule.trim(),
         timezone: body.timezone,
         enabled: body.enabled,
-        prepare: body.prepare,
+        kind,
+        database: body.database,
         updatedAt: new Date(),
       };
-      await backupJobs.updateOne({ _id }, { $set: set });
+      // the first form of the database jobs goes
+      await backupJobs.updateOne({ _id }, { $set: set, $unset: { prepare: '' } });
       await changed(cur.hostId);
-      return jobView({ ...cur, ...set });
+      return jobView({ ...cur, ...set, prepare: undefined });
     },
   );
 
@@ -207,23 +218,33 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  // Checks a preparation on the host before saving it: tools, databases of the server and their size,
+  // Checks a database job on the host before saving it: tools, databases of the server and their size,
   // free space of the work directory (form of a job, admin).
-  app.post<{ Params: { id: string }; Body: { prepare: BackupPrepare } }>(
-    '/api/hosts/:id/backup-prepare-check',
-    { schema: { body: { type: 'object', additionalProperties: false, required: ['prepare'], properties: { prepare: jobProps.prepare } } } },
+  app.post<{ Params: { id: string }; Body: { kind: 'postgres' | 'mongodb'; database: DatabaseDump } }>(
+    '/api/hosts/:id/backup-database-check',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'database'],
+          properties: { kind: { type: 'string', enum: ['postgres', 'mongodb'] }, database: { ...jobProps.database, type: 'object' } },
+        },
+      },
+    },
     async (req, reply) => {
       const _id = parseId(req.params.id);
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
-      const prepare = normPrepare(req.body.prepare)!;
-      const err = checkPrepare(prepare);
+      const { kind } = req.body;
+      const database = normDatabase(kind, req.body.database)!;
+      const err = checkDatabase(kind, database);
       if (err) return reply.code(400).send({ error: err });
-      const refused = prepareRefused(host, prepare);
+      const refused = databaseRefused(host, kind);
       if (refused) return reply.code(409).send({ error: refused });
       if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'hôte hors ligne' });
       try {
-        return await agentRequest(host._id.toHexString(), 'backup_prepare_check', { prepare }, 75_000);
+        return await agentRequest(host._id.toHexString(), 'backup_database_check', { backupKind: kind, database }, 75_000);
       } catch (e) {
         // answer of the agent (container stopped, no postgres user…) or no answer: shown in the form
         if (e instanceof AgentRequestError) return reply.code(502).send({ error: e.message });

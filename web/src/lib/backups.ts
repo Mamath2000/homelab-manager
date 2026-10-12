@@ -1,4 +1,4 @@
-import type { BackupGroup, BackupPrepare, BackupState, PreparedDump } from './api';
+import type { BackupGroup, BackupState, DatabaseDump, DatabaseKind, DumpInfo } from './api';
 
 export const backupStateMeta: Record<BackupState, { label: string; tone: 'ok' | 'warn' | 'bad' | 'unknown' | 'neutral' }> = {
   ok: { label: 'à jour', tone: 'ok' },
@@ -103,45 +103,58 @@ export function backupClient(caps: string[]) {
 // Kind of a backup: full image of the guest (vzdump of Proxmox VE), directories run by the agent (job
 // of the hub), backup of Home Assistant (HAOS), or made by something else and attached by hand
 // (backup_pbs_scripts...).
-export type BackupKind = 'image' | 'directories' | 'ha' | 'external';
+export type BackupKind = 'image' | 'directories' | 'database' | 'ha' | 'external';
 
 export const backupKinds: Record<BackupKind, { label: string; title: string }> = {
   image: { label: 'image PVE', title: 'Image complète du CT / de la VM, sauvegardée par un job vzdump de Proxmox VE' },
   directories: { label: 'répertoires', title: "Sauvegarde de répertoires définie ici et lancée par l'agent de l'hôte" },
+  database: { label: 'base de données', title: "Dump de bases PostgreSQL ou MongoDB fait par l'agent de l'hôte, envoyé sur le PBS" },
   ha: { label: 'Home Assistant', title: 'Sauvegarde faite par Home Assistant (une ligne par destination), lue par l’agent HAOS ; hors PBS' },
   external: { label: 'externe', title: 'Sauvegarde faite hors Homelab Manager (scripts…), rattachée à la main' },
 };
 
-export function backupKindOf(g: Pick<BackupGroup, 'source'>): BackupKind {
-  return g.source === 'vzdump' ? 'image' : g.source === 'managed' ? 'directories' : g.source === 'haos' ? 'ha' : 'external';
+export const databaseKindLabel: Record<DatabaseKind, string> = { postgres: 'PostgreSQL', mongodb: 'MongoDB' };
+
+export function backupKindOf(g: Pick<BackupGroup, 'source' | 'managed'>): BackupKind {
+  if (g.source === 'managed') return g.managed?.kind === 'postgres' || g.managed?.kind === 'mongodb' ? 'database' : 'directories';
+  return g.source === 'vzdump' ? 'image' : g.source === 'haos' ? 'ha' : 'external';
 }
 
-export function backupKind(g: Pick<BackupGroup, 'source'>) {
-  return backupKinds[backupKindOf(g)];
+export function backupKind(g: Pick<BackupGroup, 'source' | 'managed'>) {
+  const k = backupKinds[backupKindOf(g)];
+  const db = g.managed?.kind;
+  return db === 'postgres' || db === 'mongodb' ? { ...k, label: `base ${databaseKindLabel[db]}` } : k;
 }
 
-// --- preparations (dump of a database before the backup, agent/prepare.go) ---------------------
+// --- database jobs (dumps sent on the PBS, agent/database.go) -----------------------------------
 
-// Archives the agent adds for the dumps: same names as preparedArchives (hub/src/backupJobs.ts, agent/prepare.go).
-export function preparedArchives(p: BackupPrepare) {
-  const names = p.type === 'postgres' ? (p.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...p.databases.map((d) => `pg-${d}`)]) : p.databases.map((d) => `mongo-${d}`);
-  return names.map((name) => ({ name, path: `${p.workDir}/${name}` }));
+// Archives of a database job: same names as dumpArchives (hub/src/backupJobs.ts, agent/database.go).
+export function dumpArchives(kind: DatabaseKind, d: DatabaseDump) {
+  const names = kind === 'postgres' ? (d.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...d.databases.map((x) => `pg-${x}`)]) : d.databases.map((x) => `mongo-${x}`);
+  return names.map((name) => ({ name, path: `${d.workDir}/${name}` }));
 }
 
-export function prepareSummary(p: BackupPrepare) {
-  if (p.type === 'postgres') return p.mode === 'cluster' ? 'dump PostgreSQL du cluster complet' : `dump PostgreSQL de ${p.databases.join(', ')}`;
-  return `dump MongoDB de ${p.databases.join(', ')} (conteneur ${p.container})`;
+export function databaseSummary(kind: DatabaseKind, d: DatabaseDump) {
+  if (kind === 'postgres') return d.mode === 'cluster' ? 'cluster PostgreSQL complet (pg_basebackup)' : `pg_dump de ${d.databases.join(', ')}`;
+  return `mongodump de ${d.databases.join(', ')} (conteneur ${d.container})`;
 }
 
 export function keepText(keep: number) {
-  return keep === 0 ? 'supprimé après l\'envoi' : keep === 1 ? 'dernier dump gardé sur l\'hôte' : `${keep} derniers dumps gardés sur l'hôte`;
+  return keep === 0 ? "dump supprimé de l'hôte après l'envoi" : keep === 1 ? "dernier dump gardé sur l'hôte" : `${keep} derniers dumps gardés sur l'hôte`;
 }
 
 // "canicoif : base 120 Mo, dump 80 Mo" for each dump of the last run (globals left out)
-export function preparedSizesText(list: PreparedDump[] | undefined) {
+export function dumpsText(list: DumpInfo[] | undefined) {
   if (!list?.length) return null;
   return list
     .filter((d) => d.archive !== 'pg-globals')
     .map((d) => `${d.database ?? 'cluster'} : base ${d.dbSize < 0 ? '?' : formatBytes(d.dbSize)}, dump ${d.dumpSize < 0 ? '?' : formatBytes(d.dumpSize)}`)
     .join(' · ');
+}
+
+// Line of a database job in the lists: what it dumps, where, what stays on the host, sizes of the last run.
+export function databaseJobText(m: { kind?: string; database?: DatabaseDump | null; lastRun?: { dumps?: DumpInfo[] } | null }) {
+  if ((m.kind !== 'postgres' && m.kind !== 'mongodb') || !m.database) return null;
+  const sizes = dumpsText(m.lastRun?.dumps);
+  return `${databaseSummary(m.kind, m.database)} dans ${m.database.workDir} · ${keepText(m.database.keep)}${sizes ? ` · ${sizes}` : ''}`;
 }
