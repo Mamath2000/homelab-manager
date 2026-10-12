@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { allArchives, buildSpec, checkJob, checkPrepare, clientState, heldBack, pbsServer, preparedArchives, runError, validPath, type JobInput } from '../src/backupJobs.js';
+import { allArchives, buildSpec, checkJob, checkPrepare, clientState, heldBack, normPrepare, pbsServer, preparedArchives, preparedOf, runError, validPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, BackupJobDoc, BackupPrepare, PbsSettings } from '../src/types.js';
@@ -137,8 +137,8 @@ test('state of the PBS client of a host, from its capabilities', () => {
 });
 
 test('preparations are checked like the agent does', () => {
-  const pg = (o: Partial<BackupPrepare> = {}): BackupPrepare => ({ type: 'postgres', mode: 'databases', databases: ['hass', 'hass-jarsay'], workDir: '/mnt/backup', cleanup: false, ...o });
-  const mongo = (o: Partial<BackupPrepare> = {}): BackupPrepare => ({ type: 'mongodb', container: 'mongo', databases: ['canicoif'], workDir: '/home/mamath/dumps', cleanup: true, ...o });
+  const pg = (o: Partial<BackupPrepare> = {}): BackupPrepare => ({ type: 'postgres', mode: 'databases', databases: ['hass', 'hass-jarsay'], workDir: '/mnt/backup', keep: 1, ...o });
+  const mongo = (o: Partial<BackupPrepare> = {}): BackupPrepare => ({ type: 'mongodb', container: 'mongo', databases: ['canicoif'], workDir: '/home/mamath/dumps', keep: 0, ...o });
   assert.equal(checkPrepare(pg()), null);
   assert.equal(checkPrepare(pg({ mode: 'cluster', databases: [] })), null);
   assert.equal(checkPrepare(mongo()), null);
@@ -153,16 +153,17 @@ test('preparations are checked like the agent does', () => {
   assert.match(checkPrepare(mongo({ container: '-it' }))!, /conteneur/);
   assert.match(checkPrepare(mongo({ databases: [] }))!, /au moins une base/);
   assert.match(checkPrepare(mongo({ mode: 'cluster' }))!, /mode/);
+  for (const keep of [-1, 31, 1.5]) assert.match(checkPrepare(pg({ keep }))!, /gardés/, String(keep));
 });
 
 test('archives written by a preparation: the same names as the agent', () => {
-  const p: BackupPrepare = { type: 'postgres', mode: 'databases', databases: ['hass'], workDir: '/mnt/backup', cleanup: false };
+  const p: BackupPrepare = { type: 'postgres', mode: 'databases', databases: ['hass'], workDir: '/mnt/backup', keep: 1 };
   assert.deepEqual(preparedArchives(p), [
     { name: 'pg-globals', path: '/mnt/backup/pg-globals' },
     { name: 'pg-hass', path: '/mnt/backup/pg-hass' },
   ]);
   assert.deepEqual(preparedArchives({ ...p, mode: 'cluster', databases: [] }), [{ name: 'pg-cluster', path: '/mnt/backup/pg-cluster' }]);
-  assert.deepEqual(preparedArchives({ type: 'mongodb', container: 'mongo', databases: ['homelab'], workDir: '/srv/dumps', cleanup: true }), [{ name: 'mongo-homelab', path: '/srv/dumps/mongo-homelab' }]);
+  assert.deepEqual(preparedArchives({ type: 'mongodb', container: 'mongo', databases: ['homelab'], workDir: '/srv/dumps', keep: 0 }), [{ name: 'mongo-homelab', path: '/srv/dumps/mongo-homelab' }]);
   // a job may hold only its dumps; an archive of the job may not take the name of a dump
   assert.equal(checkJob(input({ archives: [], prepare: p }), true), null);
   assert.equal(allArchives({ archives: [], prepare: p }).length, 2);
@@ -171,7 +172,7 @@ test('archives written by a preparation: the same names as the agent', () => {
 });
 
 test('a job with a preparation is held back from an agent that does not know them', () => {
-  const prepared: BackupJobDoc = { ...job, _id: new ObjectId(), backupId: 'pg', prepare: { type: 'postgres', mode: 'cluster', databases: [], workDir: '/mnt/backup', cleanup: true } };
+  const prepared: BackupJobDoc = { ...job, _id: new ObjectId(), backupId: 'pg', prepare: { type: 'postgres', mode: 'cluster', databases: [], workDir: '/mnt/backup', keep: 3 } };
   const old = buildSpec({ pbsCredential: cred, capabilities: ['backup'] }, [job, prepared], pbs);
   assert.deepEqual(old.jobs.map((j) => j.backupId), ['x4']);
   assert.ok(heldBack({ capabilities: ['backup'] }, prepared));
@@ -182,4 +183,23 @@ test('a job with a preparation is held back from an agent that does not know the
   assert.ok(!('prepare' in cur.jobs[0]));
   assert.equal(buildSpec({ pbsCredential: cred, capabilities: ['backup', 'backup_prepare'] }, [job], pbs).hash, buildSpec({ pbsCredential: cred }, [job], pbs).hash);
   assert.deepEqual(clientState(['backup', 'backup_prepare', 'backup_prepare:mongodb']).prepare, ['mongodb']);
+});
+
+test('dumps kept on the host: first form (cleanup) read as keep', () => {
+  const p = { type: 'mongodb', container: 'mongo', databases: ['db'], workDir: '/srv/d' } as unknown as BackupPrepare;
+  assert.equal(normPrepare({ ...p, cleanup: true })!.keep, 0);
+  assert.equal(normPrepare({ ...p, cleanup: false })!.keep, 1);
+  assert.equal(normPrepare({ ...p, keep: 5, cleanup: true })!.keep, 5);
+  assert.ok(!('cleanup' in normPrepare({ ...p, cleanup: true })!));
+  // postgres: no container field, mongodb: no mode
+  assert.deepEqual(Object.keys(normPrepare({ type: 'postgres', mode: 'cluster', databases: [], workDir: '/mnt/b', keep: 2 })!).sort(), ['databases', 'keep', 'mode', 'type', 'workDir']);
+});
+
+test('sizes of the dumps reported by the agent', () => {
+  assert.deepEqual(preparedOf([{ archive: 'mongo-db', database: 'db', dbSize: 1000, dumpSize: 300 }, { archive: 'pg-globals', dbSize: 0, dumpSize: 'x' }, { archive: '../x' }, null]), [
+    { archive: 'mongo-db', database: 'db', dbSize: 1000, dumpSize: 300 },
+    { archive: 'pg-globals', dbSize: 0, dumpSize: -1 },
+  ]);
+  assert.equal(preparedOf(undefined), undefined);
+  assert.equal(preparedOf([]), undefined);
 });

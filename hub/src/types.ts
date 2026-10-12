@@ -471,6 +471,15 @@ export interface BackupRun {
   error?: string | null;
   trigger: string; // schedule | catchup | manual
   jobId?: ObjectId | null; // JobDoc of the run
+  prepared?: PreparedDump[]; // dumps of the preparation of the run
+}
+
+// Size of a dump of a run and of its database, reported by the agent (-1: unknown).
+export interface PreparedDump {
+  archive: string;
+  database?: string; // empty: PostgreSQL globals, or the whole cluster
+  dbSize: number;
+  dumpSize: number;
 }
 
 // Dump made by the agent before the backup (agent/prepare.go): its sub-directories of workDir become
@@ -481,7 +490,8 @@ export interface BackupPrepare {
   databases: string[];
   container?: string; // mongodb
   workDir: string;
-  cleanup: boolean;
+  keep: number; // dumps kept on the host after the backup (0: removed once sent)
+  cleanup?: boolean; // first form (agent 0.2.0 in development): true = keep 0, false = keep 1
 }
 
 export interface BackupJobDoc {
@@ -508,7 +518,9 @@ export interface BackupManaged {
   tz: string;
   schedule: string;
   enabled: boolean;
-  lastRun?: { at: number; ok: boolean; error?: string | null } | null;
+  lastRun?: { at: number; ok: boolean; error?: string | null; prepared?: PreparedDump[] } | null;
+  // dump made before the backup
+  prepare?: BackupPrepare | null;
   // the agent applied the current definition
   synced: boolean;
   // creation of the job (unix ms): runs scheduled before it are not expected

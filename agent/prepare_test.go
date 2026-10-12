@@ -2,17 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidatePrepare(t *testing.T) {
 	ok := []BackupPrepare{
 		{Type: "postgres", Mode: "databases", Databases: []string{"hass", "hass-jarsay"}, WorkDir: "/mnt/backup"},
-		{Type: "postgres", Mode: "cluster", WorkDir: "/mnt/backup", Cleanup: true},
-		{Type: "mongodb", Container: "homelab-manager-mongo", Databases: []string{"homelab"}, WorkDir: "/home/mamath/dumps"},
+		{Type: "postgres", Mode: "cluster", WorkDir: "/mnt/backup", Keep: 3},
+		{Type: "mongodb", Container: "homelab-manager-mongo", Databases: []string{"homelab"}, WorkDir: "/home/mamath/dumps", Keep: 0},
 	}
 	for i, p := range ok {
 		if err := validatePrepare(&p); err != nil {
@@ -38,6 +40,8 @@ func TestValidatePrepare(t *testing.T) {
 		{Type: "mongodb", Container: "-it", Databases: []string{"x"}, WorkDir: "/mnt/backup"}, // option as container
 		{Type: "mongodb", Container: "mongo", WorkDir: "/mnt/backup"},                         // no database
 		{Type: "mongodb", Container: "mongo", Mode: "cluster", Databases: []string{"x"}, WorkDir: "/mnt/backup"},
+		{Type: "postgres", Mode: "cluster", WorkDir: "/mnt/backup", Keep: -1},
+		{Type: "postgres", Mode: "cluster", WorkDir: "/mnt/backup", Keep: 31},
 	}
 	for i, p := range bad {
 		if validatePrepare(&p) == nil {
@@ -134,7 +138,7 @@ func TestPreparePostgresDatabases(t *testing.T) {
 	if fi, _ := os.Stat(work); fi.Mode().Perm()&0o001 == 0 {
 		t.Error("postgres cannot traverse the work directory")
 	}
-	cleanupPrepared(p, func(string) {})
+	finishPrepared(p, true, time.Now(), func(string) {})
 	for _, d := range []string{"pg-globals", "pg-hass", "pg-hass-jarsay"} {
 		if _, err := os.Stat(filepath.Join(work, d)); !os.IsNotExist(err) {
 			t.Errorf("%s not cleaned", d)
@@ -142,6 +146,118 @@ func TestPreparePostgresDatabases(t *testing.T) {
 	}
 	if _, err := os.Stat(work); err != nil {
 		t.Error("work directory removed")
+	}
+}
+
+func TestFinishPreparedKeepsTheLastRuns(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "w")
+	p := &BackupPrepare{Type: "mongodb", Container: "mongo", Databases: []string{"db"}, WorkDir: work, Keep: 2}
+	dump := filepath.Join(work, "mongo-db")
+	at := time.Date(2026, 10, 13, 3, 0, 0, 0, time.Local)
+	for day := 0; day < 3; day++ {
+		if err := os.MkdirAll(dump, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dump, "x.bson"), []byte{byte(day)}, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		finishPrepared(p, true, at.AddDate(0, 0, day), func(string) {})
+	}
+	entries, _ := os.ReadDir(filepath.Join(work, "history"))
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if strings.Join(got, " ") != "20261014-030000 20261015-030000" {
+		t.Fatalf("history = %v", got)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(work, "history", "20261015-030000", "mongo-db", "x.bson")); len(raw) != 1 || raw[0] != 2 {
+		t.Fatal("last dump not kept")
+	}
+	if _, err := os.Stat(dump); !os.IsNotExist(err) {
+		t.Fatal("dump left in place: the next run would mix with it")
+	}
+	// a failed preparation: incomplete dump removed, history untouched
+	if err := os.MkdirAll(dump, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	finishPrepared(p, false, at.AddDate(0, 0, 5), func(string) {})
+	if _, err := os.Stat(dump); !os.IsNotExist(err) {
+		t.Fatal("incomplete dump kept")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(work, "history")); len(entries) != 2 {
+		t.Fatal("history changed by a failed run")
+	}
+	// Keep 0: removed once sent, and the history goes
+	p.Keep = 0
+	if err := os.MkdirAll(dump, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	finishPrepared(p, true, at.AddDate(0, 0, 6), func(string) {})
+	if entries, _ := os.ReadDir(filepath.Join(work, "history")); len(entries) != 0 {
+		t.Fatalf("history kept with Keep 0: %d", len(entries))
+	}
+}
+
+func fakeOutput(t *testing.T, answers map[string]string) {
+	t.Helper()
+	old := prepOutput
+	prepOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		for k, v := range answers {
+			if strings.Contains(cmd, k) {
+				if v == "ERR" {
+					return nil, errors.New(k + " failed")
+				}
+				return []byte(v), nil
+			}
+		}
+		return nil, errors.New("unexpected " + cmd)
+	}
+	t.Cleanup(func() { prepOutput = old })
+}
+
+func TestCheckMongo(t *testing.T) {
+	fakeOutput(t, map[string]string{
+		"inspect":             "true\n",
+		"mongodump --version": "mongodump version: 100.10.0\ngit version: x\n",
+		"mongosh":             `[{"name":"admin","size":40960},{"name":"canicoif","size":1.25e8}]` + "\n",
+	})
+	p := &BackupPrepare{Type: "mongodb", Container: "mongo", Databases: []string{"canicoif", "absent"}, WorkDir: t.TempDir() + "/w"}
+	r, err := checkPrepareOnHost(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Tools != "mongodump version: 100.10.0" {
+		t.Errorf("tools = %q", r.Tools)
+	}
+	if len(r.Databases) != 2 || r.Databases[1].Size != 125000000 || strings.Join(r.Missing, ",") != "absent" || r.Free <= 0 {
+		t.Fatalf("check = %+v", r)
+	}
+	// mongo before 6: no mongosh
+	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": "ERR", "mongo --quiet": `[{"name":"x","size":1}]`})
+	if r, err := checkPrepareOnHost(context.Background(), p); err != nil || r.Databases[0].Name != "x" {
+		t.Fatalf("fallback: %v %+v", err, r)
+	}
+	fakeOutput(t, map[string]string{"inspect": "false"})
+	if _, err := checkPrepareOnHost(context.Background(), p); err == nil || !strings.Contains(err.Error(), "arrêté") {
+		t.Fatalf("stopped container: %v", err)
+	}
+}
+
+func TestPreparedSizes(t *testing.T) {
+	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": `[{"name":"db","size":1000}]`})
+	work := t.TempDir()
+	p := &BackupPrepare{Type: "mongodb", Container: "mongo", Databases: []string{"db"}, WorkDir: work}
+	if err := os.MkdirAll(filepath.Join(work, "mongo-db", "db"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "mongo-db", "db", "c.bson"), make([]byte, 300), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := preparedSizes(context.Background(), p)
+	if len(got) != 1 || got[0].Database != "db" || got[0].DBSize != 1000 || got[0].DumpSize != 300 {
+		t.Fatalf("sizes = %+v", got)
 	}
 }
 

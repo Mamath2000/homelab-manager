@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { DatabaseBackup, HardDrive, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { DatabaseBackup, HardDrive, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
 import { SnapshotsButton } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
+import { BackupJobEditModal } from '../components/ManagedBackups';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
+import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, keepText, prepareSummary, preparedSizesText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -108,6 +109,8 @@ export function Backups() {
   const { data: hosts } = useHosts();
   const { canWrite, canManage, canSettings } = useMe();
   const toast = useToast();
+  // backup job edited from its line (pencil): its host and job
+  const [editing, setEditing] = useState<{ host: Host; jobId: string } | null>(null);
   const [params, setParams] = useSearchParams();
   const filter = (params.get('f') as Filter) || 'all';
   // type of backup (?t=image|directories|external), combined with the other filters
@@ -311,6 +314,15 @@ export function Backups() {
                             <td className="td">
                               <div className="flex items-center gap-1 font-medium text-zinc-100">
                                 {groupLabel(g)}
+                                {canManage && g.managed && hostList.some((h) => h.id === g.hostId) && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    icon={Pencil}
+                                    title="Modifier la sauvegarde"
+                                    onClick={() => setEditing({ host: hostList.find((h) => h.id === g.hostId)!, jobId: g.managed!.jobId })}
+                                  />
+                                )}
                                 <SnapshotsButton group={g} />
                               </div>
                               <div className="text-xs text-muted">
@@ -333,6 +345,12 @@ export function Backups() {
                                 <div className="text-xs text-muted">
                                   agent · {g.managed.name} · {scheduleLabel(g)}
                                   {g.managed.lastRun && !g.managed.lastRun.ok && <span className="text-red-400"> · {g.managed.lastRun.error}</span>}
+                                </div>
+                              )}
+                              {g.managed?.prepare && (
+                                <div className="text-xs text-zinc-500">
+                                  avant : {prepareSummary(g.managed.prepare)} · après : {keepText(g.managed.prepare.keep)}
+                                  {preparedSizesText(g.managed.lastRun?.prepared) && <> · {preparedSizesText(g.managed.lastRun?.prepared)}</>}
                                 </div>
                               )}
                             </td>
@@ -382,6 +400,7 @@ export function Backups() {
         </>
       )}
       {data.enabled && <OrphansModal data={data} open={orphans} onClose={() => setOrphans(false)} canManage={canManage} />}
+      {canManage && editing && <BackupJobEditModal key={editing.jobId} host={editing.host} jobId={editing.jobId} onClose={() => setEditing(null)} />}
     </>
   );
 }

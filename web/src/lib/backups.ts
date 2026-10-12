@@ -1,4 +1,4 @@
-import type { BackupGroup, BackupState } from './api';
+import type { BackupGroup, BackupPrepare, BackupState, PreparedDump } from './api';
 
 export const backupStateMeta: Record<BackupState, { label: string; tone: 'ok' | 'warn' | 'bad' | 'unknown' | 'neutral' }> = {
   ok: { label: 'à jour', tone: 'ok' },
@@ -118,4 +118,30 @@ export function backupKindOf(g: Pick<BackupGroup, 'source'>): BackupKind {
 
 export function backupKind(g: Pick<BackupGroup, 'source'>) {
   return backupKinds[backupKindOf(g)];
+}
+
+// --- preparations (dump of a database before the backup, agent/prepare.go) ---------------------
+
+// Archives the agent adds for the dumps: same names as preparedArchives (hub/src/backupJobs.ts, agent/prepare.go).
+export function preparedArchives(p: BackupPrepare) {
+  const names = p.type === 'postgres' ? (p.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...p.databases.map((d) => `pg-${d}`)]) : p.databases.map((d) => `mongo-${d}`);
+  return names.map((name) => ({ name, path: `${p.workDir}/${name}` }));
+}
+
+export function prepareSummary(p: BackupPrepare) {
+  if (p.type === 'postgres') return p.mode === 'cluster' ? 'dump PostgreSQL du cluster complet' : `dump PostgreSQL de ${p.databases.join(', ')}`;
+  return `dump MongoDB de ${p.databases.join(', ')} (conteneur ${p.container})`;
+}
+
+export function keepText(keep: number) {
+  return keep === 0 ? 'supprimé après l\'envoi' : keep === 1 ? 'dernier dump gardé sur l\'hôte' : `${keep} derniers dumps gardés sur l'hôte`;
+}
+
+// "canicoif : base 120 Mo, dump 80 Mo" for each dump of the last run (globals left out)
+export function preparedSizesText(list: PreparedDump[] | undefined) {
+  if (!list?.length) return null;
+  return list
+    .filter((d) => d.archive !== 'pg-globals')
+    .map((d) => `${d.database ?? 'cluster'} : base ${d.dbSize < 0 ? '?' : formatBytes(d.dbSize)}, dump ${d.dumpSize < 0 ? '?' : formatBytes(d.dumpSize)}`)
+    .join(' · ');
 }

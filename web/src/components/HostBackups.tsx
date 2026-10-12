@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { AlertTriangle, Container, DatabaseBackup, FolderArchive, House, Link2, Package, PackageX, Play, Search, Unlink } from 'lucide-react';
+import { AlertTriangle, Container, DatabaseBackup, FolderArchive, House, Link2, Package, PackageX, Pencil, Play, Search, Unlink } from 'lucide-react';
 import { SnapshotsButton } from './BackupSnapshots';
-import { ManagedBackupsModal } from './ManagedBackups';
+import { BackupJobEditModal, ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, keepText, prepareSummary, preparedSizesText, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -151,6 +151,7 @@ export function HostBackups({ host }: { host: Host }) {
   const toast = useToast();
   const [attaching, setAttaching] = useState(false);
   const [directories, setDirectories] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const [running, setRunning] = useState<string | null>(null);
   if (!data?.enabled) return null;
   const mine = data.groups.filter((g) => g.hostId === host.id).sort((a, b) => a.backupId.localeCompare(b.backupId));
@@ -224,7 +225,10 @@ export function HostBackups({ host }: { host: Host }) {
                   <span title={backupKind(g).title}>
                     <Badge tone="neutral">{backupKind(g).label}</Badge>
                   </span>
-                  <SnapshotsButton group={g} className="ml-auto" />
+                  {canManage && g.managed ? (
+                    <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto" title="Modifier la sauvegarde" onClick={() => setEditing(g.managed!.jobId)} />
+                  ) : null}
+                  <SnapshotsButton group={g} className={canManage && g.managed ? undefined : 'ml-auto'} />
                   {canWrite && g.managed && (
                     <Button size="sm" icon={Play} loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
                       Lancer
@@ -244,6 +248,12 @@ export function HostBackups({ host }: { host: Host }) {
                     <div className="text-xs text-zinc-500">
                       {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? `${g.ha ? 'Home Assistant' : 'agent'} · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · {g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`}
                     </div>
+                    {g.managed?.prepare && (
+                      <div className="text-xs text-zinc-400">
+                        Avant : {prepareSummary(g.managed.prepare)} · après : {keepText(g.managed.prepare.keep)}
+                        {preparedSizesText(g.managed.lastRun?.prepared) && <span className="text-zinc-500"> · {preparedSizesText(g.managed.lastRun?.prepared)}</span>}
+                      </div>
+                    )}
                     {g.ha?.failedAt && g.ha.failedAt > g.lastBackup && (
                       <div className="text-xs text-red-400" title={dateTime(g.ha.failedAt)}>Sauvegarde automatique non écrite sur cette destination {timeAgo(g.ha.failedAt)}</div>
                     )}
@@ -264,6 +274,7 @@ export function HostBackups({ host }: { host: Host }) {
       </p>
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
       <ManagedBackupsModal host={host} open={directories} onClose={() => setDirectories(false)} />
+      {canManage && <BackupJobEditModal host={host} jobId={editing} onClose={() => setEditing(null)} />}
     </Panel>
   );
 }

@@ -383,7 +383,17 @@ export interface BackupGroup {
   // Home Assistant backups of a HAOS host (not on the PBS). None is attached by hand.
   source?: 'vzdump' | 'managed' | 'haos';
   pve: { cluster: string; vmid: number; tz: string; jobs: PveJobRef[]; lastTask?: PveTaskResult | null } | null;
-  managed: { jobId: string; name: string; tz: string; schedule: string; scheduleText: string; enabled: boolean; synced: boolean; lastRun?: { at: number; ok: boolean; error?: string | null } | null } | null;
+  managed: {
+    jobId: string;
+    name: string;
+    tz: string;
+    schedule: string;
+    scheduleText: string;
+    enabled: boolean;
+    synced: boolean;
+    lastRun?: { at: number; ok: boolean; error?: string | null; prepared?: PreparedDump[] } | null;
+    prepare?: BackupPrepare | null;
+  } | null;
   placeholder?: boolean; // expected by a job, never seen on the PBS
   ha?: {
     agentId: string;
@@ -454,7 +464,23 @@ export interface BackupPrepare {
   databases: string[];
   container?: string; // mongodb
   workDir: string;
-  cleanup: boolean;
+  keep: number; // dumps kept on the host after the backup (0: removed once sent)
+}
+
+// Size of a dump of a run and of its database (-1: unknown)
+export interface PreparedDump {
+  archive: string;
+  database?: string;
+  dbSize: number;
+  dumpSize: number;
+}
+
+// What the agent found for a preparation (button Vérifier of the form)
+export interface PrepareCheck {
+  tools: string;
+  databases: { name: string; size: number }[];
+  missing: string[];
+  free: number; // bytes, -1: unknown
 }
 
 export interface BackupJob {
@@ -472,7 +498,7 @@ export interface BackupJob {
   enabled: boolean;
   prepare: BackupPrepare | null;
   archivesPrepared: BackupArchive[];
-  lastRun: { start: number; end: number; ok: boolean; error: string | null; trigger: string; jobId: string | null } | null;
+  lastRun: { start: number; end: number; ok: boolean; error: string | null; trigger: string; jobId: string | null; prepared?: PreparedDump[] } | null;
 }
 
 export interface BackupJobInput {
@@ -599,6 +625,7 @@ export const api = {
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
   createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),
+  checkBackupPrepare: (hostId: string, prepare: BackupPrepare) => request<PrepareCheck>('POST', `/api/hosts/${hostId}/backup-prepare-check`, { prepare }),
   updateBackupJob: (id: string, j: BackupJobInput) => request<BackupJob>('PUT', `/api/backup-jobs/${id}`, j),
   deleteBackupJob: (id: string) => request<void>('DELETE', `/api/backup-jobs/${id}`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),

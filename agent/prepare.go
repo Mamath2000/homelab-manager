@@ -374,7 +374,7 @@ func listDatabases(ctx context.Context, p *BackupPrepare) (tools string, dbs []D
 		if err != nil {
 			return "", nil, fmt.Errorf("mongodump absent du conteneur %s", p.Container)
 		}
-		const js = `JSON.stringify(db.adminCommand({listDatabases: 1}).databases.map((d) => ({name: d.name, size: d.sizeOnDisk})))`
+		const js = `JSON.stringify(db.adminCommand({listDatabases: 1}).databases.map((d) => ({name: d.name, size: Number(d.sizeOnDisk)})))`
 		// mongosh since MongoDB 6, mongo before
 		out, err := prepOutput(ctx, env, "docker", "exec", p.Container, "mongosh", "--quiet", "--norc", "--eval", js)
 		if err != nil {
@@ -392,7 +392,7 @@ func listDatabases(ctx context.Context, p *BackupPrepare) (tools string, dbs []D
 		for _, d := range list {
 			dbs = append(dbs, DatabaseInfo{Name: d.Name, Size: int64(d.Size)})
 		}
-		return lastLine(string(v)), dbs, nil
+		return strings.SplitN(strings.TrimSpace(string(v)), "\n", 2)[0], dbs, nil
 	}
 	return "", nil, fmt.Errorf("unknown preparation %q", p.Type)
 }

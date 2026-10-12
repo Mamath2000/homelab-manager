@@ -105,6 +105,8 @@ Fonctionnement :
 
 Supprimer un job laisse ses snapshots sur le PBS (le groupe devient orphelin).
 
+Après une sauvegarde réussie, le hub relit le PBS tout de suite, puis 2 et 10 minutes plus tard : sur un datastore qui vérifie les nouveaux snapshots (`verify-new`), la vérification se termine après la première relecture, et le snapshot resterait affiché « non vérifié » jusqu'au relevé suivant.
+
 ### Préparation : dump d'une base avant l'envoi
 
 Un job peut faire, juste avant `proxmox-backup-client`, le dump d'une base de données dans un **répertoire de travail** : chaque dump est un sous-répertoire, envoyé comme une archive du même snapshot. Les commandes sont **figées dans l'agent** (rien à installer sur l'hôte, aucune commande libre) : l'interface ne choisit que le type et ses paramètres.
@@ -118,10 +120,12 @@ Un job peut faire, juste avant `proxmox-backup-client`, le dump d'une base de do
 - **Dumps non compressés** (format répertoire, un fichier par table ou collection) : le PBS les déduplique d'un jour à l'autre et les compresse lui-même. Un dump compressé changerait entièrement chaque jour.
 - Chaque sous-répertoire de dump est **vidé puis refait** à chaque exécution : jamais de mélange avec le dump de la veille.
 - **Préparation en échec** (base absente, serveur arrêté, conteneur introuvable…) : le job est en échec, rien n'est envoyé ; l'erreur et la sortie des commandes sont dans le journal (Activité).
-- **Vider le répertoire de travail après l'envoi** (case du job) : supprime les sous-répertoires de dump une fois envoyés, même si l'envoi a échoué ; le répertoire de travail lui-même reste. Sans la case, le dernier dump reste sur l'hôte (restauration locale rapide), au prix de sa place disque.
+- **Dumps gardés sur l'hôte** (0 à 30, défaut 1) : une fois l'envoi tenté, le dump part dans `<répertoire de travail>/history/<AAAAMMJJ-hhmmss>/` et seuls les N derniers sont gardés (restauration locale rapide, au prix de la place disque). **0** : le dump est supprimé une fois envoyé, et l'historique avec. Un dump dont la préparation a échoué (incomplet) est toujours supprimé, sans toucher à l'historique.
+- **Vérifier sur l'hôte** (bouton du formulaire, avant d'enregistrer) : l'agent contrôle les outils (`pg_dump`, `pg_basebackup`, `runuser`, ou le conteneur démarré et son `mongodump`), liste **les bases du serveur avec leur taille** (un clic ajoute ou retire une base du job) et la place libre du répertoire de travail, comparée à la taille des bases choisies. Les bases choisies absentes du serveur sont signalées.
+- **Listes** (fiche hôte, page Sauvegardes, fenêtre des répertoires) : ce que fait le job avant (dump de quelles bases) et après (dumps gardés ou supprimés), et pour la dernière exécution la **taille de chaque base et de son dump**.
 - **Répertoire de travail** : chemin absolu d'au moins deux niveaux, dédié aux dumps (défaut `/var/backups/homelab-agent`), jamais sous `/etc`, `/usr`, `/proc`… PostgreSQL : l'agent y ajoute le droit de traversée pour l'utilisateur `postgres` si besoin.
 - Les **répertoires** du job deviennent facultatifs : un job peut ne contenir que ses dumps. Leurs noms d'archive ne peuvent pas reprendre ceux des dumps.
-- Restauration : `pg_restore -d <base> pg-<base>/` (après `psql -f pg-globals/globals.sql` sur un cluster neuf) ; cluster : le contenu de `pg-cluster/` devient le répertoire de données (serveur arrêté) ; MongoDB : `mongorestore --db <base> mongo-<base>/`.
+- Restauration : depuis le PBS, ou depuis `history/` sur l'hôte ; `pg_restore -d <base> pg-<base>/` (après `psql -f pg-globals/globals.sql` sur un cluster neuf) ; cluster : le contenu de `pg-cluster/` devient le répertoire de données (serveur arrêté) ; MongoDB : `mongorestore --db <base> mongo-<base>/`.
 - Il faut un agent **0.2** ou plus récent : pour un agent plus ancien, le job n'est pas envoyé (« pas encore appliquée par l'agent ») au lieu de sauvegarder un répertoire de travail vide. Le formulaire signale aussi un type inutilisable sur l'hôte (`pg_dump` introuvable, Docker absent).
 
 ## Sauvegardes Home Assistant

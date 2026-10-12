@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
-import { isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, clientState, checkJob, currentHash, groupConflict, jobView, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
+import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkPrepare, clientState, checkJob, currentHash, groupConflict, jobView, normPrepare, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import type { BackupPrepare, HostDoc } from '../types.js';
 import { publish } from '../events.js';
@@ -32,26 +32,19 @@ const jobProps = {
   prepare: {
     type: ['object', 'null'],
     additionalProperties: false,
-    required: ['type', 'databases', 'workDir', 'cleanup'],
+    required: ['type', 'databases', 'workDir', 'keep'],
     properties: {
       type: { type: 'string', enum: ['postgres', 'mongodb'] },
       mode: { type: 'string', enum: ['databases', 'cluster'] },
       databases: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 64 } },
       container: { type: 'string', maxLength: 128 },
       workDir: { type: 'string', maxLength: 1024 },
-      cleanup: { type: 'boolean' },
+      keep: { type: 'integer', minimum: 0, maximum: 30 },
     },
   },
 } as const;
 
 const required = ['name', 'archives', 'excludes', 'store', 'schedule', 'enabled'] as const;
-
-// Only the fields of its type are kept.
-function normPrepare(p: BackupPrepare | null | undefined): BackupPrepare | null {
-  if (!p) return null;
-  const base = { type: p.type, databases: p.databases.map((d) => d.trim()).filter(Boolean), workDir: p.workDir.trim(), cleanup: p.cleanup };
-  return p.type === 'postgres' ? { ...base, mode: p.mode } : { ...base, container: p.container?.trim() ?? '' };
-}
 
 // An agent that does not know preparations would back up an empty work directory.
 function prepareRefused(host: HostDoc, p: BackupPrepare | null) {
@@ -213,6 +206,31 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     await changed(cur.hostId);
     return reply.code(204).send();
   });
+
+  // Checks a preparation on the host before saving it: tools, databases of the server and their size,
+  // free space of the work directory (form of a job, admin).
+  app.post<{ Params: { id: string }; Body: { prepare: BackupPrepare } }>(
+    '/api/hosts/:id/backup-prepare-check',
+    { schema: { body: { type: 'object', additionalProperties: false, required: ['prepare'], properties: { prepare: jobProps.prepare } } } },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      const prepare = normPrepare(req.body.prepare)!;
+      const err = checkPrepare(prepare);
+      if (err) return reply.code(400).send({ error: err });
+      const refused = prepareRefused(host, prepare);
+      if (refused) return reply.code(409).send({ error: refused });
+      if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'hôte hors ligne' });
+      try {
+        return await agentRequest(host._id.toHexString(), 'backup_prepare_check', { prepare }, 75_000);
+      } catch (e) {
+        // answer of the agent (container stopped, no postgres user…) or no answer: shown in the form
+        if (e instanceof AgentRequestError) return reply.code(502).send({ error: e.message });
+        throw e;
+      }
+    },
+  );
 
   // Installs the PBS client on the host: Proxmox repository + package, or the client image (admin).
   app.post<{ Params: { id: string }; Body: { method: 'apt' | 'docker' } }>(

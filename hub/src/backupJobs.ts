@@ -6,7 +6,7 @@ import { backupJobs, backups, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { jobDto } from './jobs.js';
 import { groupKey, loadPbsSettings, pollPbs } from './pbs.js';
-import type { BackupArchive, BackupJobDoc, BackupPrepare, HostDoc, JobDoc, PbsSettings } from './types.js';
+import type { BackupArchive, BackupJobDoc, BackupPrepare, HostDoc, JobDoc, PbsSettings, PreparedDump } from './types.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
 // the hub sends the whole definition of a host (backup_sync) whenever it changes and at each
@@ -52,6 +52,17 @@ export function validPath(p: string) {
   return true;
 }
 
+// most dumps kept on the host (maxKeep in agent/prepare.go)
+export const MAX_KEEP = 30;
+
+// Only the fields of its type; keep from the first form (cleanup) when absent.
+export function normPrepare(p: BackupPrepare | null | undefined): BackupPrepare | null {
+  if (!p) return null;
+  const keep = typeof p.keep === 'number' ? p.keep : p.cleanup ? 0 : 1;
+  const base = { type: p.type, databases: p.databases.map((d) => d.trim()).filter(Boolean), workDir: p.workDir.trim(), keep };
+  return p.type === 'postgres' ? { ...base, mode: p.mode } : { ...base, container: p.container?.trim() ?? '' };
+}
+
 // Archives written by the preparation (dumps in sub-directories of workDir): same as preparedArchives in agent/prepare.go.
 export function preparedArchives(p: BackupPrepare): BackupArchive[] {
   const names = p.type === 'postgres' ? (p.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...p.databases.map((d) => `pg-${d}`)]) : p.databases.map((d) => `mongo-${d}`);
@@ -63,6 +74,7 @@ export function checkPrepare(p: BackupPrepare): string | null {
   const w = p.workDir;
   if (!validPath(w) || w.split('/').length < 3) return 'répertoire de travail invalide (absolu, au moins deux niveaux, ex. /mnt/backup)';
   if (FORBIDDEN_WORK_ROOTS.some((r) => w === r || w.startsWith(`${r}/`))) return `répertoire de travail interdit sous ${w.split('/').slice(0, 2).join('/')}`;
+  if (!Number.isInteger(p.keep) || p.keep < 0 || p.keep > MAX_KEEP) return `dumps gardés sur l'hôte : 0 à ${MAX_KEEP}`;
   const seen = new Set<string>();
   for (const d of p.databases) {
     if (!DB_NAME_RE.test(d)) return `nom de base invalide : ${d} (lettres, chiffres, - et _)`;
@@ -146,7 +158,7 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities'>,
           tz: j.timezone,
           enabled: j.enabled,
           // only when set: the definitions (and hashes) of the other jobs do not change
-          ...(j.prepare ? { prepare: j.prepare } : {}),
+          ...(j.prepare ? { prepare: normPrepare(j.prepare) } : {}),
         }))
       : [],
   };
@@ -201,7 +213,23 @@ interface AgentResult {
   ok: boolean;
   error?: string;
   log: string;
+  prepared?: unknown;
 }
+
+// Sizes of the dumps reported by the agent: kept only when well formed.
+export function preparedOf(v: unknown): PreparedDump[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : -1);
+  const out = v
+    .filter((d) => d && typeof d.archive === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(d.archive))
+    .slice(0, 60)
+    .map((d) => ({ archive: d.archive as string, ...(typeof d.database === 'string' && d.database ? { database: d.database as string } : {}), dbSize: num(d.dbSize), dumpSize: num(d.dumpSize) }));
+  return out.length ? out : undefined;
+}
+
+// After a successful run, the PBS verifies the new snapshot when its datastore has verify-new: read
+// again a little later, the poll right after the run comes before the verification ends.
+const REPOLL_AFTER = [2 * 60_000, 10 * 60_000];
 
 // Error of a failed run: the last "Error: …" line of the client, more telling than its exit code.
 export function runError(r: Pick<AgentResult, 'ok' | 'error' | 'log'>) {
@@ -268,13 +296,17 @@ export async function onResult(host: HostDoc, r: AgentResult) {
     publish('job', jobDto(doc));
   }
   if (!bj.lastRun || r.start >= bj.lastRun.start) {
-    await backupJobs.updateOne({ _id: bj._id }, { $set: { lastRun: { start: r.start, end: r.end, ok: r.ok, error, trigger: r.trigger, jobId } } });
+    const prepared = preparedOf(r.prepared);
+    await backupJobs.updateOne({ _id: bj._id }, { $set: { lastRun: { start: r.start, end: r.end, ok: r.ok, error, trigger: r.trigger, jobId, ...(prepared ? { prepared } : {}) } } });
   }
   ack();
   await refreshManaged();
   publish('backups', {});
   // the new snapshot is on the PBS: read it now rather than at the next poll
-  if (r.ok) pollPbs().catch(() => {});
+  if (r.ok) {
+    pollPbs().catch(() => {});
+    for (const ms of REPOLL_AFTER) setTimeout(() => pollPbs().catch(() => {}), ms).unref();
+  }
 }
 
 // Groups written by the backup jobs: attached to their host (placeholder until the first snapshot),
@@ -298,7 +330,8 @@ export async function refreshManaged() {
       tz: j.timezone,
       schedule: j.schedule,
       enabled: j.enabled,
-      lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null } : null,
+      lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null, ...(j.lastRun.prepared ? { prepared: j.lastRun.prepared } : {}) } : null,
+      prepare: normPrepare(j.prepare),
       synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid) && !heldBack(host, j),
       since: j.createdAt.getTime(),
     };
@@ -343,7 +376,7 @@ export function jobView(j: BackupJobDoc) {
     schedule: j.schedule,
     timezone: j.timezone,
     enabled: j.enabled,
-    prepare: j.prepare ?? null,
+    prepare: normPrepare(j.prepare),
     archivesPrepared: j.prepare ? preparedArchives(j.prepare) : [],
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
