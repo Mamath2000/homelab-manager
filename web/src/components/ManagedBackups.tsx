@@ -395,44 +395,50 @@ export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open:
   const state = backups.groups.filter((g) => g.managed);
   const groupOf = (j: BackupJob) => state.find((g) => g.managed?.jobId === j.id);
   return (
-    <Modal open onClose={onClose} wide="xl" title={`Sauvegardes de répertoires de ${host.name}`}>
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-        {data.mode === 'native' && <Badge tone="ok">client PBS installé (APT)</Badge>}
-        {data.mode === 'docker' && <Badge tone="ok">client PBS en conteneur (Docker)</Badge>}
-        {!data.mode && <Badge tone="warn">{data.supported ? 'client PBS absent' : 'agent à mettre à jour'}</Badge>}
-        {data.credential ? (
-          <Badge tone="neutral">
-            jeton {data.credential.tokenId}
-            {data.credential.store && ` · ${data.credential.store === '*' ? 'tous les datastores' : data.credential.store} › Hosts`}
-          </Badge>
-        ) : (
-          <Badge tone="warn">aucun jeton PBS</Badge>
-        )}
-        {data.sync?.error ? (
-          <Badge tone="bad" className="max-w-full truncate">refusée par l'agent : {data.sync.error}</Badge>
-        ) : data.jobs.length > 0 && data.sync?.current ? (
-          <Badge tone="ok">appliquée par l'agent</Badge>
-        ) : data.jobs.length > 0 ? (
-          <Badge tone="warn">pas encore appliquée par l'agent</Badge>
-        ) : null}
-        {canManage && (
-          <span className="ml-auto flex gap-2">
-            <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>
-            <Button
-              size="sm"
-              icon={Plus}
-              disabled={!data.credential || !data.mode}
-              onClick={() => setEditing('new')}
-              title={!data.mode ? "Installer d'abord le client PBS" : data.credential ? undefined : "Renseigner d'abord l'accès au PBS"}
-            >
-              Ajouter
-            </Button>
-          </span>
+    <Modal open onClose={onClose} wide="xl" scroll title={`Sauvegardes de répertoires de ${host.name}`}>
+      {/* the list scrolls under this bar; -top-4/-mt-4 cover the padding of the window body */}
+      <div className="sticky -top-4 z-10 -mx-5 -mt-4 mb-3 border-b border-line bg-panel px-5 pb-3 pt-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          {data.mode === 'native' && <Badge tone="ok">client PBS installé (APT)</Badge>}
+          {data.mode === 'docker' && <Badge tone="ok">client PBS en conteneur (Docker)</Badge>}
+          {!data.mode && <Badge tone="warn">{data.supported ? 'client PBS absent' : 'agent à mettre à jour'}</Badge>}
+          {data.credential ? (
+            <Badge tone="neutral">
+              jeton {data.credential.tokenId}
+              {data.credential.store && ` · ${data.credential.store === '*' ? 'tous les datastores' : data.credential.store} › Hosts`}
+            </Badge>
+          ) : (
+            <Badge tone="warn">aucun jeton PBS</Badge>
+          )}
+          {data.sync?.error ? (
+            <Badge tone="bad" className="max-w-full truncate">refusée par l'agent : {data.sync.error}</Badge>
+          ) : data.jobs.length > 0 && data.sync?.current ? (
+            <Badge tone="ok">appliquée par l'agent</Badge>
+          ) : data.jobs.length > 0 ? (
+            <Badge tone="warn">pas encore appliquée par l'agent</Badge>
+          ) : null}
+          {canManage && (
+            <span className="ml-auto flex gap-2">
+              <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>
+              <Button
+                size="sm"
+                icon={Plus}
+                disabled={!data.credential || !data.mode}
+                onClick={() => setEditing('new')}
+                title={!data.mode ? "Installer d'abord le client PBS" : data.credential ? undefined : "Renseigner d'abord l'accès au PBS"}
+              >
+                Ajouter
+              </Button>
+            </span>
+          )}
+        </div>
+        {data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
+          // its own bottom margin is taken by the bar's padding
+          <div className="-mb-3 mt-3">
+            <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
+          </div>
         )}
       </div>
-      {data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
-        <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
-      )}
       {data.jobs.length === 0 ? (
         <p className="text-sm text-muted">
           Aucune sauvegarde définie ici. L'agent sauvegarde les répertoires choisis sur le PBS, à l'heure prévue, même si le hub est arrêté.
