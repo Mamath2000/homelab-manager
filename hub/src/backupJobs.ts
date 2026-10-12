@@ -6,7 +6,7 @@ import { backupJobs, backups, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { jobDto } from './jobs.js';
 import { groupKey, loadPbsSettings, pollPbs } from './pbs.js';
-import type { BackupArchive, BackupJobDoc, HostDoc, JobDoc, PbsSettings } from './types.js';
+import type { BackupArchive, BackupJobDoc, BackupPrepare, HostDoc, JobDoc, PbsSettings } from './types.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
 // the hub sends the whole definition of a host (backup_sync) whenever it changes and at each
@@ -26,6 +26,10 @@ export const STORE_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
 export const NS_RE = /^([A-Za-z0-9_][A-Za-z0-9._-]{0,31})(\/[A-Za-z0-9_][A-Za-z0-9._-]{0,31}){0,7}$/;
 export const TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$/;
 export const IMAGE_RE = /^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[0-9a-f]{64})?$/;
+export const DB_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,47}$/;
+export const CONTAINER_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+// the agent empties sub-directories of the work directory: never under these
+const FORBIDDEN_WORK_ROOTS = ['/proc', '/sys', '/dev', '/run', '/boot', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64'];
 
 export interface JobInput {
   name: string;
@@ -37,6 +41,7 @@ export interface JobInput {
   schedule: string;
   timezone?: string; // ignored: the time zone of the hub at creation
   enabled: boolean;
+  prepare?: BackupPrepare | null;
 }
 
 // Absolute, normalised path, without ':' (separator of the archive spec and of docker volumes).
@@ -47,12 +52,52 @@ export function validPath(p: string) {
   return true;
 }
 
+// Archives written by the preparation (dumps in sub-directories of workDir): same as preparedArchives in agent/prepare.go.
+export function preparedArchives(p: BackupPrepare): BackupArchive[] {
+  const names = p.type === 'postgres' ? (p.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...p.databases.map((d) => `pg-${d}`)]) : p.databases.map((d) => `mongo-${d}`);
+  return names.map((name) => ({ name, path: `${p.workDir}/${name}` }));
+}
+
+// Error message, or null. Same rules as validatePrepare in agent/prepare.go.
+export function checkPrepare(p: BackupPrepare): string | null {
+  const w = p.workDir;
+  if (!validPath(w) || w.split('/').length < 3) return 'répertoire de travail invalide (absolu, au moins deux niveaux, ex. /mnt/backup)';
+  if (FORBIDDEN_WORK_ROOTS.some((r) => w === r || w.startsWith(`${r}/`))) return `répertoire de travail interdit sous ${w.split('/').slice(0, 2).join('/')}`;
+  const seen = new Set<string>();
+  for (const d of p.databases) {
+    if (!DB_NAME_RE.test(d)) return `nom de base invalide : ${d} (lettres, chiffres, - et _)`;
+    if (seen.has(d)) return `base en double : ${d}`;
+    seen.add(d);
+  }
+  if (p.type === 'postgres') {
+    if (p.container) return 'PostgreSQL : serveur local uniquement';
+    if (p.mode === 'databases') return p.databases.length ? null : 'PostgreSQL par base : au moins une base';
+    if (p.mode === 'cluster') return p.databases.length ? 'PostgreSQL cluster : tout le cluster, pas de liste de bases' : null;
+    return 'PostgreSQL : mode par base ou cluster';
+  }
+  if (p.type === 'mongodb') {
+    if (p.mode) return 'MongoDB : pas de mode';
+    if (!CONTAINER_RE.test(p.container ?? '')) return 'MongoDB : nom du conteneur invalide';
+    return p.databases.length ? null : 'MongoDB : au moins une base';
+  }
+  return 'préparation inconnue';
+}
+
+// Directories of the job then the dumps of its preparation: what the agent sends.
+export function allArchives(j: Pick<JobInput, 'archives' | 'prepare'>) {
+  return j.prepare ? [...j.archives, ...preparedArchives(j.prepare)] : j.archives;
+}
+
 // Error message, or null. Same rules as validateBackupSpec in agent/backup.go.
 export function checkJob(j: JobInput, creating: boolean): string | null {
   if (!j.name.trim()) return 'nom requis';
-  if (!j.archives.length) return 'au moins un répertoire';
+  if (j.prepare) {
+    const err = checkPrepare(j.prepare);
+    if (err) return err;
+  }
+  if (!allArchives(j).length) return 'au moins un répertoire';
   const names = new Set<string>();
-  for (const a of j.archives) {
+  for (const a of allArchives(j)) {
     if (!ARCHIVE_NAME_RE.test(a.name)) return `nom d'archive invalide : ${a.name} (lettres, chiffres, - et _)`;
     if (names.has(a.name)) return `nom d'archive en double : ${a.name}`;
     names.add(a.name);
@@ -73,8 +118,14 @@ export function pbsServer(pbs: Pick<PbsSettings, 'url'>) {
   return `${u.hostname}:${u.port || '8007'}`;
 }
 
+// An agent too old for preparations would ignore it and send an empty work directory: such jobs are
+// held back until it is updated (shown as not applied).
+export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'prepare'>) {
+  return !!j.prepare && !(host.capabilities ?? []).includes('backup_prepare');
+}
+
 // Definition sent to the agent: empty (no job) when there is nothing to run, so that it stops.
-export function buildSpec(host: Pick<HostDoc, 'pbsCredential'>, list: BackupJobDoc[], pbs: PbsSettings) {
+export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities'>, list: BackupJobDoc[], pbs: PbsSettings) {
   const usable = !!host.pbsCredential && !!pbs.url;
   const body = {
     server: usable ? pbsServer(pbs) : '',
@@ -83,7 +134,7 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential'>, list: BackupJobD
     tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',
     image: pbs.clientImage || DEFAULT_CLIENT_IMAGE,
     jobs: usable
-      ? list.map((j) => ({
+      ? list.filter((j) => !heldBack(host, j)).map((j) => ({
           id: j._id.toHexString(),
           name: j.name,
           archives: j.archives,
@@ -94,6 +145,8 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential'>, list: BackupJobD
           schedule: j.schedule,
           tz: j.timezone,
           enabled: j.enabled,
+          // only when set: the definitions (and hashes) of the other jobs do not change
+          ...(j.prepare ? { prepare: j.prepare } : {}),
         }))
       : [],
   };
@@ -120,6 +173,8 @@ export function clientState(caps: string[] = []) {
   return {
     mode: caps.includes('backup:native') ? ('native' as const) : caps.includes('backup:docker') ? ('docker' as const) : null,
     install: (['apt', 'docker'] as const).filter((m) => caps.includes(`backup_install:${m}`)),
+    // preparations the agent knows (null: agent to update), and the types it found usable here
+    prepare: caps.includes('backup_prepare') ? (['postgres', 'mongodb'] as const).filter((t) => caps.includes(`backup_prepare:${t}`)) : null,
     // agent that knows about backups at all (older ones: to update)
     supported: caps.includes('backup_setup') || caps.includes('backup'),
   };
@@ -244,7 +299,7 @@ export async function refreshManaged() {
       schedule: j.schedule,
       enabled: j.enabled,
       lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null } : null,
-      synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid),
+      synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid) && !heldBack(host, j),
       since: j.createdAt.getTime(),
     };
     await backups.updateOne(
@@ -288,6 +343,8 @@ export function jobView(j: BackupJobDoc) {
     schedule: j.schedule,
     timezone: j.timezone,
     enabled: j.enabled,
+    prepare: j.prepare ?? null,
+    archivesPrepared: j.prepare ? preparedArchives(j.prepare) : [],
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
     lastRun: j.lastRun ? { ...j.lastRun, jobId: j.lastRun.jobId ? j.lastRun.jobId.toHexString() : null } : null,

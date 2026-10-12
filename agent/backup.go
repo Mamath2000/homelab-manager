@@ -43,6 +43,7 @@ type BackupJob struct {
 	Schedule string          `json:"schedule"`
 	TZ       string          `json:"tz"`
 	Enabled  bool            `json:"enabled"`
+	Prepare  *BackupPrepare  `json:"prepare,omitempty"` // dump made before the backup (prepare.go)
 }
 
 type BackupSpec struct {
@@ -65,6 +66,8 @@ type BackupResult struct {
 	OK      bool   `json:"ok"`
 	Error   string `json:"error,omitempty"`
 	Log     string `json:"log"` // end of the output
+	// dumps of the preparation: size of each and of its database
+	Prepared []PreparedDump `json:"prepared,omitempty"`
 }
 
 var (
@@ -98,10 +101,20 @@ func validateBackupSpec(s *BackupSpec) error {
 		if _, err := time.LoadLocation(j.TZ); err != nil || j.TZ == "" {
 			return fmt.Errorf("job %s: time zone %q", j.ID, j.TZ)
 		}
-		if len(j.Archives) == 0 {
+		if j.Prepare != nil {
+			if err := validatePrepare(j.Prepare); err != nil {
+				return fmt.Errorf("job %s: %w", j.ID, err)
+			}
+		}
+		if len(jobArchives(j)) == 0 {
 			return fmt.Errorf("job %s: no directory", j.ID)
 		}
-		for _, a := range j.Archives {
+		names := map[string]bool{}
+		for _, a := range jobArchives(j) {
+			if names[a.Name] {
+				return fmt.Errorf("job %s: archive %q twice", j.ID, a.Name)
+			}
+			names[a.Name] = true
 			// ':' separates the archive spec and the docker volume: refused in paths
 			if !archiveNameRe.MatchString(a.Name) || !filepath.IsAbs(a.Path) || filepath.Clean(a.Path) != a.Path || strings.ContainsAny(a.Path, ":\n") {
 				return fmt.Errorf("job %s: invalid directory %q", j.ID, a.Path)
@@ -425,8 +438,24 @@ func (b *backupModule) runJob(ctx context.Context, jobID, trigger, runID string,
 	// a backup must never be cut by the hub connection: own context, long limit
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*time.Hour)
 	defer cancel()
-	code, err := runBackup(rctx, spec, j, out)
-	res := BackupResult{ID: randomID(), JobID: j.ID, RunID: runID, Trigger: trigger, Start: start.UnixMilli(), End: time.Now().UnixMilli(), OK: err == nil && code == 0, Log: tail.String()}
+	var code int
+	var err error
+	var prepared []PreparedDump
+	if j.Prepare != nil {
+		out(fmt.Sprintf("préparation %s dans %s\n", j.Prepare.Type, j.Prepare.WorkDir))
+		if perr := prepareBackup(rctx, j.Prepare, out); perr != nil {
+			code, err = -1, fmt.Errorf("préparation %s : %w", j.Prepare.Type, perr)
+		} else {
+			prepared = preparedSizes(rctx, j.Prepare)
+		}
+	}
+	if err == nil {
+		code, err = runBackup(rctx, spec, j, out)
+	}
+	if j.Prepare != nil {
+		finishPrepared(j.Prepare, prepared != nil, start, out)
+	}
+	res := BackupResult{ID: randomID(), JobID: j.ID, RunID: runID, Trigger: trigger, Start: start.UnixMilli(), End: time.Now().UnixMilli(), OK: err == nil && code == 0, Log: tail.String(), Prepared: prepared}
 	if err != nil {
 		res.Error = err.Error()
 	} else if code != 0 {
@@ -442,7 +471,7 @@ func (b *backupModule) runJob(ctx context.Context, jobID, trigger, runID string,
 
 func backupArgs(j BackupJob) []string {
 	args := []string{"backup"}
-	for _, a := range j.Archives {
+	for _, a := range jobArchives(j) {
 		args = append(args, a.Name+".pxar:"+a.Path)
 	}
 	args = append(args, "--backup-type", "host", "--backup-id", j.BackupID)
@@ -482,7 +511,7 @@ func runBackup(ctx context.Context, spec *BackupSpec, j BackupJob, emit func(str
 			}
 		}
 		args := []string{"run", "--rm", "--network", "host", "-e", "PBS_REPOSITORY", "-e", "PBS_PASSWORD", "-e", "PBS_FINGERPRINT", "-e", "LC_ALL"}
-		for _, a := range j.Archives {
+		for _, a := range jobArchives(j) {
 			args = append(args, "-v", a.Path+":"+a.Path+":ro")
 		}
 		args = append(args, spec.Image)

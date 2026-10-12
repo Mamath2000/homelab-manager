@@ -170,6 +170,14 @@ func (s *session) hello(ctx context.Context) error {
 	for _, m := range backupInstallOptions(ctx, mode) {
 		caps = append(caps, "backup_install:"+m)
 	}
+	// preparations (dumps before the backup, prepare.go): backup_prepare, and the types usable here
+	caps = append(caps, "backup_prepare")
+	if _, err := exec.LookPath("pg_dump"); err == nil {
+		caps = append(caps, "backup_prepare:postgres")
+	}
+	if !onWSL && dock.available(ctx) {
+		caps = append(caps, "backup_prepare:mongodb")
+	}
 	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
 }
 
@@ -241,6 +249,17 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		if r, err = checkSetup(ctx, in.Setup); err == nil {
 			out.Result = r
 		}
+	case "backup_prepare_check":
+		if in.Prepare == nil {
+			err = fmt.Errorf("missing preparation")
+			break
+		}
+		cctx, cancel := context.WithTimeout(ctx, time.Minute)
+		var r *PrepareCheck
+		if r, err = checkPrepareOnHost(cctx, in.Prepare); err == nil {
+			out.Result = r
+		}
+		cancel()
 	case "docker_forget":
 		if err = dock.forget(ctx, in.Stack); err == nil {
 			out.Result = map[string]bool{"ok": true}

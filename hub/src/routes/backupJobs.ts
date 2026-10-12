@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import { isOnline } from '../agents.js';
 import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, clientState, checkJob, currentHash, groupConflict, jobView, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
+import type { BackupPrepare, HostDoc } from '../types.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
 import { keepText, loadPbsSettings, policyFor } from '../pbs.js';
@@ -28,9 +29,36 @@ const jobProps = {
   schedule: { type: 'string', maxLength: 128 },
   timezone: { type: 'string', maxLength: 64 },
   enabled: { type: 'boolean' },
+  prepare: {
+    type: ['object', 'null'],
+    additionalProperties: false,
+    required: ['type', 'databases', 'workDir', 'cleanup'],
+    properties: {
+      type: { type: 'string', enum: ['postgres', 'mongodb'] },
+      mode: { type: 'string', enum: ['databases', 'cluster'] },
+      databases: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 64 } },
+      container: { type: 'string', maxLength: 128 },
+      workDir: { type: 'string', maxLength: 1024 },
+      cleanup: { type: 'boolean' },
+    },
+  },
 } as const;
 
 const required = ['name', 'archives', 'excludes', 'store', 'schedule', 'enabled'] as const;
+
+// Only the fields of its type are kept.
+function normPrepare(p: BackupPrepare | null | undefined): BackupPrepare | null {
+  if (!p) return null;
+  const base = { type: p.type, databases: p.databases.map((d) => d.trim()).filter(Boolean), workDir: p.workDir.trim(), cleanup: p.cleanup };
+  return p.type === 'postgres' ? { ...base, mode: p.mode } : { ...base, container: p.container?.trim() ?? '' };
+}
+
+// An agent that does not know preparations would back up an empty work directory.
+function prepareRefused(host: HostDoc, p: BackupPrepare | null) {
+  if (!p) return null;
+  const known = clientState(host.capabilities).prepare;
+  return known ? null : "l'agent de cet hôte ne connaît pas les préparations : le mettre à jour d'abord";
+}
 
 async function changed(hostId: ObjectId) {
   await refreshManaged();
@@ -107,9 +135,11 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       if (!clientState(host.capabilities).mode) return reply.code(409).send({ error: "client PBS absent sur cet hôte : l'installer d'abord" });
       const pbs = await loadPbsSettings();
       // namespace and time zone are fixed: Hosts, and the time zone of the hub (TZ)
-      const body = { ...req.body, ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE };
+      const body = { ...req.body, ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE, prepare: normPrepare(req.body.prepare) };
       const err = checkJob(body, true);
       if (err) return reply.code(400).send({ error: err });
+      const refused = prepareRefused(host, body.prepare);
+      if (refused) return reply.code(409).send({ error: refused });
       const conflict = await groupConflict(_id, body.store, body.ns, body.backupId!);
       if (conflict) return reply.code(409).send({ error: conflict });
       const now = new Date();
@@ -125,6 +155,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         schedule: body.schedule.trim(),
         timezone: body.timezone,
         enabled: body.enabled,
+        prepare: body.prepare,
         createdAt: now,
         updatedAt: now,
         lastRun: null,
@@ -145,9 +176,12 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const cur = _id && (await backupJobs.findOne({ _id }));
       if (!cur) return reply.code(404).send({ error: 'job introuvable' });
       if (req.body.backupId !== undefined && req.body.backupId !== cur.backupId) return reply.code(400).send({ error: "l'identifiant de sauvegarde ne change pas" });
-      const body = { ...req.body, ns: HOSTS_NS, timezone: cur.timezone };
+      const body = { ...req.body, ns: HOSTS_NS, timezone: cur.timezone, prepare: normPrepare(req.body.prepare) };
       const err = checkJob(body, false);
       if (err) return reply.code(400).send({ error: err });
+      const host = await hosts.findOne({ _id: cur.hostId });
+      const refused = host && prepareRefused(host, body.prepare);
+      if (refused) return reply.code(409).send({ error: refused });
       if (body.store !== cur.store || body.ns !== cur.ns) {
         const conflict = await groupConflict(cur.hostId, body.store, body.ns, cur.backupId, cur._id);
         if (conflict) return reply.code(409).send({ error: conflict });
@@ -161,6 +195,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         schedule: body.schedule.trim(),
         timezone: body.timezone,
         enabled: body.enabled,
+        prepare: body.prepare,
         updatedAt: new Date(),
       };
       await backupJobs.updateOne({ _id }, { $set: set });

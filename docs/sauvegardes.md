@@ -90,7 +90,7 @@ Depuis la fiche hôte, carte **Sauvegardes** › **Répertoires** :
 
    L'installation est une tâche de l'agent (visible dans Activité). Un hôte en mode Docker peut passer au client APT, qui est alors préféré. Ailleurs (arm64, autre distribution), installer le client à la main : l'agent le détecte.
 2. **Accès PBS** : le jeton propre à l'hôte, créé par la commande à usage unique. Il a `DatastoreBackup` sur le namespace `Hosts` de chaque datastore : il ne voit et ne modifie que les sauvegardes dont il est propriétaire, et ne peut pas écrire dans les namespaces de Proxmox VE.
-3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : nom, répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification. Le namespace (`Hosts`) et le fuseau (celui du hub, variable `TZ`, fixé à la création du job) sont affichés sans être modifiables.
+3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : nom, [préparation](#préparation--dump-dune-base-avant-lenvoi) éventuelle (dump PostgreSQL ou MongoDB), répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification. Le namespace (`Hosts`) et le fuseau (celui du hub, variable `TZ`, fixé à la création du job) sont affichés sans être modifiables.
 
 **Rétention** : elle n'est pas choisie par job. C'est l'élagage du PBS qui s'applique (job d'élagage du namespace `Hosts` du datastore, ou options du datastore) ; le formulaire l'affiche sous le datastore (« Rétention (élagage du PBS, tous les jours à 21:00) : 10 quotidiennes · 3 mensuelles · 2 annuelles »), et avertit quand rien n'élague ce namespace. Choisir sa rétention revient à choisir son datastore ; elle se modifie dans le PBS (Datastore › Élagage et GC).
 
@@ -104,6 +104,25 @@ Fonctionnement :
 - **Lancer** (sur la ligne de la sauvegarde, carte Sauvegardes) l'exécute tout de suite ; une sauvegarde peut durer : elle ne bloque pas les autres tâches de l'hôte.
 
 Supprimer un job laisse ses snapshots sur le PBS (le groupe devient orphelin).
+
+### Préparation : dump d'une base avant l'envoi
+
+Un job peut faire, juste avant `proxmox-backup-client`, le dump d'une base de données dans un **répertoire de travail** : chaque dump est un sous-répertoire, envoyé comme une archive du même snapshot. Les commandes sont **figées dans l'agent** (rien à installer sur l'hôte, aucune commande libre) : l'interface ne choisit que le type et ses paramètres.
+
+| Type | Exécution | Archives (`<répertoire de travail>/<archive>`) |
+|---|---|---|
+| **PostgreSQL, par base** | `pg_dump -Fd -Z0` de chaque base cochée, plus `pg_dumpall --globals-only` (rôles et tablespaces, indispensables pour restaurer les droits) ; serveur **local**, en tant qu'utilisateur `postgres` (`runuser`) | `pg-globals`, `pg-<base>` |
+| **PostgreSQL, cluster complet** | `pg_basebackup -Fp -Xstream -c fast` : copie physique du cluster avec ses WAL, restaurée à l'identique (extensions comprises, TimescaleDB…) ; même version majeure de PostgreSQL à la restauration | `pg-cluster` |
+| **MongoDB** | `mongodump --db <base>` **dans le conteneur** (`docker exec`), puis copie hors du conteneur (`docker cp`) | `mongo-<base>` |
+
+- **Dumps non compressés** (format répertoire, un fichier par table ou collection) : le PBS les déduplique d'un jour à l'autre et les compresse lui-même. Un dump compressé changerait entièrement chaque jour.
+- Chaque sous-répertoire de dump est **vidé puis refait** à chaque exécution : jamais de mélange avec le dump de la veille.
+- **Préparation en échec** (base absente, serveur arrêté, conteneur introuvable…) : le job est en échec, rien n'est envoyé ; l'erreur et la sortie des commandes sont dans le journal (Activité).
+- **Vider le répertoire de travail après l'envoi** (case du job) : supprime les sous-répertoires de dump une fois envoyés, même si l'envoi a échoué ; le répertoire de travail lui-même reste. Sans la case, le dernier dump reste sur l'hôte (restauration locale rapide), au prix de sa place disque.
+- **Répertoire de travail** : chemin absolu d'au moins deux niveaux, dédié aux dumps (défaut `/var/backups/homelab-agent`), jamais sous `/etc`, `/usr`, `/proc`… PostgreSQL : l'agent y ajoute le droit de traversée pour l'utilisateur `postgres` si besoin.
+- Les **répertoires** du job deviennent facultatifs : un job peut ne contenir que ses dumps. Leurs noms d'archive ne peuvent pas reprendre ceux des dumps.
+- Restauration : `pg_restore -d <base> pg-<base>/` (après `psql -f pg-globals/globals.sql` sur un cluster neuf) ; cluster : le contenu de `pg-cluster/` devient le répertoire de données (serveur arrêté) ; MongoDB : `mongorestore --db <base> mongo-<base>/`.
+- Il faut un agent **0.2** ou plus récent : pour un agent plus ancien, le job n'est pas envoyé (« pas encore appliquée par l'agent ») au lieu de sauvegarder un répertoire de travail vide. Le formulaire signale aussi un type inutilisable sur l'hôte (`pg_dump` introuvable, Docker absent).
 
 ## Sauvegardes Home Assistant
 

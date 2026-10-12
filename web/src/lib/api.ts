@@ -447,6 +447,16 @@ export interface BackupArchive {
   path: string;
 }
 
+// Dump made by the agent before the backup (agent/prepare.go): one archive per dump, in workDir
+export interface BackupPrepare {
+  type: 'postgres' | 'mongodb';
+  mode?: 'databases' | 'cluster'; // postgres
+  databases: string[];
+  container?: string; // mongodb
+  workDir: string;
+  cleanup: boolean;
+}
+
 export interface BackupJob {
   id: string;
   hostId: string;
@@ -460,6 +470,8 @@ export interface BackupJob {
   schedule: string;
   timezone: string;
   enabled: boolean;
+  prepare: BackupPrepare | null;
+  archivesPrepared: BackupArchive[];
   lastRun: { start: number; end: number; ok: boolean; error: string | null; trigger: string; jobId: string | null } | null;
 }
 
@@ -473,12 +485,15 @@ export interface BackupJobInput {
   schedule: string;
   timezone?: string;
   enabled: boolean;
+  prepare?: BackupPrepare | null;
 }
 
 export interface HostBackupJobs {
   // PBS client: installed (native), image present (docker), none; how it can be installed
   mode: 'native' | 'docker' | null;
   install: ('apt' | 'docker')[];
+  // preparations the agent knows, and the types it found usable on the host (null: agent to update)
+  prepare: ('postgres' | 'mongodb')[] | null;
   supported: boolean;
   // store: datastore of the rights of the token, when created by the command of the UI
   credential: { tokenId: string; updatedAt: string; store: string | null } | null;

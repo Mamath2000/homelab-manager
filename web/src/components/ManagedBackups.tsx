@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Container, KeyRound, Package, Pencil, Play, Plus, Save, Trash2, X } from 'lucide-react';
-import { api, type BackupJob, type BackupJobInput, type Host, type HostBackupJobs } from '../lib/api';
+import { api, type BackupJob, type BackupJobInput, type BackupPrepare, type Host, type HostBackupJobs } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { dateTime, timeAgo } from '../lib/format';
 import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
@@ -108,11 +108,111 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
   );
 }
 
+// Default work directory of a new preparation (dedicated to the dumps: the agent empties its sub-directories)
+const DEFAULT_WORKDIR = '/var/backups/homelab-agent';
+
+// Archives the agent adds for the dumps: same names as preparedArchives (hub/src/backupJobs.ts, agent/prepare.go).
+function preparedArchives(p: BackupPrepare) {
+  const names = p.type === 'postgres' ? (p.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...p.databases.map((d) => `pg-${d}`)]) : p.databases.map((d) => `mongo-${d}`);
+  return names.map((name) => ({ name, path: `${p.workDir}/${name}` }));
+}
+
+function prepareSummary(p: BackupPrepare) {
+  if (p.type === 'postgres') return p.mode === 'cluster' ? 'PostgreSQL, cluster complet (pg_basebackup)' : `PostgreSQL, par base : ${p.databases.join(', ')}`;
+  return `MongoDB (${p.container}) : ${p.databases.join(', ')}`;
+}
+
+const splitList = (s: string) => s.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+
+// Dump made by the agent before the backup: fixed commands, only these parameters.
+function PrepareFields({ view, value, onChange }: { view: HostBackupJobs; value: BackupPrepare | null; onChange: (p: BackupPrepare | null) => void }) {
+  const [dbs, setDbs] = useState((value?.databases ?? []).join(', '));
+  const field = 'mb-1.5 block text-xs font-medium text-muted';
+  const choose = (type: string) => {
+    if (type === 'postgres') onChange({ type, mode: 'databases', databases: splitList(dbs), workDir: value?.workDir ?? DEFAULT_WORKDIR, cleanup: value?.cleanup ?? false });
+    else if (type === 'mongodb') onChange({ type, container: value?.container ?? '', databases: splitList(dbs), workDir: value?.workDir ?? DEFAULT_WORKDIR, cleanup: value?.cleanup ?? false });
+    else onChange(null);
+  };
+  const set = (patch: Partial<BackupPrepare>) => value && onChange({ ...value, ...patch });
+  const unusable = value && view.prepare && !view.prepare.includes(value.type);
+  return (
+    <div className="space-y-3 rounded-md border border-line bg-raised/30 p-3">
+      <label className="block">
+        <span className={field}>Préparation (dump avant l'envoi)</span>
+        <select className="input" value={value?.type ?? ''} disabled={!view.prepare && !value} onChange={(e) => choose(e.target.value)}>
+          <option value="">Aucune</option>
+          <option value="postgres">PostgreSQL (serveur local)</option>
+          <option value="mongodb">MongoDB (dans un conteneur)</option>
+        </select>
+        {!view.prepare && <span className="mt-1 block text-xs text-amber-400">Agent à mettre à jour pour utiliser les préparations.</span>}
+        {unusable && (
+          <span className="mt-1 block text-xs text-amber-400">
+            {value.type === 'postgres' ? "pg_dump n'a pas été trouvé sur cet hôte." : "Docker n'est pas disponible sur cet hôte."} La sauvegarde échouera tant que ce n'est pas réglé.
+          </span>
+        )}
+      </label>
+      {value && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            {value.type === 'postgres' ? (
+              <label className="block">
+                <span className={field}>Mode</span>
+                <select
+                  className="input"
+                  value={value.mode}
+                  onChange={(e) => {
+                    const mode = e.target.value as 'databases' | 'cluster';
+                    set({ mode, databases: mode === 'cluster' ? [] : splitList(dbs) });
+                  }}
+                >
+                  <option value="databases">Par base (pg_dump de chaque base + rôles)</option>
+                  <option value="cluster">Cluster complet (pg_basebackup, copie physique)</option>
+                </select>
+              </label>
+            ) : (
+              <label className="block">
+                <span className={field}>Conteneur MongoDB</span>
+                <input className="input font-mono text-xs" value={value.container ?? ''} onChange={(e) => set({ container: e.target.value.trim() })} placeholder="mongo" />
+              </label>
+            )}
+            {!(value.type === 'postgres' && value.mode === 'cluster') && (
+              <label className="block">
+                <span className={field}>Bases (séparées par des virgules)</span>
+                <input
+                  className="input font-mono text-xs"
+                  value={dbs}
+                  onChange={(e) => {
+                    setDbs(e.target.value);
+                    set({ databases: splitList(e.target.value) });
+                  }}
+                  placeholder={value.type === 'postgres' ? 'hass, hass-jarsay' : 'homelab'}
+                />
+              </label>
+            )}
+          </div>
+          <label className="block">
+            <span className={field}>Répertoire de travail (dédié aux dumps)</span>
+            <input className="input font-mono text-xs" value={value.workDir} onChange={(e) => set({ workDir: e.target.value.trim() })} placeholder={DEFAULT_WORKDIR} />
+            <span className="mt-1 block text-xs text-muted">
+              Un sous-répertoire par dump, vidé et refait à chaque sauvegarde, envoyé comme archive :{' '}
+              <span className="font-mono">{preparedArchives(value).map((a) => `${a.name}.pxar`).join(', ') || '—'}</span>. Dumps non compressés : le PBS les déduplique d'un jour à l'autre.
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-3">
+            <input type="checkbox" checked={value.cleanup} onChange={(e) => set({ cleanup: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
+            <span>Vider le répertoire de travail après l'envoi (même en cas d'échec)</span>
+          </label>
+        </>
+      )}
+    </div>
+  );
+}
+
 function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBackupJobs; job: BackupJob | null; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const initial: BackupJobInput = job
-    ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, enabled: job.enabled }
+    ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, enabled: job.enabled, prepare: job.prepare }
     : {
         // named after the machine: the PBS identifier is deduced from it
         name: host.name,
@@ -123,6 +223,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         backupId: slug(host.name),
         schedule: '03:00',
         enabled: true,
+        prepare: null,
       };
   const [form, setForm] = useState<BackupJobInput>(initial);
   // creation: the identifier follows the name until it is typed by hand
@@ -220,15 +321,16 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
             )}
           </label>
         </div>
+        <PrepareFields view={view} value={form.prepare ?? null} onChange={(prepare) => set({ prepare })} />
         <div>
-          <span className={field}>Répertoires (une archive .pxar chacun)</span>
+          <span className={field}>Répertoires (une archive .pxar chacun){form.prepare && ', en plus des dumps ; facultatifs'}</span>
           <div className="space-y-2">
             <div ref={archivesRef} className="space-y-2">
               {form.archives.map((a, i) => (
                 <div key={i} className="flex gap-2">
                   <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
                   <input className="input flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
-                  <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
+                  <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1 && !form.prepare} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
                 </div>
               ))}
             </div>
@@ -458,7 +560,8 @@ export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open:
                     {canManage && <Button size="sm" variant="ghost" icon={Trash2} title="Supprimer" onClick={() => setRemoving(j)} />}
                   </span>
                 </div>
-                <div className="mt-0.5 font-mono text-xs text-zinc-400">{j.archives.map((a) => a.path).join('  ')}</div>
+                {j.prepare && <div className="mt-0.5 text-xs text-zinc-300">Préparation : {prepareSummary(j.prepare)} → {j.prepare.workDir}{j.prepare.cleanup && ', vidé après envoi'}</div>}
+                {j.archives.length > 0 && <div className="mt-0.5 font-mono text-xs text-zinc-400">{j.archives.map((a) => a.path).join('  ')}</div>}
                 <div className="text-xs text-muted">
                   {g?.managed?.scheduleText ?? j.schedule} · {j.store}{j.ns ? ` › ${j.ns}` : ''} · host/{j.backupId}
                 </div>

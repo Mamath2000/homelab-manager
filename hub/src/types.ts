@@ -473,6 +473,17 @@ export interface BackupRun {
   jobId?: ObjectId | null; // JobDoc of the run
 }
 
+// Dump made by the agent before the backup (agent/prepare.go): its sub-directories of workDir become
+// archives of the snapshot (preparedArchives in backupJobs.ts).
+export interface BackupPrepare {
+  type: 'postgres' | 'mongodb';
+  mode?: 'databases' | 'cluster'; // postgres
+  databases: string[];
+  container?: string; // mongodb
+  workDir: string;
+  cleanup: boolean;
+}
+
 export interface BackupJobDoc {
   _id: ObjectId;
   hostId: ObjectId;
@@ -485,6 +496,7 @@ export interface BackupJobDoc {
   schedule: string; // calendar event (calendar.ts)
   timezone: string;
   enabled: boolean;
+  prepare?: BackupPrepare | null;
   createdAt: Date;
   updatedAt: Date;
   lastRun?: BackupRun | null;
