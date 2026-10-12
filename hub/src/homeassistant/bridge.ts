@@ -285,8 +285,9 @@ async function backupsForHa() {
   return {
     groups: list.map((b) => ({
       id: b._id,
-      // a job of the hub writes it: its name, not the backup id (the host name)
-      backupId: b.managed?.name ?? b.backupId,
+      // a job of the hub writes it: its name, not the backup id (the host name); Home Assistant: its destination
+      backupId: b.managed?.name ?? (b.ha ? `Home Assistant (${b.backupId})` : b.backupId),
+      source: b.source,
       hostId: b.hostId ? b.hostId.toHexString() : null,
       state: backupState(b),
       lastBackup: b.lastBackup,

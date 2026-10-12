@@ -28,15 +28,18 @@ export function guestLabel(p: { type: 'lxc' | 'qemu'; vmid: number }) {
 }
 
 // Jobs of a vzdump group, in words: "tous les jours à 06:00 (pbs-ds0)"
-export function scheduleLabel(g: Pick<BackupGroup, 'pve' | 'managed'>) {
+export function scheduleLabel(g: Pick<BackupGroup, 'pve' | 'managed' | 'ha'>) {
   if (g.managed) return `${g.managed.scheduleText}${g.managed.enabled ? '' : ' (désactivé)'}`;
+  if (g.ha) return g.ha.scheduleText ?? 'pas de sauvegarde automatique vers cette destination';
   const jobs = g.pve?.jobs ?? [];
   return jobs.map((j) => `${j.scheduleText}${j.enabled ? '' : ' (désactivé)'}`).join(' · ');
 }
 
-// Label of a group: the name of the job of the hub that writes it, else "host/pve-docker01" style
+// Label of a group: the name of the job of the hub that writes it, the destination of Home Assistant
+// backups, else "host/pve-docker01" style
 export function groupLabel(g: Pick<BackupGroup, 'type' | 'backupId' | 'comment'> & { managed?: BackupGroup['managed'] }) {
   if (g.managed) return g.managed.name;
+  if (g.type === 'ha') return g.backupId;
   return g.type === 'host' ? g.backupId : `${g.type}/${g.backupId}${g.comment ? ` (${g.comment})` : ''}`;
 }
 
@@ -97,17 +100,19 @@ export function backupClient(caps: string[]) {
 }
 
 // Kind of a backup: full image of the guest (vzdump of Proxmox VE), directories run by the agent (job
-// of the hub), or made by something else and attached by hand (backup_pbs_scripts...).
-export type BackupKind = 'image' | 'directories' | 'external';
+// of the hub), backup of Home Assistant (HAOS), or made by something else and attached by hand
+// (backup_pbs_scripts...).
+export type BackupKind = 'image' | 'directories' | 'ha' | 'external';
 
 export const backupKinds: Record<BackupKind, { label: string; title: string }> = {
   image: { label: 'image PVE', title: 'Image complète du CT / de la VM, sauvegardée par un job vzdump de Proxmox VE' },
   directories: { label: 'répertoires', title: "Sauvegarde de répertoires définie ici et lancée par l'agent de l'hôte" },
+  ha: { label: 'Home Assistant', title: 'Sauvegarde faite par Home Assistant (une ligne par destination), lue par l’agent HAOS ; hors PBS' },
   external: { label: 'externe', title: 'Sauvegarde faite hors Homelab Manager (scripts…), rattachée à la main' },
 };
 
 export function backupKindOf(g: Pick<BackupGroup, 'source'>): BackupKind {
-  return g.source === 'vzdump' ? 'image' : g.source === 'managed' ? 'directories' : 'external';
+  return g.source === 'vzdump' ? 'image' : g.source === 'managed' ? 'directories' : g.source === 'haos' ? 'ha' : 'external';
 }
 
 export function backupKind(g: Pick<BackupGroup, 'source'>) {

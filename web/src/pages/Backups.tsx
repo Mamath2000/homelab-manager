@@ -310,12 +310,19 @@ export function Backups() {
                             <td className="td">
                               <div className="font-medium text-zinc-100">{groupLabel(g)}</div>
                               <div className="text-xs text-muted">
-                                {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && rhythm && ` · ${rhythm}`}
+                                {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && !g.ha && rhythm && ` · ${rhythm}`}
                               </div>
                               {g.pve && (
                                 <div className="text-xs text-muted">
                                   PVE {g.pve.cluster} · {scheduleLabel(g)}
                                   {g.pve.lastTask && !g.pve.lastTask.ok && <span className="text-red-400"> · {g.pve.lastTask.error}</span>}
+                                </div>
+                              )}
+                              {g.ha && (
+                                <div className="text-xs text-muted">
+                                  Home Assistant · {scheduleLabel(g)}
+                                  {g.ha.failedAt && g.ha.failedAt > g.lastBackup && <span className="text-red-400"> · non écrite {timeAgo(g.ha.failedAt)}</span>}
+                                  {g.ha.error && <span className="text-amber-400"> · {g.ha.error}</span>}
                                 </div>
                               )}
                               {g.managed && (
@@ -333,7 +340,7 @@ export function Backups() {
                                 <Link
                                   to={`/hosts/${g.hostId}`}
                                   className="text-zinc-300 hover:text-emerald-300"
-                                  title={g.source === 'vzdump' ? 'Rattachée automatiquement : le guest Proxmox de cet hôte' : 'Écrite par une sauvegarde définie sur cet hôte'}
+                                  title={g.source === 'vzdump' ? 'Rattachée automatiquement : le guest Proxmox de cet hôte' : g.source === 'haos' ? 'Sauvegarde Home Assistant de cet hôte HAOS' : 'Écrite par une sauvegarde définie sur cet hôte'}
                                 >
                                   {hostName(g.hostId)} <span className="text-xs text-muted">· auto</span>
                                 </Link>

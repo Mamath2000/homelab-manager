@@ -93,21 +93,22 @@ type DockerUpdates struct {
 
 // agent -> hub
 type Outbound struct {
-	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result | backup_synced | backup_result
+	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result | backup_synced | backup_result | ha_backups
 	Version string    `json:"version,omitempty"`
 	Info    *HostInfo `json:"info,omitempty"`
 	// actions this agent can run, so that the hub only offers those
-	Capabilities []string       `json:"capabilities,omitempty"`
-	BinaryHash   string         `json:"binaryHash,omitempty"`
-	Report       *AptReport     `json:"report,omitempty"`
-	Docker       *DockerReport  `json:"docker,omitempty"`
-	Updates      *DockerUpdates `json:"updates,omitempty"`
-	ReqID        string         `json:"reqId,omitempty"`
-	Result       any            `json:"result,omitempty"`
-	JobID        string         `json:"jobId,omitempty"`
-	Data         string         `json:"data,omitempty"`
-	ExitCode     int            `json:"exitCode,omitempty"`
-	Error        string         `json:"error,omitempty"`
+	Capabilities []string        `json:"capabilities,omitempty"`
+	BinaryHash   string          `json:"binaryHash,omitempty"`
+	Report       *AptReport      `json:"report,omitempty"`
+	Docker       *DockerReport   `json:"docker,omitempty"`
+	Updates      *DockerUpdates  `json:"updates,omitempty"`
+	HaBackups    *HaBackupReport `json:"haBackups,omitempty"`
+	ReqID        string          `json:"reqId,omitempty"`
+	Result       any             `json:"result,omitempty"`
+	JobID        string          `json:"jobId,omitempty"`
+	Data         string          `json:"data,omitempty"`
+	ExitCode     int             `json:"exitCode,omitempty"`
+	Error        string          `json:"error,omitempty"`
 }
 
 // hub -> agent

@@ -156,7 +156,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
       const b = await backups.findOne({ _id: req.params.id });
       if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
       if (req.body.hostId !== undefined && b.source) {
-        return reply.code(409).send({ error: b.source === 'vzdump' ? 'sauvegarde rattachée automatiquement par Proxmox VE' : 'sauvegarde écrite par un job du hub : rattachée à son hôte' });
+        const why = { vzdump: 'sauvegarde rattachée automatiquement par Proxmox VE', managed: 'sauvegarde écrite par un job du hub : rattachée à son hôte', haos: 'sauvegarde Home Assistant : rattachée à son hôte HAOS' };
+        return reply.code(409).send({ error: why[b.source] });
       }
       const set: Record<string, unknown> = {};
       if (req.body.hostId !== undefined) {

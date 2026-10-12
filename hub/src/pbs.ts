@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { backups, settings } from './db.js';
 import { publish } from './events.js';
-import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
+import { describeCalendar, nextRun, parseCalendar, previousRun, wall } from './calendar.js';
 import { ApiError, apiGet, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
@@ -148,19 +148,63 @@ export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'schedule' | 
 // a scheduled backup is expected at most this long after its start time
 export const SCHEDULE_GRACE = 2 * HOUR;
 
-type StateInput = Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone' | 'times' | 'retention' | 'pve' | 'managed'>;
+type Planned = Pick<BackupDoc, 'pve' | 'managed' | 'ha'>;
+type StateInput = Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone' | 'times' | 'retention' | 'pve' | 'managed' | 'ha'>;
 
-// Schedule of a group: the PVE jobs writing it, or the backup job of the hub; with the last run.
-export function planOf(b: Pick<BackupDoc, 'pve' | 'managed'>) {
+// Schedule of the automatic backups of Home Assistant as a calendar event ("4:45", "mon,thu 4:45"); the
+// time chosen by Home Assistant (none set) is read on the next run. null: no schedule known.
+export function haCalendar(ha: NonNullable<BackupDoc['ha']>) {
+  const s = ha.schedule;
+  if (!s) return null;
+  let at: string | null = null;
+  const m = s.time ? /^(\d{1,2}):(\d{2})/.exec(s.time) : null;
+  if (m) at = `${Number(m[1])}:${m[2]}`;
+  else if (ha.next) {
+    const w = wall(ha.next, ha.tz);
+    at = `${w.h % 24}:${String(w.mi).padStart(2, '0')}`;
+  }
+  if (!at) return null;
+  if (s.recurrence === 'daily') return at;
+  if (s.recurrence === 'custom_days' && s.days.length) return `${s.days.join(',')} ${at}`;
+  return null;
+}
+
+// "tous les jours à 04:45"; null: no automatic backup to this destination
+export function haScheduleText(ha: NonNullable<BackupDoc['ha']>) {
+  if (!ha.automatic) return null;
+  const cal = haCalendar(ha);
+  return cal ? describeCalendar(cal) : 'heure choisie par Home Assistant';
+}
+
+// Schedule of a group: the PVE jobs writing it, the backup job of the hub, or the automatic backups of
+// Home Assistant; with the last run (Home Assistant: its failures are read by haFailed).
+export function planOf(b: Planned) {
   if (b.pve) return { tz: b.pve.tz, jobs: b.pve.jobs, last: b.pve.lastTask ?? null };
   if (b.managed) return { tz: b.managed.tz, jobs: [{ schedule: b.managed.schedule, enabled: b.managed.enabled }], last: b.managed.lastRun ?? null, since: b.managed.since };
+  // not automatic: a single disabled job; automatic without a known time: no job (rhythm learned)
+  if (b.ha) {
+    const cal = haCalendar(b.ha);
+    return { tz: b.ha.tz, jobs: !b.ha.automatic ? [{ schedule: cal ?? '', enabled: false }] : cal ? [{ schedule: cal, enabled: true }] : [], last: null };
+  }
   return null;
+}
+
+// an automatic backup started this long before the last one of a destination is not a later attempt
+const HA_ATTEMPT_MARGIN = 5 * 60_000;
+
+// The last automatic backup failed for this destination: it was not written there (failed_agent_ids),
+// or the whole backup failed (attempted after the last completed one, and nothing written since).
+export function haFailed(b: Pick<BackupDoc, 'lastBackup' | 'ha'>) {
+  const ha = b.ha;
+  if (!ha?.automatic) return false;
+  if (ha.failedAt && ha.failedAt > b.lastBackup) return true;
+  return !!ha.lastAttempted && ha.lastAttempted > (ha.lastCompleted ?? 0) && b.lastBackup < ha.lastAttempted - HA_ATTEMPT_MARGIN;
 }
 
 // Expected snapshot of a scheduled group: the last start of its enabled jobs, more than the grace
 // period ago (a job that just started has until then). null: no enabled job with a schedule this hub
 // understands (the group then falls back to its rhythm).
-export function scheduleExpectation(b: Pick<BackupDoc, 'pve' | 'managed'>, now = Date.now()) {
+export function scheduleExpectation(b: Planned, now = Date.now()) {
   const plan = planOf(b);
   if (!plan?.jobs.length) return null;
   const enabled = plan.jobs.filter((j) => j.enabled);
@@ -185,7 +229,7 @@ export function scheduleExpectation(b: Pick<BackupDoc, 'pve' | 'managed'>, now =
 // Age after which a group is late: its own threshold; else, written by PVE jobs, one period of its
 // schedule plus the grace; else 1.5 x its rhythm (2 h of margin at least), the rhythm being learned from
 // its history, else given by the retention; none of them: no threshold (hours null, never late).
-export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed'>, now = Date.now()): { hours: number | null; source: ThresholdSource; interval: number | null } {
+export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed' | 'ha'>, now = Date.now()): { hours: number | null; source: ThresholdSource; interval: number | null } {
   const learned = learnedInterval((b.times ?? []).map((s) => s.t));
   if (b.staleHours) return { hours: b.staleHours, source: 'manual' as ThresholdSource, interval: learned };
   const sched = scheduleExpectation(b, now);
@@ -208,6 +252,7 @@ export function backupState(b: StateInput, now = Date.now()): BackupState {
   if (b.verify === 'failed') return 'failed';
   const last = planOf(b)?.last;
   if (last && !last.ok && last.at > b.lastBackup) return 'task_failed';
+  if (haFailed(b)) return 'task_failed';
   if (b.managed && !b.managed.synced) return 'not_synced';
   const sched = b.staleHours ? null : scheduleExpectation(b, now);
   if (sched?.disabled) return 'disabled';
@@ -231,6 +276,7 @@ export function backupDto(b: BackupDoc, now = Date.now()) {
     // PVE jobs and backup job of the hub, with their schedule in words
     pve: b.pve ? { ...b.pve, jobs: b.pve.jobs.map((j) => ({ ...j, scheduleText: describeCalendar(j.schedule) })) } : null,
     managed: b.managed ? { ...b.managed, scheduleText: describeCalendar(b.managed.schedule) } : null,
+    ha: b.ha ? { ...b.ha, scheduleText: haScheduleText(b.ha) } : null,
   };
 }
 
@@ -355,8 +401,8 @@ async function doPoll(log?: FastifyBaseLogger) {
       );
     }
     // groups pruned from the PBS are kept as gone: an attached one is reported, an orphan can be forgotten
-    // placeholders of PVE jobs (never backed up yet) are not on the PBS by definition
-    await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true } }, { $set: { gone: true } });
+    // placeholders of PVE jobs (never backed up yet) and the backups of Home Assistant are not on the PBS
+    await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true }, source: { $ne: 'haos' } }, { $set: { gone: true } });
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores, prune } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
   } catch (err) {
@@ -366,9 +412,9 @@ async function doPoll(log?: FastifyBaseLogger) {
   publish('backups', {});
 }
 
-// Groups of a deleted host become orphans.
+// Groups of a deleted host become orphans; its Home Assistant backups are only known through it.
 export async function forgetHost(hostId: HostDoc['_id']) {
-  await backups.deleteMany({ hostId, placeholder: true });
+  await backups.deleteMany({ hostId, $or: [{ placeholder: true }, { source: 'haos' }] });
   await backups.updateMany({ hostId }, { $set: { hostId: null }, $unset: { source: '', pve: '', managed: '' } });
 }
 

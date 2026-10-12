@@ -383,10 +383,12 @@ export interface BackupDoc {
   seenAt: Date; // last poll that saw it
   gone?: boolean; // no longer on the PBS
   // vzdump: attached by the PVE poll to the host of the guest; managed: written by a backup job of the
-  // hub (backupJobs.ts). Neither is attached by hand.
-  source?: 'vzdump' | 'managed';
+  // hub (backupJobs.ts); haos: destination of the Home Assistant backups of a HAOS host, reported by its
+  // agent (haBackups.ts, not on the PBS). None is attached by hand.
+  source?: 'vzdump' | 'managed' | 'haos';
   pve?: BackupPve;
   managed?: BackupManaged;
+  ha?: BackupHa;
   // expected by a PVE job but never seen on the PBS yet
   placeholder?: boolean;
 }
@@ -495,6 +497,23 @@ export interface BackupManaged {
   synced: boolean;
   // creation of the job (unix ms): runs scheduled before it are not expected
   since?: number;
+}
+
+// Destination (backup agent of Core) of the Home Assistant backups, see haBackups.ts.
+export interface BackupHa {
+  agentId: string; // backup.local, hassio.local, sftp_storage...
+  // the automatic backups go to this destination
+  automatic: boolean;
+  schedule: { recurrence: string; days: string[]; time: string | null } | null;
+  tz: string; // of Home Assistant
+  // unix ms of the automatic backups (all destinations)
+  next: number | null;
+  lastAttempted: number | null;
+  lastCompleted: number | null;
+  // last automatic backup that failed to reach this destination
+  failedAt: number | null;
+  // destination that could not be listed
+  error: string | null;
 }
 
 export interface BackupPve {

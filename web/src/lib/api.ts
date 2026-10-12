@@ -370,11 +370,23 @@ export interface BackupGroup {
   threshold: number | null; // hours; null: no rhythm known, never late
   thresholdSource: 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
   interval: number | null; // rhythm (ms), learned, from the retention or the PVE schedule
-  // vzdump: attached by Proxmox VE; managed: written by a backup job of the hub (not by hand)
-  source?: 'vzdump' | 'managed';
+  // vzdump: attached by Proxmox VE; managed: written by a backup job of the hub; haos: destination of the
+  // Home Assistant backups of a HAOS host (not on the PBS). None is attached by hand.
+  source?: 'vzdump' | 'managed' | 'haos';
   pve: { cluster: string; vmid: number; tz: string; jobs: PveJobRef[]; lastTask?: PveTaskResult | null } | null;
   managed: { jobId: string; name: string; tz: string; schedule: string; scheduleText: string; enabled: boolean; synced: boolean; lastRun?: { at: number; ok: boolean; error?: string | null } | null } | null;
   placeholder?: boolean; // expected by a job, never seen on the PBS
+  ha?: {
+    agentId: string;
+    automatic: boolean; // the automatic backups go to this destination
+    scheduleText: string | null; // null: not automatic
+    tz: string;
+    next: number | null;
+    lastAttempted: number | null;
+    lastCompleted: number | null;
+    failedAt: number | null; // last automatic backup that did not reach this destination
+    error: string | null; // destination that could not be listed
+  } | null;
 }
 
 // Group of the PBS attached to no host: not followed

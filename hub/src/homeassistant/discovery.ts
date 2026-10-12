@@ -61,7 +61,8 @@ export interface BuildOptions {
   hubUrl?: string;
   // backup groups of the PBS (see pbs.ts) and the space of its datastores
   backups?: {
-    groups: { id: string; backupId: string; hostId: string | null; state: string; lastBackup: number }[];
+    // source: see BackupDoc (haos: Home Assistant backups, the others are on the PBS)
+    groups: { id: string; backupId: string; hostId: string | null; state: string; lastBackup: number; source?: string }[];
     datastores: { store: string; total: number; used: number }[];
   };
 }
@@ -243,12 +244,16 @@ export function build(hosts: HostState[], opts: BuildOptions) {
       d.finish();
     }
 
-    // --- backups of the host (Proxmox Backup Server)
+    // --- backups of the host (Proxmox Backup Server, Home Assistant)
     const mine = tracked.filter((g) => g.hostId === hid);
     const backup = [...backupAlerts(mine, !!host.roaming && !isOnline), ...pveAlerts(host)];
     if (mine.length) {
+      const model = [
+        ...(mine.some((g) => g.source !== 'haos') ? ['Proxmox Backup Server'] : []),
+        ...(mine.some((g) => g.source === 'haos') ? ['Home Assistant'] : []),
+      ].join(' · ');
       const d = device(`${hostId}_backup`, {
-        name: `${host.name} · Sauvegardes`, model: 'Proxmox Backup Server', via_device: hostId,
+        name: `${host.name} · Sauvegardes`, model, via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/backups?host=${hid}` } : {}),
       });
       const last = Math.max(...mine.map((g) => g.lastBackup));

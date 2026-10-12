@@ -90,6 +90,8 @@ type session struct {
 	http *http.Client // pinned TLS + client certificate, for downloads from the hub
 	conn *websocket.Conn
 	mu   sync.Mutex // serialises writes
+	// a failure to read the Home Assistant backups is logged once per streak
+	haBackupErrLogged bool
 }
 
 // Actions this host supports: APT only where apt-get exists (not on Unraid), reboot through
@@ -148,7 +150,11 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// HAOS add-on: no action on the host at this stage, it only describes itself (haos.go)
 	if onHAOS {
-		return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: []string{"haos"}, BinaryHash: binaryHash})
+		caps := []string{"haos"}
+		if haBackupsReadable.Load() {
+			caps = append(caps, "ha_backups")
+		}
+		return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
 	}
 	caps := platformCapabilities()
 	if !onWSL && dock.available(ctx) {
@@ -384,6 +390,9 @@ func (s *session) loop(ctx context.Context) error {
 	if !onWSL && !onHAOS { // WSL, HAOS: Docker is not managed
 		go s.dockerReport(ctx)
 		go s.dockerLoop(ctx)
+	}
+	if onHAOS {
+		go s.haBackupLoop(ctx)
 	}
 
 	// periodic refresh of system info + cached apt state (cheap, no network)
