@@ -299,6 +299,7 @@ export interface AgentSettings {
 
 export interface InstallInfo {
   installCommand: string | null; // null: invalid hub URL
+  haosToken: string | null; // Home Assistant OS add-on (same code), null: invalid hub URL
   expiresAt: string;
 }
 

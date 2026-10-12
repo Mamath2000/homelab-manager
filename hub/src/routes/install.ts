@@ -20,6 +20,13 @@ export function registerInstallRoutes(app: FastifyInstance) {
     return template.replaceAll('__HUB_URL__', url).replaceAll('__PIN__', pki.serverPin).replaceAll('__CA_PEM__', pki.caCert.trim());
   });
 
+  // CA of the hub (public), for installers that cannot use install.sh: the HAOS add-on fetches it
+  // with the pinned key of the token, before enrolling.
+  app.get('/agent/ca.pem', async (_req, reply) => {
+    reply.type('application/x-pem-file');
+    return `${(await loadPki()).caCert.trim()}\n`;
+  });
+
   // <arch>: the binary; <arch>.sig: its release signature, checked by the agents on self-update
   app.get<{ Params: { file: string } }>('/agent/download/:file', async (req, reply) => {
     const sig = req.params.file.endsWith('.sig');

@@ -36,5 +36,11 @@ export async function agentCommands(req: FastifyRequest) {
     install: (code: string) => `${curl} ${url}/install.sh | sh -s -- ${code}`,
     upgrade: `${curl} ${url}/install.sh | sh`,
     uninstall: `${curl} ${url}/install.sh | sh -s -- --uninstall`,
+    // Home Assistant OS add-on: what the install command carries, as one value to paste in its options
+    haosToken: (code: string) => haosToken(url, serverPin, code),
   };
+}
+
+export function haosToken(hub: string, pin: string, code: string) {
+  return Buffer.from(JSON.stringify({ hub, pin, code })).toString('base64url');
 }

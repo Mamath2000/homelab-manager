@@ -107,10 +107,18 @@ func platformCapabilities() []string {
 	if _, err := exec.LookPath("useradd"); err == nil && hasApt() {
 		caps = append(caps, "setup")
 	}
-	return append(caps, "agent_update")
+	// AGENT_NO_SELFUPDATE: the binary is updated by its packaging (HAOS add-on image)
+	if os.Getenv("AGENT_NO_SELFUPDATE") == "" {
+		caps = append(caps, "agent_update")
+	}
+	return caps
 }
 
+// apt-get of the host itself: in the HAOS add-on, the one of the container image does not count.
 func hasApt() bool {
+	if onHAOS {
+		return false
+	}
 	_, err := exec.LookPath("apt-get")
 	return err == nil
 }
@@ -138,6 +146,10 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 // hello announces the agent; the docker capability is re-evaluated each time, so a Docker
 // installed later is picked up by the next periodic hello.
 func (s *session) hello(ctx context.Context) error {
+	// HAOS add-on: no action on the host at this stage, it only describes itself (haos.go)
+	if onHAOS {
+		return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: []string{"haos"}, BinaryHash: binaryHash})
+	}
 	caps := platformCapabilities()
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
@@ -369,7 +381,7 @@ func (s *session) loop(ctx context.Context) error {
 	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer backups.detach()
 	go s.report(ctx)
-	if !onWSL { // WSL: Docker is not managed
+	if !onWSL && !onHAOS { // WSL, HAOS: Docker is not managed
 		go s.dockerReport(ctx)
 		go s.dockerLoop(ctx)
 	}

@@ -83,6 +83,9 @@ export function osLabel(h: Host) {
 
 export const canSelfUpdate = (h: Host) => h.capabilities.includes('agent_update');
 
+// Home Assistant OS: the agent runs in an add-on, updated with the add-on versions (homelab-manager-haos).
+export const isHaos = (h: Host) => h.info?.osId === 'haos';
+
 // Agent still on the plain-text token of the first versions: refused by the hub, to reinstall.
 export const needsReinstall = (h: Host) => h.agentAuth === 'legacy';
 // Enrolled once, but its certificate was revoked.

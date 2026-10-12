@@ -17,7 +17,7 @@ import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { HostBackups } from '../components/HostBackups';
-import { agentRevoked, connection, hasApt, connectionMeta, listsStale, needsReinstall, osLabel } from '../lib/status';
+import { agentRevoked, connection, hasApt, connectionMeta, isHaos, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 
@@ -331,7 +331,11 @@ export function HostDetail() {
             Agent {host.agentVersion ?? 'inconnu'}
             {host.latestAgentVersion && host.latestAgentVersion !== host.agentVersion && <> → {host.latestAgentVersion}</>}
           </span>
-          <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
+          {isHaos(host) ? (
+            <span className="text-xs text-muted">mise à jour de l'application Homelab Manager Agent dans Home Assistant</span>
+          ) : (
+            <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
+          )}
         </div>
       )}
       {canManage && c === 'pending' && (
@@ -376,7 +380,11 @@ export function HostDetail() {
             <DockerPanel host={host} running={!!running} onStarted={setJobId} />
           ) : (
             <Panel title="Système" icon={Package}>
-              <p className="text-sm text-muted">Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi.</p>
+              <p className="text-sm text-muted">
+                {isHaos(host)
+                  ? "Home Assistant OS : système, Core et applications se mettent à jour dans Home Assistant. L'agent tourne dans une application et décrit l'hôte ; sa sauvegarde Proxmox VE s'y rattache par l'adresse MAC."
+                  : "Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi."}
+              </p>
             </Panel>
           )}
           <HostBackups host={host} />
@@ -447,8 +455,9 @@ export function HostDetail() {
           }
         }}
       >
-        L'hôte et son historique seront supprimés et l'agent déconnecté. Pour désinstaller l'agent, en root sur l'hôte :
-        {tls?.uninstallCommand && (
+        L'hôte et son historique seront supprimés et l'agent déconnecté.{' '}
+        {isHaos(host) ? "Pour désinstaller l'agent, supprime l'application Homelab Manager Agent dans Home Assistant." : "Pour désinstaller l'agent, en root sur l'hôte :"}
+        {!isHaos(host) && tls?.uninstallCommand && (
           <pre className="mt-2 overflow-x-auto rounded-sm border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">{tls.uninstallCommand}</pre>
         )}
       </ConfirmModal>

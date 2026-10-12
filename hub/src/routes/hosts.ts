@@ -77,7 +77,7 @@ function newEnrollCode() {
 
 async function installInfo(req: FastifyRequest, code: string, expiresAt: Date) {
   const cmd = await agentCommands(req);
-  return { installCommand: cmd ? cmd.install(code) : null, expiresAt };
+  return { installCommand: cmd ? cmd.install(code) : null, haosToken: cmd ? cmd.haosToken(code) : null, expiresAt };
 }
 
 export function registerHostRoutes(app: FastifyInstance) {

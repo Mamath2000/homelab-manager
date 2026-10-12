@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import 'reflect-metadata';
 import * as x509 from '@peculiar/x509';
 import { webcrypto } from 'node:crypto';
+import { haosToken } from '../src/hubUrl.js';
 import { certFingerprint, createPki, signClientCsr, spkiPin } from '../src/pki.js';
 
 async function csrFor(cn: string) {
@@ -59,4 +60,10 @@ test('the SPKI pin is the base64 sha256 curl expects', async () => {
   const pin = spkiPin(pki.serverCert);
   assert.match(pin, /^[A-Za-z0-9+/]{43}=$/);
   assert.notEqual(pin, spkiPin(pki.caCert));
+});
+
+test('the HAOS add-on token carries the agent URL, the pin and the code, shell-safe', () => {
+  const token = haosToken('https://192.168.100.171:3443', 'abc+/def=', 'Xy_-12');
+  assert.match(token, /^[A-Za-z0-9_-]+$/);
+  assert.deepEqual(JSON.parse(Buffer.from(token, 'base64url').toString()), { hub: 'https://192.168.100.171:3443', pin: 'abc+/def=', code: 'Xy_-12' });
 });

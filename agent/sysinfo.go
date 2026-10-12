@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"os"
 	"os/exec"
@@ -50,14 +51,7 @@ func collectInfo() *HostInfo {
 		}
 	}
 
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, a := range addrs {
-			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
-				info.IPs = append(info.IPs, ipn.IP.String())
-			}
-		}
-	}
-
+	info.IPs = interfaceIPs()
 	info.MACs = interfaceMACs()
 
 	if out, err := exec.Command("systemd-detect-virt").Output(); err == nil {
@@ -65,11 +59,40 @@ func collectInfo() *HostInfo {
 	} else {
 		info.Virt = "none"
 	}
+	if onHAOS {
+		haosInfo(context.Background(), info)
+	}
 	return info
 }
 
-// Hardware addresses of the interfaces that are up (not loopback): the hub finds the Proxmox VE
-// guest this host is by them. Sorted, so that the hello only changes when they do.
+// IPv4 addresses of the host. On HAOS, those of the Supervisor and Docker bridges
+// (172.30.32.1...) are left out: they are not reachable from the network.
+func interfaceIPs() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, i := range ifaces {
+		if onHAOS && virtualInterface(i.Name) {
+			continue
+		}
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
+				out = append(out, ipn.IP.String())
+			}
+		}
+	}
+	return out
+}
+
+// Hardware addresses of the interfaces that are up (not loopback, not Docker or Supervisor
+// bridges and veth): the hub finds the Proxmox VE guest this host is by them. Sorted, so that
+// the hello only changes when they do.
 func interfaceMACs() []string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -78,7 +101,7 @@ func interfaceMACs() []string {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, i := range ifaces {
-		if i.Flags&net.FlagLoopback != 0 || i.Flags&net.FlagUp == 0 || len(i.HardwareAddr) != 6 {
+		if i.Flags&net.FlagLoopback != 0 || i.Flags&net.FlagUp == 0 || len(i.HardwareAddr) != 6 || virtualInterface(i.Name) {
 			continue
 		}
 		m := i.HardwareAddr.String()
