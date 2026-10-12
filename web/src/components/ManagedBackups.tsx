@@ -127,6 +127,10 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const [form, setForm] = useState<BackupJobInput>(initial);
   // creation: the identifier follows the name until it is typed by hand
   const [idAuto, setIdAuto] = useState(true);
+  // group already on the PBS, written by something else: refused by the hub (snapshots would mix)
+  const { data: pbs } = useBackups();
+  const groupId = `${form.store}/Hosts/host/${form.backupId ?? ''}`;
+  const taken = !job && [...(pbs?.groups ?? []), ...(pbs?.orphans ?? [])].find((g) => g.id === groupId && !g.gone && !('source' in g && g.source === 'managed'));
   const [excludes, setExcludes] = useState(initial.excludes.join('\n'));
   const [busy, setBusy] = useState(false);
   const set = (patch: Partial<BackupJobInput>) => setForm({ ...form, ...patch });
@@ -148,11 +152,11 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
     }
   };
 
-  // a new row is shown at the bottom of the list, scrolled into view
+  // a new row is added at the bottom of the list: scrolled into view in the body of the modal
   const archivesRef = useRef<HTMLDivElement>(null);
   const addArchive = () => {
     set({ archives: [...form.archives, { name: '', path: '' }] });
-    requestAnimationFrame(() => archivesRef.current?.scrollTo({ top: archivesRef.current.scrollHeight, behavior: 'smooth' }));
+    requestAnimationFrame(() => archivesRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
   };
 
   const field = 'mb-1.5 block text-xs font-medium text-muted';
@@ -161,11 +165,12 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
       open={open}
       onClose={onClose}
       wide
+      scroll
       title={job ? `Sauvegarde ${job.name}` : `Nouvelle sauvegarde de ${host.name}`}
       footer={
         <>
           <Button onClick={onClose}>Annuler</Button>
-          <Button variant="primary" icon={Save} loading={busy} onClick={save}>Enregistrer</Button>
+          <Button variant="primary" icon={Save} loading={busy} disabled={!!taken} onClick={save}>Enregistrer</Button>
         </>
       }
     >
@@ -208,13 +213,17 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
               }}
               title="Groupe host/<identifiant> du PBS ; fixé à la création (un autre identifiant commence un nouvel historique)"
             />
+            {taken && (
+              <span className="mt-1 block text-xs text-amber-400">
+                Ce groupe existe déjà sur {form.store} › Hosts ({taken.count} snapshot{taken.count > 1 ? 's' : ''}, sauvegarde externe) : choisis un autre identifiant.
+              </span>
+            )}
           </label>
         </div>
         <div>
           <span className={field}>Répertoires (une archive .pxar chacun)</span>
           <div className="space-y-2">
-            {/* about 6 rows, then the list scrolls: the modal keeps its height */}
-            <div ref={archivesRef} className="max-h-64 space-y-2 overflow-y-auto pr-1">
+            <div ref={archivesRef} className="space-y-2">
               {form.archives.map((a, i) => (
                 <div key={i} className="flex gap-2">
                   <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />

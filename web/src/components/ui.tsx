@@ -185,7 +185,7 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
 // open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, wide }: {
+export function Modal({ open, onClose, title, children, footer, wide, scroll }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -193,6 +193,8 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
   footer?: ReactNode;
   // true: 2xl, 'xl': 5xl (content in columns)
   wide?: boolean | 'xl';
+  // long content: the body scrolls inside the window, header and footer stay visible
+  scroll?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -209,17 +211,22 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[12vh] backdrop-blur-xs" onMouseDown={onClose}>
       <div
-        className={clsx('panel w-full bg-panel shadow-2xl shadow-black/60', wide === 'xl' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md')}
+        className={clsx(
+          'panel w-full bg-panel shadow-2xl shadow-black/60',
+          wide === 'xl' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
+          // 12vh on top, 1rem below: the window fits the screen
+          scroll && 'flex max-h-[calc(88vh-1rem)] flex-col',
+        )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-line px-5 py-3.5">
+        <header className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
           <h3 className="text-base font-medium text-zinc-100">{title}</h3>
           <button onClick={onClose} className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-200">
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="px-5 py-4">{children}</div>
-        {footer && <footer className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
+        <div className={clsx('px-5 py-4', scroll && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
+        {footer && <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </div>
     </div>
   );
