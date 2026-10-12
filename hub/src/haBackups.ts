@@ -89,7 +89,7 @@ export function haGroups(hostId: HostDoc['_id'], r: HaBackupReport): HaGroup[] {
               lastBackup: sorted[0]?.date ?? 0,
               times: sorted
                 .slice(0, HISTORY)
-                .map((b) => ({ t: b.date, verify: null }))
+                .map((b) => ({ t: b.date, verify: null, size: b.size, note: b.name || null, automatic: b.automatic }))
                 .reverse(),
             },
     });

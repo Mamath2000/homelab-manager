@@ -142,7 +142,7 @@ Unraid n'a ni systemd ni APT, et son système tourne en mémoire : tout ce qui n
 - ajoute une ligne au script de démarrage `/boot/config/go` ;
 - au démarrage d'Unraid, cette ligne copie le binaire dans `/usr/local/bin` et lance l'agent, qui est relancé automatiquement s'il s'arrête (après une mise à jour, par exemple). Logs dans `/var/log/homelab-agent.log`.
 
-Sur Unraid, l'hôte remonte son état système et ses **stacks Docker** (voir [Docker](docker.md)). Il n'a pas de mises à jour APT ni de bouton Redémarrer : un redémarrage d'Unraid passe par son interface, qui arrête proprement l'array. La mise à jour automatique de l'agent met aussi à jour la copie gardée sur la clé USB.
+Sur Unraid, l'hôte remonte son état système et ses **stacks Docker** (voir [Docker](docker.md)). Il n'a pas de mises à jour APT (colonne des mises à jour « non pris en charge », en gris, dans la liste des hôtes) ni de bouton Redémarrer : un redémarrage d'Unraid passe par son interface, qui arrête proprement l'array. La mise à jour automatique de l'agent met aussi à jour la copie gardée sur la clé USB.
 
 ### Home Assistant OS
 
@@ -158,7 +158,7 @@ Au premier démarrage, l'application récupère l'autorité du hub (clé vérifi
 Ce que remonte un hôte HAOS :
 
 - **système** : version de Home Assistant OS, nom d'hôte et virtualisation lus par l'API Supervisor, adresses et MAC de la VM (les interfaces internes de HA et Docker sont ignorées) ;
-- **rien d'autre** : ni mises à jour APT, ni stacks Docker, ni standardisation, ni bouton Redémarrer, ni sauvegardes de répertoires (HA sauvegarde déjà ses fichiers).
+- **rien d'autre** : ni mises à jour APT (« non pris en charge » dans la liste des hôtes), ni stacks Docker, ni standardisation, ni bouton Redémarrer, ni sauvegardes de répertoires (HA sauvegarde déjà ses fichiers).
 
 **Mises à jour.** L'agent ne se met pas à jour lui-même : un binaire remplacé dans le conteneur serait perdu à sa recréation. La version de l'application suit celle de l'agent : à chaque release du hub, une tâche GitHub Actions du repo (lancée par `make docker-release`, et chaque jour) publie une nouvelle version de l'application si l'agent a changé, que Home Assistant installe seul avec la mise à jour automatique. Un agent HAOS en retard est signalé sans bouton de mise à jour.
 

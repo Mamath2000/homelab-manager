@@ -139,6 +139,13 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
 - **Page Sauvegardes** : compteurs et espace des datastores ; une ligne par sauvegarde suivie : nom (celui du job pour une sauvegarde de répertoires), **type**, hôte, 30 derniers jours, dernière, taille, vérification, état, seuil. Filtres : en retard / échec, **type**, hôte, recherche.
 - **Fiche hôte**, carte **Sauvegardes** : icône du client PBS, guest Proxmox lié, alerte « non couvert », chaque sauvegarde avec son type, son état, sa planification ou son rythme et sa frise des 30 derniers jours ; boutons **Répertoires**, **Rattacher**, **Lancer**.
+- **Snapshots** : l'icône en forme de couches, sur chaque ligne (page Sauvegardes, à côté du nom ; fiche hôte, à droite), ouvre la liste des snapshots de la sauvegarde, du plus récent au plus ancien. Elle affiche d'abord les 4 derniers, puis **Voir tout** déplie l'historique gardé par le hub (30 au plus ; la fenêtre indique quand le PBS en a davantage). Colonnes :
+  - date d'exécution (relative au survol) ;
+  - taille ;
+  - vérification : vérifiée / en échec / non vérifiée ;
+  - note : commentaire du snapshot, nom du guest pour un vzdump.
+
+  C'est l'historique vu au dernier relevé, sans lecture du PBS en direct.
 - **Liste des hôtes** : badge « sauvegarde en retard / en échec / désactivée ». **Tableau de bord** : section Sauvegardes.
 
 ## Home Assistant

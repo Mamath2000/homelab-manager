@@ -11,7 +11,7 @@ import { BulkSetupModal } from '../components/SetupPanel';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useBackups, useHosts, useRunBulk, useRunJob } from '../lib/queries';
-import { canSelfUpdate, connection, connectionMeta, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
+import { canSelfUpdate, connection, connectionMeta, hasApt, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { Host } from '../lib/api';
 
@@ -197,7 +197,7 @@ export function Hosts() {
                     <td className="td font-mono text-xs text-zinc-400">{h.info?.ips?.[0] ?? '—'}</td>
                     <td className="td">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {!s ? <Badge tone="unknown">inconnu</Badge> : s.upgradable === 0 ? <Badge tone="ok">à jour</Badge> : (
+                        {!hasApt(h) ? <Badge tone="neutral">non pris en charge</Badge> : !s ? <Badge tone="unknown">inconnu</Badge> : s.upgradable === 0 ? <Badge tone="ok">à jour</Badge> : (
                           <>
                             {s.security > 0 && <Badge tone="bad">{s.security} sécu</Badge>}
                             <Badge tone="warn">{s.upgradable}</Badge>

@@ -88,7 +88,7 @@ export function mergeGroups(store: string, ns: string, groups: ApiGroup[], snaps
     const k = `${s['backup-type']}/${s['backup-id']}`;
     const cur = last.get(k);
     if (!cur || s['backup-time'] > cur['backup-time']) last.set(k, s);
-    times.set(k, [...(times.get(k) ?? []), { t: s['backup-time'] * 1000, verify: verifyState(s) }]);
+    times.set(k, [...(times.get(k) ?? []), { t: s['backup-time'] * 1000, verify: verifyState(s), size: s.size ?? null, note: s.comment ?? null }]);
   }
   return groups.map((g) => {
     const s = last.get(`${g['backup-type']}/${g['backup-id']}`);

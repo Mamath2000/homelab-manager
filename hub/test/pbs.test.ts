@@ -29,10 +29,10 @@ test('groups get the size and verification of their last snapshot', () => {
   assert.equal(g[1].verify, 'failed');
   assert.equal(g[2].size, null);
   assert.equal(g[2].comment, 'pihole');
-  // history of the snapshots with their verification, oldest first
+  // history of the snapshots with their verification, size and comment, oldest first
   assert.deepEqual(g[0].times, [
-    { t: 1759964400000, verify: 'ok' },
-    { t: 1760050800000, verify: null },
+    { t: 1759964400000, verify: 'ok', size: 100, note: null },
+    { t: 1760050800000, verify: null, size: 120, note: null },
   ]);
 });
 
@@ -42,6 +42,8 @@ test('without group notes, the comment is the one of the last snapshot (vzdump: 
     { 'backup-type': 'ct', 'backup-id': '183', 'backup-time': 1760050800, comment: 'grafana' },
   ]);
   assert.equal(g[0].comment, 'grafana');
+  // each snapshot keeps its own comment (the guest was renamed in between)
+  assert.deepEqual(g[0].times.map((s) => s.note), ['old-name', 'grafana']);
 });
 
 const H = 3600_000;

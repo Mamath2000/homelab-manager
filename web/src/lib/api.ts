@@ -349,6 +349,14 @@ export interface PveTaskResult {
   error?: string;
 }
 
+export interface BackupSnapshot {
+  t: number;
+  verify: 'ok' | 'failed' | null;
+  size?: number | null;
+  note?: string | null;
+  automatic?: boolean; // Home Assistant: made by the automatic backups
+}
+
 export interface BackupGroup {
   id: string;
   store: string;
@@ -366,7 +374,8 @@ export interface BackupGroup {
   gone?: boolean;
   seenAt: string;
   state: BackupState;
-  times?: { t: number; verify: 'ok' | 'failed' | null }[]; // last snapshots, oldest first
+  // last snapshots, oldest first; size and note when known (PBS: snapshot comment, Home Assistant: backup name)
+  times?: BackupSnapshot[];
   threshold: number | null; // hours; null: no rhythm known, never late
   thresholdSource: 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
   interval: number | null; // rhythm (ms), learned, from the retention or the PVE schedule

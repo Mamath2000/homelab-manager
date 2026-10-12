@@ -64,8 +64,8 @@ test('one group per destination of the automatic backups or holding backups', ()
     size: 120,
     lastBackup: at0445 + 1000,
     times: [
-      { t: at0445 - D, verify: null },
-      { t: at0445 + 1000, verify: null },
+      { t: at0445 - D, verify: null, size: 100, note: 'Automatic', automatic: true },
+      { t: at0445 + 1000, verify: null, size: 120, note: 'Automatic', automatic: true },
     ],
   });
   assert.equal(g[1].set.ha?.automatic, true);

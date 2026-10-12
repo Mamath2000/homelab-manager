@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { AlertTriangle, Container, DatabaseBackup, FolderArchive, House, Link2, Package, PackageX, Play, Search, Unlink } from 'lucide-react';
+import { SnapshotsButton } from './BackupSnapshots';
 import { ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -221,13 +222,14 @@ export function HostBackups({ host }: { host: Host }) {
                   <span title={backupKind(g).title}>
                     <Badge tone="neutral">{backupKind(g).label}</Badge>
                   </span>
+                  <SnapshotsButton group={g} className="ml-auto" />
                   {canWrite && g.managed && (
-                    <Button size="sm" icon={Play} className="ml-auto" loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
+                    <Button size="sm" icon={Play} loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
                       Lancer
                     </Button>
                   )}
                   {canManage && !g.source && (
-                    <Button size="sm" variant="ghost" icon={Unlink} className="ml-auto" title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
+                    <Button size="sm" variant="ghost" icon={Unlink} title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
                   )}
                 </div>
                 <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:gap-6">

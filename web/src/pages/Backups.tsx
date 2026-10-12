@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { DatabaseBackup, HardDrive, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { SnapshotsButton } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { Badge, Button, Empty, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
@@ -308,7 +309,10 @@ export function Backups() {
                         return (
                           <tr key={g.id} className="hover:bg-raised/40">
                             <td className="td">
-                              <div className="font-medium text-zinc-100">{groupLabel(g)}</div>
+                              <div className="flex items-center gap-1 font-medium text-zinc-100">
+                                {groupLabel(g)}
+                                <SnapshotsButton group={g} />
+                              </div>
                               <div className="text-xs text-muted">
                                 {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && !g.ha && rhythm && ` · ${rhythm}`}
                               </div>

@@ -393,10 +393,14 @@ export interface BackupDoc {
   placeholder?: boolean;
 }
 
-// One snapshot of the history of a group: its date and its verification.
+// One snapshot of the history of a group: its date and its verification; size and note when known
+// (absent from the history stored before them, filled again by the next poll or report).
 export interface BackupSnapshot {
   t: number; // unix ms
   verify: 'ok' | 'failed' | null;
+  size?: number | null; // bytes
+  note?: string | null; // PBS: comment of the snapshot (vzdump: guest name); Home Assistant: name of the backup
+  automatic?: boolean; // Home Assistant: made by the automatic backups
 }
 
 // --- Proxmox VE clusters (see pve.ts) -------------------------------------------------------
