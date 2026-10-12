@@ -73,10 +73,11 @@ export function hoursLabel(h: number) {
 }
 
 // Last `days` days (oldest first): the snapshots of each day and their worst verification
-// (failed, then not verified yet, then ok).
+// (failed, then not verified yet, then ok). Without verification (Home Assistant backups), a day with a
+// backup is ok.
 export type DayVerify = 'ok' | 'unverified' | 'failed';
 
-export function timeline(times: BackupGroup['times'], days = 30, now = Date.now()) {
+export function timeline(times: BackupGroup['times'], days = 30, now = Date.now(), verified = true) {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const first = start.getTime() - (days - 1) * 24 * HOUR;
@@ -87,7 +88,7 @@ export function timeline(times: BackupGroup['times'], days = 30, now = Date.now(
     const c = out[i];
     c.count++;
     if (s.verify === 'failed') c.verify = 'failed';
-    else if (s.verify === null && c.verify === 'ok') c.verify = 'unverified';
+    else if (verified && s.verify === null && c.verify === 'ok') c.verify = 'unverified';
   }
   return out;
 }

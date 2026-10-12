@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { backups, settings } from './db.js';
 import { publish } from './events.js';
-import { describeCalendar, nextRun, parseCalendar, previousRun, wall } from './calendar.js';
+import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
 import { ApiError, apiGet, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
@@ -151,19 +151,20 @@ export const SCHEDULE_GRACE = 2 * HOUR;
 type Planned = Pick<BackupDoc, 'pve' | 'managed' | 'ha'>;
 type StateInput = Pick<BackupDoc, 'lastBackup' | 'verify' | 'staleHours' | 'gone' | 'times' | 'retention' | 'pve' | 'managed' | 'ha'>;
 
-// Schedule of the automatic backups of Home Assistant as a calendar event ("4:45", "mon,thu 4:45"); the
-// time chosen by Home Assistant (none set) is read on the next run. null: no schedule known.
+// Without a time set ("System optimal" in Home Assistant), it starts its automatic backups at 04:45 plus a
+// random delay of up to one hour, drawn again each day (components/backup/config.py: DEFAULT_BACKUP_TIME,
+// BACKUP_START_TIME_JITTER): the next run tells nothing about the previous one. The grace of the
+// schedule (SCHEDULE_GRACE, 2 h) covers the delay.
+const HA_DEFAULT_TIME = '4:45';
+
+// Schedule of the automatic backups of Home Assistant as a calendar event ("4:45", "mon,thu 4:45").
+// null: no schedule known.
 export function haCalendar(ha: NonNullable<BackupDoc['ha']>) {
   const s = ha.schedule;
   if (!s) return null;
-  let at: string | null = null;
   const m = s.time ? /^(\d{1,2}):(\d{2})/.exec(s.time) : null;
-  if (m) at = `${Number(m[1])}:${m[2]}`;
-  else if (ha.next) {
-    const w = wall(ha.next, ha.tz);
-    at = `${w.h % 24}:${String(w.mi).padStart(2, '0')}`;
-  }
-  if (!at) return null;
+  if (s.time && !m) return null;
+  const at = m ? `${Number(m[1])}:${m[2]}` : HA_DEFAULT_TIME;
   if (s.recurrence === 'daily') return at;
   if (s.recurrence === 'custom_days' && s.days.length) return `${s.days.join(',')} ${at}`;
   return null;
@@ -173,7 +174,10 @@ export function haCalendar(ha: NonNullable<BackupDoc['ha']>) {
 export function haScheduleText(ha: NonNullable<BackupDoc['ha']>) {
   if (!ha.automatic) return null;
   const cal = haCalendar(ha);
-  return cal ? describeCalendar(cal) : 'heure choisie par Home Assistant';
+  if (!cal) return 'planification inconnue';
+  if (ha.schedule?.time) return describeCalendar(cal);
+  // "System optimal" of Home Assistant: a time it picks between 04:45 and 05:45
+  return `${describeCalendar(cal).replace(/ à \d{2}:\d{2}$/, '')}, heure optimale du système (04:45–05:45)`;
 }
 
 // Schedule of a group: the PVE jobs writing it, the backup job of the hub, or the automatic backups of

@@ -21,8 +21,10 @@ const DAY = 24 * 3600_000;
 const verifyColor: Record<DayVerify, string> = { ok: 'bg-emerald-500', unverified: 'bg-amber-500', failed: 'bg-red-500' };
 const verifyLabel: Record<DayVerify, string> = { ok: ', vérifié', unverified: ', non vérifié', failed: ', vérification en échec' };
 
-export function BackupTimeline({ group, days = 30, className }: { group: Pick<BackupGroup, 'times' | 'interval'>; days?: number; className?: string }) {
-  const cells = timeline(group.times, days);
+export function BackupTimeline({ group, days = 30, className }: { group: Pick<BackupGroup, 'times' | 'interval'> & { source?: BackupGroup['source'] }; days?: number; className?: string }) {
+  // Home Assistant does not verify its backups
+  const verified = group.source !== 'haos';
+  const cells = timeline(group.times, days, undefined, verified);
   const daily = !!group.interval && group.interval <= 1.2 * DAY;
   const oldest = group.times?.[0]?.t ?? Infinity;
   const today = cells[cells.length - 1].day;
@@ -34,7 +36,7 @@ export function BackupTimeline({ group, days = 30, className }: { group: Pick<Ba
         return (
           <span
             key={c.day}
-            title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}${verifyLabel[c.verify]}` : 'aucun snapshot'}`}
+            title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}${verified ? verifyLabel[c.verify] : ''}` : 'aucun snapshot'}`}
             className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.count ? verifyColor[c.verify] : missing ? 'bg-red-500/70' : 'bg-raised')}
           />
         );

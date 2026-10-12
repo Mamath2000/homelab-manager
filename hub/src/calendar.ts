@@ -120,7 +120,7 @@ export function validTimeZone(tz: string) {
 }
 
 // wall-clock fields of an instant in a time zone
-export function wall(ts: number, tz: string) {
+function wall(ts: number, tz: string) {
   const p: Record<string, number> = {};
   for (const { type, value } of formatter(tz).formatToParts(new Date(ts))) if (type !== 'literal') p[type] = Number(value);
   return { y: p.year, mo: p.month, d: p.day, h: p.hour, mi: p.minute, s: p.second };

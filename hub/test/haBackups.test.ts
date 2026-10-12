@@ -102,8 +102,8 @@ const ha = (over: Partial<BackupHa> = {}): BackupHa => ({
 test('schedule of Home Assistant as a calendar event', () => {
   assert.equal(haCalendar(ha()), '4:45');
   assert.equal(haCalendar(ha({ schedule: { recurrence: 'custom_days', days: ['mon', 'thu'], time: '23:05:00' } })), 'mon,thu 23:05');
-  // time chosen by Home Assistant: the one of the next run, in its time zone
-  assert.equal(haCalendar(ha({ schedule: { recurrence: 'daily', days: [], time: null }, next: Date.UTC(2026, 9, 13, 3, 12) })), '5:12');
+  // no time set: 04:45 of Home Assistant (+ a random delay drawn each day), whatever the next run says
+  assert.equal(haCalendar(ha({ schedule: { recurrence: 'daily', days: [], time: null }, next: Date.UTC(2026, 9, 13, 3, 12) })), '4:45');
   assert.equal(haCalendar(ha({ schedule: null })), null);
 });
 
@@ -134,4 +134,25 @@ test('states of a Home Assistant destination', () => {
   const manualOnly = doc(report({ autoAgentIds: ['hassio.local'] }), 'sftp_storage.nas');
   assert.equal(manualOnly.ha?.automatic, false);
   assert.equal(backupState(manualOnly, now), 'disabled');
+});
+
+// vm-100 on 2026-10-12: no time set, today's backup at 04:58 (delay 13 min), the next one drawn at 05:21
+// (delay 36 min). The next run must not be taken for today's expected time.
+test('no time set: the random delay of Home Assistant is not a late backup', () => {
+  const today = Date.UTC(2026, 9, 12, 2, 58); // 04:58 Paris
+  const next = Date.UTC(2026, 9, 13, 3, 21); // 05:21 Paris tomorrow
+  const r = report({
+    time: '',
+    lastAttempted: today,
+    lastCompleted: today + 4 * 60_000,
+    next,
+    agents: [{ agentId: 'hassio.local', name: 'Home Assistant', backups: [{ id: 'b', name: 'Automatic', date: today, size: 1, automatic: true }] }],
+    autoAgentIds: ['hassio.local'],
+  });
+  const g = doc(r, 'hassio.local');
+  assert.equal(backupState(g, Date.UTC(2026, 9, 12, 18, 24)), 'ok');
+  // tomorrow, still ok until 04:45 + the grace (06:45 Paris), an hour after the latest possible start
+  assert.equal(backupState(g, Date.UTC(2026, 9, 13, 4, 40)), 'ok');
+  // no backup at all tomorrow: late after 06:45 Paris
+  assert.equal(backupState(g, Date.UTC(2026, 9, 13, 4, 50)), 'stale');
 });
