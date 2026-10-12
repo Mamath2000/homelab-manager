@@ -118,13 +118,13 @@ release-key: ## Crée la clé de signature des agents (une fois) : clé privée 
 docker-build: ## Construit l'image locale homelab-manager:latest (sans push ; agents signés si la clé de release est présente)
 	bash docker-release.sh build
 
-docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git
+docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git, push et synchro HAOS
 	bash docker-release.sh release
 
-docker-release-minor: check ## Release : mineur +1, build remis à 0 (X.Y+1.0), commit, build et push, tag git
+docker-release-minor: check ## Release : mineur +1, build remis à 0 (X.Y+1.0), commit, build et push, tag git, push et synchro HAOS
 	bash docker-release.sh release-minor
 
-docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push, tag git
+docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push, tag git, push et synchro HAOS
 	bash docker-release.sh release-major
 
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]

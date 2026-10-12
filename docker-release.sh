@@ -3,7 +3,8 @@
 #   build         : image locale homelab-manager:latest pour l'architecture courante (aucun push)
 #   release       : build +1 (X.Y.Z → X.Y.Z+1 : VERSION, hub/ et web/package.json) commitée « Release X.Y.Z »,
 #                   build multi-arch et push Docker Hub (latest, X.Y.Z, ref git), tag git vX.Y.Z
-#                   — l'image X.Y.Z contient exactement ce commit
+#                   — l'image X.Y.Z contient exactement ce commit ; commit et tags poussés, puis synchro de
+#                   l'application HAOS lancée (gh workflow run, homelab-manager-haos)
 #   release-minor : mineur +1, build remis à 0 (X.Y+1.0)
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
 #   direct        : contournement de Docker Hub : build amd64 sans identifiants (config Docker vide), image
@@ -22,6 +23,7 @@ APP_NAME="homelab-manager"
 DOCKER_USER=${DOCKER_USER:-"mathmath350"}
 PLATFORMS=${PLATFORMS:-"linux/amd64,linux/arm64"}
 BUILDER="homelab-manager-builder"
+HAOS_REPO="Mamath2000/homelab-manager-haos"   # Home Assistant OS app, follows the agent of each release
 action=${1:-build}
 
 # next_version X.Y.Z (release|release-minor|release-major) : le build est incrémenté automatiquement
@@ -175,4 +177,14 @@ docker buildx build \
 git tag "v$NEW_VERSION"
 
 echo "✅ Version $NEW_VERSION publiée : $DOCKER_USER/$APP_NAME:{latest,$NEW_VERSION,$GIT_REF} ($PLATFORMS)"
-echo "🔄 À pousser : git push origin $(git rev-parse --abbrev-ref HEAD) --tags"
+trap - ERR
+
+# The image is out: the release commit and its tag go to GitHub, then the HAOS app checks the agent
+# it ships (rebuilt only when agent/VERSION changed). Failures here leave the release as it is.
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git push -q origin "$BRANCH" --tags \
+    && echo "✅ Poussé : $BRANCH et tag v$NEW_VERSION" \
+    || echo "⚠️  Push échoué : git push origin $BRANCH --tags"
+gh workflow run sync.yaml -R "$HAOS_REPO" \
+    && echo "✅ Synchro de l'application HAOS lancée : gh run list -R $HAOS_REPO" \
+    || echo "⚠️  Synchro HAOS non lancée : make -C ../homelab-manager-haos sync (sinon cron quotidien)"
