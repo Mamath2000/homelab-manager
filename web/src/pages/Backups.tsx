@@ -59,7 +59,8 @@ function OrphansModal({ data, open, onClose, canManage }: { data: BackupsView; o
               {list.map((o) => (
                 <tr key={o.id} className={clsx(o.gone && 'opacity-60')}>
                   <td className="td">
-                    <div className="text-zinc-100">{groupLabel({ type: o.type, backupId: o.backupId, comment: o.comment ?? undefined })}</div>
+                    <div className="text-zinc-100">{groupLabel({ type: o.type, backupId: o.backupId })}</div>
+                    {o.comment && <div className="text-xs text-muted">{o.comment}</div>}
                     {o.gone && <div className="text-xs text-muted">disparue du PBS</div>}
                   </td>
                   <td className="td text-xs text-zinc-300">{o.store}{o.ns ? ` › ${o.ns}` : ''}</td>

@@ -36,6 +36,14 @@ test('groups get the size and verification of their last snapshot', () => {
   ]);
 });
 
+test('without group notes, the comment is the one of the last snapshot (vzdump: guest name)', () => {
+  const g = mergeGroups('ds1', 'Vouille', [{ 'backup-type': 'ct', 'backup-id': '183', 'last-backup': 1760050800, 'backup-count': 2 }], [
+    { 'backup-type': 'ct', 'backup-id': '183', 'backup-time': 1759964400, comment: 'old-name' },
+    { 'backup-type': 'ct', 'backup-id': '183', 'backup-time': 1760050800, comment: 'grafana' },
+  ]);
+  assert.equal(g[0].comment, 'grafana');
+});
+
 const H = 3600_000;
 const D = 24 * H;
 // history of snapshots at these dates, not verified

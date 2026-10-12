@@ -65,6 +65,7 @@ interface ApiSnapshot {
   'backup-time': number;
   size?: number;
   verification?: { state: string };
+  comment?: string; // first line of the snapshot notes (vzdump: guest name)
 }
 interface ApiUsage {
   store: string;
@@ -97,7 +98,8 @@ export function mergeGroups(store: string, ns: string, groups: ApiGroup[], snaps
       ns,
       type: g['backup-type'],
       backupId: g['backup-id'],
-      ...(g.comment ? { comment: g.comment } : {}),
+      // notes of the group, else those of its last snapshot (guest name of a vm / ct)
+      ...(g.comment || s?.comment ? { comment: g.comment || s?.comment } : {}),
       ...(g.owner ? { owner: g.owner } : {}),
       count: g['backup-count'],
       lastBackup: g['last-backup'] * 1000,
@@ -344,11 +346,11 @@ async function doPoll(log?: FastifyBaseLogger) {
       .map((u) => ({ store: u.store, total: u.total!, used: u.used ?? 0, avail: u.avail ?? 0 }));
 
     const now = new Date();
-    // the host of a group is only ever chosen by hand, from the host page
+    // the host of a group is only ever chosen by hand, from the host page; a comment removed on the PBS is removed here
     for (const g of found) {
       await backups.updateOne(
         { _id: g._id },
-        { $set: { ...g, retention: retention(g.store, g.ns), seenAt: now }, $setOnInsert: { hostId: null }, $unset: { gone: '', placeholder: '' } },
+        { $set: { ...g, retention: retention(g.store, g.ns), seenAt: now }, $setOnInsert: { hostId: null }, $unset: { gone: '', placeholder: '', ...(!g.comment && { comment: '' }) } },
         { upsert: true },
       );
     }
