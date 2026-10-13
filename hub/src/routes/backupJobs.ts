@@ -11,9 +11,9 @@ import { describeCalendar } from '../calendar.js';
 
 const jobProps = {
   name: { type: 'string', minLength: 1, maxLength: 64 },
+  // a database job holds its dumps only (no directory): the count is checked by checkJob, per kind
   archives: {
     type: 'array',
-    minItems: 1,
     maxItems: 20,
     items: {
       type: 'object',
@@ -238,7 +238,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const { kind } = req.body;
       const database = normDatabase(kind, req.body.database)!;
-      const err = checkDatabase(kind, database);
+      const err = checkDatabase(kind, database, false);
       if (err) return reply.code(400).send({ error: err });
       const refused = databaseRefused(host, kind);
       if (refused) return reply.code(409).send({ error: refused });

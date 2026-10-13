@@ -47,6 +47,12 @@ var (
 var forbiddenWorkRoots = []string{"/proc", "/sys", "/dev", "/run", "/boot", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64"}
 
 func validateDatabase(kind string, p *DatabaseDump) error {
+	return validateDatabaseSettings(kind, p, true)
+}
+
+// validateDatabaseSettings: chosen false for the listing of the databases of the server (form of a job,
+// before any is chosen).
+func validateDatabaseSettings(kind string, p *DatabaseDump, chosen bool) error {
 	w := p.WorkDir
 	if !filepath.IsAbs(w) || filepath.Clean(w) != w || strings.ContainsAny(w, ":\n") || strings.Count(w, "/") < 2 {
 		return fmt.Errorf("invalid work directory %q (absolute, at least two levels)", w)
@@ -73,7 +79,7 @@ func validateDatabase(kind string, p *DatabaseDump) error {
 		}
 		switch p.Mode {
 		case "databases":
-			if len(p.Databases) == 0 {
+			if chosen && len(p.Databases) == 0 {
 				return errors.New("postgres: no database")
 			}
 		case "cluster":
@@ -84,7 +90,7 @@ func validateDatabase(kind string, p *DatabaseDump) error {
 			return fmt.Errorf("postgres: unknown mode %q", p.Mode)
 		}
 	case "mongodb":
-		if p.Mode != "" || !containerRe.MatchString(p.Container) || len(p.Databases) == 0 {
+		if p.Mode != "" || !containerRe.MatchString(p.Container) || (chosen && len(p.Databases) == 0) {
 			return errors.New("mongodb: container and at least one database")
 		}
 	default:
@@ -400,7 +406,7 @@ func listDatabases(ctx context.Context, kind string, p *DatabaseDump) (tools str
 }
 
 func checkDatabaseOnHost(ctx context.Context, kind string, p *DatabaseDump) (*DatabaseCheck, error) {
-	if err := validateDatabase(kind, p); err != nil {
+	if err := validateDatabaseSettings(kind, p, false); err != nil {
 		return nil, err
 	}
 	tools, dbs, err := listDatabases(ctx, kind, p)

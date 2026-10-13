@@ -82,8 +82,9 @@ export function dumpArchives(kind: 'postgres' | 'mongodb', d: DatabaseDump): Bac
   return names.map((name) => ({ name, path: `${d.workDir}/${name}` }));
 }
 
-// Error message, or null. Same rules as validateDatabase in agent/database.go.
-export function checkDatabase(kind: 'postgres' | 'mongodb', d: DatabaseDump): string | null {
+// Error message, or null. Same rules as validateDatabaseSettings in agent/database.go; chosen false: the
+// listing of the databases of the server, before any is chosen.
+export function checkDatabase(kind: 'postgres' | 'mongodb', d: DatabaseDump, chosen = true): string | null {
   const w = d.workDir;
   if (!validPath(w) || w.split('/').length < 3) return 'répertoire de travail invalide (absolu, au moins deux niveaux, ex. /mnt/backup)';
   if (FORBIDDEN_WORK_ROOTS.some((r) => w === r || w.startsWith(`${r}/`))) return `répertoire de travail interdit sous ${w.split('/').slice(0, 2).join('/')}`;
@@ -96,13 +97,13 @@ export function checkDatabase(kind: 'postgres' | 'mongodb', d: DatabaseDump): st
   }
   if (kind === 'postgres') {
     if (d.container) return 'PostgreSQL : serveur local uniquement';
-    if (d.mode === 'databases') return d.databases.length ? null : 'PostgreSQL par base : au moins une base';
+    if (d.mode === 'databases') return d.databases.length || !chosen ? null : 'PostgreSQL par base : au moins une base';
     if (d.mode === 'cluster') return d.databases.length ? 'PostgreSQL cluster : tout le cluster, pas de liste de bases' : null;
     return 'PostgreSQL : mode par base ou cluster';
   }
   if (d.mode) return 'MongoDB : pas de mode';
   if (!CONTAINER_RE.test(d.container ?? '')) return 'MongoDB : nom du conteneur invalide';
-  return d.databases.length ? null : 'MongoDB : au moins une base';
+  return d.databases.length || !chosen ? null : 'MongoDB : au moins une base';
 }
 
 // What the agent sends: the directories of a directories job, the dumps of a database job.

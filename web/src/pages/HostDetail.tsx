@@ -71,8 +71,10 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
   );
 }
 
-function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undefined }) {
+// running: a job of the host is in progress; onStarted: the job started here (its console opens)
+function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; upgrading: Job | undefined; running: boolean; onStarted: (jobId: string) => void }) {
   const run = useRunJob();
+  const start = (action: 'apt_update' | 'apt_upgrade') => run.mutate({ hostId: host.id, action }, { onSuccess: (j) => onStarted(j.id) });
   const { canWrite } = useMe();
   const [picked, setSelected] = useState<Set<string>>(new Set());
   const pkgs = host.apt?.upgradable ?? [];
@@ -98,17 +100,35 @@ function PackagesPanel({ host, upgrading }: { host: Host; upgrading: Job | undef
       icon={Package}
       bodyClassName=""
       actions={
-        canWrite && selected.size > 0 && (
-          <Button
-            size="sm"
-            variant="primary"
-            icon={ArrowUpCircle}
-            disabled={!host.online}
-            loading={run.isPending}
-            onClick={() => run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) })}
-          >
-            Mettre à jour la sélection ({selected.size})
-          </Button>
+        canWrite && (
+          <>
+            <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => start('apt_update')}>
+              Rechercher les MAJ
+            </Button>
+            {selected.size > 0 ? (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={ArrowUpCircle}
+                disabled={!host.online || running}
+                loading={run.isPending && run.variables?.action === 'apt_upgrade'}
+                onClick={() => run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) })}
+              >
+                Mettre à jour la sélection ({selected.size})
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={ArrowUpCircle}
+                disabled={!host.online || running || !host.aptSummary?.upgradable}
+                loading={run.isPending && run.variables?.action === 'apt_upgrade'}
+                onClick={() => start('apt_upgrade')}
+              >
+                Tout mettre à jour
+              </Button>
+            )}
+          </>
         )
       }
     >
@@ -223,8 +243,6 @@ export function HostDetail() {
   if (!host) return <Empty icon={Server} title="Hôte introuvable"><Link className="text-emerald-400" to="/hosts">Retour aux hôtes</Link></Empty>;
 
   const c = connection(host);
-  const startJob = (action: 'apt_update' | 'apt_upgrade') =>
-    run.mutate({ hostId: host.id, action }, { onSuccess: (j) => setJobId(j.id) });
 
   // new single-use code; the current agent keeps working until the new installation enrolls
   const newInstall = async () => {
@@ -255,19 +273,6 @@ export function HostDetail() {
         title={host.name}
         actions={
           canWrite && <>
-            {hasApt(host) && (
-              <>
-                <Button icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => startJob('apt_update')}>
-                  Rechercher les MAJ
-                </Button>
-                <Button icon={ArrowUpCircle} variant="primary" disabled={!host.online || running || !host.aptSummary?.upgradable}
-                  loading={run.isPending && run.variables?.action === 'apt_upgrade'}
-                  onClick={() => startJob('apt_upgrade')}
-                >
-                  Tout mettre à jour
-                </Button>
-              </>
-            )}
             <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
             {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
             {host.capabilities.includes('reboot') && (
@@ -375,7 +380,7 @@ export function HostDetail() {
         {/* packages (or Docker without APT) and, when the PBS is followed, the backups beside them */}
         <div className={clsx('grid min-w-0 items-start gap-5', backupsOn && '2xl:grid-cols-2')}>
           {hasApt(host) ? (
-            <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} />
+            <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />
           ) : host.docker ? (
             <DockerPanel host={host} running={!!running} onStarted={setJobId} />
           ) : (

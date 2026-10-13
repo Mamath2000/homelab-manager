@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { AlertTriangle, Container, DatabaseBackup, FolderArchive, House, Link2, Package, PackageX, Pencil, Play, Search, Unlink } from 'lucide-react';
+import { AlertTriangle, Container, DatabaseBackup, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Unlink } from 'lucide-react';
 import { SnapshotsButton } from './BackupSnapshots';
 import { BackupJobEditModal, ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
@@ -190,10 +190,10 @@ export function HostBackups({ host }: { host: Host }) {
       icon={DatabaseBackup}
       actions={
         <>
-          {/* agent unable to run directory backups (HAOS add-on) */}
-          {backupClient(host.capabilities).supported && (
-            <Button size="sm" variant="ghost" icon={FolderArchive} onClick={() => setDirectories(true)} title="Sauvegardes de répertoires lancées par l'agent de cet hôte">
-              Répertoires
+          {/* agent unable to run backups of its own (HAOS add-on); existing jobs: pencil of their line */}
+          {canManage && backupClient(host.capabilities).supported && (
+            <Button size="sm" variant="ghost" icon={Plus} onClick={() => setDirectories(true)} title="Sauvegardes lancées par l'agent de cet hôte : ajouter, modifier, supprimer (répertoires ou bases de données)">
+              Sauvegarde
             </Button>
           )}
           {canManage && <Button size="sm" icon={Link2} onClick={() => setAttaching(true)}>Rattacher</Button>}

@@ -154,6 +154,10 @@ test('database settings are checked like the agent does', () => {
   assert.match(checkDatabase('mongodb', mongo({ databases: [] }))!, /au moins une base/);
   assert.match(checkDatabase('mongodb', mongo({ mode: 'cluster' }))!, /mode/);
   for (const keep of [-1, 31, 1.5]) assert.match(checkDatabase('postgres', pg({ keep }))!, /gardés/, String(keep));
+  // listing of the databases of the server: none chosen yet
+  assert.equal(checkDatabase('mongodb', mongo({ databases: [] }), false), null);
+  assert.equal(checkDatabase('postgres', pg({ databases: [] }), false), null);
+  assert.match(checkDatabase('mongodb', mongo({ databases: [], container: '' }), false)!, /conteneur/);
 });
 
 test('a database job holds its dumps only, named like the agent does', () => {
@@ -210,4 +214,29 @@ test('sizes of the dumps reported by the agent', () => {
   ]);
   assert.equal(dumpsOf(undefined), undefined);
   assert.equal(dumpsOf([]), undefined);
+});
+
+test('a database job body passes the schema of the routes (no directory)', async () => {
+  const { default: Fastify } = await import('fastify');
+  const { registerBackupJobRoutes } = await import('../src/routes/backupJobs.js');
+  const app = Fastify();
+  registerBackupJobRoutes(app);
+  const body = {
+    name: 'mongo',
+    kind: 'mongodb',
+    database: { container: 'mongo', databases: ['canicoif'], workDir: '/var/backups/homelab-agent', keep: 1 },
+    archives: [],
+    excludes: [],
+    store: 'ds0',
+    backupId: 'canicoif-mongo',
+    schedule: '03:00',
+    enabled: true,
+  };
+  // past the schema: refused afterwards for the unknown host / job (404), not by the schema (400)
+  assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-jobs', payload: body })).statusCode, 404);
+  const { kind: _kind, backupId: _id, ...update } = body;
+  assert.equal((await app.inject({ method: 'PUT', url: '/api/backup-jobs/x', payload: update })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-database-check', payload: { kind: 'mongodb', database: { ...body.database, databases: [] } } })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-jobs', payload: { ...body, kind: 'mysql' } })).statusCode, 400);
+  await app.close();
 });

@@ -248,6 +248,13 @@ func TestCheckMongo(t *testing.T) {
 	if len(r.Databases) != 2 || r.Databases[1].Size != 125000000 || strings.Join(r.Missing, ",") != "absent" || r.Free <= 0 {
 		t.Fatalf("check = %+v", r)
 	}
+	// listing before any database is chosen
+	if r, err := checkDatabaseOnHost(context.Background(), kind, &DatabaseDump{Container: "mongo", WorkDir: p.WorkDir}); err != nil || len(r.Databases) != 2 || len(r.Missing) != 0 {
+		t.Fatalf("listing: %v %+v", err, r)
+	}
+	if _, err := checkDatabaseOnHost(context.Background(), kind, &DatabaseDump{WorkDir: p.WorkDir}); err == nil {
+		t.Fatal("listing without a container accepted")
+	}
 	// mongo before 6: no mongosh
 	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": "ERR", "mongo --quiet": `[{"name":"x","size":1}]`})
 	if r, err := checkDatabaseOnHost(context.Background(), kind, p); err != nil || r.Databases[0].Name != "x" {
