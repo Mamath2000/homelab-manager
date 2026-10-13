@@ -146,6 +146,8 @@ export interface HostDoc {
   setupPending?: boolean;
   // not connected permanently (laptop...): being offline is expected, neither an error nor an alert
   roaming?: boolean;
+  // not published to Home Assistant (no device, not counted in the totals)
+  haExcluded?: boolean;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
   // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied

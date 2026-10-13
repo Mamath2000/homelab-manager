@@ -116,6 +116,8 @@ export interface Host {
   online: boolean;
   // not connected permanently: offline is its normal state
   roaming: boolean;
+  // not published to Home Assistant
+  haExcluded: boolean;
   agentVersion: string | null;
   // cert: TLS client certificate; legacy: plain-text token of the first versions, reinstall needed;
   // none: not enrolled yet, or revoked
@@ -584,9 +586,9 @@ export const api = {
   resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
-  createHost: (name: string, group: string, roaming: boolean) =>
-    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group, roaming }),
-  updateHost: (id: string, patch: { name?: string; group?: string; roaming?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  createHost: (name: string, group: string, roaming: boolean, haExcluded: boolean) =>
+    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group, roaming, haExcluded }),
+  updateHost: (id: string, patch: { name?: string; group?: string; roaming?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),

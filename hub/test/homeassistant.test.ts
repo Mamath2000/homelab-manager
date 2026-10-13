@@ -97,6 +97,22 @@ test('a roaming host offline is neither an alert nor counted offline', () => {
   assert.equal(state(ROOT_ID, 'alerts'), '0');
 });
 
+test('a host excluded from Home Assistant has no device and is left out of the totals', () => {
+  const kept = host('pve1', { upgradable: [pkg('openssl', true)] });
+  const hidden = { ...host('lab', { upgradable: [pkg('curl')] }), haExcluded: true };
+  const groups = [{ id: 'g1', backupId: 'lab', hostId: hidden._id.toHexString(), state: 'stale', lastBackup: 0 }];
+  const { devices } = build([{ host: kept, online: true, busy: false }, { host: hidden, online: false, busy: false }], {
+    ...opts, backups: { groups, datastores: [] },
+  });
+  const state = (key: string) => devices.flatMap((d) => d.states).find(([t]) => t === `hm/${ROOT_ID}/${key}/state`)?.[1];
+
+  assert.equal(devices.some((d) => d.id.startsWith(`hm_${hidden._id.toHexString()}`)), false);
+  assert.equal(state('hosts'), '1');
+  assert.equal(state('hosts_offline'), '0');
+  assert.equal(state('updates'), '1');
+  assert.equal(state('backups_late'), '0');
+});
+
 test('update entity and commands map to jobs', () => {
   const h = host('pve1', { upgradable: [pkg('linux-image-6.12.48-amd64', true), pkg('curl')] });
   const offline = host('off', { upgradable: [pkg('curl')] });

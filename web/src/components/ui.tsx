@@ -1,4 +1,4 @@
-import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -40,6 +40,32 @@ export function Button({
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : Icon ? <Icon className="h-4 w-4" /> : null}
       {children}
     </button>
+  );
+}
+
+// Joined icon-only buttons (actions of a list row): an action not possible stays shown, greyed.
+export type IconAction = { icon: LucideIcon; title: string; onClick?: (e: MouseEvent<HTMLButtonElement>) => void; disabled?: boolean; loading?: boolean; danger?: boolean };
+
+export function IconGroup({ actions, className }: { actions: IconAction[]; className?: string }) {
+  return (
+    <span className={clsx('inline-flex divide-x divide-emerald-500/30 overflow-hidden rounded-md border border-emerald-500/40 bg-emerald-500/10', className)}>
+      {actions.map(({ icon: Icon, title, onClick, disabled, loading, danger }) => (
+        <button
+          key={title}
+          type="button"
+          title={title}
+          aria-label={title}
+          disabled={disabled || loading}
+          onClick={onClick}
+          className={clsx(
+            'inline-flex h-7 w-8 items-center justify-center text-emerald-300 transition disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent',
+            danger ? 'hover:bg-red-500/20 hover:text-red-300' : 'hover:bg-emerald-500/20 hover:text-emerald-100',
+          )}
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+        </button>
+      ))}
+    </span>
   );
 }
 

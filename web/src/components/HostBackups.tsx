@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { AlertTriangle, Container, DatabaseBackup, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Unlink } from 'lucide-react';
-import { SnapshotsButton } from './BackupSnapshots';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, Bot, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink } from 'lucide-react';
+import { SnapshotsModal } from './BackupSnapshots';
 import { BackupJobEditModal, ManagedBackupsModal } from './ManagedBackups';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
-import { useBackups } from '../lib/queries';
+import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Modal, Panel } from './ui';
+import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel } from './ui';
 
 const DAY = 24 * 3600_000;
 
@@ -136,7 +137,7 @@ function ClientIcon({ host }: { host: Host }) {
       ? [Package, 'text-emerald-400', 'Client PBS installé (APT)']
       : c.mode === 'docker'
         ? [Container, 'text-sky-400', 'Client PBS en conteneur (image Docker)']
-        : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (bouton Répertoires pour l’installer)'];
+        : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (bouton Agent pour l’installer)'];
   return (
     <span title={title} className="ml-2 inline-flex align-middle">
       <Icon className={`h-4 w-4 ${tone}`} aria-label={title} />
@@ -149,10 +150,19 @@ export function HostBackups({ host }: { host: Host }) {
   const { data } = useBackups();
   const { canManage, canWrite } = useMe();
   const toast = useToast();
+  const qc = useQueryClient();
   const [attaching, setAttaching] = useState(false);
-  const [directories, setDirectories] = useState(false);
+  const [agent, setAgent] = useState(false);
+  // job id, or 'new'
   const [editing, setEditing] = useState<string | null>(null);
   const [running, setRunning] = useState<string | null>(null);
+  const [history, setHistory] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<BackupGroup | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // agent able to run backups of its own (not the HAOS add-on)
+  const agentBackups = backupClient(host.capabilities).supported;
+  // what a new job needs: the PBS client and the token of the host
+  const { data: jobs } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!data?.enabled && canManage && agentBackups });
   if (!data?.enabled) return null;
   const mine = data.groups.filter((g) => g.hostId === host.id).sort((a, b) => a.backupId.localeCompare(b.backupId));
 
@@ -169,6 +179,24 @@ export function HostBackups({ host }: { host: Host }) {
       setRunning(null);
     }
   };
+
+  // backup job writing this group, deleted (its snapshots stay on the PBS)
+  const remove = async () => {
+    if (!removing?.managed) return;
+    setDeleting(true);
+    try {
+      await api.deleteBackupJob(removing.managed.jobId);
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+      qc.invalidateQueries({ queryKey: keys.backups });
+      setRemoving(null);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? "Installer d'abord le client PBS (bouton Agent)" : !jobs.credential ? "Renseigner d'abord l'accès au PBS (bouton Agent)" : null;
 
   const detach = async (g: BackupGroup) => {
     try {
@@ -190,11 +218,16 @@ export function HostBackups({ host }: { host: Host }) {
       icon={DatabaseBackup}
       actions={
         <>
-          {/* agent unable to run backups of its own (HAOS add-on); existing jobs: pencil of their line */}
-          {canManage && backupClient(host.capabilities).supported && (
-            <Button size="sm" variant="ghost" icon={Plus} onClick={() => setDirectories(true)} title="Sauvegardes lancées par l'agent de cet hôte : ajouter, modifier, supprimer (répertoires ou bases de données)">
-              Sauvegarde
-            </Button>
+          {/* agent unable to run backups of its own (HAOS add-on): neither Agent nor Ajouter */}
+          {canManage && agentBackups && (
+            <>
+              <Button size="sm" variant="ghost" icon={Bot} onClick={() => setAgent(true)} title="Agent de sauvegarde : client PBS et accès au PBS (jeton)">
+                Agent
+              </Button>
+              <Button size="sm" variant="ghost" icon={Plus} disabled={!!addBlocked} onClick={() => setEditing('new')} title={addBlocked ?? "Nouvelle sauvegarde lancée par l'agent (répertoires ou base de données)"}>
+                Ajouter
+              </Button>
+            </>
           )}
           {canManage && <Button size="sm" icon={Link2} onClick={() => setAttaching(true)}>Rattacher</Button>}
         </>
@@ -225,18 +258,27 @@ export function HostBackups({ host }: { host: Host }) {
                   <span title={backupKind(g).title}>
                     <Badge tone="neutral">{backupKind(g).label}</Badge>
                   </span>
-                  {canManage && g.managed ? (
-                    <Button size="sm" variant="ghost" icon={Pencil} className="ml-auto" title="Modifier la sauvegarde" onClick={() => setEditing(g.managed!.jobId)} />
-                  ) : null}
-                  <SnapshotsButton group={g} className={canManage && g.managed ? undefined : 'ml-auto'} />
-                  {canWrite && g.managed && (
-                    <Button size="sm" icon={Play} loading={running === g.id} disabled={!host.online} onClick={() => run(g)} title="Lancer la sauvegarde maintenant">
-                      Lancer
-                    </Button>
-                  )}
+                  {g.managed && !g.managed.enabled && <Badge tone="neutral">désactivée</Badge>}
+                  {/* run, edit and delete: backups of the agent only */}
+                  {/* before the block: the blocks of the rows stay aligned on the right */}
                   {canManage && !g.source && (
-                    <Button size="sm" variant="ghost" icon={Unlink} title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
+                    <Button size="sm" variant="ghost" icon={Unlink} className="ml-auto" title="Détacher : la sauvegarde n'est plus suivie" onClick={() => detach(g)} />
                   )}
+                  <IconGroup
+                    className={clsx('shrink-0', !(canManage && !g.source) && 'ml-auto')}
+                    actions={[
+                      {
+                        icon: Play,
+                        title: !g.managed ? "Lancer : seulement les sauvegardes de l'agent" : !host.online ? 'Lancer : agent hors ligne' : 'Lancer la sauvegarde maintenant',
+                        disabled: !canWrite || !g.managed || !host.online,
+                        loading: running === g.id,
+                        onClick: () => run(g),
+                      },
+                      { icon: Pencil, title: g.managed ? 'Modifier la sauvegarde' : "Modifier : seulement les sauvegardes de l'agent", disabled: !canManage || !g.managed, onClick: () => setEditing(g.managed!.jobId) },
+                      { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
+                      { icon: Trash2, title: g.managed ? 'Supprimer la sauvegarde' : "Supprimer : seulement les sauvegardes de l'agent", disabled: !canManage || !g.managed, danger: true, onClick: () => setRemoving(g) },
+                    ]}
+                  />
                 </div>
                 <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:gap-6">
                   <div className="min-w-0 @2xl:flex-1 @2xl:basis-0">
@@ -268,8 +310,16 @@ export function HostBackups({ host }: { host: Host }) {
         <Link to={`/backups?host=${host.id}`} className="text-emerald-400 hover:underline">Voir dans la page Sauvegardes</Link>
       </p>
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
-      <ManagedBackupsModal host={host} open={directories} onClose={() => setDirectories(false)} />
+      <ManagedBackupsModal host={host} open={agent} onClose={() => setAgent(false)} />
       {canManage && <BackupJobEditModal host={host} jobId={editing} onClose={() => setEditing(null)} />}
+      {(() => {
+        // looked up at each render: follows the refreshes of the list
+        const g = history && mine.find((x) => x.id === history);
+        return g ? <SnapshotsModal group={g} open onClose={() => setHistory(null)} /> : null;
+      })()}
+      <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={remove} title="Supprimer la sauvegarde" confirmLabel="Supprimer" danger loading={deleting}>
+        L'agent ne lancera plus <b>{removing?.managed?.name}</b>. Les snapshots déjà faits restent sur le PBS (le groupe devient orphelin).
+      </ConfirmModal>
     </Panel>
   );
 }

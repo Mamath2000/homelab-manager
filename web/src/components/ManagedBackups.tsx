@@ -1,18 +1,15 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Container, KeyRound, ListChecks, Package, Pencil, Play, Plus, Save, Trash2, X } from 'lucide-react';
+import { Container, KeyRound, ListChecks, Package, Plus, Save, X } from 'lucide-react';
 import { api, type BackupJob, type BackupJobInput, type BackupJobKind, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
-import { databaseJobText, databaseKindLabel, dumpArchives, formatBytes } from '../lib/backups';
+import { databaseKindLabel, dumpArchives, formatBytes } from '../lib/backups';
 import { useMe } from '../lib/auth';
-import { dateTime, timeAgo } from '../lib/format';
 import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
-import { useBackups } from '../lib/queries';
+import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { BackupTimeline } from './HostBackups';
 import { TokenSetup } from './TokenSetup';
-import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
+import { Badge, Button, CopyField, Modal, Spinner } from './ui';
 
 const PRESETS = [
   { label: 'Tous les jours à 03:00', value: '03:00' },
@@ -368,6 +365,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
       if (job) await api.updateBackupJob(job.id, body);
       else await api.createBackupJob(host.id, body);
       qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+      // the card of the host lists the groups of the backups
+      qc.invalidateQueries({ queryKey: keys.backups });
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -546,20 +545,19 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   );
 }
 
-// Edition of one backup job straight from the list of the backups of the host (pencil of its line),
-// without going through the window of the directories.
+// Creation ('new') or edition of one backup job, from the list of the backups of the host.
 export function BackupJobEditModal({ host, jobId, onClose }: { host: Host; jobId: string | null; onClose: () => void }) {
   const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!jobId });
   if (!jobId) return null;
-  const job = data?.jobs.find((j) => j.id === jobId);
-  if (!data || !job) {
+  const job = jobId === 'new' ? null : data?.jobs.find((j) => j.id === jobId);
+  if (!data || job === undefined) {
     return (
       <Modal open onClose={onClose} title="Sauvegarde">
         {data ? <p className="text-sm text-muted">Ce job n'existe plus.</p> : <div className="flex justify-center p-4"><Spinner /></div>}
       </Modal>
     );
   }
-  return <JobModal key={job.id} host={host} view={data} job={job} open onClose={onClose} />;
+  return <JobModal key={jobId} host={host} view={data} job={job} open onClose={onClose} />;
 }
 
 // Installation of the PBS client, by the agent: Proxmox repository + package (APT), or the client image
@@ -615,141 +613,36 @@ function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: H
   );
 }
 
-// Backups of directories defined here and run by the agent of the host (window opened from the
-// Sauvegardes card of the host page).
+// Agent that runs the backups of the host: its PBS client and its token (window opened from the
+// Sauvegardes card of the host page; the jobs are in the card).
 export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open: boolean; onClose: () => void }) {
   const { data: backups } = useBackups();
-  const { canManage, canWrite } = useMe();
-  const toast = useToast();
-  const qc = useQueryClient();
+  const { canManage } = useMe();
   const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!backups?.enabled && open });
-  const [editing, setEditing] = useState<BackupJob | 'new' | null>(null);
-  const [removing, setRemoving] = useState<BackupJob | null>(null);
   const [credential, setCredential] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
   if (!backups?.enabled || !open) return null;
+  const title = `Agent de sauvegarde de ${host.name}`;
   if (!data) {
     return (
-      <Modal open onClose={onClose} wide="xl" title={`Sauvegardes lancées par l'agent de ${host.name}`}>
+      <Modal open onClose={onClose} wide="xl" title={title}>
         <div className="flex justify-center p-4"><Spinner /></div>
       </Modal>
     );
   }
-
-  const run = async (j: BackupJob) => {
-    setBusy(j.id);
-    try {
-      await api.runBackupJob(j.id);
-      toast.success(`Sauvegarde ${j.name} lancée`);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-  const remove = async () => {
-    if (!removing) return;
-    setBusy(removing.id);
-    try {
-      await api.deleteBackupJob(removing.id);
-      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
-      setRemoving(null);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const state = backups.groups.filter((g) => g.managed);
-  const groupOf = (j: BackupJob) => state.find((g) => g.managed?.jobId === j.id);
   return (
-    <Modal open onClose={onClose} wide="xl" scroll title={`Sauvegardes lancées par l'agent de ${host.name}`}>
-      {/* the agent, then what is missing for it to back up; the jobs below */}
-      <div className="mb-4 space-y-3">
+    <Modal open onClose={onClose} wide="xl" title={title}>
+      <div className="space-y-3">
         <AgentHeader
           host={host}
           view={data}
           sync
-          actions={
-            canManage && (
-              <>
-                <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>
-                <Button
-                  size="sm"
-                  icon={Plus}
-                  disabled={!data.credential || !data.mode}
-                  onClick={() => setEditing('new')}
-                  title={!data.mode ? "Installer d'abord le client PBS" : data.credential ? undefined : "Renseigner d'abord l'accès au PBS"}
-                >
-                  Ajouter
-                </Button>
-              </>
-            )
-          }
+          actions={canManage && <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>}
         />
         {data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
           <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
         )}
       </div>
-      {data.jobs.length === 0 ? (
-        <p className="text-sm text-muted">
-          Aucune sauvegarde définie ici. L'agent sauvegarde sur le PBS les répertoires ou les bases choisis, à l'heure prévue, même si le hub est arrêté.
-        </p>
-      ) : (
-        <ul className="-my-2 divide-y divide-line">
-          {data.jobs.map((j) => {
-            const g = groupOf(j);
-            return (
-              <li key={j.id} className="py-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-zinc-100">{j.name}</span>
-                  <Badge tone="neutral">{KIND_LABEL[j.kind]}</Badge>
-                  {!j.enabled && <Badge tone="neutral">désactivée</Badge>}
-                  <span className="ml-auto flex gap-1">
-                    {canWrite && <Button size="sm" icon={Play} loading={busy === j.id} disabled={!host.online} onClick={() => run(j)} title="Lancer maintenant">Lancer</Button>}
-                    {canManage && <Button size="sm" variant="ghost" icon={Pencil} title="Modifier" onClick={() => setEditing(j)} />}
-                    {canManage && <Button size="sm" variant="ghost" icon={Trash2} title="Supprimer" onClick={() => setRemoving(j)} />}
-                  </span>
-                </div>
-                {databaseJobText(j) ? (
-                  <div className="mt-0.5 text-xs text-zinc-300">{databaseJobText(j)}</div>
-                ) : (
-                  <div className="mt-0.5 font-mono text-xs text-zinc-400">{j.archives.map((a) => a.path).join('  ')}</div>
-                )}
-                <div className="text-xs text-muted">
-                  {g?.managed?.scheduleText ?? j.schedule} · {j.store}{j.ns ? ` › ${j.ns}` : ''} · host/{j.backupId}
-                </div>
-                {j.lastRun && (
-                  <div className={j.lastRun.ok ? 'text-xs text-emerald-400' : 'text-xs text-red-400'} title={dateTime(j.lastRun.end)}>
-                    {j.lastRun.ok ? 'Réussie' : 'Échec'} {timeAgo(j.lastRun.end)}
-                    {j.lastRun.error && ` : ${j.lastRun.error}`}
-                    {j.lastRun.jobId && <> · <Link to={`/jobs/${j.lastRun.jobId}`} className="hover:underline">journal</Link></>}
-                  </div>
-                )}
-                {/* snapshots seen on the PBS over the last 30 days */}
-                {g && <BackupTimeline group={g} className="mt-2 w-full" />}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {canManage && (
-        <>
-          <JobModal
-            key={editing === 'new' ? 'new' : editing?.id ?? 'none'}
-            host={host}
-            view={data}
-            job={editing === 'new' ? null : editing}
-            open={!!editing}
-            onClose={() => setEditing(null)}
-          />
-          <CredentialModal key={String(credential)} host={host} view={data} open={credential} onClose={() => setCredential(false)} />
-          <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={remove} title="Supprimer la sauvegarde" confirmLabel="Supprimer" danger loading={!!busy}>
-            L'agent ne lancera plus <b>{removing?.name}</b>. Les snapshots déjà faits restent sur le PBS (le groupe devient orphelin).
-          </ConfirmModal>
-        </>
-      )}
+      {canManage && <CredentialModal key={String(credential)} host={host} view={data} open={credential} onClose={() => setCredential(false)} />}
     </Modal>
   );
 }

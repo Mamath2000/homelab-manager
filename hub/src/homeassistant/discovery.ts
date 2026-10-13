@@ -69,10 +69,13 @@ export interface BuildOptions {
 
 type Component = Record<string, unknown>;
 
-export function build(hosts: HostState[], opts: BuildOptions) {
+export function build(all: HostState[], opts: BuildOptions) {
   const { topic, discoveryPrefix, version, hubUrl, backups } = opts;
-  // followed: groups attached to a host (gone ones are reported as alerts only)
-  const tracked = (backups?.groups ?? []).filter((g) => g.hostId);
+  // hosts excluded from Home Assistant: no device, and left out of the totals and alerts of the root
+  const hosts = all.filter((h) => !h.host.haExcluded);
+  const excluded = new Set(all.filter((h) => h.host.haExcluded).map((h) => h.host._id.toHexString()));
+  // followed: groups attached to a published host (gone ones are reported as alerts only)
+  const tracked = (backups?.groups ?? []).filter((g) => g.hostId && !excluded.has(g.hostId));
   const devices: Device[] = [];
   const commands = new Map<string, Command>();
   const availability = [{ topic: `${topic}/lwt` }];

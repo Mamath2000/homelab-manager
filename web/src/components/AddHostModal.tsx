@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { InstallInstructions } from './InstallInstructions';
+import { HaExcludedField } from './HaExcludedField';
 import { RoamingField } from './RoamingField';
 import { Button, Modal } from './ui';
 
@@ -9,6 +10,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
   const [name, setName] = useState('');
   const [group, setGroup] = useState('');
   const [roaming, setRoaming] = useState(false);
+  const [haExcluded, setHaExcluded] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<InstallInfo | null>(null);
@@ -18,6 +20,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
     setName('');
     setGroup('');
     setRoaming(false);
+    setHaExcluded(false);
     setError('');
     setResult(null);
     onClose();
@@ -28,7 +31,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
     setBusy(true);
     setError('');
     try {
-      const r = await api.createHost(name, group, roaming);
+      const r = await api.createHost(name, group, roaming, haExcluded);
       upsert(r.host);
       setResult(r);
     } catch (err) {
@@ -58,6 +61,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
             <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} placeholder="infra, media, domotique…" />
           </label>
           <RoamingField checked={roaming} onChange={setRoaming} />
+          <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={close}>Annuler</Button>

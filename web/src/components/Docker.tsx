@@ -6,7 +6,7 @@ import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { useRunJob } from '../lib/queries';
 import { imageUpdateMeta, stackMeta, stackPath } from '../lib/status';
-import { Badge, Button, ConfirmModal, Panel, Tag } from './ui';
+import { Badge, Button, ConfirmModal, IconGroup, Panel, Tag } from './ui';
 
 export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'status' | 'running' | 'total'> }) {
   if (!stack.managed) {
@@ -45,6 +45,7 @@ const actionText: Record<StackAction, { label: string; icon: typeof Play; confir
 };
 
 // Buttons for a stack, or one of its services; only stopping asks for a confirmation.
+// `compact`: icon block of a table row, always the 4 actions (greyed when not possible).
 export function StackActions({
   host,
   stack,
@@ -63,8 +64,9 @@ export function StackActions({
   const { canWrite } = useMe();
   const run = useRunJob();
   const [confirm, setConfirm] = useState<StackAction | null>(null);
-  // unmanaged: read-only, no action at all
-  if (!canWrite || !stack.managed) return null;
+  if (!canWrite) return null;
+  // unmanaged: read-only, no action at all (the row keeps a greyed block)
+  if (!stack.managed && !compact) return null;
   const what = service ? `le service ${service} de ${stack.name}` : `la stack ${stack.name}`;
   const off = disabled || !host.online;
   const actions: StackAction[] = stack.status === 'down' ? ['docker_up'] : ['docker_up', 'docker_restart', 'docker_stop', 'docker_update'];
@@ -80,8 +82,35 @@ export function StackActions({
       },
     );
 
+  const ask = (a: StackAction) => (actionText[a].confirm ? setConfirm(a) : start(a));
+  // why an action of the block is greyed (null = possible)
+  const why = (a: StackAction) =>
+    !stack.managed ? 'stack non managée'
+    : !host.online ? 'hôte hors ligne'
+    : disabled ? 'une tâche est en cours'
+    : !actions.includes(a) ? 'stack arrêtée'
+    : null;
+
   return (
     <>
+      {compact ? (
+        <IconGroup
+          actions={(['docker_up', 'docker_restart', 'docker_stop', 'docker_update'] as StackAction[]).map((a) => {
+            const w = why(a);
+            const label = a === 'docker_update' && stack.updates > 0 && !service ? `${actionText[a].label} (${stack.updates} MAJ)` : actionText[a].label;
+            return {
+              icon: actionText[a].icon,
+              title: w ? `${label} — impossible : ${w}` : label,
+              disabled: !!w || run.isPending,
+              danger: a === 'docker_stop',
+              onClick: (e) => {
+                e.preventDefault();
+                ask(a);
+              },
+            };
+          })}
+        />
+      ) : (
       <div className="flex flex-wrap items-center gap-2">
         {actions.map((a) => {
           const t = actionText[a];
@@ -90,20 +119,19 @@ export function StackActions({
               key={a}
               size="sm"
               icon={t.icon}
-              variant={highlight(a) ? 'primary' : compact ? 'ghost' : 'secondary'}
-              title={compact ? t.label : undefined}
+              variant={highlight(a) ? 'primary' : 'secondary'}
               disabled={off || run.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                if (t.confirm) setConfirm(a);
-                else start(a);
+                ask(a);
               }}
             >
-              {!compact && t.label}
+              {t.label}
             </Button>
           );
         })}
       </div>
+      )}
       {confirm && (
         <ConfirmModal
           open
@@ -160,6 +188,7 @@ export function ServiceTags({ services }: { services: { name: string }[] }) {
 
 // Stacks of a host, on its detail page.
 export function DockerPanel({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
+  const { canWrite } = useMe();
   const d = host.docker;
   if (!d) return null;
   return (
@@ -179,6 +208,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
               <th className="th">État</th>
               <th className="th">Images</th>
               <th className="th hidden md:table-cell">Services</th>
+              {canWrite && <th className="th text-right">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -195,6 +225,11 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                 <td className="td hidden md:table-cell">
                   <ServiceTags services={st.services} />
                 </td>
+                {canWrite && (
+                  <td className="td">
+                    <div className="flex justify-end"><StackActions host={host} stack={st} disabled={running} compact onStarted={onStarted} /></div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

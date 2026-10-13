@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
+import { HaExcludedField } from '../components/HaExcludedField';
 import { RoamingField } from '../components/RoamingField';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
@@ -12,7 +13,7 @@ import { SetupButton, SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
+import { Badge, Button, Checkbox, ConfirmModal, Empty, IconGroup, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
@@ -35,6 +36,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
   const [name, setName] = useState(host.name);
   const [group, setGroup] = useState(host.group);
   const [roaming, setRoaming] = useState(host.roaming);
+  const [haExcluded, setHaExcluded] = useState(host.haExcluded);
   const [busy, setBusy] = useState(false);
   const upsert = useUpdateHostCache();
   const toast = useToast();
@@ -42,7 +44,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
     e.preventDefault();
     setBusy(true);
     try {
-      upsert(await api.updateHost(host.id, { name, group, roaming }));
+      upsert(await api.updateHost(host.id, { name, group, roaming, haExcluded }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -62,6 +64,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
           <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} />
         </label>
         <RoamingField checked={roaming} onChange={setRoaming} />
+        <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
           <Button type="submit" variant="primary" loading={busy}>Enregistrer</Button>
@@ -100,36 +103,33 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
       icon={Package}
       bodyClassName=""
       actions={
-        canWrite && (
-          <>
-            <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!host.online || running} loading={run.isPending && run.variables?.action === 'apt_update'} onClick={() => start('apt_update')}>
-              Rechercher les MAJ
-            </Button>
-            {selected.size > 0 ? (
-              <Button
-                size="sm"
-                variant="primary"
-                icon={ArrowUpCircle}
-                disabled={!host.online || running}
-                loading={run.isPending && run.variables?.action === 'apt_upgrade'}
-                onClick={() => run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) })}
-              >
-                Mettre à jour la sélection ({selected.size})
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="primary"
-                icon={ArrowUpCircle}
-                disabled={!host.online || running || !host.aptSummary?.upgradable}
-                loading={run.isPending && run.variables?.action === 'apt_upgrade'}
-                onClick={() => start('apt_upgrade')}
-              >
-                Tout mettre à jour
-              </Button>
-            )}
-          </>
-        )
+        // upgrade: the selection when packages are ticked, everything otherwise
+        <IconGroup
+          actions={[
+            {
+              icon: RefreshCw,
+              title: 'Rechercher les mises à jour',
+              disabled: !canWrite || !host.online || running,
+              loading: run.isPending && run.variables?.action === 'apt_update',
+              onClick: () => start('apt_update'),
+            },
+            selected.size > 0
+              ? {
+                  icon: ArrowUpCircle,
+                  title: `Mettre à jour la sélection (${selected.size})`,
+                  disabled: !canWrite || !host.online || running,
+                  loading: run.isPending && run.variables?.action === 'apt_upgrade',
+                  onClick: () => run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) }),
+                }
+              : {
+                  icon: ArrowUpCircle,
+                  title: 'Tout mettre à jour',
+                  disabled: !canWrite || !host.online || running || !host.aptSummary?.upgradable,
+                  loading: run.isPending && run.variables?.action === 'apt_upgrade',
+                  onClick: () => start('apt_upgrade'),
+                },
+          ]}
+        />
       }
     >
       {(rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
@@ -300,6 +300,7 @@ export function HostDetail() {
         <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
         {host.group && <Tag>{host.group}</Tag>}
         {host.roaming && <Tag>Itinérant</Tag>}
+        {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
       </PageHeader>
 
       {host.aptSummary?.rebootRequired && (

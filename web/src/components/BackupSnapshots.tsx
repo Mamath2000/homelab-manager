@@ -17,7 +17,7 @@ function VerifyBadge({ s, ha }: { s: BackupSnapshot; ha: boolean }) {
 }
 
 // Snapshots of a group (history kept by the hub at the last poll or report), newest first.
-function SnapshotsModal({ group, open, onClose }: { group: BackupGroup; open: boolean; onClose: () => void }) {
+export function SnapshotsModal({ group, open, onClose }: { group: BackupGroup; open: boolean; onClose: () => void }) {
   const [all, setAll] = useState(false);
   const ha = group.source === 'haos';
   const list = [...(group.times ?? [])].reverse();

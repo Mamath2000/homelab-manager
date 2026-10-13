@@ -40,7 +40,9 @@ export function scheduleLabel(g: Pick<BackupGroup, 'pve' | 'managed' | 'ha'>) {
 export function groupLabel(g: Pick<BackupGroup, 'type' | 'backupId' | 'comment'> & { managed?: BackupGroup['managed'] }) {
   if (g.managed) return g.managed.name;
   if (g.type === 'ha') return g.backupId;
-  return g.type === 'host' ? g.backupId : `${g.type}/${g.backupId}${g.comment ? ` (${g.comment})` : ''}`;
+  if (g.type === 'host') return g.backupId;
+  // guest of Proxmox VE: its name first (comment of the group), then ct/<vmid>
+  return g.comment ? `${g.comment} (${g.type}/${g.backupId})` : `${g.type}/${g.backupId}`;
 }
 
 // Summary of the groups of one host: worst state and most recent backup.

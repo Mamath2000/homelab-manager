@@ -19,6 +19,7 @@ const hostBody = {
     name: { type: 'string', minLength: 1, maxLength: 64 },
     group: { type: 'string', maxLength: 64 },
     roaming: { type: 'boolean' },
+    haExcluded: { type: 'boolean' },
   },
 } as const;
 
@@ -86,7 +87,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map(hostDto);
   });
 
-  app.post<{ Body: { name: string; group?: string; roaming?: boolean } }>(
+  app.post<{ Body: { name: string; group?: string; roaming?: boolean; haExcluded?: boolean } }>(
     '/api/hosts',
     { schema: { body: { ...hostBody, required: ['name'] } } },
     async (req, reply) => {
@@ -96,6 +97,7 @@ export function registerHostRoutes(app: FastifyInstance) {
         name: req.body.name.trim(),
         group: req.body.group?.trim() || undefined,
         roaming: req.body.roaming || undefined,
+        haExcluded: req.body.haExcluded || undefined,
         ...enroll.fields,
         createdAt: new Date(),
       };
@@ -114,7 +116,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; group?: string; roaming?: boolean } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; group?: string; roaming?: boolean; haExcluded?: boolean } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -122,8 +124,13 @@ export function registerHostRoutes(app: FastifyInstance) {
       const set: Partial<HostDoc> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
       if (req.body.group !== undefined) set.group = req.body.group.trim();
-      if (req.body.roaming) set.roaming = true;
-      const update = req.body.roaming === false ? { $set: set, $unset: { roaming: '' as const } } : { $set: set };
+      // flags: stored only when set
+      const unset: Partial<Record<'roaming' | 'haExcluded', ''>> = {};
+      for (const flag of ['roaming', 'haExcluded'] as const) {
+        if (req.body[flag]) set[flag] = true;
+        else if (req.body[flag] === false) unset[flag] = '';
+      }
+      const update = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
       const host = _id && (await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const dto = hostDto(host);
