@@ -115,7 +115,9 @@ func fakeDump(t *testing.T, fail string) *[]dumpCall {
 
 func TestDumpPostgresDatabases(t *testing.T) {
 	calls := fakeDump(t, "")
-	work := filepath.Join(t.TempDir(), "backup")
+	// a parent closed to others, like /mnt/backup on ct-1007
+	parent := filepath.Join(t.TempDir(), "mnt")
+	work := filepath.Join(parent, "backup")
 	// a dump of yesterday is replaced, not mixed with the new one
 	if err := os.MkdirAll(filepath.Join(work, "pg-hass"), 0o700); err != nil {
 		t.Fatal(err)
@@ -123,8 +125,10 @@ func TestDumpPostgresDatabases(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(work, "pg-hass", "old.dat"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(work, 0o700); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{work, parent} {
+		if err := os.Chmod(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	kind, p := "postgres", &DatabaseDump{Mode: "databases", Databases: []string{"hass", "hass-jarsay"}, WorkDir: work}
 	if err := dumpDatabases(context.Background(), kind, p, func(string) {}); err != nil {
@@ -149,8 +153,10 @@ func TestDumpPostgresDatabases(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(work, "pg-hass", "old.dat")); !os.IsNotExist(err) {
 		t.Error("previous dump kept")
 	}
-	if fi, _ := os.Stat(work); fi.Mode().Perm()&0o001 == 0 {
-		t.Error("postgres cannot traverse the work directory")
+	for _, d := range []string{work, parent} {
+		if fi, _ := os.Stat(d); fi.Mode().Perm() != 0o701 {
+			t.Errorf("%s: mode %o, postgres cannot traverse it (or more than x was opened)", d, fi.Mode().Perm())
+		}
 	}
 	finishDumps(kind, p, true, time.Now(), func(string) {})
 	for _, d := range []string{"pg-globals", "pg-hass", "pg-hass-jarsay"} {

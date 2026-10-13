@@ -190,18 +190,33 @@ func dumpDatabases(ctx context.Context, kind string, p *DatabaseDump, emit func(
 	return fmt.Errorf("unknown database kind %q", kind)
 }
 
+// openTraversal: postgres must reach its dump directories, so the work directory and each of its parents
+// get the traversal right for others where it is missing (x only: their content cannot be listed).
+func openTraversal(dir string, emit func(string)) error {
+	for d := dir; d != "/" && d != "."; d = filepath.Dir(d) {
+		fi, err := os.Stat(d)
+		if err != nil {
+			return err
+		}
+		if fi.Mode().Perm()&0o001 != 0 {
+			continue
+		}
+		if err := os.Chmod(d, fi.Mode().Perm()|0o001); err != nil {
+			return err
+		}
+		emit(fmt.Sprintf("%s : droit de traversée ajouté pour l'utilisateur postgres (%o → %o)\n", d, fi.Mode().Perm(), fi.Mode().Perm()|0o001))
+	}
+	return nil
+}
+
 // Run as the postgres user (peer authentication on the local socket), like the PostgreSQL tools expect.
 func dumpPostgres(ctx context.Context, p *DatabaseDump, emit func(string)) error {
 	uid, gid, home, err := lookupPostgres()
 	if err != nil {
 		return err
 	}
-	// postgres must reach its dump directories: traversal of the work directory (not its listing)
-	if fi, err := os.Stat(p.WorkDir); err == nil && fi.Mode().Perm()&0o001 == 0 {
-		if err := os.Chmod(p.WorkDir, fi.Mode().Perm()|0o001); err != nil {
-			return err
-		}
-		emit(fmt.Sprintf("%s : droit de traversée ajouté pour l'utilisateur postgres\n", p.WorkDir))
+	if err := openTraversal(p.WorkDir, emit); err != nil {
+		return err
 	}
 	env := append(os.Environ(), "LC_ALL=C", "HOME="+home, "PGAPPNAME=homelab-agent")
 	as := func(args ...string) []string { return append([]string{"-u", "postgres", "--"}, args...) }
