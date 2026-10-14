@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatabaseBackup, Pencil, Plug, Save } from 'lucide-react';
-import { api, type PbsSettings, type PbsSettingsInput } from '../lib/api';
+import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
 import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
 import { withoutEmptySecret } from '../lib/forms';
@@ -11,6 +11,14 @@ import { Button, Modal, Panel, Spinner } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pbs!monitor';
 const pbsSetup = (tokenId: string) => pbsTokenScript({ ...splitTokenId(tokenId, 'homelab@pbs', 'monitor'), path: '/datastore', role: 'DatastoreAudit' });
+
+// the PBS filters the list by permission instead of answering 403
+function outcome(r: PbsTestResult, label: string): TestState {
+  const prefix = label ? `${label} : ` : '';
+  if (!r.ok) return { level: 'error', text: `${prefix}${r.error ?? 'échec'}` };
+  if (!r.datastores?.length) return { level: 'warn', text: `${prefix}connexion réussie mais aucun datastore visible : vérifier DatastoreAudit sur /datastore pour l’utilisateur ET le jeton` };
+  return { level: 'ok', text: `${prefix}connexion réussie · datastores : ${r.datastores.join(', ')}` };
+}
 
 function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
@@ -25,6 +33,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
   });
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
+  const [testTs, setTestTs] = useState<TestState>(null);
   const set = (patch: Partial<PbsSettingsInput>) => setForm({ ...form, ...patch });
 
   const save = async () => {
@@ -43,12 +52,13 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
   const runTest = async () => {
     setBusy('test');
     setTest(null);
+    setTestTs(null);
     try {
       const r = await api.testPbsSettings(withoutEmptySecret(form));
-      if (!r.ok) setTest({ level: 'error', text: r.error ?? 'échec' });
-      // the PBS filters the list by permission instead of answering 403
-      else if (!r.datastores?.length) setTest({ level: 'warn', text: 'Connexion réussie mais aucun datastore visible : vérifier DatastoreAudit sur /datastore pour l’utilisateur ET le jeton' });
-      else setTest({ level: 'ok', text: `Connexion réussie · datastores : ${r.datastores.join(', ')}` });
+      // with a Tailscale address, each result says which address it is about
+      const both = !!r.tailscale;
+      setTest(outcome(r, both ? 'LAN' : ''));
+      if (r.tailscale) setTestTs(outcome(r.tailscale, 'Tailscale'));
     } catch (err) {
       setTest({ level: 'error', text: (err as Error).message });
     } finally {
@@ -82,6 +92,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             enabledLabel="Suivre les sauvegardes du PBS"
           />
           <TestResult test={test} />
+          <TestResult test={testTs} />
           <div className="space-y-4 border-t border-line pt-4">
             <label className="block">
               <span className={field}>Adresse du PBS sur Tailscale (hôtes du réseau Tailscale)</span>

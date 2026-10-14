@@ -451,6 +451,12 @@ export interface PbsSettings {
   pollError?: string | null;
 }
 
+export interface PbsTestResult {
+  ok: boolean;
+  error?: string;
+  datastores?: string[];
+}
+
 export interface PbsSettingsInput {
   enabled: boolean;
   url: string;
@@ -634,7 +640,7 @@ export const api = {
   forgetBackup: (id: string) => request<void>('DELETE', `/api/backups/${encodeURIComponent(id)}`),
   pbsSettings: () => request<PbsSettings>('GET', '/api/settings/pbs'),
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
-  testPbsSettings: (s: PbsSettingsInput) => request<{ ok: boolean; error?: string; datastores?: string[] }>('POST', '/api/settings/pbs/test', s),
+  testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult & { tailscale?: PbsTestResult }>('POST', '/api/settings/pbs/test', s),
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
   createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),

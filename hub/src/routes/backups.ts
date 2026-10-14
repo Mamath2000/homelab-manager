@@ -92,12 +92,17 @@ export function registerBackupRoutes(app: FastifyInstance) {
   app.post<{ Body: SettingsBody }>('/api/settings/pbs/test', { schema: { body: settingsBody } }, async (req, reply) => {
     const next = await resolve({ ...req.body, enabled: true });
     if (typeof next === 'string') return reply.code(400).send({ error: next });
-    try {
-      const stores = await pbsGet<{ store: string }[]>(next, '/admin/datastore');
-      return { ok: true, datastores: stores.map((d) => d.store) };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
+    const probe = async (url: string) => {
+      try {
+        const stores = await pbsGet<{ store: string }[]>({ ...next, url }, '/admin/datastore');
+        return { ok: true, datastores: stores.map((d) => d.store) };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    };
+    // both addresses reach the same PBS (same token and certificate): each is tried when set
+    const main = await probe(next.url);
+    return next.tailscaleUrl ? { ...main, tailscale: await probe(next.tailscaleUrl) } : main;
   });
 
   app.post<{ Body: { url: string } }>(

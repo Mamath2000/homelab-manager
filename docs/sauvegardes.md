@@ -56,7 +56,7 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 
 Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : variable `TZ` du compose (défaut `Europe/Paris`).
 
-**Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les droits). Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite.
+**Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les droits). Quand une adresse Tailscale est saisie, le test porte sur les deux adresses (même jeton, même empreinte) et affiche un résultat par adresse. Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite.
 
 :::info Certificat épinglé
 Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que celui dont l'empreinte est enregistrée, et la vérifie avant d'envoyer le jeton. Après un renouvellement du certificat, récupérer à nouveau l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système.
