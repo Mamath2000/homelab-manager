@@ -145,10 +145,11 @@ test('error of a failed run: the last "Error:" line of the client', () => {
 });
 
 test('state of the PBS client of a host, from its capabilities', () => {
-  assert.deepEqual(clientState(['backup_setup', 'backup_install:apt', 'backup_install:docker']), { mode: null, install: ['apt', 'docker'], databases: null, supported: true });
-  assert.deepEqual(clientState(['backup_setup', 'backup', 'backup:docker', 'backup_install:apt']), { mode: 'docker', install: ['apt'], databases: null, supported: true });
-  assert.deepEqual(clientState(['backup', 'backup:native']), { mode: 'native', install: [], databases: null, supported: true });
-  assert.deepEqual(clientState(['apt_update']), { mode: null, install: [], databases: null, supported: false });
+  assert.deepEqual(clientState(['backup_setup', 'backup_install:apt', 'backup_install:docker']), { mode: null, install: ['apt', 'docker'], databases: null, estimate: false, supported: true });
+  assert.deepEqual(clientState(['backup_setup', 'backup', 'backup:docker', 'backup_install:apt']), { mode: 'docker', install: ['apt'], databases: null, estimate: false, supported: true });
+  assert.deepEqual(clientState(['backup', 'backup:native']), { mode: 'native', install: [], databases: null, estimate: false, supported: true });
+  assert.deepEqual(clientState(['apt_update']), { mode: null, install: [], databases: null, estimate: false, supported: false });
+  assert.equal(clientState(['backup', 'backup_estimate']).estimate, true);
 });
 
 test('database settings are checked like the agent does', () => {
@@ -253,6 +254,11 @@ test('a database job body passes the schema of the routes (no directory)', async
   assert.equal((await app.inject({ method: 'PUT', url: '/api/backup-jobs/x', payload: update })).statusCode, 404);
   assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-database-check', payload: { kind: 'mongodb', database: { ...body.database, databases: [] } } })).statusCode, 404);
   assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-jobs', payload: { ...body, kind: 'mysql' } })).statusCode, 400);
+  // estimate: refused by the schema without directory, past it for an unknown host
+  const estimate = (payload: unknown) => app.inject({ method: 'POST', url: '/api/hosts/x/backup-estimate', payload });
+  assert.equal((await estimate({ archives: [{ name: 'home', path: '/home' }], excludes: ['**/.cache'] })).statusCode, 404);
+  assert.equal((await estimate({ archives: [], excludes: [] })).statusCode, 400);
+  assert.equal((await estimate({ archives: [{ name: 'home', path: '/home' }] })).statusCode, 400);
   await app.close();
 });
 

@@ -3,7 +3,7 @@ import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
 import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobKind, jobView, normDatabase, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
-import type { BackupJobKind, DatabaseDump, HostDoc } from '../types.js';
+import type { BackupArchive, BackupJobKind, DatabaseDump, HostDoc } from '../types.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
 import { keepText, loadPbsSettings, policyFor } from '../pbs.js';
@@ -247,6 +247,34 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         return await agentRequest(host._id.toHexString(), 'backup_database_check', { backupKind: kind, database }, 75_000);
       } catch (e) {
         // answer of the agent (container stopped, no postgres user…) or no answer: shown in the form
+        if (e instanceof AgentRequestError) return reply.code(502).send({ error: e.message });
+        throw e;
+      }
+    },
+  );
+
+  // Estimates the size of the directories of a job form with its exclusions, to check the filters (admin).
+  app.post<{ Params: { id: string }; Body: { archives: BackupArchive[]; excludes: string[] } }>(
+    '/api/hosts/:id/backup-estimate',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['archives', 'excludes'],
+          properties: { archives: { ...jobProps.archives, minItems: 1 }, excludes: jobProps.excludes },
+        },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!(host.capabilities ?? []).includes('backup_estimate')) return reply.code(409).send({ error: "l'agent de cet hôte ne sait pas estimer : le mettre à jour d'abord" });
+      if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'hôte hors ligne' });
+      try {
+        return await agentRequest(host._id.toHexString(), 'backup_estimate', { estArchives: req.body.archives, estExcludes: req.body.excludes }, 200_000);
+      } catch (e) {
         if (e instanceof AgentRequestError) return reply.code(502).send({ error: e.message });
         throw e;
       }

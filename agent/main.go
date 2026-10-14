@@ -171,7 +171,7 @@ func (s *session) hello(ctx context.Context) error {
 		caps = append(caps, "backup_install:"+m)
 	}
 	// backups of databases (database.go): backup_database, and the kinds usable here
-	caps = append(caps, "backup_database")
+	caps = append(caps, "backup_database", "backup_estimate")
 	if _, err := exec.LookPath("pg_dump"); err == nil {
 		caps = append(caps, "backup_database:postgres")
 	}
@@ -249,6 +249,8 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		if r, err = checkSetup(ctx, in.Setup); err == nil {
 			out.Result = r
 		}
+	case "backup_estimate":
+		out.Result, err = estimateDirectories(ctx, in.EstArchives, in.EstExcludes)
 	case "backup_database_check":
 		if in.Database == nil {
 			err = fmt.Errorf("missing database settings")

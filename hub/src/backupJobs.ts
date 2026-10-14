@@ -212,6 +212,8 @@ export function clientState(caps: string[] = []) {
     install: (['apt', 'docker'] as const).filter((m) => caps.includes(`backup_install:${m}`)),
     // database jobs: kinds the agent found usable here (null: agent to update)
     databases: caps.includes('backup_database') ? (['postgres', 'mongodb'] as const).filter((t) => caps.includes(`backup_database:${t}`)) : null,
+    // size estimate of the directories of a job form (agent to update when false)
+    estimate: caps.includes('backup_estimate'),
     // agent that knows about backups at all (older ones: to update)
     supported: caps.includes('backup_setup') || caps.includes('backup'),
   };

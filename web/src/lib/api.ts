@@ -494,6 +494,16 @@ export interface DumpInfo {
 }
 
 // What the agent found for a database job (button Vérifier of the form)
+export interface BackupEstimate {
+  name: string;
+  path: string;
+  files: number;
+  size: number;
+  excluded: { files: number; size: number; top: { path: string; size: number; dir?: boolean }[] };
+  error?: string;
+  partial?: boolean; // walk stopped: the figures are a minimum
+}
+
 export interface DatabaseCheck {
   tools: string;
   databases: { name: string; size: number }[];
@@ -539,6 +549,7 @@ export interface HostBackupJobs {
   install: ('apt' | 'docker')[];
   // database jobs: kinds the agent found usable on the host (null: agent to update)
   databases: DatabaseKind[] | null;
+  estimate: boolean;
   supported: boolean;
   // store: datastore of the rights of the token, when created by the command of the UI
   credential: { tokenId: string; updatedAt: string; store: string | null } | null;
@@ -646,6 +657,8 @@ export const api = {
   createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),
   checkBackupDatabase: (hostId: string, kind: DatabaseKind, database: DatabaseDump) =>
     request<DatabaseCheck>('POST', `/api/hosts/${hostId}/backup-database-check`, { kind, database }),
+  estimateBackup: (hostId: string, archives: BackupArchive[], excludes: string[]) =>
+    request<BackupEstimate[]>('POST', `/api/hosts/${hostId}/backup-estimate`, { archives, excludes }),
   updateBackupJob: (id: string, j: BackupJobInput) => request<BackupJob>('PUT', `/api/backup-jobs/${id}`, j),
   deleteBackupJob: (id: string) => request<void>('DELETE', `/api/backup-jobs/${id}`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),

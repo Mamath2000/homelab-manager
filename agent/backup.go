@@ -121,21 +121,29 @@ func validateBackupSpec(s *BackupSpec) error {
 		if len(jobArchives(j)) == 0 {
 			return fmt.Errorf("job %s: no directory", j.ID)
 		}
-		names := map[string]bool{}
-		for _, a := range jobArchives(j) {
-			if names[a.Name] {
-				return fmt.Errorf("job %s: archive %q twice", j.ID, a.Name)
-			}
-			names[a.Name] = true
-			// ':' separates the archive spec and the docker volume: refused in paths
-			if !archiveNameRe.MatchString(a.Name) || !filepath.IsAbs(a.Path) || filepath.Clean(a.Path) != a.Path || strings.ContainsAny(a.Path, ":\n") {
-				return fmt.Errorf("job %s: invalid directory %q", j.ID, a.Path)
-			}
+		if err := validateDirectories(jobArchives(j), j.Excludes); err != nil {
+			return fmt.Errorf("job %s: %w", j.ID, err)
 		}
-		for _, e := range j.Excludes {
-			if e == "" || len(e) > 256 || strings.ContainsAny(e, "\n\x00") {
-				return fmt.Errorf("job %s: invalid exclusion", j.ID)
-			}
+	}
+	return nil
+}
+
+// validateDirectories: the archives (name, absolute clean path) and exclusions of a job.
+func validateDirectories(archives []BackupArchive, excludes []string) error {
+	names := map[string]bool{}
+	for _, a := range archives {
+		if names[a.Name] {
+			return fmt.Errorf("archive %q twice", a.Name)
+		}
+		names[a.Name] = true
+		// ':' separates the archive spec and the docker volume: refused in paths
+		if !archiveNameRe.MatchString(a.Name) || !filepath.IsAbs(a.Path) || filepath.Clean(a.Path) != a.Path || strings.ContainsAny(a.Path, ":\n") {
+			return fmt.Errorf("invalid directory %q", a.Path)
+		}
+	}
+	for _, e := range excludes {
+		if e == "" || len(e) > 256 || strings.ContainsAny(e, "\n\x00") {
+			return errors.New("invalid exclusion")
 		}
 	}
 	return nil

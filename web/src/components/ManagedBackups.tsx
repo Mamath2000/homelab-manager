@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Container, KeyRound, ListChecks, Package, Plus, Save, X } from 'lucide-react';
-import { api, type BackupJob, type BackupJobInput, type BackupJobKind, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
+import { Calculator, Container, KeyRound, ListChecks, Package, Plus, Save, X } from 'lucide-react';
+import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type BackupJobKind, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
 import { databaseKindLabel, dumpArchives, formatBytes } from '../lib/backups';
 import { useMe } from '../lib/auth';
 import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
@@ -266,6 +266,84 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
   );
 }
 
+// Size of the directories of a job with its exclusions, walked by the agent with the rules of the PBS client, to
+// check the filters before saving; next to it, the size of the last real snapshot of the job.
+function DirectoryEstimate({ host, view, archives, excludes, lastSize }: { host: Host; view: HostBackupJobs; archives: BackupArchive[]; excludes: string[]; lastSize: number | null }) {
+  const [state, setState] = useState<{ key: string; result?: BackupEstimate[]; error?: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  // the result is the one of the form estimated: stale once the directories or the exclusions change
+  const key = JSON.stringify({ archives, excludes });
+  const ready = archives.length > 0 && archives.every((a) => a.name && a.path.startsWith('/'));
+  const run = async () => {
+    setBusy(true);
+    try {
+      setState({ key, result: await api.estimateBackup(host.id, archives, excludes) });
+    } catch (err) {
+      setState({ key, error: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const stale = !!state && state.key !== key;
+  const rows = state?.result ?? [];
+  const total = rows.reduce((n, r) => n + r.size, 0);
+  const excluded = rows.reduce((n, r) => n + r.excluded.size, 0);
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          icon={Calculator}
+          loading={busy}
+          disabled={!host.online || !view.estimate || !ready}
+          onClick={run}
+          title={!view.estimate ? "Agent à mettre à jour" : !host.online ? 'Hôte hors ligne' : "L'agent parcourt les répertoires avec les exclusions (mêmes règles que proxmox-backup-client), sans rien envoyer"}
+        >
+          Estimer la taille
+        </Button>
+        {stale && <span className="text-xs text-amber-400">formulaire modifié : relancer l'estimation</span>}
+      </div>
+      {state?.error && <p className="mt-1.5 text-xs text-red-400">{state.error}</p>}
+      {rows.length > 0 && (
+        <div className={clsx('mt-2 space-y-2 text-xs', stale && 'opacity-50')}>
+          {rows.map((r) => (
+            <div key={r.name}>
+              <div className="flex flex-wrap gap-x-2">
+                <span className="font-mono">{r.name}.pxar</span>
+                <span className="text-muted">{r.path}</span>
+                {r.error ? (
+                  <span className="text-red-400">{r.error}</span>
+                ) : (
+                  <span>
+                    {formatBytes(r.size)} · {r.files.toLocaleString('fr-FR')} fichiers
+                    {r.excluded.files > 0 && <span className="text-muted"> · exclus : {formatBytes(r.excluded.size)} ({r.excluded.files.toLocaleString('fr-FR')} fichiers)</span>}
+                    {r.partial && <span className="text-amber-400"> · parcours interrompu (durée ou nombre d'entrées) : minimum</span>}
+                  </span>
+                )}
+              </div>
+              {r.excluded.top.length > 0 && (
+                <ul className="ml-3 mt-0.5 text-muted">
+                  {r.excluded.top.map((it) => (
+                    <li key={it.path} className="font-mono">
+                      {it.path}
+                      {it.dir ? '/' : ''} <span className="font-sans">· {formatBytes(it.size)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+          <p className="text-muted">
+            Total : <span className="text-zinc-200">{formatBytes(total)}</span>
+            {excluded > 0 && ` (${formatBytes(excluded)} exclus)`}
+            {lastSize != null && ` · dernier snapshot sur le PBS : ${formatBytes(lastSize)}`}. Taille brute des fichiers : le PBS stocke moins (déduplication, compression).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The agent that runs the backups of a host: who, with which PBS client and token, which databases it can
 // dump, and whether it applied the definition (window of the jobs). actions: buttons of its first line.
 function AgentHeader({ host, view, sync, actions }: { host: Host; view: HostBackupJobs; sync?: boolean; actions?: ReactNode }) {
@@ -335,6 +413,9 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const groupId = `${form.store}/Hosts/host/${form.backupId ?? ''}`;
   const taken = !job && [...(pbs?.groups ?? []), ...(pbs?.orphans ?? [])].find((g) => g.id === groupId && !g.gone && !('source' in g && g.source === 'managed'));
   const [excludes, setExcludes] = useState(initial.excludes.join('\n'));
+  const excludeList = excludes.split('\n').map((e) => e.trim()).filter(Boolean);
+  // size of the last snapshot of the job, to compare with the estimate
+  const lastSize = (job && pbs?.groups.find((g) => g.id === job.group && !g.gone)?.size) ?? null;
   const [busy, setBusy] = useState(false);
   // identifier on the PBS, until typed by hand: the name for directories; for a database job, the host, the
   // kind and the databases (the namespace Hosts is shared by all the hosts)
@@ -359,7 +440,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
 
   const save = async () => {
     setBusy(true);
-    const body = db ? { ...form, archives: [], excludes: [] } : { ...form, database: null, excludes: excludes.split('\n').map((e) => e.trim()).filter(Boolean) };
+    const body = db ? { ...form, archives: [], excludes: [] } : { ...form, database: null, excludes: excludeList };
     if (job) delete body.kind;
     try {
       if (job) await api.updateBackupJob(job.id, body);
@@ -447,6 +528,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
                   <span className={field}>Exclusions (une par ligne, motifs de proxmox-backup-client)</span>
                   <textarea className="input h-20 font-mono text-xs" value={excludes} onChange={(e) => setExcludes(e.target.value)} placeholder={'**/.cache\n**/node_modules'} />
                 </label>
+                <DirectoryEstimate host={host} view={view} archives={form.archives} excludes={excludeList} lastSize={lastSize} />
               </>
             )}
           </section>
