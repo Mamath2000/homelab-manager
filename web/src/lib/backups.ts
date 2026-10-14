@@ -105,12 +105,13 @@ export function backupClient(caps: string[]) {
 // Kind of a backup: full image of the guest (vzdump of Proxmox VE), directories run by the agent (job
 // of the hub), backup of Home Assistant (HAOS), or made by something else and attached by hand
 // (backup_pbs_scripts...).
-export type BackupKind = 'image' | 'directories' | 'database' | 'ha' | 'external';
+export type BackupKind = 'image' | 'directories' | 'database' | 'nextcloud' | 'ha' | 'external';
 
 export const backupKinds: Record<BackupKind, { label: string; title: string }> = {
   image: { label: 'image PVE', title: 'Image complète du CT / de la VM, sauvegardée par un job vzdump de Proxmox VE' },
   directories: { label: 'répertoires', title: "Sauvegarde de répertoires définie ici et lancée par l'agent de l'hôte" },
   database: { label: 'base de données', title: "Dump de bases PostgreSQL ou MongoDB fait par l'agent de l'hôte, envoyé sur le PBS" },
+  nextcloud: { label: 'Nextcloud AIO', title: 'Sauvegarde générée par le plugin Nextcloud AIO (base, configuration ou données d’un utilisateur) : modifiable depuis le plugin seulement' },
   ha: { label: 'Home Assistant', title: 'Sauvegarde faite par Home Assistant (une ligne par destination), lue par l’agent HAOS ; hors PBS' },
   external: { label: 'externe', title: 'Sauvegarde faite hors Homelab Manager (scripts…), rattachée à la main' },
 };
@@ -118,7 +119,10 @@ export const backupKinds: Record<BackupKind, { label: string; title: string }> =
 export const databaseKindLabel: Record<DatabaseKind, string> = { postgres: 'PostgreSQL', mongodb: 'MongoDB' };
 
 export function backupKindOf(g: Pick<BackupGroup, 'source' | 'managed'>): BackupKind {
-  if (g.source === 'managed') return g.managed?.kind === 'postgres' || g.managed?.kind === 'mongodb' ? 'database' : 'directories';
+  if (g.source === 'managed') {
+    if (g.managed?.plugin?.name === 'nextcloud') return 'nextcloud';
+    return g.managed?.kind === 'postgres' || g.managed?.kind === 'mongodb' ? 'database' : 'directories';
+  }
   return g.source === 'vzdump' ? 'image' : g.source === 'haos' ? 'ha' : 'external';
 }
 
@@ -156,6 +160,11 @@ export function dumpsText(list: DumpInfo[] | undefined) {
 
 // Line of a database job in the lists: what it dumps, where, what stays on the host, sizes of the last run.
 export function databaseJobText(m: { kind?: string; database?: DatabaseDump | null; lastRun?: { dumps?: DumpInfo[] } | null }) {
+  if (m.kind === 'nextcloud' && m.database) {
+    const sizes = dumpsText(m.lastRun?.dumps?.filter((d) => d.archive !== 'nc-config'));
+    const what = m.database.mode === 'config' ? 'config/, compose, appdata sans caches' : 'pg_dump de la base (conteneur)';
+    return `Nextcloud : ${what} dans ${m.database.workDir} · ${keepText(m.database.keep)}${sizes ? ` · ${sizes}` : ''}`;
+  }
   if ((m.kind !== 'postgres' && m.kind !== 'mongodb') || !m.database) return null;
   const sizes = dumpsText(m.lastRun?.dumps);
   return `${databaseSummary(m.kind, m.database)} dans ${m.database.workDir} · ${keepText(m.database.keep)}${sizes ? ` · ${sizes}` : ''}`;

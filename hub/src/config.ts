@@ -29,4 +29,6 @@ export const config = {
   cookieSecure: env('COOKIE_SECURE') === 'true',
   // set when the hub sits behind a reverse proxy (X-Forwarded-* headers)
   trustProxy: env('TRUST_PROXY') === 'true',
+  // Nextcloud AIO plugin of the backups (homelab#148): particular to one setup, hidden unless set
+  backupNextcloudAio: env('BACKUP_NEXTCLOUD_AIO') === 'true',
 };

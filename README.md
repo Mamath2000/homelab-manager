@@ -79,6 +79,7 @@ Déploiement : variables d'environnement écrites dans [`compose.yml`](compose.y
 | `SESSION_DAYS` | `30` | Durée des sessions |
 | `COOKIE_SECURE` | `false` | `true` si le hub est servi en HTTPS |
 | `TRUST_PROXY` | `false` | `true` derrière un reverse proxy |
+| `BACKUP_NEXTCLOUD_AIO` | `false` | `true` affiche le plugin Nextcloud AIO des sauvegardes |
 
 Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL du hub** (vide : celle du navigateur ; les agents utilisent son nom d'hôte), **port TLS des agents** (port publié, 3443 par défaut), et fréquence de l'`apt-get update` automatique (12 h par défaut, `0` = désactivé). La page affiche aussi la clé épinglée et l'empreinte de l'autorité de certification du hub.
 

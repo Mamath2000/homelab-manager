@@ -24,11 +24,14 @@ import (
 // compresses the chunks itself). A failed dump fails the job: nothing is sent. Once sent, the dumps
 // are kept on the host (Keep last runs, in <workDir>/history/<time>/) or removed (Keep 0).
 
-// kinds of backup job: directories (the default) or the dump of databases
-func isDatabaseKind(kind string) bool { return kind == "postgres" || kind == "mongodb" }
+// kinds of backup job: directories (the default) or the dump of databases, Nextcloud AIO included
+// (nextcloud.go)
+func isDatabaseKind(kind string) bool {
+	return kind == "postgres" || kind == "mongodb" || kind == "nextcloud"
+}
 
 type DatabaseDump struct {
-	Mode      string   `json:"mode,omitempty"`      // postgres: databases (pg_dump of each) | cluster (pg_basebackup)
+	Mode      string   `json:"mode,omitempty"`      // postgres: databases (pg_dump of each) | cluster (pg_basebackup); nextcloud: database | config
 	Databases []string `json:"databases,omitempty"` // postgres databases mode, mongodb
 	Container string   `json:"container,omitempty"` // mongodb: container running mongod
 	WorkDir   string   `json:"workDir"`
@@ -93,6 +96,11 @@ func validateDatabaseSettings(kind string, p *DatabaseDump, chosen bool) error {
 		if p.Mode != "" || !containerRe.MatchString(p.Container) || (chosen && len(p.Databases) == 0) {
 			return errors.New("mongodb: container and at least one database")
 		}
+	case "nextcloud":
+		// the containers and the database are found on the host at each run
+		if (p.Mode != "database" && p.Mode != "config") || p.Container != "" || len(p.Databases) != 0 {
+			return errors.New("nextcloud: mode database or config, nothing else")
+		}
 	default:
 		return fmt.Errorf("unknown database kind %q", kind)
 	}
@@ -117,6 +125,13 @@ func dumpArchives(kind string, p *DatabaseDump) []BackupArchive {
 		for _, d := range p.Databases {
 			add("mongo-" + d)
 		}
+	case "nextcloud":
+		if p.Mode == "config" {
+			add("nc-config")
+			break
+		}
+		add("pg-globals")
+		add("pg-nextcloud")
 	}
 	return out
 }
@@ -186,6 +201,8 @@ func dumpDatabases(ctx context.Context, kind string, p *DatabaseDump, emit func(
 		return dumpPostgres(ctx, p, emit)
 	case "mongodb":
 		return dumpMongo(ctx, p, emit)
+	case "nextcloud":
+		return dumpNextcloud(ctx, p, emit)
 	}
 	return fmt.Errorf("unknown database kind %q", kind)
 }
@@ -416,6 +433,12 @@ func listDatabases(ctx context.Context, kind string, p *DatabaseDump) (tools str
 			dbs = append(dbs, DatabaseInfo{Name: d.Name, Size: int64(d.Size)})
 		}
 		return strings.SplitN(strings.TrimSpace(string(v)), "\n", 2)[0], dbs, nil
+	case "nextcloud":
+		a, err := discoverNextcloud(ctx, false)
+		if err != nil {
+			return "", nil, err
+		}
+		return strings.TrimSpace("Nextcloud " + a.Version + " · " + a.DBTools), []DatabaseInfo{{Name: a.Database, Size: a.DBSize}}, nil
 	}
 	return "", nil, fmt.Errorf("unknown database kind %q", kind)
 }
@@ -469,6 +492,9 @@ func dirSize(dir string) int64 {
 
 // dumpSizes: size of each dump and of its database (best effort: unknown when unreadable).
 func dumpSizes(ctx context.Context, kind string, p *DatabaseDump) []DumpInfo {
+	if kind == "nextcloud" {
+		return dumpSizesNextcloud(ctx, p)
+	}
 	sizes := map[string]int64{}
 	var total int64
 	if _, dbs, err := listDatabases(ctx, kind, p); err == nil {
@@ -549,6 +575,9 @@ func runningDatabaseKinds(ctx context.Context) (kinds []string) {
 	}
 	if mongoRunning(ctx) {
 		kinds = append(kinds, "mongodb")
+	}
+	if nextcloudRunning(ctx) {
+		kinds = append(kinds, "nextcloud")
 	}
 	return kinds
 }

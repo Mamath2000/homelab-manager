@@ -45,6 +45,7 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 | `SESSION_DAYS` | `30` | Durée des sessions de l'interface |
 | `COOKIE_SECURE` | `false` | `true` si le hub est servi en HTTPS |
 | `TRUST_PROXY` | `false` | `true` derrière un reverse proxy (en-têtes `X-Forwarded-*`) |
+| `BACKUP_NEXTCLOUD_AIO` | `false` | `true` affiche le [plugin Nextcloud AIO](sauvegardes.md#plugin-nextcloud-aio) des sauvegardes |
 
 ## Derrière un reverse proxy
 

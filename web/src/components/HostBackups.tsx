@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink } from 'lucide-react';
+import { AlertTriangle, Bot, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink } from 'lucide-react';
 import { SnapshotsModal } from './BackupSnapshots';
 import { BackupJobEditModal, ManagedBackupsModal } from './ManagedBackups';
+import { NextcloudPluginModal } from './NextcloudPlugin';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
@@ -153,6 +154,7 @@ export function HostBackups({ host }: { host: Host }) {
   const qc = useQueryClient();
   const [attaching, setAttaching] = useState(false);
   const [agent, setAgent] = useState(false);
+  const [nextcloud, setNextcloud] = useState(false);
   // job id, or 'new'
   const [editing, setEditing] = useState<string | null>(null);
   const [running, setRunning] = useState<string | null>(null);
@@ -196,6 +198,8 @@ export function HostBackups({ host }: { host: Host }) {
     }
   };
 
+  // Nextcloud AIO plugin: hub with BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
+  const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings);
   const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? "Installer d'abord le client PBS (bouton Agent)" : !jobs.credential ? "Renseigner d'abord l'accès au PBS (bouton Agent)" : null;
 
   const detach = async (g: BackupGroup) => {
@@ -224,6 +228,11 @@ export function HostBackups({ host }: { host: Host }) {
               <Button size="sm" variant="ghost" icon={Bot} onClick={() => setAgent(true)} title="Agent de sauvegarde : client PBS et accès au PBS (jeton)">
                 Agent
               </Button>
+              {nextcloudShown && (
+                <Button size="sm" variant="ghost" icon={Cloud} disabled={!!addBlocked} onClick={() => setNextcloud(true)} title={addBlocked ?? 'Plugin Nextcloud AIO : base, configuration et données de chaque utilisateur'}>
+                  Nextcloud
+                </Button>
+              )}
               <Button size="sm" variant="ghost" icon={Plus} disabled={!!addBlocked} onClick={() => setEditing('new')} title={addBlocked ?? "Nouvelle sauvegarde lancée par l'agent (répertoires ou base de données)"}>
                 Ajouter
               </Button>
@@ -274,9 +283,20 @@ export function HostBackups({ host }: { host: Host }) {
                         loading: running === g.id,
                         onClick: () => run(g),
                       },
-                      { icon: Pencil, title: g.managed ? 'Modifier la sauvegarde' : "Modifier : seulement les sauvegardes de l'agent", disabled: !canManage || !g.managed, onClick: () => setEditing(g.managed!.jobId) },
+                      {
+                        icon: Pencil,
+                        title: g.managed?.plugin ? 'Générée par le plugin Nextcloud AIO : la modifier depuis le plugin' : g.managed ? 'Modifier la sauvegarde' : "Modifier : seulement les sauvegardes de l'agent",
+                        disabled: !canManage || !g.managed || !!g.managed.plugin,
+                        onClick: () => setEditing(g.managed!.jobId),
+                      },
                       { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
-                      { icon: Trash2, title: g.managed ? 'Supprimer la sauvegarde' : "Supprimer : seulement les sauvegardes de l'agent", disabled: !canManage || !g.managed, danger: true, onClick: () => setRemoving(g) },
+                      {
+                        icon: Trash2,
+                        title: g.managed?.plugin ? 'Générée par le plugin Nextcloud AIO : la retirer depuis le plugin' : g.managed ? 'Supprimer la sauvegarde' : "Supprimer : seulement les sauvegardes de l'agent",
+                        disabled: !canManage || !g.managed || !!g.managed.plugin,
+                        danger: true,
+                        onClick: () => setRemoving(g),
+                      },
                     ]}
                   />
                 </div>
@@ -312,6 +332,7 @@ export function HostBackups({ host }: { host: Host }) {
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
       <ManagedBackupsModal host={host} open={agent} onClose={() => setAgent(false)} />
       {canManage && <BackupJobEditModal host={host} jobId={editing} onClose={() => setEditing(null)} />}
+      {canManage && nextcloudShown && <NextcloudPluginModal host={host} open={nextcloud} onClose={() => setNextcloud(false)} />}
       {(() => {
         // looked up at each render: follows the refreshes of the list
         const g = history && mine.find((x) => x.id === history);

@@ -145,10 +145,10 @@ test('error of a failed run: the last "Error:" line of the client', () => {
 });
 
 test('state of the PBS client of a host, from its capabilities', () => {
-  assert.deepEqual(clientState(['backup_setup', 'backup_install:apt', 'backup_install:docker']), { mode: null, install: ['apt', 'docker'], databases: null, estimate: false, supported: true });
-  assert.deepEqual(clientState(['backup_setup', 'backup', 'backup:docker', 'backup_install:apt']), { mode: 'docker', install: ['apt'], databases: null, estimate: false, supported: true });
-  assert.deepEqual(clientState(['backup', 'backup:native']), { mode: 'native', install: [], databases: null, estimate: false, supported: true });
-  assert.deepEqual(clientState(['apt_update']), { mode: null, install: [], databases: null, estimate: false, supported: false });
+  assert.deepEqual(clientState(['backup_setup', 'backup_install:apt', 'backup_install:docker']), { mode: null, install: ['apt', 'docker'], databases: null, nextcloud: false, estimate: false, supported: true });
+  assert.deepEqual(clientState(['backup_setup', 'backup', 'backup:docker', 'backup_install:apt']), { mode: 'docker', install: ['apt'], databases: null, nextcloud: false, estimate: false, supported: true });
+  assert.deepEqual(clientState(['backup', 'backup:native']), { mode: 'native', install: [], databases: null, nextcloud: false, estimate: false, supported: true });
+  assert.deepEqual(clientState(['apt_update']), { mode: null, install: [], databases: null, nextcloud: false, estimate: false, supported: false });
   assert.equal(clientState(['backup', 'backup_estimate']).estimate, true);
 });
 

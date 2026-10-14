@@ -172,6 +172,8 @@ func (s *session) hello(ctx context.Context) error {
 	}
 	// backups of databases (database.go): backup_database, and the kinds with a running engine here
 	caps = append(caps, "backup_database")
+	// jobs of kind nextcloud known (nextcloud.go); backup_database:nextcloud when the instance runs here
+	caps = append(caps, "backup_nextcloud")
 	for _, k := range runningDatabaseKinds(ctx) {
 		caps = append(caps, "backup_database:"+k)
 	}
@@ -256,6 +258,18 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		cctx, cancel := context.WithTimeout(ctx, time.Minute)
 		var r *DatabaseCheck
 		if r, err = checkDatabaseOnHost(cctx, in.BackupKind, in.Database); err == nil {
+			out.Result = r
+		}
+		cancel()
+	case "nextcloud_discover":
+		// form of the Nextcloud AIO plugin: instance, users, free space of the work directory (optional)
+		workDir := ""
+		if in.Database != nil {
+			workDir = in.Database.WorkDir
+		}
+		cctx, cancel := context.WithTimeout(ctx, time.Minute)
+		var r *NextcloudAIO
+		if r, err = checkNextcloudOnHost(cctx, workDir); err == nil {
 			out.Result = r
 		}
 		cancel()

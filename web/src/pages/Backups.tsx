@@ -154,7 +154,13 @@ export function Backups() {
   const hostName = (id: string | null) => hostList.find((h) => h.id === id)?.name ?? '';
   // why the edit icon of a row is greyed (null = editable)
   const noEdit = (g: BackupGroup) =>
-    !g.managed || !hostList.some((h) => h.id === g.hostId) ? "sauvegarde non lancée par l'agent" : !canManage ? 'droit de gestion requis' : null;
+    !g.managed || !hostList.some((h) => h.id === g.hostId)
+      ? "sauvegarde non lancée par l'agent"
+      : g.managed.plugin
+        ? 'générée par le plugin Nextcloud AIO : la modifier depuis le plugin (carte Sauvegardes de l’hôte)'
+        : !canManage
+          ? 'droit de gestion requis'
+          : null;
   const shownGroup = history ? data.groups.find((g) => g.id === history) : undefined;
   const needle = q.toLowerCase();
   const list = data.groups
@@ -277,7 +283,8 @@ export function Backups() {
                   </div>
                 )}
                 <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
-                  {([null, ...Object.keys(backupKinds)] as (BackupKind | null)[]).map((k) => (
+                  {/* Nextcloud AIO: only where the plugin generated jobs */}
+                  {([null, ...(Object.keys(backupKinds) as BackupKind[]).filter((k) => k !== 'nextcloud' || data.groups.some((g) => backupKindOf(g) === 'nextcloud'))] as (BackupKind | null)[]).map((k) => (
                     <button
                       key={k ?? 'all'}
                       onClick={() => setParam('t', k)}

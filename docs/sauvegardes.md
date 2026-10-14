@@ -6,7 +6,7 @@ sidebar_position: 3.7
 
 # Sauvegardes
 
-Homelab Manager suit les sauvegardes d'un **Proxmox Backup Server** (PBS) et les rattache aux hôtes. Il suit aussi les sauvegardes internes de **Home Assistant OS**, lues par l'agent. Cinq sortes, affichées dans la colonne **Type** :
+Homelab Manager suit les sauvegardes d'un **Proxmox Backup Server** (PBS) et les rattache aux hôtes. Il suit aussi les sauvegardes internes de **Home Assistant OS**, lues par l'agent. Cinq sortes, affichées dans la colonne **Type** (plus **Nextcloud AIO** quand le [plugin](#plugin-nextcloud-aio) est utilisé) :
 
 | Type | Origine | Rattachement à l'hôte | Retard jugé sur |
 |---|---|---|---|
@@ -135,6 +135,37 @@ Un job de type **Base PostgreSQL** ou **Base MongoDB** est une sauvegarde de l'a
 - **Répertoire de travail** : chemin absolu d'au moins deux niveaux, dédié aux dumps (défaut `/var/backups/homelab-agent`), jamais sous `/etc`, `/usr`, `/proc`… PostgreSQL : les dumps sont écrits par l'utilisateur `postgres`, qui doit pouvoir y accéder ; l'agent ajoute le droit de traversée pour « autres » (`x` seul : le contenu ne peut pas être listé) au répertoire de travail **et à chacun de ses parents** qui ne l'ont pas (ex. `/mnt/backup` en 700 → 701), et le note dans le journal du job.
 - Restauration : depuis le PBS, ou depuis `history/` sur l'hôte ; `pg_restore -d <base> pg-<base>/` (après `psql -f pg-globals/globals.sql` sur un cluster neuf) ; cluster : le contenu de `pg-cluster/` devient le répertoire de données (serveur arrêté) ; MongoDB : `mongorestore --db <base> mongo-<base>/`.
 - Il faut un agent **0.2** ou plus récent : pour un agent plus ancien, le job n'est pas envoyé (« pas encore appliquée par l'agent »). Le formulaire signale aussi un type inutilisable sur l'hôte (`pg_dump` introuvable, Docker absent).
+
+## Plugin Nextcloud AIO
+
+Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configuration et données de chaque utilisateur, chacune dans le datastore choisi. Le plugin est propre à ce type d'installation : il n'apparaît que si le hub a `BACKUP_NEXTCLOUD_AIO=true` (voir [Configuration](configuration.md)) **et** que l'agent de l'hôte (0.4 ou plus récent) trouve l'instance. Bouton **Nextcloud** de la carte Sauvegardes de l'hôte.
+
+**Détection** : par l'**image** des conteneurs qui tournent (`.Config.Image`, référence gardée même quand le tag `latest` a bougé depuis), pas par leur nom : `nextcloud/all-in-one` (mastercontainer), `nextcloud-releases/aio-nextcloud`, `nextcloud-releases/aio-postgresql`, quel que soit le registre. Le reste est demandé à Nextcloud et à Docker à chaque exécution, rien n'est figé dans le job :
+
+| Élément | Source |
+|---|---|
+| base, répertoire de données, instance | `occ config:system:get dbname / datadirectory / instanceid` (en `www-data`) |
+| chemins sur l'hôte | montages du conteneur Nextcloud (`docker inspect`) : répertoire de données, volume `/var/www/html` |
+| superutilisateur de la base | `POSTGRES_USER` du conteneur base (socket local en `trust`) |
+| fichiers compose | labels compose du mastercontainer |
+| utilisateurs | `occ user:list` ; répertoire `<données>/<id>` |
+
+**Fenêtre du plugin** : l'agent relit l'instance à l'ouverture ; une ligne pour la **base**, une pour la **configuration**, une par **utilisateur**, chacune avec son datastore (« non sauvegardé » par défaut : aucun datastore n'est proposé d'office). Communs à tous les jobs : répertoire de travail, planification (l'agent enchaîne les jobs, un à la fois), dumps gardés sur l'hôte, activé. Un utilisateur sans répertoire (jamais connecté) ne peut pas être coché ; un utilisateur présent mais non sauvegardé est signalé sous le tableau.
+
+**Jobs générés** (namespace `Hosts`, comme les autres jobs de l'agent) :
+
+| Ligne | Job | Groupe PBS | Archives |
+|---|---|---|---|
+| Base | `Nextcloud · base` | `host/nextcloud-db` | `pg-globals` (`pg_dumpall --globals-only`), `pg-nextcloud` (`pg_dump -Fd -Z0`), faits **dans le conteneur base** (ses outils, même version majeure) puis copiés par `docker cp` |
+| Configuration | `Nextcloud · configuration` | `host/nextcloud-config` | `nc-config` : `config/` du volume, `compose/` (fichiers du mastercontainer), `data/` (fichiers à la racine du répertoire de données, `appdata_<instanceid>` **sans** `preview`, `appstore`, `js`), `discovery.json` (ce que l'agent a trouvé) — copie `cp -a` (propriétaires et droits gardés) |
+| Utilisateur | `Nextcloud · <id>` | `host/nextcloud-user-<id>` | `data` : le répertoire de l'utilisateur |
+
+- Base et configuration sont préparées dans `<répertoire de travail>/database` et `/config` (historique séparé, mêmes règles que les [sauvegardes de bases](#sauvegardes-de-bases-de-données)). Le répertoire de travail est sur l'hôte : l'exclure des autres sauvegardes du même disque.
+- **Verrouillés** : un job généré ne se modifie ni ne se supprime depuis la carte Sauvegardes ou la page Sauvegardes ; **Lancer** reste possible. Décocher un utilisateur supprime son job, **Supprimer le plugin** supprime tous les jobs générés ; les snapshots restent sur le PBS (groupes orphelins).
+- **Reprise des jobs existants** : un job de répertoires qui sauvegarde exactement le répertoire d'un utilisateur (fait à la main avant le plugin) est repris au premier enregistrement : même groupe, son historique continue ; il prend la planification et le nom du plugin. Son datastore est pré-rempli dans la fenêtre.
+- **Cohérence** : base et données ne sont pas figées ensemble (pas de mode maintenance). Après une restauration, `occ files:scan --all` remet la base en accord avec les fichiers.
+- Restauration de la base : `pg_restore` de `pg-nextcloud/` dans le conteneur base, après `psql -f pg-globals/globals.sql` sur une instance neuve.
+- Sans `BACKUP_NEXTCLOUD_AIO`, les jobs déjà générés continuent de tourner ; seule la fenêtre du plugin disparaît.
 
 ## Sauvegardes Home Assistant
 

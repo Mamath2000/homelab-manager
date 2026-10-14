@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Calculator, Container, KeyRound, ListChecks, Package, Plus, Save, X } from 'lucide-react';
-import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type BackupJobKind, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
+import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
 import { databaseKindLabel, dumpArchives, formatBytes } from '../lib/backups';
 import { useMe } from '../lib/auth';
 import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
@@ -110,7 +110,9 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
 const DEFAULT_WORKDIR = '/var/backups/homelab-agent';
 const MAX_KEEP = 30;
 
-const KIND_LABEL: Record<BackupJobKind, string> = { directories: 'Répertoires', postgres: 'Base PostgreSQL', mongodb: 'Base MongoDB' };
+// kinds of this form (nextcloud: jobs of the plugin only)
+type FormKind = 'directories' | DatabaseKind;
+const KIND_LABEL: Record<FormKind, string> = { directories: 'Répertoires', postgres: 'Base PostgreSQL', mongodb: 'Base MongoDB' };
 
 
 const newDatabase = (kind: DatabaseKind): DatabaseDump =>
@@ -432,10 +434,11 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const setArchive = (i: number, patch: Partial<BackupJobInput['archives'][number]>) =>
     set({ archives: form.archives.map((a, j) => (j === i ? { ...a, ...patch } : a)) });
 
-  const kind = form.kind ?? 'directories';
+  // nextcloud: jobs of the plugin, never edited here (BackupJobEditModal)
+  const kind: FormKind = form.kind === 'nextcloud' ? 'directories' : (form.kind ?? 'directories');
   const db = kind === 'postgres' || kind === 'mongodb';
   // the kind is chosen at creation: a database job holds its dumps only
-  const setKind = (k: BackupJobKind) =>
+  const setKind = (k: FormKind) =>
     set(k === 'directories' ? { kind: k, database: null, archives: form.archives.length ? form.archives : [{ name: 'home', path: '/home' }] } : { kind: k, database: newDatabase(k) });
 
   const save = async () => {
@@ -490,8 +493,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
               {job ? (
                 <div className="input cursor-default bg-raised/40 text-zinc-400" title="Fixé à la création : ses archives sont d'une autre nature">{KIND_LABEL[kind]}</div>
               ) : (
-                <select className="input" value={kind} onChange={(e) => setKind(e.target.value as BackupJobKind)}>
-                  {(Object.keys(KIND_LABEL) as BackupJobKind[]).map((k) => (
+                <select className="input" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
+                  {(Object.keys(KIND_LABEL) as FormKind[]).map((k) => (
                     <option key={k} value={k} disabled={k !== 'directories' && !view.databases}>{KIND_LABEL[k]}</option>
                   ))}
                 </select>
@@ -636,6 +639,13 @@ export function BackupJobEditModal({ host, jobId, onClose }: { host: Host; jobId
     return (
       <Modal open onClose={onClose} title="Sauvegarde">
         {data ? <p className="text-sm text-muted">Ce job n'existe plus.</p> : <div className="flex justify-center p-4"><Spinner /></div>}
+      </Modal>
+    );
+  }
+  if (job?.plugin) {
+    return (
+      <Modal open onClose={onClose} title={job.name}>
+        <p className="text-sm text-muted">Sauvegarde générée par le plugin Nextcloud AIO : elle se modifie ou se supprime depuis le plugin (bouton Nextcloud de la carte Sauvegardes de l'hôte).</p>
       </Modal>
     );
   }

@@ -56,7 +56,9 @@ export function validPath(p: string) {
 // most dumps kept on the host (maxKeep in agent/database.go)
 export const MAX_KEEP = 30;
 
-export const isDatabaseKind = (k: BackupJobKind | undefined): k is 'postgres' | 'mongodb' => k === 'postgres' || k === 'mongodb';
+export type DatabaseKind = 'postgres' | 'mongodb' | 'nextcloud';
+// nextcloud: jobs of the Nextcloud AIO plugin (nextcloud.ts), dumps and config prepared by the agent
+export const isDatabaseKind = (k: BackupJobKind | undefined): k is DatabaseKind => k === 'postgres' || k === 'mongodb' || k === 'nextcloud';
 
 // Kind and database settings of a stored job, the first form (prepare, cleanup) included.
 export function jobKind(j: Pick<BackupJobDoc, 'kind' | 'prepare'>): BackupJobKind {
@@ -73,18 +75,28 @@ export function jobDatabase(j: Pick<BackupJobDoc, 'kind' | 'database' | 'prepare
 export function normDatabase(kind: BackupJobKind, d: DatabaseDump | null | undefined): DatabaseDump | null {
   if (!d || !isDatabaseKind(kind)) return null;
   const base = { databases: d.databases.map((x) => x.trim()).filter(Boolean), workDir: d.workDir.trim(), keep: d.keep };
+  if (kind === 'nextcloud') return { mode: d.mode, ...base, databases: [] };
   return kind === 'postgres' ? { mode: d.mode, ...base } : { container: d.container?.trim() ?? '', ...base };
 }
 
 // Archives of a database job, one per dump (sub-directory of workDir): same as dumpArchives in agent/database.go.
-export function dumpArchives(kind: 'postgres' | 'mongodb', d: DatabaseDump): BackupArchive[] {
-  const names = kind === 'postgres' ? (d.mode === 'cluster' ? ['pg-cluster'] : ['pg-globals', ...d.databases.map((x) => `pg-${x}`)]) : d.databases.map((x) => `mongo-${x}`);
+export function dumpArchives(kind: DatabaseKind, d: DatabaseDump): BackupArchive[] {
+  const names =
+    kind === 'nextcloud'
+      ? d.mode === 'config'
+        ? ['nc-config']
+        : ['pg-globals', 'pg-nextcloud']
+      : kind === 'postgres'
+        ? d.mode === 'cluster'
+          ? ['pg-cluster']
+          : ['pg-globals', ...d.databases.map((x) => `pg-${x}`)]
+        : d.databases.map((x) => `mongo-${x}`);
   return names.map((name) => ({ name, path: `${d.workDir}/${name}` }));
 }
 
 // Error message, or null. Same rules as validateDatabaseSettings in agent/database.go; chosen false: the
 // listing of the databases of the server, before any is chosen.
-export function checkDatabase(kind: 'postgres' | 'mongodb', d: DatabaseDump, chosen = true): string | null {
+export function checkDatabase(kind: DatabaseKind, d: DatabaseDump, chosen = true): string | null {
   const w = d.workDir;
   if (!validPath(w) || w.split('/').length < 3) return 'répertoire de travail invalide (absolu, au moins deux niveaux, ex. /mnt/backup)';
   if (FORBIDDEN_WORK_ROOTS.some((r) => w === r || w.startsWith(`${r}/`))) return `répertoire de travail interdit sous ${w.split('/').slice(0, 2).join('/')}`;
@@ -94,6 +106,10 @@ export function checkDatabase(kind: 'postgres' | 'mongodb', d: DatabaseDump, cho
     if (!DB_NAME_RE.test(x)) return `nom de base invalide : ${x} (lettres, chiffres, - et _)`;
     if (seen.has(x)) return `base en double : ${x}`;
     seen.add(x);
+  }
+  if (kind === 'nextcloud') {
+    if (d.container || d.databases.length) return 'Nextcloud : conteneurs et base trouvés sur l\'hôte';
+    return d.mode === 'database' || d.mode === 'config' ? null : 'Nextcloud : mode database ou config';
   }
   if (kind === 'postgres') {
     if (d.container) return 'PostgreSQL : serveur local uniquement';
@@ -152,7 +168,11 @@ export function pbsServer(pbs: Pick<PbsSettings, 'url'>) {
 // An agent too old for database jobs would back up nothing: such jobs are held back until it is
 // updated (shown as not applied).
 export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'kind' | 'prepare'>) {
-  return isDatabaseKind(jobKind(j)) && !(host.capabilities ?? []).includes('backup_database');
+  const kind = jobKind(j);
+  const caps = host.capabilities ?? [];
+  // an agent that does not know the kind would refuse the whole definition
+  if (kind === 'nextcloud') return !caps.includes('backup_nextcloud');
+  return isDatabaseKind(kind) && !caps.includes('backup_database');
 }
 
 // Definition sent to the agent: empty (no job) when there is nothing to run, so that it stops.
@@ -212,6 +232,8 @@ export function clientState(caps: string[] = []) {
     install: (['apt', 'docker'] as const).filter((m) => caps.includes(`backup_install:${m}`)),
     // database jobs: kinds the agent found usable here (null: agent to update)
     databases: caps.includes('backup_database') ? (['postgres', 'mongodb'] as const).filter((t) => caps.includes(`backup_database:${t}`)) : null,
+    // Nextcloud AIO plugin: the agent knows its jobs and the instance runs on the host
+    nextcloud: caps.includes('backup_nextcloud') && caps.includes('backup_database:nextcloud'),
     // size estimate of the directories of a job form (agent to update when false)
     estimate: caps.includes('backup_estimate'),
     // agent that knows about backups at all (older ones: to update)
@@ -360,6 +382,7 @@ export async function refreshManaged() {
       lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null, ...(j.lastRun.dumps ? { dumps: j.lastRun.dumps } : {}) } : null,
       kind: jobKind(j),
       database: jobDatabase(j),
+      plugin: j.plugin ?? null,
       synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid) && !heldBack(host, j),
       since: j.createdAt.getTime(),
     };
@@ -406,6 +429,7 @@ export function jobView(j: BackupJobDoc) {
     enabled: j.enabled,
     kind: jobKind(j),
     database: jobDatabase(j),
+    plugin: j.plugin ?? null,
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
     lastRun: j.lastRun ? { ...j.lastRun, jobId: j.lastRun.jobId ? j.lastRun.jobId.toHexString() : null } : null,
