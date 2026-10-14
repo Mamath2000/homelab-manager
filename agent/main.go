@@ -170,13 +170,10 @@ func (s *session) hello(ctx context.Context) error {
 	for _, m := range backupInstallOptions(ctx, mode) {
 		caps = append(caps, "backup_install:"+m)
 	}
-	// backups of databases (database.go): backup_database, and the kinds usable here
-	caps = append(caps, "backup_database", "backup_estimate")
-	if _, err := exec.LookPath("pg_dump"); err == nil {
-		caps = append(caps, "backup_database:postgres")
-	}
-	if !onWSL && dock.available(ctx) {
-		caps = append(caps, "backup_database:mongodb")
+	// backups of databases (database.go): backup_database, and the kinds with a running engine here
+	caps = append(caps, "backup_database")
+	for _, k := range runningDatabaseKinds(ctx) {
+		caps = append(caps, "backup_database:"+k)
 	}
 	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
 }

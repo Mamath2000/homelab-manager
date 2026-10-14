@@ -371,7 +371,7 @@ function AgentHeader({ host, view, sync, actions }: { host: Host; view: HostBack
         </dd>
         <dt className="text-muted">Bases</dt>
         <dd className="text-zinc-300">
-          {!view.databases ? <span className="text-amber-400">agent à mettre à jour</span> : view.databases.length ? view.databases.map((k) => databaseKindLabel[k]).join(', ') : 'aucun outil trouvé (pg_dump, Docker)'}
+          {!view.databases ? <span className="text-amber-400">agent à mettre à jour</span> : view.databases.length ? view.databases.map((k) => databaseKindLabel[k]).join(', ') : 'aucun moteur détecté (PostgreSQL, MongoDB)'}
         </dd>
         {sync && view.jobs.length > 0 && (
           <>

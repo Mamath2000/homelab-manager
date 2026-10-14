@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -340,5 +341,29 @@ func TestDumpMongo(t *testing.T) {
 	}
 	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-dump" {
 		t.Fatalf("last call = %s", last.args)
+	}
+}
+
+func TestRunningDatabaseKinds(t *testing.T) {
+	oldSock, oldImages, oldDocker := postgresSockets, runningImages, dockerUsable
+	t.Cleanup(func() { postgresSockets, runningImages, dockerUsable = oldSock, oldImages, oldDocker })
+	dir := t.TempDir()
+	postgresSockets = []string{filepath.Join(dir, ".s.PGSQL.*")}
+	dockerUsable = func(context.Context) bool { return true }
+	images := []string{"nginx:1", "bitnami/mongodb:7"}
+	runningImages = func(context.Context) ([]string, error) { return images, nil }
+
+	// pg_dump may be absent on the test machine: only assert the socket-less case then
+	if got := runningDatabaseKinds(context.Background()); !reflect.DeepEqual(got, []string{"mongodb"}) {
+		t.Fatalf("no postgres socket, mongo container: %v", got)
+	}
+	images = []string{"nginx:1"}
+	if got := runningDatabaseKinds(context.Background()); len(got) != 0 {
+		t.Fatalf("nothing running: %v", got)
+	}
+	images = []string{"mongo:6"}
+	dockerUsable = func(context.Context) bool { return false }
+	if got := runningDatabaseKinds(context.Background()); len(got) != 0 {
+		t.Fatalf("docker unusable: %v", got)
 	}
 }

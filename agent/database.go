@@ -497,3 +497,58 @@ func dumpSizes(ctx context.Context, kind string, p *DatabaseDump) []DumpInfo {
 	}
 	return out
 }
+
+// Engines that can be backed up here are those running now (not merely tools present): the capability is
+// re-evaluated at each hello, so an engine started later shows up with the next one.
+var (
+	// socket of a local PostgreSQL server (the dump runs natively as the postgres user)
+	postgresSockets = []string{"/var/run/postgresql/.s.PGSQL.*", "/run/postgresql/.s.PGSQL.*", "/tmp/.s.PGSQL.*"}
+	// images of the running containers, one per line
+	runningImages = func(ctx context.Context) ([]string, error) {
+		out, err := exec.CommandContext(ctx, "docker", "ps", "--format", "{{.Image}}").Output()
+		return strings.Fields(string(out)), err
+	}
+	// docker present and not on WSL
+	dockerUsable = func(ctx context.Context) bool { return !onWSL && dock.available(ctx) }
+)
+
+func postgresRunning() bool {
+	if _, err := exec.LookPath("pg_dump"); err != nil {
+		return false
+	}
+	for _, g := range postgresSockets {
+		if m, _ := filepath.Glob(g); len(m) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func mongoRunning(ctx context.Context) bool {
+	if !dockerUsable(ctx) {
+		return false
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	images, err := runningImages(cctx)
+	if err != nil {
+		return false
+	}
+	for _, img := range images {
+		if strings.Contains(strings.ToLower(img), "mongo") {
+			return true
+		}
+	}
+	return false
+}
+
+// runningDatabaseKinds: the kinds of database jobs usable on this host.
+func runningDatabaseKinds(ctx context.Context) (kinds []string) {
+	if postgresRunning() {
+		kinds = append(kinds, "postgres")
+	}
+	if mongoRunning(ctx) {
+		kinds = append(kinds, "mongodb")
+	}
+	return kinds
+}
