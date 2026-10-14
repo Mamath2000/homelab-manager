@@ -188,6 +188,7 @@ export function Hosts() {
                         <StatusDot tone={connectionMeta[c].tone} />
                         <span className="font-medium text-zinc-100">{h.name}</span>
                         {h.group && <Tag>{h.group}</Tag>}
+                        {h.accessNetwork === 'tailscale' && <Tag>Tailscale</Tag>}
                       </div>
                     </td>
                     <td className="td text-zinc-300">

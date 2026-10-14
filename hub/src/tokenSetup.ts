@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { randomToken, sha256 } from './crypto.js';
 import { hosts, parseId, settings, tokenSetups } from './db.js';
 import { publish } from './events.js';
-import { agentUrl, curlPinned } from './hubUrl.js';
+import { agentUrl, agentUrlOfRequest, curlPinned } from './hubUrl.js';
 import { pollPbs } from './pbs.js';
 import { loadPki } from './pkiStore.js';
 import { CLUSTER_ID_RE, loadPveSettings, pollPve } from './pve.js';
@@ -197,7 +197,7 @@ export function registerTokenSetupScriptRoutes(app: FastifyInstance) {
   const codeBody = { type: 'object', required: ['code'], additionalProperties: false, properties: { code: { type: 'string', minLength: 16, maxLength: 128 } } } as const;
 
   app.get('/token-setup.sh', async (req, reply) => {
-    const url = await agentUrl(req);
+    const url = await agentUrlOfRequest(req);
     if (!url) return reply.code(400).send('# invalid hub url, set it in the agent settings\n');
     reply.type('text/x-shellscript; charset=utf-8');
     return template.replaceAll('__HUB_URL__', url).replaceAll('__PIN__', (await loadPki()).serverPin);

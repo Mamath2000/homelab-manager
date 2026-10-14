@@ -103,10 +103,16 @@ export interface DockerUpdates {
   images: { ref: string; digest?: string; error?: string }[];
 }
 
+// Network an agent reaches the hub (and the PBS) through, chosen when the host is created; absent: lan
+export const ACCESS_NETWORKS = ['lan', 'tailscale'] as const;
+export type AccessNetwork = (typeof ACCESS_NETWORKS)[number];
+
 export interface HostDoc {
   _id: ObjectId;
   name: string;
   group?: string;
+  // absent: lan. Fixed at creation: changing it means reinstalling the agent
+  accessNetwork?: Exclude<AccessNetwork, 'lan'>;
   // legacy bearer token (agents before TLS): such hosts must be reinstalled
   tokenHash?: string;
   // single-use enrollment code of the install command (sha256), valid until enrollExpiresAt
@@ -321,6 +327,8 @@ export interface AgentSettings {
   hubUrl: string;
   // port the agents reach the TLS agent server on (published port of AGENT_TLS_PORT)
   agentPort: number;
+  // host name or IP of the hub on the tailnet, typed by hand; empty: the Tailscale access network is not offered
+  tailscaleHub: string;
   // how often the hub asks each agent to run `apt-get update` (0 = never)
   checkIntervalHours: number;
 }
@@ -353,6 +361,8 @@ export interface PbsSettings {
   fingerprint: string;
   tokenId: string; // user@realm!token
   tokenSecret: string;
+  // address of the PBS for the hosts of the Tailscale access network (same certificate); empty: they cannot back up
+  tailscaleUrl?: string;
   // last poll
   polledAt?: Date;
   pollError?: string | null;

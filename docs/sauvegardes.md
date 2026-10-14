@@ -52,6 +52,8 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 | Jeton | `homelab@pbs!monitor` (créé par la commande) |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
 
+**Adresse du PBS sur Tailscale** (optionnel, saisie à la main) : adresse que reçoivent les agents des hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale), avec la même empreinte de certificat. Elle est vide par défaut : ces hôtes ne reçoivent alors aucune définition de sauvegarde, ils ne basculent jamais sur l'adresse du LAN.
+
 Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : variable `TZ` du compose (défaut `Europe/Paris`).
 
 **Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les droits). Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite.

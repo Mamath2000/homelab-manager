@@ -156,10 +156,12 @@ export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobD
 }
 
 // Definition sent to the agent: empty (no job) when there is nothing to run, so that it stops.
-export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities'>, list: BackupJobDoc[], pbs: PbsSettings) {
-  const usable = !!host.pbsCredential && !!pbs.url;
+export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' | 'accessNetwork'>, list: BackupJobDoc[], pbs: PbsSettings) {
+  // the hosts of the Tailscale access network reach the PBS at its own address
+  const url = host.accessNetwork === 'tailscale' ? pbs.tailscaleUrl ?? '' : pbs.url;
+  const usable = !!host.pbsCredential && !!url;
   const body = {
-    server: usable ? pbsServer(pbs) : '',
+    server: usable ? pbsServer({ url }) : '',
     fingerprint: pbs.fingerprint,
     tokenId: usable ? host.pbsCredential!.tokenId : '',
     tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',

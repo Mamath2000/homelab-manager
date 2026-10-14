@@ -55,10 +55,10 @@ export function AgentHubSettings() {
   const toast = useToast();
   const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings });
   // local draft once edited, server values until then
-  const [draft, setDraft] = useState<{ hubUrl: string; agentPort: string; checkIntervalHours: string } | null>(null);
+  const [draft, setDraft] = useState<{ hubUrl: string; agentPort: string; tailscaleHub: string; checkIntervalHours: string } | null>(null);
   const [busy, setBusy] = useState(false);
   if (!data) return null;
-  const form = draft ?? { hubUrl: data.hubUrl, agentPort: String(data.agentPort), checkIntervalHours: String(data.checkIntervalHours) };
+  const form = draft ?? { hubUrl: data.hubUrl, agentPort: String(data.agentPort), tailscaleHub: data.tailscaleHub, checkIntervalHours: String(data.checkIntervalHours) };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,6 +67,7 @@ export function AgentHubSettings() {
       qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({
         hubUrl: form.hubUrl,
         agentPort: Number(form.agentPort),
+        tailscaleHub: form.tailscaleHub,
         checkIntervalHours: Number(form.checkIntervalHours),
       }));
       setDraft(null);
@@ -106,6 +107,19 @@ export function AgentHubSettings() {
         />
         <span className="mt-1 block text-xs text-zinc-500">
           Port publié du hub pour les agents (3443 par défaut). Un agent déjà installé garde l'adresse de son installation : après un changement, relance la commande de mise à jour sur l'hôte.
+        </span>
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Adresse du hub sur Tailscale</span>
+        <input
+          className="input"
+          value={form.tailscaleHub}
+          onChange={(e) => setDraft({ ...form, tailscaleHub: e.target.value })}
+          placeholder="100.x.y.z ou hub.tailnet.ts.net"
+          spellCheck={false}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">
+          Nom d'hôte ou IP du hub sur le tailnet, sans http:// ni port (le port TLS ci-dessus est repris). Renseignée, elle ajoute le réseau d'accès « Tailscale » à l'ajout d'un hôte ; vide : seul le LAN est proposé.
         </span>
       </label>
       <label className="block">

@@ -61,6 +61,8 @@ Homelab Manager
 | Tout vérifier | bouton : `apt-get update` sur les hôtes en ligne |
 | Stacks Docker, Stacks à mettre à jour | capteurs, présents dès qu'un hôte a Docker |
 
+Un hôte peut être **exclu de Home Assistant** (case à l'ajout ou sur sa fiche) : ni appareil, ni alertes, ni compteurs. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés exclus ; la case se décoche ensuite hôte par hôte.
+
 ### Un appareil par hôte
 
 | Entité | Type |

@@ -1,4 +1,5 @@
 import type { FastifyRequest } from 'fastify';
+import type { AccessNetwork } from './types.js';
 import { loadAgentSettings } from './agentUpdate.js';
 import { loadPki } from './pkiStore.js';
 
@@ -11,13 +12,29 @@ export async function hubUrl(req: FastifyRequest) {
   return SAFE_URL.test(url) ? url : null;
 }
 
-// Address of the TLS agent server: same host as the hub UI, agent port.
-export async function agentUrl(req: FastifyRequest) {
+// Host name or IP typed by hand for the hub on the tailnet (no scheme, no port).
+export const TAILSCALE_HOST = /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$|^\[[0-9A-Fa-f:]+\]$/;
+
+// Address of the TLS agent server: same host as the hub UI, agent port; on the Tailscale access
+// network, the host typed in the agent settings (null while it is empty).
+export async function agentUrl(req: FastifyRequest, network: AccessNetwork = 'lan') {
+  const { agentPort, tailscaleHub } = await loadAgentSettings();
+  if (network === 'tailscale') {
+    const url = `https://${tailscaleHub}:${agentPort}`;
+    return tailscaleHub && TAILSCALE_HOST.test(tailscaleHub) && SAFE_URL.test(url) ? url : null;
+  }
   const base = await hubUrl(req);
   if (!base) return null;
-  const { agentPort } = await loadAgentSettings();
   const url = `https://${new URL(base).hostname}:${agentPort}`;
   return SAFE_URL.test(url) ? url : null;
+}
+
+// Address the scripts served on the agent port bake in: the one the agent used to fetch them, when it
+// is the Tailscale address of the hub (otherwise a LAN agent could be handed an address it cannot reach).
+export async function agentUrlOfRequest(req: FastifyRequest) {
+  const { tailscaleHub } = await loadAgentSettings();
+  const asked = (req.headers.host ?? '').replace(/:\d+$/, '').toLowerCase();
+  return agentUrl(req, tailscaleHub && asked === tailscaleHub.toLowerCase() ? 'tailscale' : 'lan');
 }
 
 // curl checks the pinned key of the agent server; -k only skips the CA / host name checks, which
@@ -26,8 +43,8 @@ export function curlPinned(pin: string) {
   return `curl -fsSLk --pinnedpubkey sha256//${pin}`;
 }
 
-export async function agentCommands(req: FastifyRequest) {
-  const url = await agentUrl(req);
+export async function agentCommands(req: FastifyRequest, network: AccessNetwork = 'lan') {
+  const url = await agentUrl(req, network);
   if (!url) return null;
   const { serverPin } = await loadPki();
   const curl = curlPinned(serverPin);

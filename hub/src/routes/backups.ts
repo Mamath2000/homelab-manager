@@ -30,6 +30,7 @@ interface SettingsBody {
   fingerprint: string;
   tokenId: string;
   tokenSecret?: string; // absent: unchanged
+  tailscaleUrl?: string;
   clientImage?: string;
 }
 
@@ -44,6 +45,7 @@ const settingsBody = {
     tokenId: { type: 'string', maxLength: 128 },
     tokenSecret: { type: 'string', maxLength: 128 },
     clientImage: { type: 'string', maxLength: 256 },
+    tailscaleUrl: { type: 'string', maxLength: 256 },
   },
 } as const;
 
@@ -59,6 +61,8 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
     tokenSecret: body.tokenSecret ?? current.tokenSecret,
     _id: 'pbs',
   };
+  next.tailscaleUrl = (body.tailscaleUrl ?? current.tailscaleUrl ?? '').trim().replace(/\/+$/, '');
+  if (next.tailscaleUrl && !PBS_URL_RE.test(next.tailscaleUrl)) return 'URL Tailscale invalide (https://100.x.y.z:8007)';
   if (next.url && !PBS_URL_RE.test(next.url)) return 'URL invalide (https://pbs:8007)';
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
   if (next.tokenId && !TOKEN_ID_RE.test(next.tokenId)) return 'identifiant du jeton invalide (utilisateur@royaume!jeton)';

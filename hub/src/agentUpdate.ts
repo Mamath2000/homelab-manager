@@ -10,7 +10,7 @@ const RETRY_MS = 3600 * 1000;
 
 export async function loadAgentSettings(): Promise<AgentSettings> {
   const s = (await settings.findOne({ _id: 'agents' })) as AgentSettings | null;
-  return { _id: 'agents', autoUpdate: s?.autoUpdate ?? true, hubUrl: s?.hubUrl ?? '', agentPort: s?.agentPort ?? config.agentTlsPort, checkIntervalHours: s?.checkIntervalHours ?? 12 };
+  return { _id: 'agents', autoUpdate: s?.autoUpdate ?? true, hubUrl: s?.hubUrl ?? '', agentPort: s?.agentPort ?? config.agentTlsPort, tailscaleHub: s?.tailscaleHub ?? '', checkIntervalHours: s?.checkIntervalHours ?? 12 };
 }
 
 export function canSelfUpdate(h: HostDoc) {

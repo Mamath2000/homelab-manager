@@ -300,6 +300,7 @@ export function HostDetail() {
         <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
         {host.group && <Tag>{host.group}</Tag>}
         {host.roaming && <Tag>Itinérant</Tag>}
+        {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
         {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
       </PageHeader>
 

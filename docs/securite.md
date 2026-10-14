@@ -93,6 +93,10 @@ Si la clé est perdue ou remplacée, les agents installés refusent les binaires
 | Binaire modifié pendant une mise à jour, hub compromis | signature de release vérifiée par l'agent |
 | Vol de la base MongoDB | mots de passe hachés (scrypt), codes d'enrôlement hachés ; la clé de l'autorité y figure, la base est donc à protéger comme un secret |
 
+## Réseau d'accès Tailscale
+
+Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même port TLS : la PKI est inchangée (clé du hub épinglée à l'installation, autorité du hub à la connexion, pas de vérification du nom). Le script d'installation ne reprend l'adresse Tailscale que si l'agent l'a lui-même utilisée pour le télécharger, afin qu'un hôte du LAN ne reçoive jamais une adresse qu'il ne sait pas joindre. Les ACL Tailscale (agent → hub sur le port des agents seulement) sont à régler côté tailnet.
+
 ## Limites
 
 - Le hub reste le point de commande : un hub compromis peut lancer les actions prévues (mises à jour APT, nettoyage, redémarrage). Il ne peut ni exécuter de commande arbitraire ni installer un agent non signé.

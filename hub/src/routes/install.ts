@@ -2,7 +2,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
-import { agentUrl } from '../hubUrl.js';
+import { agentUrlOfRequest } from '../hubUrl.js';
 import { loadPki } from '../pkiStore.js';
 
 const ARCHES = new Set(['amd64', 'arm64']);
@@ -13,7 +13,7 @@ export function registerInstallRoutes(app: FastifyInstance) {
 
   // Generic installer: the single-use enrollment code is passed as argument when it is run.
   app.get('/install.sh', async (req, reply) => {
-    const url = await agentUrl(req);
+    const url = await agentUrlOfRequest(req);
     if (!url) return reply.code(400).send('# invalid hub url, set it in the agent settings\n');
     const pki = await loadPki();
     reply.type('text/x-shellscript; charset=utf-8');

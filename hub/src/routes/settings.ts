@@ -4,7 +4,7 @@ import { testConnection, type HomeAssistantBridge } from '../homeassistant/bridg
 import { AGENT_ARCHES, agentBinary } from '../agentBinaries.js';
 import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
 import { hosts } from '../db.js';
-import { SAFE_URL, agentCommands } from '../hubUrl.js';
+import { SAFE_URL, TAILSCALE_HOST, agentCommands } from '../hubUrl.js';
 import { loadPki } from '../pkiStore.js';
 import type { HomeAssistantSettings } from '../types.js';
 
@@ -97,6 +97,7 @@ interface AgentBody {
   hubUrl?: string;
   checkIntervalHours?: number;
   agentPort?: number;
+  tailscaleHub?: string;
 }
 
 const agentBody = {
@@ -108,6 +109,7 @@ const agentBody = {
     hubUrl: { type: 'string', maxLength: 256 },
     checkIntervalHours: { type: 'integer', minimum: 0, maximum: 720 },
     agentPort: { type: 'integer', minimum: 1, maximum: 65535 },
+    tailscaleHub: { type: 'string', maxLength: 253 },
   },
 } as const;
 
@@ -137,6 +139,8 @@ export function registerAgentSettingsRoutes(app: FastifyInstance, bridge: HomeAs
     const next = { ...current, ...req.body };
     next.hubUrl = next.hubUrl.trim().replace(/\/+$/, '');
     if (next.hubUrl && !SAFE_URL.test(next.hubUrl)) return reply.code(400).send({ error: 'URL du hub invalide (http(s)://hôte[:port][/chemin])' });
+    next.tailscaleHub = next.tailscaleHub.trim();
+    if (next.tailscaleHub && !TAILSCALE_HOST.test(next.tailscaleHub)) return reply.code(400).send({ error: 'adresse Tailscale invalide (nom d\'hôte ou IP, sans http:// ni port)' });
     await settings.replaceOne({ _id: 'agents' }, next, { upsert: true });
     if (next.hubUrl !== current.hubUrl) bridge.refresh();
     if (next.autoUpdate && !current.autoUpdate) {

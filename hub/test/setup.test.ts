@@ -6,7 +6,7 @@ import { DEFAULT_SETUP, buildSpec, effectiveValues, overridesError, profileError
 import { setupDto } from '../src/hostDto.js';
 import { DEFAULT_FASTFETCH } from '../src/fastfetch.js';
 import { DEFAULT_STARSHIP } from '../src/starship.js';
-import type { HostDoc, SetupOption, SetupOverrides, SetupProfile, SetupValues } from '../src/types.js';
+import { SETUP_OPTIONS, type HostDoc, type SetupOption, type SetupOverrides, type SetupProfile, type SetupValues } from '../src/types.js';
 
 const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5 mamath@pc';
 const KEY2 = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5Mg ops@pc';
@@ -73,6 +73,12 @@ test('host overrides: off, own value, standard list plus additions', () => {
   // an option outside the standard can be enabled on a host
   assert.deepEqual(effectiveValues(profile({ packages: null }), { packages: { mode: 'extra', add: ['jq'] } }).packages, ['jq']);
   assert.deepEqual(effectiveValues(profile({ user: null }), { user: { mode: 'custom', value: USER } }).user, USER);
+});
+
+test('a host created unmanaged (every option off) has nothing to apply', () => {
+  const off: SetupOverrides = Object.fromEntries(SETUP_OPTIONS.map((k) => [k, { mode: 'off' }]));
+  assert.deepEqual(effectiveValues(DEFAULT_SETUP, off), {});
+  assert.equal(overridesError(DEFAULT_SETUP, off), null);
 });
 
 test('profile and overrides validation', () => {

@@ -105,6 +105,18 @@ L'agent génère sa clé privée sur l'hôte, reçoit un certificat du hub, puis
 Détails dans [Sécurité](securite.md).
 :::
 
+### Réseau d'accès (LAN ou Tailscale)
+
+Par défaut, l'agent joint le hub à l'adresse de **Paramètres → Agent → URL du hub** (le LAN). Pour un hôte hors du réseau local, qui n'est joignable que par [Tailscale](https://tailscale.com/) :
+
+1. Renseigner à la main **Paramètres → Agent → Adresse du hub sur Tailscale** (nom d'hôte ou IP du hub sur le tailnet, sans `http://` ni port : le port TLS des agents est repris). Tant qu'elle est vide, seul le LAN est proposé.
+2. Optionnel, pour les sauvegardes : **Paramètres → Sauvegardes → Adresse du PBS sur Tailscale** (voir [Sauvegardes](sauvegardes.md)).
+3. À l'**ajout de l'hôte**, choisir le réseau d'accès **Tailscale** : la commande d'installation (et le jeton Home Assistant OS) portent l'adresse Tailscale du hub.
+
+Le réseau est choisi **par agent, à la création**, et ne se change pas ensuite : pour passer un hôte d'un réseau à l'autre, le supprimer et le réinstaller. La nouvelle commande d'installation d'un hôte existant (icône clé) garde son réseau ; la fiche et la liste affichent un badge **Tailscale**. Le certificat du hub ne change pas : l'agent épingle sa clé, pas son nom.
+
+Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée) et **exclu de [Home Assistant](home-assistant.md)**. Les deux restent modifiables sur la fiche de l'hôte.
+
 ### Ce que l'installation met en place
 
 | Élément | Emplacement |

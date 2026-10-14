@@ -7,10 +7,11 @@ import { hosts, jobs, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
+import { loadAgentSettings } from '../agentUpdate.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
 import { forgetHost } from '../pbs.js';
 import { applySetup, canSetup } from '../setup.js';
-import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, hasApt, type HostDoc, type JobAction } from '../types.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
 
 const hostBody = {
   type: 'object',
@@ -22,6 +23,17 @@ const hostBody = {
     haExcluded: { type: 'boolean' },
   },
 } as const;
+
+// Creation only: the access network is fixed afterwards (changing it means reinstalling the agent).
+const createHostBody = {
+  ...hostBody,
+  required: ['name'],
+  properties: { ...hostBody.properties, accessNetwork: { type: 'string', enum: ['lan', 'tailscale'] } },
+} as const;
+
+// Hosts of the Tailscale access network (typically third parties) start unmanaged: every standard
+// option off, and not published to Home Assistant. Both stay editable afterwards.
+const UNMANAGED: SetupOverrides = Object.fromEntries(SETUP_OPTIONS.map((k) => [k, { mode: 'off' }]));
 
 const jobBody = {
   type: 'object',
@@ -76,8 +88,8 @@ function newEnrollCode() {
   return { code, expiresAt, fields: { enrollCodeHash: sha256(code), enrollExpiresAt: expiresAt } };
 }
 
-async function installInfo(req: FastifyRequest, code: string, expiresAt: Date) {
-  const cmd = await agentCommands(req);
+async function installInfo(req: FastifyRequest, code: string, expiresAt: Date, network: AccessNetwork = 'lan') {
+  const cmd = await agentCommands(req, network);
   return { installCommand: cmd ? cmd.install(code) : null, haosToken: cmd ? cmd.haosToken(code) : null, expiresAt };
 }
 
@@ -87,17 +99,23 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map(hostDto);
   });
 
-  app.post<{ Body: { name: string; group?: string; roaming?: boolean; haExcluded?: boolean } }>(
+  app.post<{ Body: { name: string; group?: string; roaming?: boolean; haExcluded?: boolean; accessNetwork?: AccessNetwork } }>(
     '/api/hosts',
-    { schema: { body: { ...hostBody, required: ['name'] } } },
+    { schema: { body: createHostBody } },
     async (req, reply) => {
+      const tailscale = req.body.accessNetwork === 'tailscale';
+      if (tailscale && !(await loadAgentSettings()).tailscaleHub) {
+        return reply.code(400).send({ error: "adresse du hub sur Tailscale non renseignée (Paramètres > Agent)" });
+      }
       const enroll = newEnrollCode();
       const doc: HostDoc = {
         _id: new ObjectId(),
         name: req.body.name.trim(),
         group: req.body.group?.trim() || undefined,
         roaming: req.body.roaming || undefined,
-        haExcluded: req.body.haExcluded || undefined,
+        // Tailscale: excluded unless the request says otherwise
+        haExcluded: (tailscale ? req.body.haExcluded !== false : req.body.haExcluded) || undefined,
+        ...(tailscale ? { accessNetwork: 'tailscale' as const, setupOverrides: UNMANAGED } : {}),
         ...enroll.fields,
         createdAt: new Date(),
       };
@@ -105,7 +123,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       const dto = hostDto(doc);
       publish('host', dto);
       reply.code(201);
-      return { host: dto, ...(await installInfo(req, enroll.code, enroll.expiresAt)) };
+      return { host: dto, ...(await installInfo(req, enroll.code, enroll.expiresAt, doc.accessNetwork)) };
     },
   );
 
@@ -159,7 +177,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     const updated = await hosts.findOneAndUpdate({ _id }, { $set: enroll.fields }, { returnDocument: 'after' });
     if (!updated) return reply.code(404).send({ error: 'host not found' });
     publish('host', hostDto(updated));
-    return installInfo(req, enroll.code, enroll.expiresAt);
+    return installInfo(req, enroll.code, enroll.expiresAt, updated.accessNetwork);
   });
 
   // Revokes the agent: its certificate (or legacy token) and pending code stop working at once.

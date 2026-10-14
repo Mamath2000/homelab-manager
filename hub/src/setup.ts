@@ -255,7 +255,8 @@ export async function onAgentHello(hostId: ObjectId) {
   if (host.setupPending) {
     await hosts.updateOne({ _id: hostId }, { $unset: { setupPending: '' } });
     const p = await loadSetupProfile();
-    if (p.autoApply && SETUP_OPTIONS.some((k) => p.options[k].enabled)) {
+    // nothing to apply when the host manages no option (e.g. every option switched off at its creation)
+    if (p.autoApply && Object.keys(effectiveValues(p, host.setupOverrides)).length) {
       await applySetup(host, 'enroll');
       return;
     }

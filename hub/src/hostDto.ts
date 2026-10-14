@@ -36,6 +36,7 @@ export function hostDto(h: HostDoc) {
     online: isOnline(h._id.toHexString()),
     roaming: !!h.roaming,
     haExcluded: !!h.haExcluded,
+    accessNetwork: h.accessNetwork ?? 'lan',
     agentVersion: h.agentVersion ?? null,
     // cert: TLS client certificate; legacy: plain-text token of the first versions, to reinstall
     agentAuth: h.certFingerprint ? 'cert' : h.tokenHash ? 'legacy' : 'none',

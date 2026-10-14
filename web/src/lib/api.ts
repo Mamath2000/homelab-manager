@@ -106,6 +106,8 @@ export interface ComposeFile {
   masked?: boolean;
 }
 
+export type AccessNetwork = 'lan' | 'tailscale';
+
 export interface Host {
   id: string;
   name: string;
@@ -118,6 +120,8 @@ export interface Host {
   roaming: boolean;
   // not published to Home Assistant
   haExcluded: boolean;
+  // network the agent reaches the hub and the PBS through, fixed at creation
+  accessNetwork: AccessNetwork;
   agentVersion: string | null;
   // cert: TLS client certificate; legacy: plain-text token of the first versions, reinstall needed;
   // none: not enrolled yet, or revoked
@@ -288,6 +292,7 @@ export interface AgentSettings {
   hubUrl: string; // empty: the address used in the browser
   checkIntervalHours: number;
   agentPort: number; // TLS port given to the agents (published port of the hub)
+  tailscaleHub: string; // hub on the tailnet (host or IP); empty: the Tailscale access network is not offered
   // signed: release signature checked by the agents (unsigned: development build)
   binaries: { arch: string; sha256: string; version: string | null; signed: boolean }[];
   tls: {
@@ -441,6 +446,7 @@ export interface PbsSettings {
   tokenId: string;
   hasSecret: boolean;
   clientImage?: string;
+  tailscaleUrl?: string; // PBS address for the hosts of the Tailscale access network
   polledAt?: string;
   pollError?: string | null;
 }
@@ -452,6 +458,7 @@ export interface PbsSettingsInput {
   tokenId: string;
   tokenSecret?: string;
   clientImage?: string;
+  tailscaleUrl?: string;
 }
 
 // Backups of directories run by the agent (hub/src/backupJobs.ts)
@@ -586,8 +593,8 @@ export const api = {
   resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
-  createHost: (name: string, group: string, roaming: boolean, haExcluded: boolean) =>
-    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group, roaming, haExcluded }),
+  createHost: (name: string, group: string, roaming: boolean, haExcluded: boolean, accessNetwork: AccessNetwork = 'lan') =>
+    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group, roaming, haExcluded, accessNetwork }),
   updateHost: (id: string, patch: { name?: string; group?: string; roaming?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
@@ -600,7 +607,7 @@ export const api = {
   republishHomeAssistant: () => request<{ ok: boolean }>('POST', '/api/settings/homeassistant/republish'),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
-  saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours' | 'agentPort'>>) =>
+  saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours' | 'agentPort' | 'tailscaleHub'>>) =>
     request<AgentSettings>('PUT', '/api/settings/agents', patch),
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),

@@ -21,6 +21,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     fingerprint: data.fingerprint,
     tokenId: data.tokenId || DEFAULT_TOKEN,
     clientImage: data.clientImage ?? '',
+    tailscaleUrl: data.tailscaleUrl ?? '',
   });
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
@@ -82,6 +83,11 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
           />
           <TestResult test={test} />
           <div className="space-y-4 border-t border-line pt-4">
+            <label className="block">
+              <span className={field}>Adresse du PBS sur Tailscale (hôtes du réseau Tailscale)</span>
+              <input className="input font-mono text-xs" value={form.tailscaleUrl ?? ''} onChange={(e) => set({ tailscaleUrl: e.target.value.trim() })} placeholder="https://100.65.214.55:8007" spellCheck={false} />
+              <span className="mt-1 block text-xs text-zinc-500">Même certificat (empreinte ci-dessus). Vide : ces hôtes ne sauvegardent pas.</span>
+            </label>
             <label className="block">
               <span className={field}>Image du client (hôtes sans client installé)</span>
               <input className="input font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />

@@ -69,6 +69,21 @@ test('definition sent to the agent', () => {
   assert.deepEqual(buildSpec({}, [job], pbs).jobs, []);
 });
 
+test('Tailscale hosts reach the PBS at its own address', () => {
+  const ts = { ...pbs, tailscaleUrl: 'https://100.65.214.55:8007' };
+  const lan = buildSpec({ pbsCredential: cred }, [job], ts);
+  const tail = buildSpec({ pbsCredential: cred, accessNetwork: 'tailscale' }, [job], ts);
+  assert.equal(lan.server, '192.168.100.8:8007');
+  assert.equal(tail.server, '100.65.214.55:8007');
+  // another address is another definition; same certificate
+  assert.notEqual(tail.hash, lan.hash);
+  assert.equal(tail.fingerprint, lan.fingerprint);
+  // no Tailscale address: such a host cannot back up (it never falls back to the LAN address)
+  const none = buildSpec({ pbsCredential: cred, accessNetwork: 'tailscale' }, [job], pbs);
+  assert.equal(none.server, '');
+  assert.deepEqual(none.jobs, []);
+});
+
 const H = 3600_000;
 test('state of a group written by a job of the hub', () => {
   const run = Date.UTC(2026, 9, 11, 1); // 03:00 Paris
@@ -239,4 +254,10 @@ test('a database job body passes the schema of the routes (no directory)', async
   assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-database-check', payload: { kind: 'mongodb', database: { ...body.database, databases: [] } } })).statusCode, 404);
   assert.equal((await app.inject({ method: 'POST', url: '/api/hosts/x/backup-jobs', payload: { ...body, kind: 'mysql' } })).statusCode, 400);
   await app.close();
+});
+
+test('Tailscale hub address: host name or IP, no scheme nor port', async () => {
+  const { TAILSCALE_HOST } = await import('../src/hubUrl.js');
+  for (const h of ['100.64.1.2', 'hub.tail1234.ts.net', 'hub']) assert.ok(TAILSCALE_HOST.test(h), h);
+  for (const h of ['', 'https://hub', 'hub:3443', 'hub/x', "hub';rm", '-hub', 'hub.']) assert.ok(!TAILSCALE_HOST.test(h), h);
 });

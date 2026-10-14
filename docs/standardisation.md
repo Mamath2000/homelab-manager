@@ -60,6 +60,8 @@ Chaque option a son état (**conforme**, **écart** avec le détail, **sans obje
 | Standard + ajouts | paquets et clés : la liste standard plus des éléments propres à l'hôte |
 | Non géré | l'option n'est ni appliquée ni vérifiée sur cet hôte |
 
+Un hôte créé sur le [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) démarre avec **toutes les options en « Non géré »** : rien n'est poussé chez lui (clés SSH, prompt, paquets…) à son premier raccordement, même si l'application automatique est activée. Les options se réactivent une à une sur sa fiche.
+
 « Non géré » sert notamment sur les hôtes où une option n'a pas de sens ou ne peut pas s'appliquer, par exemple Starship ou fastfetch sur Debian 12. Une standardisation groupée remet ces choix au standard (voir ci-dessous).
 
 - **Enregistrer** garde les choix de l'hôte et relance la vérification.
