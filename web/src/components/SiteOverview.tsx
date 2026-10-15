@@ -11,11 +11,13 @@ import {
   backupTile,
   backupTileMeta,
   count,
+  dockerTile,
   oldestBackup,
   siteKindMeta,
   siteTone,
   type AptTile,
   type BackupTile,
+  type DockerTile,
   type Site,
 } from '../lib/sites';
 import { toneStroke } from '../lib/status';
@@ -79,6 +81,7 @@ function Meter<T extends string>({ label, summary, parts }: { label: string; sum
 
 const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#52525b', unknown: '#8b5cf6', uptodate: '#10b981' };
 const bakColor: Record<BackupTile, string> = { bad: '#ef4444', warn: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
+const dckColor: Record<DockerTile, string> = { problem: '#ef4444', updates: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
 
 // stacked: the two meters one under the other (narrow column)
 function Meters({ site, groups, backups, stacked }: { site: Site; groups: BackupGroup[] | undefined; backups: boolean; stacked?: boolean }) {
@@ -98,15 +101,27 @@ function Meters({ site, groups, backups, stacked }: { site: Site; groups: Backup
     `${b('ok')} à jour`,
     b('none') > 0 && `${b('none')} non suivie${b('none') > 1 ? 's' : ''}`,
   ].filter(Boolean);
+  // Docker only where some host runs it (a site without Docker keeps its two meters)
+  const dck = site.hosts.map(dockerTile);
+  const d = (v: DockerTile) => count(dck, v);
+  const dckSummary = [
+    d('problem') > 0 && <span key="d" className="text-red-400">{d('problem')} en problème</span>,
+    d('updates') > 0 && `${d('updates')} avec MAJ`,
+    `${d('ok')} à jour`,
+  ].filter(Boolean);
+  const withDocker = dck.some((v) => v !== 'none');
   const join = (l: React.ReactNode[]) => (l.length ? l.flatMap((x, i) => (i ? [' · ', x] : [x])) : 'tout est à jour');
   return (
-    <div className={clsx('grid gap-x-5 gap-y-2', backups && !stacked && 'sm:grid-cols-2')}>
+    <div className={clsx('grid gap-x-5 gap-y-2', !stacked && (backups && withDocker ? 'sm:grid-cols-3' : (backups || withDocker) && 'sm:grid-cols-2'))}>
       <Meter label="Mises à jour" summary={join(aptSummary)} parts={(Object.keys(aptColor) as AptTile[]).map((k) => ({ key: k, n: n(k), color: aptColor[k]! }))} />
       {backups && (
         <div>
           <Meter label="Sauvegardes" summary={join(bakSummary)} parts={(Object.keys(bakColor) as BackupTile[]).map((k) => ({ key: k, n: b(k), color: bakColor[k] }))} />
           <p className="mt-1 text-[11px] text-muted">plus ancienne : {ageText(oldestBackup(site.hosts, groups))}</p>
         </div>
+      )}
+      {withDocker && (
+        <Meter label="Docker" summary={join(dckSummary)} parts={(Object.keys(dckColor) as DockerTile[]).map((k) => ({ key: k, n: d(k), color: dckColor[k] }))} />
       )}
     </div>
   );
