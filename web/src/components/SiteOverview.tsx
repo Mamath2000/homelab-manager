@@ -80,7 +80,8 @@ function Meter<T extends string>({ label, summary, parts }: { label: string; sum
 const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#52525b', unknown: '#8b5cf6', uptodate: '#10b981' };
 const bakColor: Record<BackupTile, string> = { bad: '#ef4444', warn: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
 
-function Meters({ site, groups, backups }: { site: Site; groups: BackupGroup[] | undefined; backups: boolean }) {
+// stacked: the two meters one under the other (narrow column)
+function Meters({ site, groups, backups, stacked }: { site: Site; groups: BackupGroup[] | undefined; backups: boolean; stacked?: boolean }) {
   const apt = site.hosts.map(aptTile);
   const bak = site.hosts.map((h) => backupTile(groups, h.id));
   const n = (v: AptTile) => count(apt, v);
@@ -99,7 +100,7 @@ function Meters({ site, groups, backups }: { site: Site; groups: BackupGroup[] |
   ].filter(Boolean);
   const join = (l: React.ReactNode[]) => (l.length ? l.flatMap((x, i) => (i ? [' · ', x] : [x])) : 'tout est à jour');
   return (
-    <div className={clsx('grid gap-x-5 gap-y-2', backups && 'sm:grid-cols-2')}>
+    <div className={clsx('grid gap-x-5 gap-y-2', backups && !stacked && 'sm:grid-cols-2')}>
       <Meter label="Mises à jour" summary={join(aptSummary)} parts={(Object.keys(aptColor) as AptTile[]).map((k) => ({ key: k, n: n(k), color: aptColor[k]! }))} />
       {backups && (
         <div>
@@ -129,7 +130,7 @@ function SiteCard({ site, groups, mode, backups, small }: { site: Site; groups: 
       <div className="flex flex-wrap gap-x-1.5 gap-y-2">
         {site.hosts.map((h) => <Tile key={h.id} host={h} groups={groups} mode={mode} small={small} />)}
       </div>
-      <Meters site={site} groups={groups} backups={backups} />
+      <Meters site={site} groups={groups} backups={backups} stacked={small} />
     </div>
   );
 }
@@ -190,8 +191,8 @@ function Legend({ mode }: { mode: Mode }) {
   );
 }
 
-// Sites of the dashboard: the main ones in large, the small ones side by side, the external sites of
-// a single host grouped in one card.
+// Sites of the dashboard: the main ones in large, then on one row the small ones and the external
+// sites of a single host, grouped in one card.
 export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups: BackupGroup[] | undefined; backups: boolean }) {
   const [chosen, setChosen] = useState<Mode>(savedMode);
   const mode = backups ? chosen : 'apt';
@@ -233,14 +234,11 @@ export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups
       </div>
       <div className="flex flex-col gap-5">
         {large.map((s) => <SiteCard key={s.name} site={s} groups={groups} mode={mode} backups={backups} />)}
-        {small.length > 0 && (
-          <div className="grid gap-5 border-t border-line pt-4 first:border-t-0 first:pt-0 md:grid-cols-[repeat(auto-fit,minmax(300px,1fr))]">
+        {/* the small sites and the external ones share a row, one column each */}
+        {(small.length > 0 || external.length > 0) && (
+          <div className="grid gap-x-6 gap-y-5 border-t border-line pt-4 first:border-t-0 first:pt-0 md:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
             {small.map((s) => <SiteCard key={s.name} site={s} groups={groups} mode={mode} backups={backups} small />)}
-          </div>
-        )}
-        {external.length > 0 && (
-          <div className="border-t border-line pt-4 first:border-t-0 first:pt-0">
-            <ExternalSites sites={external} groups={groups} backups={backups} />
+            {external.length > 0 && <ExternalSites sites={external} groups={groups} backups={backups} />}
           </div>
         )}
       </div>
