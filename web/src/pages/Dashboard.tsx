@@ -82,7 +82,7 @@ export function Dashboard() {
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
 
   const onlineApt = hosts.filter((h) => h.online && hasApt(h));
-  const sites = groupSites(hosts, siteConfig?.sites ?? []);
+  const sites = groupSites(hosts, siteConfig ?? []);
   // only the backups attached to a host are followed
   const groups = backups?.enabled ? backups.groups : undefined;
   const withBackups = !!backups?.enabled;

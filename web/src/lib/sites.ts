@@ -18,22 +18,18 @@ export interface Site {
   hosts: Host[];
 }
 
-// Sites in display order: the configured ones in their order, then the other groups (most hosts
-// first), hosts without group last. Sites without host are left out.
+// Sites in the order of the settings, hosts without (known) site last. Sites without host are left out.
 export function groupSites(hosts: Host[], config: SiteConfig[]): Site[] {
-  const byName = new Map<string, Host[]>();
-  for (const h of hosts) {
-    const name = h.group?.trim() || NO_SITE;
-    byName.set(name, [...(byName.get(name) ?? []), h]);
-  }
   const sorted = (list: Host[]) => [...list].sort((a, b) => a.name.localeCompare(b.name));
-  const configured = config.filter((c) => byName.has(c.name)).map((c) => ({ name: c.name, kind: c.kind, hosts: sorted(byName.get(c.name)!) }));
-  const known = new Set(config.map((c) => c.name));
-  const others = [...byName.entries()]
-    .filter(([name]) => !known.has(name))
-    .map(([name, list]) => ({ name, kind: null, hosts: sorted(list) }))
-    .sort((a, b) => Number(a.name === NO_SITE) - Number(b.name === NO_SITE) || b.hosts.length - a.hosts.length || a.name.localeCompare(b.name));
-  return [...configured, ...others];
+  const sites = config.map((c) => ({ name: c.name, kind: c.kind, hosts: sorted(hosts.filter((h) => h.siteId === c.id)) }));
+  const known = new Set(config.map((c) => c.id));
+  const none = hosts.filter((h) => !h.siteId || !known.has(h.siteId));
+  return [...sites, { name: NO_SITE, kind: null, hosts: sorted(none) }].filter((s) => s.hosts.length > 0);
+}
+
+// Name of the site of a host, for the lists.
+export function siteName(h: Host, config: SiteConfig[] | undefined) {
+  return config?.find((c) => c.id === h.siteId)?.name ?? NO_SITE;
 }
 
 // --- state of a host: system updates (upper half of its square) and backups (lower half) ----------

@@ -1,21 +1,42 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeSites } from '../src/routes/sites.js';
+import { autoColor, normalizeSites, planGroupMigration } from '../src/catalog.js';
 import { securityPackages } from '../src/jobs.js';
 
-test('sites: names trimmed, empty ones dropped, a name given twice refused', () => {
-  assert.deepEqual(
-    normalizeSites([
-      { name: ' Vouille ', kind: 'main' },
-      { name: '', kind: 'vpn' },
-      { name: 'Jarsay', kind: 'vpn' },
-    ]),
+test('sites: names trimmed, empty ones dropped, ids kept or given, a name given twice refused', () => {
+  const out = normalizeSites([
+    { id: 'a1', name: ' Vouille ', kind: 'main' },
+    { name: '', kind: 'vpn' },
+    { name: 'Jarsay', kind: 'vpn' },
+  ])!;
+  assert.deepEqual(out.map((s) => [s.name, s.kind]), [['Vouille', 'main'], ['Jarsay', 'vpn']]);
+  assert.equal(out[0].id, 'a1');
+  assert.match(out[1].id, /^[0-9a-f]{24}$/);
+  assert.equal(normalizeSites([{ name: 'Jarsay', kind: 'vpn' }, { name: 'jarsay ', kind: 'external' }]), null);
+});
+
+test('groups of the first versions: one tag per name, the site of the same name', () => {
+  const sites = [{ id: 's1', name: 'Vouille', kind: 'main' as const }];
+  const tags = [{ id: 't1', name: 'media', color: 'blue' as const }];
+  const plan = planGroupMigration(
     [
-      { name: 'Vouille', kind: 'main' },
-      { name: 'Jarsay', kind: 'vpn' },
+      { id: 'h1', group: 'Media' },
+      { id: 'h2', group: 'vouille', tags: ['t1'] },
+      { id: 'h3', group: 'vouille ', siteId: 's9' },
     ],
+    sites,
+    tags,
   );
-  assert.equal(normalizeSites([{ name: 'Jarsay', kind: 'vpn' }, { name: 'Jarsay ', kind: 'external' }]), null);
+  const vouille = plan.tags.find((t) => t.name === 'vouille')!;
+  assert.equal(plan.tags.length, 2);
+  assert.equal(vouille.color, autoColor(1));
+  assert.deepEqual(plan.updates, [
+    { id: 'h1', tags: ['t1'], siteId: undefined },
+    { id: 'h2', tags: ['t1', vouille.id], siteId: 's1' },
+    // a site already chosen is kept
+    { id: 'h3', tags: [vouille.id], siteId: 's9' },
+  ]);
+  assert.notEqual(autoColor(0), 'zinc');
 });
 
 test('security packages of the last APT report', () => {

@@ -28,6 +28,8 @@ test('operator runs jobs but manages neither hosts, settings nor accounts', () =
     ['GET', '/api/settings/homeassistant'],
     ['PUT', '/api/settings/agents'],
     ['PUT', '/api/settings/sites'],
+    ['POST', '/api/tags'],
+    ['DELETE', '/api/tags/:id'],
     ['GET', '/api/users'],
     ['POST', '/api/users'],
   ]) {
@@ -41,6 +43,7 @@ test('viewer is read-only and sees neither settings nor accounts', () => {
   assert.ok(authorize('viewer', 'GET', '/api/events'));
   assert.ok(authorize('viewer', 'GET', '/api/sites'));
   assert.ok(authorize('viewer', 'GET', '/api/alerts'));
+  assert.ok(authorize('viewer', 'GET', '/api/tags'));
   assert.ok(!authorize('viewer', 'POST', '/api/jobs/docker-update'));
   assert.ok(authorize('viewer', 'POST', '/api/account/password'));
   assert.ok(!authorize('viewer', 'GET', '/api/settings/homeassistant'));

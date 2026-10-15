@@ -47,6 +47,11 @@ export function useLiveEvents(enabled: boolean) {
       qc.invalidateQueries({ queryKey: keys.alerts });
       qc.invalidateQueries({ queryKey: ['backup-jobs'] });
     });
+    // sites or tags changed in the settings
+    es.addEventListener('catalog', () => {
+      qc.invalidateQueries({ queryKey: keys.sites });
+      qc.invalidateQueries({ queryKey: keys.tags });
+    });
     es.addEventListener('job.log', (e) => {
       const { jobId, data } = JSON.parse((e as MessageEvent).data) as { jobId: string; data: string };
       qc.setQueryData<Job>(keys.job(jobId), (old) => (old ? { ...old, log: (old.log ?? '') + data } : old));

@@ -4,7 +4,8 @@ import { ClipboardList, DatabaseBackup, ShieldAlert, type LucideIcon } from 'luc
 import type { BackupGroup, Host, Job } from '../lib/api';
 import { backupStateMeta, groupLabel } from '../lib/backups';
 import { jobTitle, timeAgo } from '../lib/format';
-import { NO_SITE } from '../lib/sites';
+import { siteName } from '../lib/sites';
+import { useSites } from '../lib/queries';
 import { allStacks, connection, needsReinstall, stackPath } from '../lib/status';
 import { Badge, Panel } from './ui';
 
@@ -36,11 +37,12 @@ function TodoPanel({ title, icon, more, children }: { title: string; icon: Lucid
   );
 }
 
-const site = (h: Host | undefined) => h?.group?.trim() || NO_SITE;
 
 // Lists of the right column: backups to watch, then pending security updates, then the rest (hosts
 // offline, agents to reinstall, Docker problems, failed tasks of the last 24 h).
 export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; groups: BackupGroup[] | undefined; jobs: Job[] | undefined; jobsAt: number }) {
+  const { data: sites } = useSites();
+  const site = (h: Host) => siteName(h, sites);
   const byId = new Map(hosts.map((h) => [h.id, h]));
   const failedFirst = (g: BackupGroup) => (g.state === 'failed' || g.state === 'task_failed' ? 0 : 1);
   const backups = (groups ?? []).filter((g) => g.state !== 'ok').sort((a, b) => failedFirst(a) - failedFirst(b) || a.lastBackup - b.lastBackup);

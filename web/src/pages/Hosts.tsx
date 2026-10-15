@@ -10,7 +10,8 @@ import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Age
 import { BulkSetupModal } from '../components/SetupPanel';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
-import { useBackups, useHosts, useRunBulk, useRunJob } from '../lib/queries';
+import { useBackups, useHosts, useRunBulk, useRunJob, useSites, useTags } from '../lib/queries';
+import { HostTagList, SiteChip } from '../components/HostTags';
 import { canSelfUpdate, connection, connectionMeta, hasApt, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { Host } from '../lib/api';
@@ -38,7 +39,10 @@ export function Hosts() {
   const navigate = useNavigate();
   const q = params.get('q') ?? '';
   const filter = (params.get('f') as Filter) ?? 'all';
-  const [group, setGroup] = useState('');
+  const site = params.get('site') ?? '';
+  const tag = params.get('tag') ?? '';
+  const { data: sites } = useSites();
+  const { data: tags } = useTags();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [confirmUpgrade, setConfirmUpgrade] = useState(false);
@@ -60,13 +64,14 @@ export function Hosts() {
   // agents out of sync with the binary served by the hub, able to update themselves now
   const outdatedAgents = (hosts ?? []).filter((h) => h.agentOutdated && h.online && canSelfUpdate(h));
 
-  const groups = useMemo(() => [...new Set((hosts ?? []).map((h) => h.group).filter(Boolean))].sort(), [hosts]);
-
   const list = useMemo(() => {
     const needle = q.toLowerCase();
+    const siteName = (h: Host) => sites?.find((x) => x.id === h.siteId)?.name;
+    const tagNames = (h: Host) => (tags ?? []).filter((t) => h.tags.includes(t.id)).map((t) => t.name);
     return (hosts ?? []).filter((h) => {
-      if (group && h.group !== group) return false;
-      if (needle && ![h.name, h.group, h.info?.hostname, ...(h.info?.ips ?? [])].some((v) => v?.toLowerCase().includes(needle))) return false;
+      if (site && (site === 'none' ? !!h.siteId : h.siteId !== site)) return false;
+      if (tag && !h.tags.includes(tag)) return false;
+      if (needle && ![h.name, siteName(h), ...tagNames(h), h.info?.hostname, ...(h.info?.ips ?? [])].some((v) => v?.toLowerCase().includes(needle))) return false;
       switch (filter) {
         case 'online':
         case 'offline':
@@ -89,7 +94,7 @@ export function Hosts() {
           return true;
       }
     });
-  }, [hosts, q, filter, group]);
+  }, [hosts, q, filter, site, tag, sites, tags]);
 
   const visibleSelected = list.filter((h) => selected.has(h.id));
   const allChecked = list.length > 0 && visibleSelected.length === list.length;
@@ -121,12 +126,19 @@ export function Hosts() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input className="input h-9 py-0 pl-9" placeholder="Nom, IP, groupe…" value={q} onChange={(e) => setParam('q', e.target.value)} />
+          <input className="input h-9 py-0 pl-9" placeholder="Nom, IP, site, tag…" value={q} onChange={(e) => setParam('q', e.target.value)} />
         </div>
-        {groups.length > 0 && (
-          <select className="input h-9 w-auto py-0" value={group} onChange={(e) => setGroup(e.target.value)}>
-            <option value="">Tous les groupes</option>
-            {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+        {!!sites?.length && (
+          <select className="input h-9 w-auto py-0" value={site} onChange={(e) => setParam('site', e.target.value)} aria-label="Site">
+            <option value="">Tous les sites</option>
+            {sites.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+            <option value="none">Sans site</option>
+          </select>
+        )}
+        {!!tags?.length && (
+          <select className="input h-9 w-auto py-0" value={tag} onChange={(e) => setParam('tag', e.target.value)} aria-label="Tag">
+            <option value="">Tous les tags</option>
+            {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         )}
         <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
@@ -186,8 +198,9 @@ export function Hosts() {
                     <td className="td">
                       <div className="flex items-center gap-2.5">
                         <StatusDot tone={connectionMeta[c].tone} />
-                        <span className="font-medium text-zinc-100">{h.name}</span>
-                        {h.group && <Tag>{h.group}</Tag>}
+                        <span className="whitespace-nowrap font-medium text-zinc-100">{h.name}</span>
+                        <SiteChip host={h} />
+                        <HostTagList host={h} />
                         {h.accessNetwork === 'tailscale' && <Tag>Tailscale</Tag>}
                       </div>
                     </td>

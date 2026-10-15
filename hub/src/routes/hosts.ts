@@ -11,6 +11,7 @@ import { agentCommands } from '../hubUrl.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
 import { forgetHost } from '../pbs.js';
+import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
 
@@ -19,7 +20,9 @@ const hostBody = {
   additionalProperties: false,
   properties: {
     name: { type: 'string', minLength: 1, maxLength: 64 },
-    group: { type: 'string', maxLength: 64 },
+    // '': no site
+    siteId: { type: 'string', maxLength: 24 },
+    tags: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', maxLength: 24 } },
     roaming: { type: 'boolean' },
     haExcluded: { type: 'boolean' },
   },
@@ -96,14 +99,16 @@ async function installInfo(req: FastifyRequest, code: string, expiresAt: Date, n
 
 export function registerHostRoutes(app: FastifyInstance) {
   app.get('/api/hosts', async () => {
-    const list = await hosts.find().sort({ group: 1, name: 1 }).toArray();
+    const list = await hosts.find().sort({ name: 1 }).toArray();
     return list.map(hostDto);
   });
 
-  app.post<{ Body: { name: string; group?: string; roaming?: boolean; haExcluded?: boolean; accessNetwork?: AccessNetwork } }>(
+  app.post<{ Body: { name: string; siteId?: string; tags?: string[]; roaming?: boolean; haExcluded?: boolean; accessNetwork?: AccessNetwork } }>(
     '/api/hosts',
     { schema: { body: createHostBody } },
     async (req, reply) => {
+      const linkError = await checkHostLinks(req.body.siteId, req.body.tags);
+      if (linkError) return reply.code(400).send({ error: linkError });
       const tailscale = req.body.accessNetwork === 'tailscale';
       if (tailscale && !(await loadAgentSettings()).tailscaleHub) {
         return reply.code(400).send({ error: "adresse du hub sur Tailscale non renseignée (Paramètres > Agent)" });
@@ -112,7 +117,8 @@ export function registerHostRoutes(app: FastifyInstance) {
       const doc: HostDoc = {
         _id: new ObjectId(),
         name: req.body.name.trim(),
-        group: req.body.group?.trim() || undefined,
+        siteId: req.body.siteId || undefined,
+        tags: req.body.tags?.length ? req.body.tags : undefined,
         roaming: req.body.roaming || undefined,
         // Tailscale: excluded unless the request says otherwise
         haExcluded: (tailscale ? req.body.haExcluded !== false : req.body.haExcluded) || undefined,
@@ -135,16 +141,20 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; group?: string; roaming?: boolean; haExcluded?: boolean } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; haExcluded?: boolean } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
       const _id = parseId(req.params.id);
+      const linkError = await checkHostLinks(req.body.siteId, req.body.tags);
+      if (linkError) return reply.code(400).send({ error: linkError });
       const set: Partial<HostDoc> = {};
+      // flags and links: stored only when set
+      const unset: Partial<Record<'roaming' | 'haExcluded' | 'siteId', ''>> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
-      if (req.body.group !== undefined) set.group = req.body.group.trim();
-      // flags: stored only when set
-      const unset: Partial<Record<'roaming' | 'haExcluded', ''>> = {};
+      if (req.body.siteId) set.siteId = req.body.siteId;
+      else if (req.body.siteId === '') unset.siteId = '';
+      if (req.body.tags !== undefined) set.tags = req.body.tags;
       for (const flag of ['roaming', 'haExcluded'] as const) {
         if (req.body[flag]) set[flag] = true;
         else if (req.body[flag] === false) unset[flag] = '';

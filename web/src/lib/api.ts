@@ -111,7 +111,9 @@ export type AccessNetwork = 'lan' | 'tailscale';
 export interface Host {
   id: string;
   name: string;
-  group: string;
+  // site of the settings (null: none) and tags of the catalog, by id
+  siteId: string | null;
+  tags: string[];
   createdAt: string;
   enrolledAt: string | null;
   lastSeenAt: string | null;
@@ -240,11 +242,21 @@ export interface DayAlert {
 }
 export type HostAlertDay = { day: string } & Record<AlertDomain, DayAlert | null>;
 
-// Sites of the dashboard: values of the group field of the hosts, tagged in the settings.
+// Sites described in the settings (display order of the dashboard), one per host.
 export type SiteKind = 'main' | 'vpn' | 'external';
 export interface SiteConfig {
+  id: string;
   name: string;
   kind: SiteKind;
+}
+
+// Tags of the hosts (several per host), colour chosen at creation (see hub TAG_COLORS).
+export const TAG_COLORS = ['zinc', 'red', 'orange', 'amber', 'lime', 'emerald', 'teal', 'sky', 'blue', 'violet', 'pink'] as const;
+export type TagColor = (typeof TAG_COLORS)[number];
+export interface TagConfig {
+  id: string;
+  name: string;
+  color: TagColor;
 }
 
 export type Role = 'admin' | 'operator' | 'viewer';
@@ -666,9 +678,10 @@ export const api = {
   resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
-  createHost: (name: string, group: string, roaming: boolean, haExcluded: boolean, accessNetwork: AccessNetwork = 'lan') =>
-    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', { name, group, roaming, haExcluded, accessNetwork }),
-  updateHost: (id: string, patch: { name?: string; group?: string; roaming?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
+    request<{ host: Host } & InstallInfo>('POST', '/api/hosts', h),
+  // siteId '': no site
+  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),
@@ -687,8 +700,13 @@ export const api = {
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   alerts: () => request<{ days: (HostAlertDay & { hostId: string })[] }>('GET', '/api/alerts'),
-  sites: () => request<{ sites: SiteConfig[]; groups: string[] }>('GET', '/api/sites'),
-  saveSites: (sites: SiteConfig[]) => request<{ sites: SiteConfig[] }>('PUT', '/api/settings/sites', { sites }),
+  sites: () => request<{ sites: SiteConfig[] }>('GET', '/api/sites'),
+  // a new site has no id yet
+  saveSites: (sites: (Omit<SiteConfig, 'id'> & { id?: string })[]) => request<{ sites: SiteConfig[] }>('PUT', '/api/settings/sites', { sites }),
+  tags: () => request<{ tags: TagConfig[] }>('GET', '/api/tags'),
+  createTag: (name: string, color: TagColor) => request<TagConfig>('POST', '/api/tags', { name, color }),
+  updateTag: (id: string, patch: { name?: string; color?: TagColor }) => request<TagConfig>('PATCH', `/api/tags/${id}`, patch),
+  deleteTag: (id: string) => request<void>('DELETE', `/api/tags/${id}`),
   dockerUpdate: (targets: { hostId: string; stack: string }[]) => request<Job[]>('POST', '/api/jobs/docker-update', { targets }),
   job: (id: string) => request<Job>('GET', `/api/jobs/${id}`),
   runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string }) =>

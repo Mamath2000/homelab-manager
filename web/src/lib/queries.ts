@@ -11,6 +11,7 @@ export const keys = {
   hostAlerts: (id: string) => ['host-alerts', id] as const,
   alerts: ['alerts'] as const,
   sites: ['sites'] as const,
+  tags: ['tags'] as const,
 };
 
 export function useBackups() {
@@ -41,7 +42,11 @@ export function useAllAlerts() {
 }
 
 export function useSites() {
-  return useQuery({ queryKey: keys.sites, queryFn: api.sites });
+  return useQuery({ queryKey: keys.sites, queryFn: api.sites, select: (d) => d.sites });
+}
+
+export function useTags() {
+  return useQuery({ queryKey: keys.tags, queryFn: api.tags, select: (d) => d.tags });
 }
 
 export function useHostJobs(id: string) {

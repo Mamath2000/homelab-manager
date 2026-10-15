@@ -5,6 +5,7 @@ import Fastify from 'fastify';
 import { registerAuth } from './auth.js';
 import { config } from './config.js';
 import { closeDb, connectDb } from './db.js';
+import { migrateGroups } from './catalog.js';
 import { registerEvents } from './events.js';
 import { flushLogs, recoverJobs } from './jobs.js';
 import { bootstrapSuperadmin } from './superadmin.js';
@@ -34,6 +35,7 @@ const app = Fastify({
 });
 
 await connectDb();
+await migrateGroups();
 await recoverJobs();
 await bootstrapSuperadmin();
 // groups of the backup jobs: also covers the definitions stored by an older hub

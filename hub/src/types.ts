@@ -110,7 +110,10 @@ export type AccessNetwork = (typeof ACCESS_NETWORKS)[number];
 export interface HostDoc {
   _id: ObjectId;
   name: string;
+  // free text of the first versions, moved to a tag at start (migrateGroups)
   group?: string;
+  siteId?: string;
+  tags?: string[];
   // absent: lan. Fixed at creation: changing it means reinstalling the agent
   accessNetwork?: Exclude<AccessNetwork, 'lan'>;
   // legacy bearer token (agents before TLS): such hosts must be reinstalled
@@ -453,17 +456,31 @@ export interface PveSettings {
   clusters: PveCluster[];
 }
 
-// Sites of the dashboard: a site is a value of the group field of the hosts. main: main site, vpn:
-// reached through a VPN, external: supervised from afar. Listed sites come first, in this order.
+// Sites, described in the settings (display order of the dashboard); a host belongs to one of them
+// (siteId). main: main site, vpn: reached through a VPN, external: supervised from afar.
 export const SITE_KINDS = ['main', 'vpn', 'external'] as const;
 export type SiteKind = (typeof SITE_KINDS)[number];
 export interface SiteConfig {
+  id: string;
   name: string;
   kind: SiteKind;
 }
 export interface SitesSettings {
   _id: 'sites';
   sites: SiteConfig[];
+}
+
+// Tags put on the hosts (several per host), with their colour chosen at creation.
+export const TAG_COLORS = ['zinc', 'red', 'orange', 'amber', 'lime', 'emerald', 'teal', 'sky', 'blue', 'violet', 'pink'] as const;
+export type TagColor = (typeof TAG_COLORS)[number];
+export interface TagConfig {
+  id: string;
+  name: string;
+  color: TagColor;
+}
+export interface TagsSettings {
+  _id: 'tags';
+  tags: TagConfig[];
 }
 
 // Backup job of a cluster, as seen by one guest.

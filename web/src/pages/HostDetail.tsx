@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
 import { HaExcludedField } from '../components/HaExcludedField';
+import { HostTagList, SiteChip, SiteSelect, TagPicker } from '../components/HostTags';
 import { RoamingField } from '../components/RoamingField';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
@@ -53,7 +54,8 @@ function useScrolled() {
 // mounted only while open: its state starts from the current host
 function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
   const [name, setName] = useState(host.name);
-  const [group, setGroup] = useState(host.group);
+  const [siteId, setSiteId] = useState(host.siteId ?? '');
+  const [tags, setTags] = useState(host.tags);
   const [roaming, setRoaming] = useState(host.roaming);
   const [haExcluded, setHaExcluded] = useState(host.haExcluded);
   const [busy, setBusy] = useState(false);
@@ -63,7 +65,7 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
     e.preventDefault();
     setBusy(true);
     try {
-      upsert(await api.updateHost(host.id, { name, group, roaming, haExcluded }));
+      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, haExcluded }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -78,10 +80,8 @@ function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
           <span className="mb-1.5 block text-xs font-medium text-muted">Nom</span>
           <input className="input" required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Groupe</span>
-          <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} />
-        </label>
+        <SiteSelect value={siteId} onChange={setSiteId} />
+        <TagPicker value={tags} onChange={setTags} />
         <RoamingField checked={roaming} onChange={setRoaming} />
         <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
         <div className="flex justify-end gap-2">
@@ -344,7 +344,8 @@ export function HostDetail() {
               }
             >
               <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
-              {host.group && <Tag>{host.group}</Tag>}
+              <SiteChip host={host} />
+              <HostTagList host={host} />
               {host.roaming && <Tag>Itinérant</Tag>}
               {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
               {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}

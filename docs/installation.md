@@ -89,7 +89,7 @@ Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, �
 
 ### Ajouter un hôte
 
-1. Dans l'interface : **Ajouter un hôte**, saisir un nom et éventuellement un groupe : c'est le **site** de l'hôte sur le tableau de bord (`Vouille`, `Jarsay`…).
+1. Dans l'interface : **Ajouter un hôte**, saisir un nom et choisir son **site** (décrit dans Paramètres › Sites et tags) et éventuellement des **tags** (un tag nouveau se crée sur place, avec sa couleur).
 2. Copier la commande affichée et la lancer **en root** sur l'hôte :
 
 ```bash

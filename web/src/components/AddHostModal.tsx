@@ -4,12 +4,14 @@ import { api, type AccessNetwork, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { InstallInstructions } from './InstallInstructions';
 import { HaExcludedField } from './HaExcludedField';
+import { SiteSelect, TagPicker } from './HostTags';
 import { RoamingField } from './RoamingField';
 import { Button, Modal } from './ui';
 
 export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('');
-  const [group, setGroup] = useState('');
+  const [siteId, setSiteId] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [roaming, setRoaming] = useState(false);
   const [haExcluded, setHaExcluded] = useState(false);
   const [network, setNetwork] = useState<AccessNetwork>('lan');
@@ -29,7 +31,8 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
 
   const close = () => {
     setName('');
-    setGroup('');
+    setSiteId('');
+    setTags([]);
     setRoaming(false);
     setHaExcluded(false);
     setNetwork('lan');
@@ -43,7 +46,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
     setBusy(true);
     setError('');
     try {
-      const r = await api.createHost(name, group, roaming, haExcluded, network);
+      const r = await api.createHost({ name, siteId, tags, roaming, haExcluded, accessNetwork: network });
       upsert(r.host);
       setResult(r);
     } catch (err) {
@@ -68,10 +71,8 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
             <span className="mb-1.5 block text-xs font-medium text-muted">Nom</span>
             <input className="input" autoFocus required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} placeholder="pihole, docker-01, pve…" />
           </label>
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-muted">Groupe (optionnel)</span>
-            <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} placeholder="site : Vouille, Jarsay…" />
-          </label>
+          <SiteSelect value={siteId} onChange={setSiteId} />
+          <TagPicker value={tags} onChange={setTags} />
           {tailscale && (
             <label className="block">
               <span className="mb-1.5 block text-xs font-medium text-muted">Réseau d'accès</span>

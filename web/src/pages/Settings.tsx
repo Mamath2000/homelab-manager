@@ -11,7 +11,7 @@ import { Button, Modal, PageHeader, Panel, Tabs } from '../components/ui';
 
 const tabs = [
   { id: 'hub', label: 'Hub et agents', icon: Server },
-  { id: 'sites', label: 'Sites', icon: MapPin },
+  { id: 'sites', label: 'Sites et tags', icon: MapPin },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },

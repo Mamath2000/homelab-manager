@@ -29,7 +29,8 @@ export function hostDto(h: HostDoc) {
   return {
     id: h._id.toHexString(),
     name: h.name,
-    group: h.group ?? '',
+    siteId: h.siteId ?? null,
+    tags: h.tags ?? [],
     createdAt: h.createdAt,
     enrolledAt: h.enrolledAt ?? null,
     lastSeenAt: h.lastSeenAt ?? null,
