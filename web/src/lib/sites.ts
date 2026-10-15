@@ -88,6 +88,13 @@ export function dockerTile(h: Host): DockerTile {
   return 'ok';
 }
 
+export const dockerTileMeta: Record<DockerTile, { label: string; tone: Tone; cls: string }> = {
+  problem: { label: 'en problème', tone: 'bad', cls: 'bg-red-500' },
+  updates: { label: 'mise à jour disponible', tone: 'warn', cls: 'bg-amber-500' },
+  ok: { label: 'à jour', tone: 'ok', cls: 'bg-emerald-500' },
+  none: { label: 'non suivi', tone: 'neutral', cls: 'bg-zinc-600' },
+};
+
 // Worst state of a site, for its dot: offline, security, failed backup or Docker problem first.
 export function siteTone(hosts: Host[], groups: BackupGroup[] | undefined): Tone {
   const apt = hosts.map(aptTile);

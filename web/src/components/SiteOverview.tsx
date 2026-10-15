@@ -12,6 +12,7 @@ import {
   backupTileMeta,
   count,
   dockerTile,
+  dockerTileMeta,
   oldestBackup,
   siteKindMeta,
   siteTone,
@@ -23,13 +24,13 @@ import {
 import { toneStroke } from '../lib/status';
 import { Badge, Panel, Segmented } from './ui';
 
-type Mode = 'both' | 'apt' | 'backups';
+type Mode = 'both' | 'apt' | 'backups' | 'docker';
 const MODE_KEY = 'dashboard.tiles';
 
 function savedMode(): Mode {
   try {
     const v = localStorage.getItem(MODE_KEY);
-    return v === 'apt' || v === 'backups' ? v : 'both';
+    return v === 'apt' || v === 'backups' || v === 'docker' ? v : 'both';
   } catch {
     return 'both';
   }
@@ -38,15 +39,17 @@ function savedMode(): Mode {
 const dayMs = 24 * 3600 * 1000;
 const ageText = (ms: number | null) => (ms === null ? '—' : ms < dayMs ? "moins d'un jour" : `${Math.floor(ms / dayMs)} j`);
 
-// One square per host, linked to its page: upper half the system updates, lower half the backup.
-function Tile({ host, groups, mode, small }: { host: Host; groups: BackupGroup[] | undefined; mode: Mode; small?: boolean }) {
+// One square per host, linked to its page: updates, backups and Docker in combined mode.
+function Tile({ host, groups, mode, small, backups }: { host: Host; groups: BackupGroup[] | undefined; mode: Mode; small?: boolean; backups: boolean }) {
   const apt = aptTile(host);
   const bak = backupTile(groups, host.id);
+  const dck = dockerTile(host);
   const last = hostBackups(groups, host.id)?.last;
   const title = [
     host.name,
     `mises à jour : ${aptTileMeta[apt].label}`,
-    mode !== 'apt' && `sauvegarde : ${backupTileMeta[bak].label}${last ? ` (${timeAgo(last)})` : ''}`,
+    (mode === 'both' || mode === 'backups') && backups && `sauvegarde : ${backupTileMeta[bak].label}${last ? ` (${timeAgo(last)})` : ''}`,
+    `Docker : ${host.online ? (host.docker ? dockerTileMeta[dck].label : 'sans Docker') : 'hors ligne'}`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -57,8 +60,9 @@ function Tile({ host, groups, mode, small }: { host: Host; groups: BackupGroup[]
       aria-label={title}
       className={clsx('flex flex-col gap-px transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-emerald-400', small ? 'h-[26px] w-[26px]' : 'h-[30px] w-[30px]')}
     >
-      {mode !== 'backups' && <span className={clsx('flex-1 rounded-[3px]', aptTileMeta[apt].cls)} />}
-      {mode !== 'apt' && <span className={clsx('flex-1 rounded-[3px]', backupTileMeta[bak].cls)} />}
+      {(mode === 'both' || mode === 'apt') && <span className={clsx('flex-1 rounded-[3px]', aptTileMeta[apt].cls)} />}
+      {(mode === 'both' || mode === 'backups') && backups && <span className={clsx('flex-1 rounded-[3px]', backupTileMeta[bak].cls)} />}
+      {(mode === 'both' || mode === 'docker') && <span className={clsx('flex-1 rounded-[3px]', dockerTileMeta[dck].cls)} />}
     </Link>
   );
 }
@@ -101,18 +105,17 @@ function Meters({ site, groups, backups, stacked }: { site: Site; groups: Backup
     `${b('ok')} à jour`,
     b('none') > 0 && `${b('none')} non suivie${b('none') > 1 ? 's' : ''}`,
   ].filter(Boolean);
-  // Docker only where some host runs it (a site without Docker keeps its two meters)
   const dck = site.hosts.map(dockerTile);
   const d = (v: DockerTile) => count(dck, v);
   const dckSummary = [
     d('problem') > 0 && <span key="d" className="text-red-400">{d('problem')} en problème</span>,
     d('updates') > 0 && `${d('updates')} avec MAJ`,
     `${d('ok')} à jour`,
+    d('none') > 0 && `${d('none')} non suivi${d('none') > 1 ? 's' : ''}`,
   ].filter(Boolean);
-  const withDocker = dck.some((v) => v !== 'none');
   const join = (l: React.ReactNode[]) => (l.length ? l.flatMap((x, i) => (i ? [' · ', x] : [x])) : 'tout est à jour');
   return (
-    <div className={clsx('grid gap-x-5 gap-y-2', !stacked && (backups && withDocker ? 'sm:grid-cols-3' : (backups || withDocker) && 'sm:grid-cols-2'))}>
+    <div className={clsx('grid gap-x-5 gap-y-2', !stacked && (backups ? 'sm:grid-cols-3' : 'sm:grid-cols-2'))}>
       <Meter label="Mises à jour" summary={join(aptSummary)} parts={(Object.keys(aptColor) as AptTile[]).map((k) => ({ key: k, n: n(k), color: aptColor[k]! }))} />
       {backups && (
         <div>
@@ -120,9 +123,7 @@ function Meters({ site, groups, backups, stacked }: { site: Site; groups: Backup
           <p className="mt-1 text-[11px] text-muted">plus ancienne : {ageText(oldestBackup(site.hosts, groups))}</p>
         </div>
       )}
-      {withDocker && (
-        <Meter label="Docker" summary={join(dckSummary)} parts={(Object.keys(dckColor) as DockerTile[]).map((k) => ({ key: k, n: d(k), color: dckColor[k] }))} />
-      )}
+      <Meter label="Docker" summary={join(dckSummary)} parts={(Object.keys(dckColor) as DockerTile[]).map((k) => ({ key: k, n: d(k), color: dckColor[k] }))} />
     </div>
   );
 }
@@ -143,7 +144,7 @@ function SiteCard({ site, groups, mode, backups, small }: { site: Site; groups: 
     <div className="flex min-w-0 flex-col gap-3">
       <SiteHeader site={site} groups={groups} />
       <div className="flex flex-wrap gap-x-1.5 gap-y-2">
-        {site.hosts.map((h) => <Tile key={h.id} host={h} groups={groups} mode={mode} small={small} />)}
+        {site.hosts.map((h) => <Tile key={h.id} host={h} groups={groups} mode={mode} small={small} backups={backups} />)}
       </div>
       <Meters site={site} groups={groups} backups={backups} stacked={small} />
     </div>
@@ -162,14 +163,25 @@ function ExternalSites({ sites, groups, backups }: { sites: Site[]; groups: Back
         const h = s.hosts[0];
         const apt = aptTile(h);
         const bak = backupTile(groups, h.id);
+        const dck = dockerTile(h);
+        const dockerLabel = !h.online
+          ? 'Docker · hors ligne'
+          : h.docker
+            ? `Docker · ${dck === 'updates' ? 'MAJ' : dck === 'problem' ? 'problème' : dockerTileMeta[dck].label}`
+            : 'sans Docker';
         return (
-          <Link key={s.name} to={`/hosts/${h.id}`} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2.5 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50">
+          <Link
+            key={s.name}
+            to={`/hosts/${h.id}`}
+            className={clsx('grid items-center gap-2.5 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50', backups ? 'grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]' : 'grid-cols-[auto_minmax(0,1fr)_auto_auto]')}
+          >
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: toneStroke[siteTone(s.hosts, groups)] }} />
             <span className="truncate">
               <span className="font-medium text-zinc-200">{s.name}</span> <span className="text-muted">{h.name}</span>
             </span>
             <Badge tone={aptTileMeta[apt].tone}>{aptTileMeta[apt].label}</Badge>
-            {backups ? <Badge tone={backupTileMeta[bak].tone}>sauv. {backupTileMeta[bak].label}</Badge> : <span />}
+            {backups && <Badge tone={backupTileMeta[bak].tone}>sauv. {backupTileMeta[bak].label}</Badge>}
+            <Badge tone={h.docker && h.online ? dockerTileMeta[dck].tone : 'neutral'}>{dockerLabel}</Badge>
           </Link>
         );
       })}
@@ -177,25 +189,28 @@ function ExternalSites({ sites, groups, backups }: { sites: Site[]; groups: Back
   );
 }
 
-function Legend({ mode }: { mode: Mode }) {
+function Legend({ mode, backups }: { mode: Mode; backups: boolean }) {
   const aptItems: AptTile[] = ['uptodate', 'updates', 'security', 'reboot', 'offline'];
   const bakItems: BackupTile[] = ['ok', 'warn', 'bad', 'none'];
+  const dckItems: DockerTile[] = ['ok', 'updates', 'problem', 'none'];
   const items =
-    mode === 'apt'
+    mode === 'docker'
+      ? dckItems.map((k) => ({ cls: dockerTileMeta[k].cls, label: dockerTileMeta[k].label }))
+      : mode === 'apt'
       ? aptItems.map((k) => ({ cls: aptTileMeta[k].cls, label: aptTileMeta[k].label }))
       : mode === 'backups'
         ? bakItems.map((k) => ({ cls: backupTileMeta[k].cls, label: backupTileMeta[k].label }))
         : [
             { cls: 'bg-emerald-500', label: 'OK' },
             { cls: 'bg-amber-500', label: 'mises à jour / en retard' },
-            { cls: 'bg-red-500', label: 'sécurité / en échec' },
+            { cls: 'bg-red-500', label: 'sécurité / échec / problème Docker' },
             { cls: 'bg-sky-500', label: 'reboot' },
-            { cls: 'bg-zinc-600', label: 'hors ligne' },
+            { cls: 'bg-zinc-600', label: 'hors ligne / Docker non suivi' },
             { cls: backupTileMeta.none.cls, label: 'non suivie' },
           ];
   return (
     <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-muted">
-      {mode === 'both' && <span>haut : mises à jour · bas : sauvegarde</span>}
+      {mode === 'both' && <span>{backups ? 'haut : mises à jour · milieu : sauvegarde · bas : Docker' : 'haut : mises à jour · bas : Docker'}</span>}
       {items.map((i) => (
         <span key={i.label} className="inline-flex items-center gap-1.5">
           <i className={clsx('block h-2.5 w-2.5 rounded-[2px]', i.cls)} />
@@ -210,7 +225,7 @@ function Legend({ mode }: { mode: Mode }) {
 // sites of a single host, grouped in one card.
 export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups: BackupGroup[] | undefined; backups: boolean }) {
   const [chosen, setChosen] = useState<Mode>(savedMode);
-  const mode = backups ? chosen : 'apt';
+  const mode = chosen === 'backups' && !backups ? 'apt' : chosen;
   const pick = (m: Mode) => {
     setChosen(m);
     try {
@@ -230,22 +245,25 @@ export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups
       title="Sites"
       icon={MapPin}
       actions={
-        backups && (
+        sites.length > 0 && (
           <Segmented
             label="Couleur des carrés"
             value={mode}
             onChange={pick}
             options={[
-              { id: 'both', label: 'Les deux' },
-              { id: 'apt', label: 'Mises à jour' },
-              { id: 'backups', label: 'Sauvegardes' },
+              { id: 'both' as const, label: backups ? 'Les trois' : 'MAJ + Docker' },
+              ...(backups ? [
+                { id: 'apt' as const, label: 'Mises à jour' },
+                { id: 'backups' as const, label: 'Sauvegardes' },
+              ] : [{ id: 'apt' as const, label: 'Mises à jour' }]),
+              { id: 'docker' as const, label: 'Docker' },
             ]}
           />
         )
       }
     >
       <div className="mb-4">
-        <Legend mode={mode} />
+        <Legend mode={mode} backups={backups} />
       </div>
       <div className="flex flex-col gap-5">
         {large.map((s) => <SiteCard key={s.name} site={s} groups={groups} mode={mode} backups={backups} />)}
