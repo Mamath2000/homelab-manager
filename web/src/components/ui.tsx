@@ -194,6 +194,18 @@ export function VerticalTabs<T extends string>({ tabs, value, onChange, children
   );
 }
 
+// Indeterminate progress bar: a slider that runs while waiting for an answer of unknown length.
+export function ProgressBar({ label, className }: { label?: ReactNode; className?: string }) {
+  return (
+    <div className={className} role="progressbar" aria-busy="true">
+      {label && <p className="mb-2 text-xs text-muted">{label}</p>}
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-raised">
+        <div className="h-full w-2/5 animate-slide rounded-full bg-emerald-500" />
+      </div>
+    </div>
+  );
+}
+
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={clsx('h-5 w-5 animate-spin text-muted', className)} />;
 }

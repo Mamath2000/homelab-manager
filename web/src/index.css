@@ -9,6 +9,17 @@
 
   --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* indeterminate progress bar (ProgressBar of ui.tsx) */
+  --animate-slide: slide 1.4s ease-in-out infinite;
+  @keyframes slide {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(250%);
+    }
+  }
 }
 
 /*

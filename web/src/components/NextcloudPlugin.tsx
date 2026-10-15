@@ -6,7 +6,7 @@ import { formatBytes, keepText } from '../lib/backups';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { field } from './ProxmoxServer';
-import { Badge, Button, ConfirmModal, Modal, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, Modal, ProgressBar, Spinner } from './ui';
 
 const MAX_KEEP = 30;
 
@@ -144,8 +144,10 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
         </>
       }
     >
-      {!view || (loading && !d) ? (
+      {!view ? (
         <div className="flex justify-center p-6"><Spinner /></div>
+      ) : loading && !d ? (
+        <ProgressBar className="px-2 py-8" label={`Lecture de l'instance Nextcloud sur ${host.name} : conteneurs, base, utilisateurs et leurs répertoires…`} />
       ) : disco?.error ? (
         <div className="space-y-3">
           <p className="flex items-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -161,6 +163,8 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
             <Button size="sm" variant="ghost" icon={RefreshCw} loading={loading} onClick={() => discover(form.workDir)} title="Relire l'instance sur l'hôte" />
           </p>
 
+          {/* Relire: the table stays, the bar says it is being read again */}
+          {loading && <ProgressBar label="Relecture de l'instance…" />}
           <div className="overflow-hidden rounded-md border border-line">
             <table className="w-full text-sm">
               <thead className="bg-raised/40 text-left text-xs text-muted">
