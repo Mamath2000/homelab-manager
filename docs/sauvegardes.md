@@ -156,7 +156,7 @@ Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configurati
 
 | Ligne | Job | Groupe PBS | Archives |
 |---|---|---|---|
-| Base | `Nextcloud · base` | `host/nextcloud-db` | `pg-globals` (`pg_dumpall --globals-only`), `pg-nextcloud` (`pg_dump -Fd -Z0`), faits **dans le conteneur base** (ses outils, même version majeure) puis copiés par `docker cp` |
+| Base | `Nextcloud · base` | `host/nextcloud-db` | `pg-globals` (`pg_dumpall --globals-only`), `pg-nextcloud` (`pg_dump -Fc -Z0`, format custom non compressé), lancés **dans le conteneur base** (ses outils, même version majeure) ; son système de fichiers est en lecture seule (AIO) : le dump sort sur la sortie standard et l'agent l'écrit sur l'hôte |
 | Configuration | `Nextcloud · configuration` | `host/nextcloud-config` | `nc-config` : `config/` du volume, `compose/` (fichiers du mastercontainer), `data/` (fichiers à la racine du répertoire de données, `appdata_<instanceid>` **sans** `preview`, `appstore`, `js`), `discovery.json` (ce que l'agent a trouvé) — copie `cp -a` (propriétaires et droits gardés) |
 | Utilisateur | `Nextcloud · <id>` | `host/nextcloud-user-<id>` | `data` : le répertoire de l'utilisateur |
 
@@ -164,7 +164,7 @@ Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configurati
 - **Verrouillés** : un job généré ne se modifie ni ne se supprime depuis la carte Sauvegardes ou la page Sauvegardes ; **Lancer** reste possible. Décocher un utilisateur supprime son job, **Supprimer le plugin** supprime tous les jobs générés ; les snapshots restent sur le PBS (groupes orphelins).
 - **Reprise des jobs existants** : un job de répertoires qui sauvegarde exactement le répertoire d'un utilisateur (fait à la main avant le plugin) est repris au premier enregistrement : même groupe, son historique continue ; il prend la planification et le nom du plugin. Son datastore est pré-rempli dans la fenêtre.
 - **Cohérence** : base et données ne sont pas figées ensemble (pas de mode maintenance). Après une restauration, `occ files:scan --all` remet la base en accord avec les fichiers.
-- Restauration de la base : `pg_restore` de `pg-nextcloud/` dans le conteneur base, après `psql -f pg-globals/globals.sql` sur une instance neuve.
+- Restauration de la base : `pg_restore -d <base> pg-nextcloud/<base>.dump` (parallélisable avec `-j`), après `psql -f pg-globals/globals.sql` sur une instance neuve.
 - Sans `BACKUP_NEXTCLOUD_AIO`, les jobs déjà générés continuent de tourner ; seule la fenêtre du plugin disparaît.
 
 ## Sauvegardes Home Assistant

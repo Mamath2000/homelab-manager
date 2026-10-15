@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,6 +137,22 @@ func TestDiscoverNextcloud(t *testing.T) {
 
 func TestDumpNextcloudDatabase(t *testing.T) {
 	fakeAIO(t, t.TempDir(), "/var/lib/docker/volumes/nextcloud_aio_nextcloud/_data")
+	var got []string
+	fail := ""
+	old := dumpToFile
+	dumpToFile = func(_ context.Context, _ []string, _ func(string), file, name string, args ...string) error {
+		cmd := name + " " + strings.Join(args, " ")
+		got = append(got, cmd+" > "+file)
+		if fail != "" && strings.Contains(cmd, fail) {
+			return errors.New("docker a échoué (code 1)")
+		}
+		if _, err := os.Stat(filepath.Dir(file)); err != nil {
+			t.Errorf("no directory for %s", file)
+		}
+		return nil
+	}
+	t.Cleanup(func() { dumpToFile = old })
+	// nothing is written in the container (read-only root file system of AIO)
 	calls := fakeDump(t, "")
 	work := filepath.Join(t.TempDir(), "database")
 	p := &DatabaseDump{Mode: "database", WorkDir: work}
@@ -143,28 +160,36 @@ func TestDumpNextcloudDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"exec nextcloud-aio-database rm -rf /tmp/homelab-agent-dump",
-		"exec nextcloud-aio-database mkdir -p /tmp/homelab-agent-dump",
-		"exec nextcloud-aio-database pg_dumpall -U nextcloud --globals-only --no-password -f /tmp/homelab-agent-dump/globals.sql",
-		"exec nextcloud-aio-database pg_dump -U nextcloud -Fd -Z0 --no-password -f /tmp/homelab-agent-dump/db nextcloud_database",
-		"cp nextcloud-aio-database:/tmp/homelab-agent-dump/globals.sql " + work + "/pg-globals/globals.sql",
-		"cp nextcloud-aio-database:/tmp/homelab-agent-dump/db/. " + work + "/pg-nextcloud",
-		"exec nextcloud-aio-database rm -rf /tmp/homelab-agent-dump",
+		"docker exec nextcloud-aio-database pg_dumpall -U nextcloud --globals-only --no-password > " + work + "/pg-globals/globals.sql",
+		"docker exec nextcloud-aio-database pg_dump -U nextcloud -Fc -Z0 --no-password nextcloud_database > " + work + "/pg-nextcloud/nextcloud_database.dump",
 	}
-	var got []string
-	for _, c := range *calls {
-		got = append(got, c.args)
+	if !reflect.DeepEqual(got, want) || len(*calls) != 0 {
+		t.Fatalf("calls =\n%s\n%+v", strings.Join(got, "\n"), *calls)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("calls =\n%s", strings.Join(got, "\n"))
+	got, fail = nil, "pg_dumpall"
+	if err := dumpDatabases(context.Background(), "nextcloud", p, func(string) {}); err == nil || len(got) != 1 {
+		t.Fatalf("failure not reported, or the dump went on: %v %v", err, got)
 	}
-	// a failed dump still cleans the container
-	calls = fakeDump(t, "pg_dump -U")
-	if err := dumpDatabases(context.Background(), "nextcloud", p, func(string) {}); err == nil {
-		t.Fatal("failure not reported")
+}
+
+func TestDumpToFile(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
 	}
-	if last := (*calls)[len(*calls)-1]; last.args != "exec nextcloud-aio-database rm -rf /tmp/homelab-agent-dump" {
-		t.Fatalf("last call = %s", last.args)
+	f := filepath.Join(t.TempDir(), "x.dump")
+	var log strings.Builder
+	emit := func(s string) { log.WriteString(s) }
+	if err := dumpToFile(context.Background(), os.Environ(), emit, f, "sh", "-c", "printf data; echo warn >&2"); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(f); string(raw) != "data" || !strings.Contains(log.String(), "warn") {
+		t.Fatalf("file %q, log %q", raw, log.String())
+	}
+	if err := dumpToFile(context.Background(), os.Environ(), emit, f, "sh", "-c", "exit 3"); err == nil || !strings.Contains(err.Error(), "code 3") {
+		t.Fatalf("exit code: %v", err)
+	}
+	if err := dumpToFile(context.Background(), os.Environ(), emit, f, "true"); err == nil || !strings.Contains(err.Error(), "vide") {
+		t.Fatalf("empty dump: %v", err)
 	}
 }
 

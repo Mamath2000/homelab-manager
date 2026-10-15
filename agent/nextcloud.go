@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -17,8 +18,8 @@ import (
 
 // Backups of a Nextcloud All-in-One instance (homelab#148): the hub generates its jobs (plugin), each of
 // kind "nextcloud" with a mode:
-//   - database: pg_dump -Fd -Z0 of its database and pg_dumpall --globals-only, run in the database
-//     container (its tools, same major version) then copied out of it (pg-globals, pg-nextcloud);
+//   - database: pg_dump -Fc -Z0 of its database and pg_dumpall --globals-only, run in the database
+//     container (its tools, same major version), out on its standard output (pg-globals, pg-nextcloud);
 //   - config: config/ of the Nextcloud volume, the compose files of the mastercontainer, the files at the
 //     root of the data directory and appdata_<instanceid> without its caches (nc-config);
 //
@@ -266,48 +267,63 @@ func checkNextcloudOnHost(ctx context.Context, workDir string) (*NextcloudAIO, e
 	return a, nil
 }
 
-// pg_dump runs in the database container; the dumps are then copied out of it.
-const nextcloudTmp = "/tmp/homelab-agent-dump"
-
-func dumpNextcloud(ctx context.Context, p *DatabaseDump, emit func(string)) (err error) {
+// pg_dump runs in the database container (its tools, same major version), whose root file system is read
+// only (AIO): the dumps come out on its standard output, written on the host by the agent. Custom format
+// without compression: restored with pg_restore (-j too), deduplicated by the PBS.
+func dumpNextcloud(ctx context.Context, p *DatabaseDump, emit func(string)) error {
 	a, err := discoverNextcloud(ctx, false)
 	if err != nil {
 		return err
 	}
-	env := append(os.Environ(), "LC_ALL=C")
 	emit(fmt.Sprintf("Nextcloud %s : conteneurs %s, %s ; données %s\n", a.Version, a.Containers[aioNextcloud], a.Containers[aioDatabase], a.DataDir))
 	if p.Mode == "config" {
 		return stageNextcloudConfig(ctx, a, filepath.Join(p.WorkDir, "nc-config"), emit)
 	}
+	for _, ar := range dumpArchives("nextcloud", p) {
+		if err := resetDir(ar.Path, os.Getuid(), os.Getgid()); err != nil {
+			return err
+		}
+	}
+	env := append(os.Environ(), "LC_ALL=C")
 	db := a.Containers[aioDatabase]
-	if err := runDumpStep(ctx, env, emit, "docker", "exec", db, "rm", "-rf", nextcloudTmp); err != nil {
+	// roles: the owner of the database and its rights
+	if err := dumpToFile(ctx, env, emit, filepath.Join(p.WorkDir, "pg-globals", "globals.sql"), "docker", "exec", db, "pg_dumpall", "-U", a.dbSuper, "--globals-only", "--no-password"); err != nil {
 		return err
 	}
-	defer func() {
-		if cerr := runDumpStep(context.WithoutCancel(ctx), env, emit, "docker", "exec", db, "rm", "-rf", nextcloudTmp); cerr != nil && err == nil {
-			emit("nettoyage du conteneur : " + cerr.Error() + "\n")
-		}
-	}()
-	steps := [][]string{
-		{"exec", db, "mkdir", "-p", nextcloudTmp},
-		// roles: the owner of the database and its rights
-		{"exec", db, "pg_dumpall", "-U", a.dbSuper, "--globals-only", "--no-password", "-f", nextcloudTmp + "/globals.sql"},
-		{"exec", db, "pg_dump", "-U", a.dbSuper, "-Fd", "-Z0", "--no-password", "-f", nextcloudTmp + "/db", a.Database},
-	}
-	for _, s := range steps {
-		if err := runDumpStep(ctx, env, emit, "docker", s...); err != nil {
-			return err
-		}
-	}
-	for _, a := range dumpArchives("nextcloud", p) {
-		if err := resetDir(a.Path, os.Getuid(), os.Getgid()); err != nil {
-			return err
-		}
-	}
-	if err := runDumpStep(ctx, env, emit, "docker", "cp", db+":"+nextcloudTmp+"/globals.sql", filepath.Join(p.WorkDir, "pg-globals", "globals.sql")); err != nil {
+	return dumpToFile(ctx, env, emit, filepath.Join(p.WorkDir, "pg-nextcloud", a.Database+".dump"), "docker", "exec", db, "pg_dump", "-U", a.dbSuper, "-Fc", "-Z0", "--no-password", a.Database)
+}
+
+// dumpToFile runs a command whose standard output is the dump, written to file (its errors in the log).
+var dumpToFile = func(ctx context.Context, env []string, emit func(string), file, name string, args ...string) error {
+	emit(fmt.Sprintf("%s %s > %s\n", name, strings.Join(args, " "), file))
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	return runDumpStep(ctx, env, emit, "docker", "cp", db+":"+nextcloudTmp+"/db/.", filepath.Join(p.WorkDir, "pg-nextcloud"))
+	defer f.Close()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = env
+	cmd.Stdout = f
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		emit(msg + "\n")
+	}
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return fmt.Errorf("%s a échoué (code %d)", name, ee.ExitCode())
+		}
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if fi, err := f.Stat(); err == nil && fi.Size() == 0 {
+		return fmt.Errorf("dump vide : %s", file)
+	}
+	return nil
 }
 
 // stageNextcloudConfig copies what restores the instance besides its database and the data of its users
