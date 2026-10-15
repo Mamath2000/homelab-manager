@@ -125,7 +125,6 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
       open={open}
       onClose={close}
       wide="xl"
-      scroll
       title={`Nextcloud AIO · ${host.name}`}
       footer={
         <>
@@ -158,9 +157,10 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
 
           {/* Relire: the table stays, the bar says it is being read again */}
           {loading && <ProgressBar label="Relecture de l'instance…" />}
-          <div className="overflow-hidden rounded-md border border-line">
+          {/* the list scrolls, the rest of the window stays in place */}
+          <div className="max-h-[40vh] overflow-y-auto rounded-md border border-line">
             <table className="w-full text-sm">
-              <thead className="bg-raised/40 text-left text-xs text-muted">
+              <thead className="sticky top-0 z-10 bg-raised text-left text-xs text-muted">
                 <tr>
                   <th className="px-3 py-2 font-medium">Élément</th>
                   <th className="px-3 py-2 font-medium">Contenu</th>
