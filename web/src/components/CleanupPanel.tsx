@@ -2,49 +2,37 @@ import { useState } from 'react';
 import { Brush } from 'lucide-react';
 import type { Host } from '../lib/api';
 import { useRunJob } from '../lib/queries';
-import { Button, ConfirmModal, Modal, Panel, Tag } from './ui';
+import { Badge, Button, ConfirmModal, Modal, Tag } from './ui';
 import { JobConsole } from './JobConsole';
 import { useMe } from '../lib/auth';
 
-// Packages `apt-get autoremove` would remove: dependencies no longer needed, old kernels.
-export function CleanupPanel({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
+// Packages `apt-get autoremove` would remove (dependencies no longer needed, old kernels), as a badge
+// of the host page like on the host list; nothing when there is none.
+export function CleanupButton({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
   const run = useRunJob();
   const { canWrite } = useMe();
   const [confirm, setConfirm] = useState(false);
-  const pkgs = host.apt?.autoremovable;
-  if (!host.apt) return null;
+  const pkgs = host.apt?.autoremovable ?? [];
+  if (pkgs.length === 0) return null;
+  const why = !canWrite ? 'lecture seule' : !host.online ? 'hôte hors ligne' : running ? 'une tâche est en cours' : null;
 
   return (
-    <Panel
-      title={<>Nettoyage{pkgs && <span className="text-muted"> ({pkgs.length})</span>}</>}
-      icon={Brush}
-      actions={
-        canWrite && pkgs && pkgs.length > 0 && (
-          <Button size="sm" icon={Brush} disabled={!host.online || running} onClick={() => setConfirm(true)}>
-            Nettoyer
-          </Button>
-        )
-      }
-    >
-      {!pkgs ? (
-        <p className="text-sm text-muted">Disponible après la mise à jour de l'agent de cet hôte.</p>
-      ) : pkgs.length === 0 ? (
-        <p className="text-sm text-muted">Aucun paquet inutile.</p>
-      ) : (
-        <>
-          <p className="mb-3 text-sm text-zinc-300">
-            {pkgs.length} paquet(s) installé(s) automatiquement et devenu(s) inutile(s), supprimables avec <code className="text-zinc-100">apt autoremove</code> :
-          </p>
-          <div className="flex max-h-40 flex-wrap gap-1.5 overflow-auto">
-            {pkgs.map((p) => <Tag key={p}>{p}</Tag>)}
-          </div>
-        </>
-      )}
+    <>
+      <button
+        type="button"
+        title={`${pkgs.join(', ')}\n\n${why ? `Nettoyer : impossible, ${why}` : 'Nettoyer (apt autoremove)'}`}
+        disabled={!!why}
+        className="rounded-sm transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100"
+        onClick={() => setConfirm(true)}
+      >
+        <Badge tone="neutral" className="gap-1"><Brush className="h-3 w-3" />{pkgs.length} à nettoyer</Badge>
+      </button>
       <ConfirmModal
         open={confirm}
         onClose={() => setConfirm(false)}
         title={`Nettoyer ${host.name}`}
         confirmLabel="Lancer apt-get autoremove"
+        danger
         loading={run.isPending}
         onConfirm={() =>
           run.mutate({ hostId: host.id, action: 'apt_autoremove' }, {
@@ -55,11 +43,11 @@ export function CleanupPanel({ host, running, onStarted }: { host: Host; running
           })
         }
       >
-        <p className="mb-3">{pkgs?.length} paquet(s) vont être supprimés :</p>
-        <div className="flex max-h-48 flex-wrap gap-1.5 overflow-auto">{pkgs?.map((p) => <Tag key={p}>{p}</Tag>)}</div>
+        <p className="mb-3">{pkgs.length} paquet(s) vont être supprimés :</p>
+        <div className="flex max-h-48 flex-wrap gap-1.5 overflow-auto">{pkgs.map((p) => <Tag key={p}>{p}</Tag>)}</div>
         <p className="mt-3 text-xs text-muted">Le noyau en cours d'utilisation n'est jamais supprimé par apt.</p>
       </ConfirmModal>
-    </Panel>
+    </>
   );
 }
 

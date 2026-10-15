@@ -1,13 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, Cpu, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
 import { HaExcludedField } from '../components/HaExcludedField';
 import { RoamingField } from '../components/RoamingField';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
-import { CleanupPanel } from '../components/CleanupPanel';
+import { CleanupButton } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
 import { SetupButton, SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
@@ -22,11 +22,12 @@ import { agentRevoked, connection, hasApt, connectionMeta, isHaos, listsStale, n
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 
-function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+// One fact of the system strip: label above, value below; `grow` takes the rest of the line (IP list).
+function StripItem({ label, grow, children }: { label: string; grow?: boolean; children: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2 text-sm">
-      <dt className="shrink-0 text-muted">{label}</dt>
-      <dd className="min-w-0 wrap-break-word text-right text-zinc-200">{children}</dd>
+    <div className={clsx('min-w-0 border-r border-line px-4 py-2.5 last:border-r-0', grow && 'flex-1 basis-72')}>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</dt>
+      <dd className={clsx('mt-0.5 text-sm text-zinc-200', grow ? 'wrap-break-word' : 'whitespace-nowrap')}>{children}</dd>
     </div>
   );
 }
@@ -104,6 +105,8 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
       bodyClassName=""
       actions={
         // upgrade: the selection when packages are ticked, everything otherwise
+        <>
+        <CleanupButton host={host} running={running} onStarted={onStarted} />
         <IconGroup
           actions={[
             {
@@ -130,6 +133,7 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
                 },
           ]}
         />
+        </>
       }
     >
       {(rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
@@ -263,149 +267,153 @@ export function HostDetail() {
     }
   };
 
+  // content in a fixed order (packages, Docker, then backups), a missing block letting the next one
+  // move up: the backups get their own column, otherwise two blocks share the two columns
+  const blocks: ReactNode[] = [];
+  if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
+  if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
+  if (!hasApt(host) && !host.docker) {
+    blocks.push(
+      <Panel key="system" title="Système" icon={Package}>
+        <p className="text-sm text-muted">
+          {isHaos(host)
+            ? "Home Assistant OS : système, Core et applications se mettent à jour dans Home Assistant. L'agent tourne dans une application et décrit l'hôte ; sa sauvegarde Proxmox VE s'y rattache par l'adresse MAC."
+            : "Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi."}
+        </p>
+      </Panel>,
+    );
+  }
+  const columns: ReactNode[][] = backupsOn ? [blocks, [<HostBackups key="backups" host={host} onStarted={setJobId} />]] : blocks.length > 1 ? blocks.map((b) => [b]) : [blocks];
+
   return (
     <>
-      <Link to="/hosts" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-zinc-200">
-        <ArrowLeft className="h-4 w-4" /> Hôtes
-      </Link>
-      <PageHeader
-        icon={Server}
-        title={host.name}
-        actions={
-          canWrite && <>
-            <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
-            {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
-            {host.capabilities.includes('reboot') && (
-              <Button
-                icon={Power}
-                variant={host.aptSummary?.rebootRequired ? 'danger' : 'secondary'}
-                disabled={!host.online || running}
-                onClick={() => setConfirmReboot(true)}
-              >
-                Redémarrer
-              </Button>
-            )}
-            {canManage && (
-              <>
-                <Button icon={KeyRound} variant="ghost" title="Nouvelle commande d'installation" onClick={newInstall} />
-                {host.agentAuth !== 'none' && (
-                  <Button icon={ShieldOff} variant="ghost" title="Révoquer l'agent" className="hover:text-red-400" onClick={() => setConfirmRevoke(true)} />
-                )}
-                <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
-              </>
-            )}
-          </>
-        }
-      >
-        <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
-        {host.group && <Tag>{host.group}</Tag>}
-        {host.roaming && <Tag>Itinérant</Tag>}
-        {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
-        {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
-      </PageHeader>
+      {/* large screens: the content on the left, history and console on the right, fixed */}
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
+        <div className="min-w-0">
+          {/* title and system strip stay on top while the content scrolls (below the 3.5rem bar of the layout) */}
+          <div className="pb-5 2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6">
+            <Link to="/hosts" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-zinc-200">
+              <ArrowLeft className="h-4 w-4" /> Hôtes
+            </Link>
+            <PageHeader
+              icon={Server}
+              title={host.name}
+              actions={
+                canWrite && <>
+                  <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
+                  {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
+                  {host.capabilities.includes('reboot') && (
+                    <Button
+                      icon={Power}
+                      variant={host.aptSummary?.rebootRequired ? 'danger' : 'secondary'}
+                      disabled={!host.online || running}
+                      onClick={() => setConfirmReboot(true)}
+                    >
+                      Redémarrer
+                    </Button>
+                  )}
+                  {canManage && (
+                    <>
+                      <Button icon={KeyRound} variant="ghost" title="Nouvelle commande d'installation" onClick={newInstall} />
+                      {host.agentAuth !== 'none' && (
+                        <Button icon={ShieldOff} variant="ghost" title="Révoquer l'agent" className="hover:text-red-400" onClick={() => setConfirmRevoke(true)} />
+                      )}
+                      <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
+                    </>
+                  )}
+                </>
+              }
+            >
+              <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
+              {host.group && <Tag>{host.group}</Tag>}
+              {host.roaming && <Tag>Itinérant</Tag>}
+              {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
+              {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
+            </PageHeader>
 
-      {host.aptSummary?.rebootRequired && (
-        <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
-          <RotateCw className="h-5 w-5 text-red-400" />
-          <span className="font-medium text-red-200">Redémarrage requis</span>
-          {(host.apt?.rebootPkgs.length ?? 0) > 0 && <span className="text-xs text-red-200/80">pour appliquer : {host.apt!.rebootPkgs.join(', ')}</span>}
-          {canWrite && host.capabilities.includes('reboot') && (
-            <span className="ml-auto">
-              <Button size="sm" variant="danger" icon={Power} disabled={!host.online || running} onClick={() => setConfirmReboot(true)}>Redémarrer maintenant</Button>
-            </span>
-          )}
-        </div>
-      )}
-      {(needsReinstall(host) || agentRevoked(host)) && (
-        <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
-          {needsReinstall(host) ? <ReinstallBadge /> : <Badge tone="bad" className="gap-1"><ShieldOff className="h-3 w-3" />Agent révoqué</Badge>}
-          <span className="text-red-100/90">
-            {needsReinstall(host)
-              ? "Cet agent s'authentifie avec l'ancien jeton en clair, que le hub refuse désormais. Réinstalle-le avec une nouvelle commande d'installation."
-              : "Son certificat a été révoqué : l'agent ne peut plus se connecter. Réinstalle-le pour le reconnecter."}
-          </span>
-          {canManage && (
-            <span className="ml-auto">
-              <Button size="sm" icon={KeyRound} onClick={newInstall}>Commande d'installation</Button>
-            </span>
-          )}
-        </div>
-      )}
-      {host.agentOutdated && (
-        <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
-          <AgentBadge />
-          <span className="text-zinc-200">
-            Agent {host.agentVersion ?? 'inconnu'}
-            {host.latestAgentVersion && host.latestAgentVersion !== host.agentVersion && <> → {host.latestAgentVersion}</>}
-          </span>
-          {isHaos(host) ? (
-            <span className="text-xs text-muted">mise à jour de l'application Homelab Manager Agent dans Home Assistant</span>
-          ) : (
-            <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
-          )}
-        </div>
-      )}
-      {canManage && c === 'pending' && (
-        <Panel title="Installer l'agent" icon={Terminal} className="mb-5">
-          <p className="mb-3 text-sm text-zinc-300">
-            Cet hôte n'a encore jamais contacté le hub.{' '}
-            {host.enrollExpiresAt
-              ? `Une commande d'installation est valable jusqu'au ${dateTime(host.enrollExpiresAt)} ; elle n'est affichée qu'une fois, génère-en une nouvelle si besoin.`
-              : "Aucune commande d'installation en cours de validité : génère-en une."}
-          </p>
-          <Button icon={KeyRound} onClick={newInstall}>Générer la commande d'installation</Button>
-        </Panel>
-      )}
+            <section className="panel">
+              <dl className="flex flex-wrap">
+                <StripItem label="Hostname">{host.info?.hostname ?? '—'}</StripItem>
+                <StripItem label="OS">{osLabel(host) ?? '—'}</StripItem>
+                <StripItem label="Noyau"><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>
+                <StripItem label="Architecture">{host.info?.arch ?? '—'}</StripItem>
+                <StripItem label="Virtualisation">{host.info?.virt ?? '—'}</StripItem>
+                <StripItem label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</StripItem>
+                <StripItem label="Agent">{host.agentVersion ?? '—'}</StripItem>
+                <StripItem label="Certificat">
+                  {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
+                </StripItem>
+                <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
+                <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>
+                {showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
+                <StripItem label="IP" grow><span className="font-mono text-xs">{host.info?.ips?.join(', ') || '—'}</span></StripItem>
+              </dl>
+            </section>
+          </div>
 
-      <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
-        <div className="flex min-w-0 flex-col gap-5">
-        <Panel title="Système" icon={Cpu}>
-          <dl className="-my-2 divide-y divide-line">
-            <InfoRow label="Hostname">{host.info?.hostname ?? '—'}</InfoRow>
-            <InfoRow label="OS">{osLabel(host) ?? '—'}</InfoRow>
-            <InfoRow label="Noyau"><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></InfoRow>
-            <InfoRow label="Architecture">{host.info?.arch ?? '—'}</InfoRow>
-            <InfoRow label="Virtualisation">{host.info?.virt ?? '—'}</InfoRow>
-            <InfoRow label="IP"><span className="font-mono text-xs">{host.info?.ips?.join(', ') || '—'}</span></InfoRow>
-            <InfoRow label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</InfoRow>
-            <InfoRow label="Agent">{host.agentVersion ?? '—'}</InfoRow>
-            <InfoRow label="Certificat">
-              {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
-            </InfoRow>
-            <InfoRow label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</InfoRow>
-            <InfoRow label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</InfoRow>
-            {showSetup(host) && <InfoRow label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></InfoRow>}
-          </dl>
-        </Panel>
-        <CleanupPanel host={host} running={!!running} onStarted={setJobId} />
-        </div>
-        {/* packages (or Docker without APT) and, when the PBS is followed, the backups beside them */}
-        <div className={clsx('grid min-w-0 items-start gap-5', backupsOn && '2xl:grid-cols-2')}>
-          {hasApt(host) ? (
-            <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />
-          ) : host.docker ? (
-            <DockerPanel host={host} running={!!running} onStarted={setJobId} />
-          ) : (
-            <Panel title="Système" icon={Package}>
-              <p className="text-sm text-muted">
-                {isHaos(host)
-                  ? "Home Assistant OS : système, Core et applications se mettent à jour dans Home Assistant. L'agent tourne dans une application et décrit l'hôte ; sa sauvegarde Proxmox VE s'y rattache par l'adresse MAC."
-                  : "Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi."}
+          {host.aptSummary?.rebootRequired && (
+            <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
+              <RotateCw className="h-5 w-5 text-red-400" />
+              <span className="font-medium text-red-200">Redémarrage requis</span>
+              {(host.apt?.rebootPkgs.length ?? 0) > 0 && <span className="text-xs text-red-200/80">pour appliquer : {host.apt!.rebootPkgs.join(', ')}</span>}
+              {canWrite && host.capabilities.includes('reboot') && (
+                <span className="ml-auto">
+                  <Button size="sm" variant="danger" icon={Power} disabled={!host.online || running} onClick={() => setConfirmReboot(true)}>Redémarrer maintenant</Button>
+                </span>
+              )}
+            </div>
+          )}
+          {(needsReinstall(host) || agentRevoked(host)) && (
+            <div className="panel mb-5 flex flex-wrap items-center gap-3 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm">
+              {needsReinstall(host) ? <ReinstallBadge /> : <Badge tone="bad" className="gap-1"><ShieldOff className="h-3 w-3" />Agent révoqué</Badge>}
+              <span className="text-red-100/90">
+                {needsReinstall(host)
+                  ? "Cet agent s'authentifie avec l'ancien jeton en clair, que le hub refuse désormais. Réinstalle-le avec une nouvelle commande d'installation."
+                  : "Son certificat a été révoqué : l'agent ne peut plus se connecter. Réinstalle-le pour le reconnecter."}
+              </span>
+              {canManage && (
+                <span className="ml-auto">
+                  <Button size="sm" icon={KeyRound} onClick={newInstall}>Commande d'installation</Button>
+                </span>
+              )}
+            </div>
+          )}
+          {host.agentOutdated && (
+            <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+              <AgentBadge />
+              <span className="text-zinc-200">
+                Agent {host.agentVersion ?? 'inconnu'}
+                {host.latestAgentVersion && host.latestAgentVersion !== host.agentVersion && <> → {host.latestAgentVersion}</>}
+              </span>
+              {isHaos(host) ? (
+                <span className="text-xs text-muted">mise à jour de l'application Homelab Manager Agent dans Home Assistant</span>
+              ) : (
+                <span className="ml-auto">{host.online && <UpdateAgentButton hosts={[host]} />}</span>
+              )}
+            </div>
+          )}
+          {canManage && c === 'pending' && (
+            <Panel title="Installer l'agent" icon={Terminal} className="mb-5">
+              <p className="mb-3 text-sm text-zinc-300">
+                Cet hôte n'a encore jamais contacté le hub.{' '}
+                {host.enrollExpiresAt
+                  ? `Une commande d'installation est valable jusqu'au ${dateTime(host.enrollExpiresAt)} ; elle n'est affichée qu'une fois, génère-en une nouvelle si besoin.`
+                  : "Aucune commande d'installation en cours de validité : génère-en une."}
               </p>
+              <Button icon={KeyRound} onClick={newInstall}>Générer la commande d'installation</Button>
             </Panel>
           )}
-          <HostBackups host={host} />
-        </div>
-      </div>
 
-      {host.docker && hasApt(host) && (
-        <div className="mt-5">
-          <DockerPanel host={host} running={!!running} onStarted={setJobId} />
+          <div className={clsx('grid items-start gap-5', columns.length > 1 && 'min-[2200px]:grid-cols-2')}>
+            {columns.map((col, i) => (
+              <div key={i} className="flex min-w-0 flex-col gap-5">{col}</div>
+            ))}
+          </div>
         </div>
-      )}
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[340px_1fr]">
-        <Panel title="Historique" icon={History} bodyClassName="max-h-[420px] overflow-auto">
+        {/* below the bar of the layout and the top padding of the page, up to the bottom of the window */}
+        <aside className="flex min-w-0 flex-col gap-5 2xl:sticky 2xl:top-20 2xl:h-[calc(100vh-6.5rem)]">
+        <Panel title="Historique" icon={History} className="2xl:flex 2xl:max-h-[35%] 2xl:shrink-0 2xl:flex-col" bodyClassName="max-h-[420px] overflow-auto 2xl:max-h-none 2xl:min-h-0">
           {!jobs?.length ? (
             <p className="p-4 text-sm text-muted">Aucune tâche.</p>
           ) : (
@@ -424,9 +432,14 @@ export function HostDetail() {
             </ul>
           )}
         </Panel>
-        <Panel title="Console" icon={Terminal}>
-          {shownJob ? <JobConsole jobId={shownJob} height="h-[360px]" /> : <p className="text-sm text-muted">Les sorties des tâches s'affichent ici en direct.</p>}
-        </Panel>
+          <Panel title="Console" icon={Terminal} className="2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col" bodyClassName="p-4 2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col">
+            {shownJob ? (
+              <JobConsole jobId={shownJob} className="2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col" height="h-[360px] 2xl:h-auto 2xl:min-h-0 2xl:flex-1" />
+            ) : (
+              <p className="text-sm text-muted">Les sorties des tâches s'affichent ici en direct.</p>
+            )}
+          </Panel>
+        </aside>
       </div>
 
       {editing && <EditModal host={host} onClose={() => setEditing(false)} />}

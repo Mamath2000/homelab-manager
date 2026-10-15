@@ -147,7 +147,8 @@ function ClientIcon({ host }: { host: Host }) {
 }
 
 // Backups of the host page: the PBS groups attached to it, with their last 30 days.
-export function HostBackups({ host }: { host: Host }) {
+// onStarted: a backup run here shows its job in the console of the page (a toast otherwise)
+export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobId: string) => void }) {
   const { data } = useBackups();
   const { canManage, canWrite } = useMe();
   const toast = useToast();
@@ -173,8 +174,9 @@ export function HostBackups({ host }: { host: Host }) {
     if (!g.managed) return;
     setRunning(g.id);
     try {
-      await api.runBackupJob(g.managed.jobId);
-      toast.success(`Sauvegarde ${g.managed.name} lancée`);
+      const job = await api.runBackupJob(g.managed.jobId);
+      if (onStarted) onStarted(job.id);
+      else toast.success(`Sauvegarde ${g.managed.name} lancée`);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {

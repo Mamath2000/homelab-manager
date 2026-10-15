@@ -201,39 +201,42 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
       {d.stacks.length === 0 ? (
         <p className="p-4 text-sm text-muted">Aucune stack compose sur cet hôte.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="border-b border-line">
-            <tr>
-              <th className="th">Stack</th>
-              <th className="th">État</th>
-              <th className="th">Images</th>
-              <th className="th hidden md:table-cell">Services</th>
-              {canWrite && <th className="th text-right">Actions</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {d.stacks.map((st) => (
-              <tr key={st.name} className="hover:bg-raised/40">
-                <td className="td">
-                  <Link to={stackPath(host.id, st.name)} className="font-medium text-zinc-100 hover:text-emerald-300">
-                    {st.name}
-                  </Link>
-                  {st.problems.length > 0 && <p className="text-xs text-amber-300">{st.problems.join(' · ')}</p>}
-                </td>
-                <td className="td"><StackStatusBadge stack={st} /></td>
-                <td className="td"><ImageUpdateBadge update={st.update} count={st.updates} /></td>
-                <td className="td hidden md:table-cell">
-                  <ServiceTags services={st.services} />
-                </td>
-                {canWrite && (
-                  <td className="td">
-                    <div className="flex justify-end"><StackActions host={host} stack={st} disabled={running} compact onStarted={onStarted} /></div>
-                  </td>
-                )}
+        // narrow column: the table scrolls instead of overflowing the panel
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-line">
+              <tr>
+                <th className="th">Stack</th>
+                <th className="th">État</th>
+                <th className="th">Images</th>
+                <th className="th hidden md:table-cell">Services</th>
+                {canWrite && <th className="th text-right">Actions</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {d.stacks.map((st) => (
+                <tr key={st.name} className="hover:bg-raised/40">
+                  <td className="td">
+                    <Link to={stackPath(host.id, st.name)} className="font-medium text-zinc-100 hover:text-emerald-300">
+                      {st.name}
+                    </Link>
+                    {st.problems.length > 0 && <p className="text-xs text-amber-300">{st.problems.join(' · ')}</p>}
+                  </td>
+                  <td className="td"><StackStatusBadge stack={st} /></td>
+                  <td className="td"><ImageUpdateBadge update={st.update} count={st.updates} /></td>
+                  <td className="td hidden md:table-cell">
+                    <ServiceTags services={st.services} />
+                  </td>
+                  {canWrite && (
+                    <td className="td">
+                      <div className="flex justify-end"><StackActions host={host} stack={st} disabled={running} compact onStarted={onStarted} /></div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <p className="border-t border-line px-4 py-2 text-xs text-muted">
         Docker {d.engine} · compose {d.compose} · images vérifiées {d.updatesCheckedAt ? timeAgo(d.updatesCheckedAt) : 'jamais'}
