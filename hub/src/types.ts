@@ -591,3 +591,21 @@ export interface BackupPve {
   jobs: PveJobRef[]; // jobs writing this group
   lastTask?: PveTaskResult | null;
 }
+
+// Alerts of a host over the last days (alerts.ts): worst level of the day in each domain, with its reasons
+export type AlertLevel = 'ok' | 'warn' | 'alert';
+export type AlertDomain = 'apt' | 'docker' | 'backups';
+export interface DayAlert {
+  level: AlertLevel;
+  reasons: string[];
+}
+export interface HostAlertDoc {
+  _id?: ObjectId;
+  hostId: ObjectId;
+  day: string; // YYYY-MM-DD, time zone of the hub
+  apt?: DayAlert;
+  docker?: DayAlert;
+  backups?: DayAlert;
+  updatedAt: Date;
+  expiresAt: Date;
+}

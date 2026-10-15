@@ -22,6 +22,7 @@ import { registerUserRoutes } from './routes/users.js';
 import { loadHomeAssistantSettings, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
+import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
 
 // forceCloseConnections: app.close() also drops the hijacked SSE streams instead of waiting for clients.
@@ -75,6 +76,7 @@ app.setNotFoundHandler((req, reply) => {
 
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
+const stopAlerts = startAlerts(app.log);
 const stopPbsPoller = startPbsPoller(app.log);
 const stopPvePoller = startPvePoller(app.log);
 await bridge.apply(await loadHomeAssistantSettings());
@@ -86,6 +88,7 @@ async function shutdown() {
   shuttingDown = true;
   clearInterval(flushTimer);
   stopScheduler();
+  stopAlerts();
   stopPbsPoller();
   stopPvePoller();
   await bridge.stop(false);

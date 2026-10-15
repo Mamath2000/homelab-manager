@@ -1,7 +1,7 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import type { TokenSetupDoc } from './tokenSetup.js';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, SessionDoc, SetupProfile, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, SessionDoc, SetupProfile, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -14,6 +14,7 @@ export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let tokenSetups: Collection<TokenSetupDoc>;
 export let backups: Collection<BackupDoc>;
+export let hostAlerts: Collection<HostAlertDoc>;
 
 export async function connectDb() {
   await client.connect();
@@ -27,6 +28,7 @@ export async function connectDb() {
   guests = db.collection('guests');
   backupJobs = db.collection('backupJobs');
   tokenSetups = db.collection('tokenSetups');
+  hostAlerts = db.collection('hostAlerts');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -43,6 +45,9 @@ export async function connectDb() {
     backupJobs.createIndex({ hostId: 1 }),
     // backup results reported by the agents, recorded once
     jobs.createIndex({ resultId: 1 }, { sparse: true }),
+    // one document per host and day, kept a little longer than the timeline of the host page shows
+    hostAlerts.createIndex({ hostId: 1, day: 1 }, { unique: true }),
+    hostAlerts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'host_alerts_ttl' }),
     tokenSetups.createIndex({ codeHash: 1 }),
     tokenSetups.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0, name: 'token_setups_ttl' }),
     // accounts created before roles existed keep full access
