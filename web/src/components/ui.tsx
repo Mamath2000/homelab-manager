@@ -92,13 +92,13 @@ export function Tag({ children }: { children: ReactNode }) {
   );
 }
 
-export function PageHeader({ icon: Icon, title, actions, children }: { icon: LucideIcon; title: ReactNode; actions?: ReactNode; children?: ReactNode }) {
+export function PageHeader({ icon: Icon, title, actions, children, titleOverflow = false }: { icon: LucideIcon; title: ReactNode; actions?: ReactNode; children?: ReactNode; titleOverflow?: boolean }) {
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div className="flex min-w-0 items-center gap-3">
         <div className="panel flex items-center gap-3 px-4 py-2.5">
           <Icon className="h-5 w-5 text-zinc-300" />
-          <h1 className="truncate text-xl font-medium text-zinc-100">{title}</h1>
+          <h1 className={clsx('text-xl font-medium text-zinc-100', titleOverflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
         </div>
         {children}
       </div>

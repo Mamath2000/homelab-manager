@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Search, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
 import { HaExcludedField } from '../components/HaExcludedField';
 import { HostTagList, SiteChip, SiteSelect, TagPicker } from '../components/HostTags';
 import { RoamingField } from '../components/RoamingField';
@@ -18,6 +18,8 @@ import { Badge, Button, Checkbox, ConfirmModal, Empty, IconGroup, Modal, PageHea
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
+import { useHosts, useSites, useTags } from '../lib/queries';
+import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { agentRevoked, connection, hasApt, connectionMeta, isHaos, listsStale, needsReinstall, osLabel } from '../lib/status';
@@ -241,7 +243,15 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
 
 export function HostDetail() {
   const { id = '' } = useParams();
+  return <HostDetailPage key={id} id={id} />;
+}
+
+function HostDetailPage({ id }: { id: string }) {
   const { data: host, isLoading } = useHost(id);
+  const { data: hosts } = useHosts();
+  const { data: sites } = useSites();
+  const { data: tags } = useTags();
+  const [params] = useSearchParams();
   const { data: jobs } = useHostJobs(id);
   const run = useRunJob();
   const { canWrite, canManage } = useMe();
@@ -258,12 +268,41 @@ export function HostDetail() {
   const upsert = useUpdateHostCache();
   const [confirmReboot, setConfirmReboot] = useState(false);
   const scrolled = useScrolled();
+  const [hostPickerOpen, setHostPickerOpen] = useState(false);
+  const [hostSearch, setHostSearch] = useState('');
+  const hostPickerRef = useRef<HTMLSpanElement>(null);
+
+  const hostList = useMemo(
+    () => filterHosts(hosts ?? [], params.get('q') ?? '', parseHostFilter(params.get('f')), params.get('site') ?? '', params.get('tag') ?? '', sites ?? [], tags ?? []),
+    [hosts, params, sites, tags],
+  );
+  const currentIndex = hostList.findIndex((item) => item.id === id);
+  const listSearch = params.toString();
+  const hostPath = (hostId: string) => `/hosts/${hostId}${listSearch ? `?${listSearch}` : ''}`;
+  const goToHost = (hostId: string) => navigate(hostPath(hostId));
+  const pickerHosts = hostList.filter((item) => hostMatchesSearch(item, hostSearch, sites ?? [], tags ?? []));
+
+  useEffect(() => {
+    if (!hostPickerOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!hostPickerRef.current?.contains(event.target as Node)) setHostPickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setHostPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [hostPickerOpen]);
 
   const shownJob = jobId ?? jobs?.[0]?.id ?? null;
   const running = useMemo(() => jobs?.some((j) => j.status === 'running'), [jobs]);
 
   if (isLoading) return <div className="flex justify-center p-20"><Spinner /></div>;
-  if (!host) return <Empty icon={Server} title="Hôte introuvable"><Link className="text-emerald-400" to="/hosts">Retour aux hôtes</Link></Empty>;
+  if (!host) return <Empty icon={Server} title="Hôte introuvable"><Link className="text-emerald-400" to={`/hosts${listSearch ? `?${listSearch}` : ''}`}>Retour aux hôtes</Link></Empty>;
 
   const c = connection(host);
 
@@ -311,12 +350,85 @@ export function HostDetail() {
         <div className="min-w-0">
           {/* title, system strip and alert timeline stay on top while the content scrolls (below the 3.5rem bar of the layout) */}
           <div className={clsx('2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6', scrolled ? 'pb-3 shadow-[0_14px_18px_-12px_rgb(0_0_0/0.7)]' : 'pb-5')}>
-            <Link to="/hosts" className={clsx('mb-3 items-center gap-1.5 text-sm text-muted hover:text-zinc-200', scrolled ? 'hidden' : 'inline-flex')}>
+            <Link to={`/hosts${listSearch ? `?${listSearch}` : ''}`} className={clsx('mb-3 items-center gap-1.5 text-sm text-muted hover:text-zinc-200', scrolled ? 'hidden' : 'inline-flex')}>
               <ArrowLeft className="h-4 w-4" /> Hôtes
             </Link>
             <PageHeader
               icon={Server}
-              title={host.name}
+              titleOverflow
+              title={
+                <span ref={hostPickerRef} className="relative inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded={hostPickerOpen}
+                    onClick={() => {
+                      setHostSearch('');
+                      setHostPickerOpen((open) => !open);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-sm text-left hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  >
+                    {host.name}
+                    <ChevronDown className={clsx('h-4 w-4 text-muted transition-transform', hostPickerOpen && 'rotate-180')} />
+                  </button>
+                  {hostPickerOpen && (
+                    <span role="dialog" aria-label="Sélectionner un hôte" className="absolute left-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-line bg-panel p-2 text-left shadow-xl">
+                      <span className="relative mb-2 block">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                        <input
+                          autoFocus
+                          aria-label="Filtrer les hôtes"
+                          className="input h-9 py-0 pl-9"
+                          placeholder="Filtrer les hôtes…"
+                          value={hostSearch}
+                          onChange={(event) => setHostSearch(event.target.value)}
+                        />
+                      </span>
+                      <span role="listbox" aria-label="Hôtes disponibles" className="block max-h-72 overflow-y-auto">
+                        {pickerHosts.length ? pickerHosts.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            role="option"
+                            aria-selected={item.id === id}
+                            onClick={() => {
+                              setHostPickerOpen(false);
+                              if (item.id !== id) goToHost(item.id);
+                            }}
+                            className={clsx('flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm hover:bg-raised', item.id === id ? 'bg-raised text-emerald-300' : 'text-zinc-200')}
+                          >
+                            <span className={clsx('h-2 w-2 shrink-0 rounded-full', item.online ? 'bg-emerald-400' : 'bg-zinc-600')} />
+                            <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                            {item.id === id && <span className="text-xs text-muted">Actuel</span>}
+                          </button>
+                        )) : (
+                          <span className="block px-2.5 py-3 text-sm text-muted">Aucun hôte ne correspond aux filtres.</span>
+                        )}
+                      </span>
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Hôte précédent"
+                    title={currentIndex > 0 ? `Précédent : ${hostList[currentIndex - 1].name}` : 'Aucun hôte précédent'}
+                    disabled={currentIndex <= 0}
+                    onClick={() => goToHost(hostList[currentIndex - 1].id)}
+                    className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Hôte suivant"
+                    title={currentIndex >= 0 && currentIndex < hostList.length - 1 ? `Suivant : ${hostList[currentIndex + 1].name}` : 'Aucun hôte suivant'}
+                    disabled={currentIndex < 0 || currentIndex >= hostList.length - 1}
+                    onClick={() => goToHost(hostList[currentIndex + 1].id)}
+                    className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </span>
+              }
               actions={
                 canWrite && <>
                   <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
@@ -492,7 +604,7 @@ export function HostDetail() {
         onConfirm={async () => {
           try {
             await api.deleteHost(host.id);
-            navigate('/hosts');
+            navigate(`/hosts${listSearch ? `?${listSearch}` : ''}`);
           } catch (err) {
             toast.error((err as Error).message);
           }

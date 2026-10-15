@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Plus, RefreshCw, Search, Server, Wand2 } from 'lucide-react';
 import { hostBackups } from '../lib/backups';
+import { filterHosts, hostFilters, parseHostFilter } from '../lib/hostFilters';
 import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
 import { RebootStatus } from '../components/Reboot';
@@ -12,25 +13,9 @@ import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, Stat
 import { timeAgo } from '../lib/format';
 import { useBackups, useHosts, useRunBulk, useRunJob, useSites, useTags } from '../lib/queries';
 import { HostTagList, SiteChip } from '../components/HostTags';
-import { canSelfUpdate, connection, connectionMeta, hasApt, listsStale, needsReinstall, osLabel, updateState, type Connection, type UpdateState } from '../lib/status';
+import { canSelfUpdate, connection, connectionMeta, hasApt, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { Host } from '../lib/api';
-
-type Filter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent' | 'reinstall';
-
-const filters: { key: Filter; label: string }[] = [
-  { key: 'all', label: 'Tous' },
-  { key: 'online', label: 'En ligne' },
-  { key: 'offline', label: 'Hors ligne' },
-  { key: 'pending', label: 'En attente' },
-  { key: 'away', label: 'Absents' },
-  { key: 'updates', label: 'Mises à jour' },
-  { key: 'security', label: 'Sécurité' },
-  { key: 'reboot', label: 'Reboot' },
-  { key: 'cleanup', label: 'À nettoyer' },
-  { key: 'agent', label: 'Agent obsolète' },
-  { key: 'reinstall', label: 'À réinstaller' },
-];
 
 export function Hosts() {
   const { data: hosts, isLoading } = useHosts();
@@ -38,7 +23,7 @@ export function Hosts() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const q = params.get('q') ?? '';
-  const filter = (params.get('f') as Filter) ?? 'all';
+  const filter = parseHostFilter(params.get('f'));
   const site = params.get('site') ?? '';
   const tag = params.get('tag') ?? '';
   const { data: sites } = useSites();
@@ -64,37 +49,10 @@ export function Hosts() {
   // agents out of sync with the binary served by the hub, able to update themselves now
   const outdatedAgents = (hosts ?? []).filter((h) => h.agentOutdated && h.online && canSelfUpdate(h));
 
-  const list = useMemo(() => {
-    const needle = q.toLowerCase();
-    const siteName = (h: Host) => sites?.find((x) => x.id === h.siteId)?.name;
-    const tagNames = (h: Host) => (tags ?? []).filter((t) => h.tags.includes(t.id)).map((t) => t.name);
-    return (hosts ?? []).filter((h) => {
-      if (site && (site === 'none' ? !!h.siteId : h.siteId !== site)) return false;
-      if (tag && !h.tags.includes(tag)) return false;
-      if (needle && ![h.name, siteName(h), ...tagNames(h), h.info?.hostname, ...(h.info?.ips ?? [])].some((v) => v?.toLowerCase().includes(needle))) return false;
-      switch (filter) {
-        case 'online':
-        case 'offline':
-        case 'pending':
-        case 'away':
-          return connection(h) === filter;
-        case 'updates':
-          return (h.aptSummary?.upgradable ?? 0) > 0;
-        case 'security':
-          return updateState(h) === 'security';
-        case 'agent':
-          return !!h.agentOutdated;
-        case 'reinstall':
-          return needsReinstall(h);
-        case 'cleanup':
-          return (h.aptSummary?.autoremovable ?? 0) > 0;
-        case 'reboot':
-          return !!h.aptSummary?.rebootRequired || !!h.aptSummary?.rebootPending;
-        default:
-          return true;
-      }
-    });
-  }, [hosts, q, filter, site, tag, sites, tags]);
+  const list = useMemo(
+    () => filterHosts(hosts ?? [], q, filter, site, tag, sites ?? [], tags ?? []),
+    [hosts, q, filter, site, tag, sites, tags],
+  );
 
   const visibleSelected = list.filter((h) => selected.has(h.id));
   const allChecked = list.length > 0 && visibleSelected.length === list.length;
@@ -143,7 +101,7 @@ export function Hosts() {
         )}
         <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
           {/* the reinstall filter only matters while old agents remain */}
-          {filters.filter((f) => f.key !== 'reinstall' || filter === 'reinstall' || hosts?.some(needsReinstall)).map((f) => (
+          {hostFilters.filter((f) => f.key !== 'reinstall' || filter === 'reinstall' || hosts?.some(needsReinstall)).map((f) => (
             <button key={f.key} onClick={() => setParam('f', f.key === 'all' ? '' : f.key)}
               className={clsx('rounded-sm px-2.5 py-1 text-xs font-medium transition', filter === f.key ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200')}>
               {f.label}
@@ -193,7 +151,7 @@ export function Hosts() {
                 const c = connection(h);
                 const s = h.aptSummary;
                 return (
-                  <tr key={h.id} onClick={() => navigate(`/hosts/${h.id}`)} className="cursor-pointer transition hover:bg-raised/50">
+                  <tr key={h.id} onClick={() => navigate(`/hosts/${h.id}${params.size ? `?${params.toString()}` : ''}`)} className="cursor-pointer transition hover:bg-raised/50">
                     {canWrite && <td className="td"><Checkbox label={`Sélectionner ${h.name}`} checked={selected.has(h.id)} onChange={(on) => toggle(h.id, on)} /></td>}
                     <td className="td">
                       <div className="flex items-center gap-2.5">
