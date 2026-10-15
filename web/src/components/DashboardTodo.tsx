@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { ClipboardList, DatabaseBackup, ShieldAlert, type LucideIcon } from 'lucide-react';
+import { ClipboardList, Container, DatabaseBackup, ShieldAlert, type LucideIcon } from 'lucide-react';
 import type { BackupGroup, Host, Job } from '../lib/api';
 import { backupStateMeta, groupLabel } from '../lib/backups';
 import { jobTitle, timeAgo } from '../lib/format';
 import { siteName } from '../lib/sites';
 import { useSites } from '../lib/queries';
-import { allStacks, connection, needsReinstall, stackPath } from '../lib/status';
+import { allStacks, connection, imageUpdateMeta, needsReinstall, stackPath } from '../lib/status';
 import { Badge, Panel } from './ui';
 
 const MAX = 6;
@@ -38,7 +38,8 @@ function TodoPanel({ title, icon, more, children }: { title: string; icon: Lucid
 }
 
 
-// Lists of the right column: backups to watch, then pending security updates, then the rest (hosts
+// Lists of the right column: backups to watch, then pending security updates, then Docker stacks to
+// update, then the rest (hosts
 // offline, agents to reinstall, Docker problems, failed tasks of the last 24 h).
 export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; groups: BackupGroup[] | undefined; jobs: Job[] | undefined; jobsAt: number }) {
   const { data: sites } = useSites();
@@ -47,6 +48,8 @@ export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; 
   const failedFirst = (g: BackupGroup) => (g.state === 'failed' || g.state === 'task_failed' ? 0 : 1);
   const backups = (groups ?? []).filter((g) => g.state !== 'ok').sort((a, b) => failedFirst(a) - failedFirst(b) || a.lastBackup - b.lastBackup);
   const security = hosts.filter((h) => (h.aptSummary?.security ?? 0) > 0).sort((a, b) => b.aptSummary!.security - a.aptSummary!.security);
+
+  const stackUpdates = allStacks(hosts).filter((s) => s.managed && s.updates > 0).sort((a, b) => b.updates - a.updates);
 
   const offline = hosts.filter((h) => connection(h) === 'offline' && !needsReinstall(h));
   const reinstall = hosts.filter(needsReinstall);
@@ -97,6 +100,20 @@ export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; 
               title={h.name}
               right={`${h.aptSummary!.upgradable} paquet${h.aptSummary!.upgradable > 1 ? 's' : ''}`}
               sub={site(h)}
+            />
+          ))}
+        </TodoPanel>
+      )}
+      {stackUpdates.length > 0 && (
+        <TodoPanel title="Stacks Docker à mettre à jour" icon={Container} more="/docker?f=updates">
+          {stackUpdates.map((s) => (
+            <Row
+              key={`${s.host.id}/${s.name}`}
+              to={stackPath(s.host.id, s.name)}
+              badge={<Badge tone={imageUpdateMeta[s.update].tone}>{imageUpdateMeta[s.update].label}</Badge>}
+              title={s.name}
+              right={`${s.updates} image${s.updates > 1 ? 's' : ''}`}
+              sub={`${s.host.name} · ${site(s.host)}`}
             />
           ))}
         </TodoPanel>

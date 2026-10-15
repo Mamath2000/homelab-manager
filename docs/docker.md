@@ -79,6 +79,16 @@ L'agent ne prend jamais un chemin venant du hub : il n'agit que sur les stacks q
 
 Logs et fichiers compose peuvent contenir des secrets : ils sont réservés aux rôles **admin** et **operator**. Le rôle **viewer** voit les stacks, leurs états et leurs mises à jour.
 
+## Tableau de bord
+
+Docker a la même place que les mises à jour APT et les sauvegardes sur le tableau de bord :
+
+- **Bloc de chiffres « Docker »** : stacks en problème, stacks avec une image plus récente, stacks arrêtées, stacks en marche sur le total. Il n'apparaît que si un hôte a Docker ;
+- **Panneau « Stacks Docker à mettre à jour »** (colonne de droite, sur le modèle des correctifs de sécurité) : une ligne par stack, avec le nombre d'images concernées, qui ouvre la page de la stack. Les problèmes restent dans « Autres points à traiter » ;
+- **Jauge « Docker » par site** dans la vue par site : hôtes avec une stack en problème, avec des images à mettre à jour, ou à jour. Elle n'apparaît que pour les sites dont un hôte a Docker, et un problème ou une mise à jour d'image colore aussi la pastille du site.
+
+Les stacks non managées et les hôtes hors ligne n'y sont pas comptés. L'action groupée **Conteneurs Docker** du tableau de bord met à jour toutes les stacks concernées, après confirmation.
+
 ## Stacks non managées
 
 Une stack qui a son propre système de mise à jour (ou que l'on veut simplement laisser de côté) peut être sortie de la gestion : **Ne plus gérer** (admin, sur la page de la stack). Elle reste listée, en lecture seule, avec le badge **Non managée** :

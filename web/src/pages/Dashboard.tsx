@@ -9,7 +9,7 @@ import { SiteTimeline } from '../components/SiteTimeline';
 import { Button, Empty, PageHeader, Spinner } from '../components/ui';
 import { useBackups, useHosts, useJobs, useRunBulk, useSites } from '../lib/queries';
 import { aptTile, backupTile, count, groupSites, oldestBackup } from '../lib/sites';
-import { hasApt, type Tone } from '../lib/status';
+import { allStacks, hasApt, type Tone } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { BackupGroup, Host } from '../lib/api';
 
@@ -40,7 +40,7 @@ function KpiGroup({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
-// Figures of the two priorities, same weight: system updates (security first) and backups.
+// Figures of the priorities, same weight: system updates (security first), backups and Docker.
 function Kpis({ hosts, groups, backups }: { hosts: Host[]; groups: BackupGroup[] | undefined; backups: boolean }) {
   const apt = hosts.filter(hasApt).map(aptTile);
   const followed = apt.filter((t) => t !== 'unknown' && t !== 'offline').length;
@@ -51,8 +51,15 @@ function Kpis({ hosts, groups, backups }: { hosts: Host[]; groups: BackupGroup[]
   const tracked = bak.filter((b) => b !== 'none').length;
   const oldest = oldestBackup(hosts, groups);
   const oldestDays = oldest === null ? null : Math.floor(oldest / (24 * 3600 * 1000));
+  // managed stacks only: an unmanaged one has neither state nor problems to follow
+  const stacks = allStacks(hosts).filter((s) => s.managed);
+  const stackProblems = stacks.filter((s) => s.problems.length > 0).length;
+  const stackUpdates = stacks.filter((s) => s.updates > 0).length;
+  const stackStopped = stacks.filter((s) => s.status === 'stopped' || s.status === 'down').length;
+  const stackRunning = stacks.filter((s) => s.status === 'running').length;
+  const docker = hosts.some((h) => h.docker);
   return (
-    <div className={clsx('grid gap-3', backups && 'lg:grid-cols-2')}>
+    <div className={clsx('grid gap-3', backups && docker ? 'lg:grid-cols-3' : (backups || docker) && 'lg:grid-cols-2')}>
       <KpiGroup title="Mises à jour">
         <Kpi value={security} label="hôtes avec des correctifs de sécurité" tone={security ? 'bad' : 'ok'} />
         <Kpi value={`${updates} / ${followed}`} label="hôtes avec des mises à jour" tone={updates ? 'warn' : 'ok'} />
@@ -64,6 +71,14 @@ function Kpis({ hosts, groups, backups }: { hosts: Host[]; groups: BackupGroup[]
           <Kpi value={count(bak, 'warn')} label="hôtes en retard" tone={count(bak, 'warn') ? 'warn' : 'ok'} />
           <Kpi value={`${count(bak, 'ok')} / ${tracked}`} label="à jour sur les hôtes suivis" tone={count(bak, 'ok') === tracked ? 'ok' : 'warn'} />
           <Kpi value={oldestDays === null ? '—' : `${oldestDays} j`} label="âge de la plus ancienne" tone={oldestDays === null ? 'neutral' : oldestDays > 3 ? 'bad' : oldestDays > 1 ? 'warn' : 'ok'} />
+        </KpiGroup>
+      )}
+      {docker && (
+        <KpiGroup title="Docker">
+          <Kpi value={stackProblems} label="stacks en problème" tone={stackProblems ? 'bad' : 'ok'} />
+          <Kpi value={stackUpdates} label="stacks avec une image plus récente" tone={stackUpdates ? 'warn' : 'ok'} />
+          <Kpi value={stackStopped} label="stacks arrêtées" tone={stackStopped ? 'info' : 'ok'} />
+          <Kpi value={`${stackRunning} / ${stacks.length}`} label="stacks en marche" tone={stackRunning === stacks.length ? 'ok' : 'warn'} />
         </KpiGroup>
       )}
     </div>

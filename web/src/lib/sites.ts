@@ -76,12 +76,25 @@ export const backupTileMeta: Record<BackupTile, { label: string; tone: Tone; cls
   none: { label: 'non suivie', tone: 'neutral', cls: 'border-[1.5px] border-dashed border-zinc-600' },
 };
 
-// Worst state of a site, for its dot: offline, security or failed backup first.
+// none: no Docker on the host, or offline (the last report says nothing of now). Only managed stacks
+// count: an unmanaged one has neither problems nor updates to follow.
+export type DockerTile = 'problem' | 'updates' | 'ok' | 'none';
+
+export function dockerTile(h: Host): DockerTile {
+  if (!h.online || !h.docker) return 'none';
+  const stacks = h.docker.stacks.filter((s) => s.managed);
+  if (stacks.some((s) => s.problems.length > 0)) return 'problem';
+  if (stacks.some((s) => s.updates > 0)) return 'updates';
+  return 'ok';
+}
+
+// Worst state of a site, for its dot: offline, security, failed backup or Docker problem first.
 export function siteTone(hosts: Host[], groups: BackupGroup[] | undefined): Tone {
   const apt = hosts.map(aptTile);
   const bak = hosts.map((h) => backupTile(groups, h.id));
-  if (apt.includes('offline') || apt.includes('security') || bak.includes('bad')) return 'bad';
-  if (apt.includes('updates') || apt.includes('reboot') || bak.includes('warn')) return 'warn';
+  const dck = hosts.map(dockerTile);
+  if (apt.includes('offline') || apt.includes('security') || bak.includes('bad') || dck.includes('problem')) return 'bad';
+  if (apt.includes('updates') || apt.includes('reboot') || bak.includes('warn') || dck.includes('updates')) return 'warn';
   return 'ok';
 }
 
