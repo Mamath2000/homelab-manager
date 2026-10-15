@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { BACKUP_ID_RE, HOSTS_NS, STORE_RE, checkDatabase, jobKind } from './backupJobs.js';
+import { BACKUP_ID_RE, HOSTS_NS, STORE_RE, checkDatabase } from './backupJobs.js';
 import { parseCalendar } from './calendar.js';
 import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, JobPlugin, NextcloudPlugin } from './types.js';
 
@@ -8,8 +8,6 @@ import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, JobPlugi
 //   - database: kind nextcloud, mode database (pg_dump in the database container, agent/nextcloud.go);
 //   - config: kind nextcloud, mode config (config/, compose files, data root files, appdata without caches);
 //   - user:<id>: a directories job of the directory of the user.
-// A directories job that already backs up the directory of a user (made by hand before the plugin) is
-// taken over: same group on the PBS, its history goes on.
 
 // What the agent found of the instance (NextcloudAIO in agent/nextcloud.go).
 export interface NextcloudDiscovery {
@@ -32,7 +30,7 @@ export const isPluginJob = (j: Pick<BackupJobDoc, 'plugin'>) => j.plugin?.name =
 
 export const userPart = (id: string) => `user:${id}`;
 
-// Group of a user on the PBS: nextcloud-user-<id>, like the jobs made by hand before the plugin.
+// Group of a user on the PBS: nextcloud-user-<id>.
 export function userBackupId(id: string) {
   return `nextcloud-user-${id.toLowerCase().replace(/[^a-z0-9._-]/g, '-')}`.slice(0, 64);
 }
@@ -108,13 +106,9 @@ export function wantedJobs(p: PluginInput, d: Pick<NextcloudDiscovery, 'users'>)
   return out;
 }
 
-// Job of a part: the one the plugin generated, else (user) a directories job of the directory alone.
-export function jobOfPart(part: string, path: string | undefined, list: BackupJobDoc[]) {
-  const own = list.find((j) => isPluginJob(j) && j.plugin!.part === part);
-  if (own) return { job: own, adopted: false };
-  if (!path) return null;
-  const hand = list.find((j) => !isPluginJob(j) && jobKind(j) === 'directories' && j.archives.length === 1 && j.archives[0].path === path);
-  return hand ? { job: hand, adopted: true } : null;
+// Job the plugin generated for a part.
+export function jobOfPart(part: string, list: BackupJobDoc[]) {
+  return list.find((j) => isPluginJob(j) && j.plugin!.part === part) ?? null;
 }
 
 export interface Plan {
@@ -130,10 +124,10 @@ export function planJobs(hostId: ObjectId, p: PluginInput, d: Pick<NextcloudDisc
   for (const w of wantedJobs(p, d)) {
     const plugin: JobPlugin = { name: 'nextcloud', part: w.part };
     const fields = { name: w.name, archives: w.archives, excludes: [], store: w.store, schedule: p.schedule, enabled: p.enabled, kind: w.kind, database: w.database, plugin };
-    const cur = jobOfPart(w.part, w.archives[0]?.path, list);
+    const cur = jobOfPart(w.part, list);
     if (cur) {
-      kept.add(cur.job._id.toHexString());
-      plan.update.push({ job: cur.job, set: { ...fields, updatedAt: now } });
+      kept.add(cur._id.toHexString());
+      plan.update.push({ job: cur, set: { ...fields, updatedAt: now } });
     } else {
       plan.create.push({ _id: new ObjectId(), hostId, ...fields, ns: HOSTS_NS, backupId: w.backupId, timezone, createdAt: now, updatedAt: now, lastRun: null });
     }

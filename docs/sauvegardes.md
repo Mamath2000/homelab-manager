@@ -162,7 +162,7 @@ Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configurati
 
 - Base et configuration sont préparées dans `<répertoire de travail>/database` et `/config` (historique séparé, mêmes règles que les [sauvegardes de bases](#sauvegardes-de-bases-de-données)). Le répertoire de travail est sur l'hôte : l'exclure des autres sauvegardes du même disque.
 - **Verrouillés** : un job généré ne se modifie ni ne se supprime depuis la carte Sauvegardes ou la page Sauvegardes ; **Lancer** reste possible. Décocher un utilisateur supprime son job, **Supprimer le plugin** supprime tous les jobs générés ; les snapshots restent sur le PBS (groupes orphelins).
-- **Reprise des jobs existants** : un job de répertoires qui sauvegarde exactement le répertoire d'un utilisateur (fait à la main avant le plugin) est repris au premier enregistrement : même groupe, son historique continue ; il prend la planification et le nom du plugin. Son datastore est pré-rempli dans la fenêtre.
+- Un groupe déjà écrit par un autre job (par ex. un job de répertoires fait à la main pour un utilisateur) bloque l'enregistrement : supprimer ou renommer ce job d'abord.
 - **Cohérence** : base et données ne sont pas figées ensemble (pas de mode maintenance). Après une restauration, `occ files:scan --all` remet la base en accord avec les fichiers.
 - Restauration de la base : `pg_restore -d <base> pg-nextcloud/<base>.dump` (parallélisable avec `-j`), après `psql -f pg-globals/globals.sql` sur une instance neuve.
 - Sans `BACKUP_NEXTCLOUD_AIO`, les jobs déjà générés continuent de tourner ; seule la fenêtre du plugin disparaît.

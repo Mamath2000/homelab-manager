@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCw, Save, Trash2 } from 'lucide-react';
-import { api, type Host, type NextcloudDiscovery, type NextcloudPartJob, type NextcloudSettings } from '../lib/api';
+import { api, type Host, type NextcloudDiscovery, type NextcloudSettings } from '../lib/api';
 import { formatBytes, keepText } from '../lib/backups';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { field } from './ProxmoxServer';
-import { Badge, Button, ConfirmModal, Modal, ProgressBar, Spinner } from './ui';
+import { Button, ConfirmModal, Modal, ProgressBar, Spinner } from './ui';
 
 const MAX_KEEP = 30;
 
@@ -38,7 +38,7 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
     }
   };
 
-  // at opening: what the agent finds, then the form from the settings (or from the jobs made by hand)
+  // at opening: what the agent finds, then the form from the settings
   useEffect(() => {
     if (!open || !view) return;
     let gone = false;
@@ -46,21 +46,16 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
       const s = view.nextcloudSettings;
       const d = await discover(s?.workDir);
       if (gone) return;
-      const store = (j: NextcloudPartJob | null | undefined) => j?.store ?? null;
       setForm({
         workDir: s?.workDir ?? (d?.composeFiles[0] ? `${d.composeFiles[0].replace(/\/[^/]+$/, '')}/backup-homelab` : ''),
         keep: s?.keep ?? 1,
         schedule: s?.schedule ?? '02:30',
         enabled: s?.enabled ?? true,
-        database: s ? s.database : store(d?.jobs.database),
-        config: s ? s.config : store(d?.jobs.config),
-        // settings saved, else the jobs made by hand that the plugin takes over; no default datastore
-        users: d
-          ? d.users.flatMap((u) => {
-              const st = s?.users.find((x) => x.id === u.id)?.store ?? store(d.jobs.users[u.id]);
-              return st ? [{ id: u.id, store: st }] : [];
-            })
-          : (s?.users ?? []),
+        // no default datastore: not backed up until chosen
+        database: s?.database ?? null,
+        config: s?.config ?? null,
+        // users still known to Nextcloud
+        users: (s?.users ?? []).filter((x) => !d || d.users.some((u) => u.id === x.id)),
       });
     })();
     return () => {
@@ -122,8 +117,6 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
       ))}
     </select>
   );
-  const jobNote = (j: NextcloudPartJob | null | undefined) =>
-    j?.adopted ? <Badge tone="info">job existant {j.backupId} : repris</Badge> : null;
 
   const usersOff = d?.users.filter((u) => !userStore(u.id) && u.exists && !u.error) ?? [];
 
@@ -177,13 +170,13 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
               <tbody className="divide-y divide-line">
                 <tr>
                   <td className="px-3 py-2 text-zinc-100">Base</td>
-                  <td className="px-3 py-2 text-xs text-muted">pg_dump de {d.database} et rôles, dans le conteneur {d.containers.database} {jobNote(d.jobs.database)}</td>
+                  <td className="px-3 py-2 text-xs text-muted">pg_dump de {d.database} et rôles, dans le conteneur {d.containers.database}</td>
                   <td className="px-3 py-2">{select(form.database, (v) => set({ database: v }))}</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2 text-zinc-100">Configuration</td>
                   <td className="px-3 py-2 text-xs text-muted">
-                    config/, {d.composeFiles.length ? 'docker-compose.yml, ' : ''}fichiers du répertoire de données, appdata_{d.instanceId} sans preview, appstore, js {jobNote(d.jobs.config)}
+                    config/, {d.composeFiles.length ? 'docker-compose.yml, ' : ''}fichiers du répertoire de données, appdata_{d.instanceId} sans preview, appstore, js
                   </td>
                   <td className="px-3 py-2">{select(form.config, (v) => set({ config: v }))}</td>
                 </tr>
@@ -196,8 +189,7 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
                         {u.name !== u.id && <span className="text-muted"> · {u.name}</span>}
                       </td>
                       <td className="px-3 py-2 text-xs text-muted">
-                        {u.error ? <span className="text-amber-400">{u.error}</span> : !u.exists ? 'pas encore de répertoire (jamais connecté)' : <span className="font-mono">{u.path}</span>}{' '}
-                        {jobNote(d.jobs.users[u.id])}
+                        {u.error ? <span className="text-amber-400">{u.error}</span> : !u.exists ? 'pas encore de répertoire (jamais connecté)' : <span className="font-mono">{u.path}</span>}
                       </td>
                       <td className="px-3 py-2">{select(userStore(u.id), (v) => setUser(u.id, v), off && !userStore(u.id))}</td>
                     </tr>

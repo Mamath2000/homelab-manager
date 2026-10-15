@@ -5,7 +5,7 @@ import { DEFAULT_TIMEZONE, MAX_KEEP, clientState, groupConflict, jobView, refres
 import { config } from '../config.js';
 import { backupJobs, hosts, parseId } from '../db.js';
 import { publish } from '../events.js';
-import { checkPlugin, isPluginJob, jobOfPart, planJobs, userPart, type NextcloudDiscovery, type PluginInput } from '../nextcloud.js';
+import { checkPlugin, isPluginJob, planJobs, type NextcloudDiscovery, type PluginInput } from '../nextcloud.js';
 import { loadPbsSettings } from '../pbs.js';
 import type { HostDoc } from '../types.js';
 
@@ -69,7 +69,7 @@ export function registerNextcloudRoutes(app: FastifyInstance) {
     };
   });
 
-  // What the agent finds on the host, with the job of each part (generated, or made by hand and taken over).
+  // What the agent finds on the host (form of the plugin).
   app.post<{ Params: { id: string }; Body: { workDir?: string } }>(
     '/api/hosts/:id/nextcloud/discover',
     { schema: { body: { type: 'object', additionalProperties: false, properties: { workDir: pluginProps.workDir } } } },
@@ -77,26 +77,12 @@ export function registerNextcloudRoutes(app: FastifyInstance) {
       const host = await pluginHost(req.params.id, reply);
       if (!host) return;
       if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'hôte hors ligne' });
-      let d: NextcloudDiscovery;
       try {
-        d = await discover(host, req.body.workDir ?? '');
+        return await discover(host, req.body.workDir ?? '');
       } catch (e) {
         if (e instanceof AgentRequestError) return reply.code(502).send({ error: e.message });
         throw e;
       }
-      const list = await backupJobs.find({ hostId: host._id }).toArray();
-      const of = (part: string, path?: string) => {
-        const r = jobOfPart(part, path, list);
-        return r ? { jobId: r.job._id.toHexString(), name: r.job.name, store: r.job.store, backupId: r.job.backupId, adopted: r.adopted } : null;
-      };
-      return {
-        ...d,
-        jobs: {
-          database: of('database'),
-          config: of('config'),
-          users: Object.fromEntries(d.users.map((u) => [u.id, of(userPart(u.id), u.path)])),
-        },
-      };
     },
   );
 

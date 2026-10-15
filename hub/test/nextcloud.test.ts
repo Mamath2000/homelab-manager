@@ -89,22 +89,25 @@ test('jobs asked for by the settings', () => {
   assert.equal(userBackupId('a.b@x y'), 'nextcloud-user-a.b-x-y');
 });
 
-test('jobs made by hand are taken over, plugin jobs no longer asked for are removed', () => {
-  const hand = job({ name: 'nextcloud-user-david', archives: [{ name: 'david', path: '/mnt/user/ncdata/data/David' }], backupId: 'nextcloud-user-david', schedule: '02:30' });
-  // two directories: not the directory of the user alone, left alone
-  const other = job({ name: 'unraid-docker', archives: [{ name: 'a', path: '/mnt/user/ncdata/data/mamath' }, { name: 'b', path: '/boot' }], backupId: 'unraid-docker' });
+test('plugin jobs are updated, created, or removed when no longer asked for; other jobs are left alone', () => {
+  // made by hand for a user: not the plugin's, never touched (its group then blocks the save, groupConflict)
+  const hand = job({ name: 'nextcloud-user-david', archives: [{ name: 'david', path: '/mnt/user/ncdata/data/David' }], backupId: 'nextcloud-user-david' });
   const db = job({ name: 'Nextcloud · base', kind: 'nextcloud', database: { mode: 'database', databases: [], workDir: '/old/database', keep: 1 }, backupId: 'nextcloud-db', plugin: { name: 'nextcloud', part: 'database' } });
   const gone = job({ name: 'Nextcloud · sam', archives: [{ name: 'data', path: '/mnt/user/ncdata/data/sam' }], backupId: 'nextcloud-user-sam', plugin: { name: 'nextcloud', part: 'user:sam' } });
-  const plan = planJobs(hostId, input({ config: null }), disco, [hand, other, db, gone], 'Europe/Paris');
+  const plan = planJobs(hostId, input({ config: null }), disco, [hand, db, gone], 'Europe/Paris');
 
-  assert.deepEqual(plan.update.map((u) => u.job._id), [db._id, hand._id]);
-  const taken = plan.update[1].set;
-  assert.deepEqual(taken.plugin, { name: 'nextcloud', part: 'user:David' });
-  assert.equal(taken.schedule, '02:30');
-  assert.equal(taken.backupId, undefined, 'the group of a job taken over does not change');
+  assert.deepEqual(plan.update.map((u) => u.job._id), [db._id]);
   assert.equal(plan.update[0].set.database!.workDir, '/mnt/user/docker/nextcloud-aio/backup-homelab/database');
+  assert.equal(plan.update[0].set.schedule, '02:30');
+  assert.equal(plan.update[0].set.backupId, undefined, 'the group of a job does not change');
 
-  assert.deepEqual(plan.create.map((j) => [j.backupId, j.store, j.ns]), [['nextcloud-user-mamath', 'ds1', 'Hosts']]);
+  assert.deepEqual(
+    plan.create.map((j) => [j.backupId, j.store, j.ns, j.plugin?.part]),
+    [
+      ['nextcloud-user-david', 'ds0', 'Hosts', 'user:David'],
+      ['nextcloud-user-mamath', 'ds1', 'Hosts', 'user:mamath'],
+    ],
+  );
   assert.deepEqual(plan.remove.map((j) => j._id), [gone._id]);
 });
 
