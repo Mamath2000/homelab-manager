@@ -8,6 +8,7 @@ export const keys = {
   hostJobs: (id: string) => ['jobs', 'host', id] as const,
   job: (id: string) => ['job', id] as const,
   backups: ['backups'] as const,
+  hostAlerts: (id: string) => ['host-alerts', id] as const,
 };
 
 export function useBackups() {
@@ -25,6 +26,10 @@ export function useHost(id: string | undefined) {
 
 export function useJobs() {
   return useQuery({ queryKey: keys.jobs, queryFn: () => api.jobs(100) });
+}
+
+export function useHostAlerts(id: string) {
+  return useQuery({ queryKey: keys.hostAlerts(id), queryFn: () => api.hostAlerts(id) });
 }
 
 export function useHostJobs(id: string) {

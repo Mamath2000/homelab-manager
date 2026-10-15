@@ -230,6 +230,16 @@ export interface Job {
   log?: string;
 }
 
+// Alerts of a host for one day (timeline of the host page): worst level of the day in each domain and
+// its reasons; null: not followed that day (no APT, agent not connected...)
+export type AlertLevel = 'ok' | 'warn' | 'alert';
+export type AlertDomain = 'apt' | 'docker' | 'backups';
+export interface DayAlert {
+  level: AlertLevel;
+  reasons: string[];
+}
+export type HostAlertDay = { day: string } & Record<AlertDomain, DayAlert | null>;
+
 export type Role = 'admin' | 'operator' | 'viewer';
 
 export interface Me {
@@ -668,6 +678,7 @@ export const api = {
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
+  hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   job: (id: string) => request<Job>('GET', `/api/jobs/${id}`),
   runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string }) =>
     request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action, packages, ...target }),

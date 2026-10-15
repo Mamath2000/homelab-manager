@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
@@ -18,6 +18,7 @@ import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
 import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { HostBackups } from '../components/HostBackups';
+import { AlertTimeline } from '../components/AlertTimeline';
 import { agentRevoked, connection, hasApt, connectionMeta, isHaos, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
@@ -30,6 +31,23 @@ function StripItem({ label, grow, children }: { label: string; grow?: boolean; c
       <dd className={clsx('mt-0.5 text-sm text-zinc-200', grow ? 'wrap-break-word' : 'whitespace-nowrap')}>{children}</dd>
     </div>
   );
+}
+
+// Large screens (fixed header): true once the page is scrolled, the alert timeline then shrinks to its
+// rows; two thresholds so that the change of height does not make it flicker.
+function useScrolled() {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const wide = window.matchMedia('(min-width: 1536px)');
+    const update = () => setScrolled((s) => wide.matches && (s ? window.scrollY > 8 : window.scrollY > 60));
+    window.addEventListener('scroll', update, { passive: true });
+    wide.addEventListener('change', update);
+    return () => {
+      window.removeEventListener('scroll', update);
+      wide.removeEventListener('change', update);
+    };
+  }, []);
+  return scrolled;
 }
 
 // mounted only while open: its state starts from the current host
@@ -239,6 +257,7 @@ export function HostDetail() {
   const tls = useAgentTls();
   const upsert = useUpdateHostCache();
   const [confirmReboot, setConfirmReboot] = useState(false);
+  const scrolled = useScrolled();
 
   const shownJob = jobId ?? jobs?.[0]?.id ?? null;
   const running = useMemo(() => jobs?.some((j) => j.status === 'running'), [jobs]);
@@ -290,9 +309,9 @@ export function HostDetail() {
       {/* large screens: the content on the left, history and console on the right, fixed */}
       <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
         <div className="min-w-0">
-          {/* title and system strip stay on top while the content scrolls (below the 3.5rem bar of the layout) */}
-          <div className="pb-5 2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6">
-            <Link to="/hosts" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-zinc-200">
+          {/* title, system strip and alert timeline stay on top while the content scrolls (below the 3.5rem bar of the layout) */}
+          <div className={clsx('2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6', scrolled ? 'pb-3 shadow-[0_14px_18px_-12px_rgb(0_0_0/0.7)]' : 'pb-5')}>
+            <Link to="/hosts" className={clsx('mb-3 items-center gap-1.5 text-sm text-muted hover:text-zinc-200', scrolled ? 'hidden' : 'inline-flex')}>
               <ArrowLeft className="h-4 w-4" /> Hôtes
             </Link>
             <PageHeader
@@ -349,6 +368,9 @@ export function HostDetail() {
                 <StripItem label="IP" grow><span className="font-mono text-xs">{host.info?.ips?.join(', ') || '—'}</span></StripItem>
               </dl>
             </section>
+            <div className={scrolled ? 'mt-2.5' : 'mt-4'}>
+              <AlertTimeline hostId={host.id} compact={scrolled} />
+            </div>
           </div>
 
           {host.aptSummary?.rebootRequired && (

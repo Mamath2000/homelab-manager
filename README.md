@@ -114,6 +114,7 @@ Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL
 | `PATCH` / `DELETE` | `/api/hosts/:id` | Modifie / supprime un hôte |
 | `POST` | `/api/hosts/:id/enroll` | Nouvelle commande d'installation (annule la précédente) |
 | `POST` | `/api/hosts/:id/revoke` | Révoque l'agent : déconnexion, certificat refusé |
+| `GET` | `/api/hosts/:id/alerts` | Alertes des 30 derniers jours (APT, Docker, sauvegardes) : pire niveau de chaque jour et raisons |
 | `POST` | `/api/hosts/:id/jobs` | Lance `apt_update` / `apt_upgrade` (avec `packages` optionnel), `docker_check`, ou `docker_up` / `docker_stop` / `docker_restart` / `docker_update` avec `stack` (et `service` optionnel) |
 | `GET` | `/api/hosts/:id/stacks/:stack/logs` | Dernières lignes des logs d'une stack (`service`, `tail`) |
 | `GET` | `/api/hosts/:id/stacks/:stack/compose` | Fichiers compose de la stack (`.env` masqué) |

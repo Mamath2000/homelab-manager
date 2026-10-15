@@ -20,6 +20,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Vérification planifiée** : `apt-get update` automatique toutes les 12 h.
 - **Nettoyage** : paquets inutiles (anciens noyaux, dépendances orphelines) supprimables via `apt autoremove`.
 - **Historique** des tâches et de leurs sorties (90 jours).
+- **Fiche hôte** : bandeau système et frise des alertes des 30 derniers jours (mises à jour, Docker, sauvegardes : pire situation de chaque jour, détail au clic) en tête de page ; sur grand écran, l'historique et la console en direct restent visibles à droite, et toute tâche lancée depuis la fiche s'y affiche.
 - **Docker** : stacks compose des hôtes, état des conteneurs, images à mettre à jour, démarrer / arrêter / redémarrer / mettre à jour, logs et fichiers compose.
 - **Home Assistant** (option) : appareils, alertes et mises à jour publiés via MQTT, avec découverte automatique.
 
