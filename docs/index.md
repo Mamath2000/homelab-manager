@@ -13,6 +13,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 
 ## Ce que fait la version actuelle
 
+- **Tableau de bord par site** : un carré par hôte, regroupé par site (champ **Groupe** de l'hôte), moitié haute pour les mises à jour, moitié basse pour la sauvegarde ; chiffres clés (correctifs de sécurité, sauvegardes en échec ou en retard), jauges par site, arrivée des alertes sur 30 jours (une ligne par site), actions sur tous les hôtes concernés (correctifs de sécurité seuls, tout APT, images Docker, agents, standardisation, avec confirmation listant les cibles) et listes « à traiter ». L'étiquette et l'ordre des sites se règlent dans **Paramètres › Sites** (Principal, VPN, Externe ; les sites externes d'un seul hôte sont réunis dans une carte).
 - **Inventaire** : OS, noyau, architecture, virtualisation (LXC, KVM…), IP, uptime, état de connexion en temps réel.
 - **Mises à jour APT** : paquets à mettre à jour, mises à jour de sécurité, paquets bloqués (`hold`), redémarrage requis, ancienneté des listes de paquets.
 - **Actions** : `apt-get update`, mise à jour complète ou de paquets choisis, sur un hôte ou plusieurs à la fois, avec les logs en direct.

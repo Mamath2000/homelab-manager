@@ -453,6 +453,19 @@ export interface PveSettings {
   clusters: PveCluster[];
 }
 
+// Sites of the dashboard: a site is a value of the group field of the hosts. main: main site, vpn:
+// reached through a VPN, external: supervised from afar. Listed sites come first, in this order.
+export const SITE_KINDS = ['main', 'vpn', 'external'] as const;
+export type SiteKind = (typeof SITE_KINDS)[number];
+export interface SiteConfig {
+  name: string;
+  kind: SiteKind;
+}
+export interface SitesSettings {
+  _id: 'sites';
+  sites: SiteConfig[];
+}
+
 // Backup job of a cluster, as seen by one guest.
 export interface PveJobRef {
   id: string;

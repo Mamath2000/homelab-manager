@@ -240,6 +240,13 @@ export interface DayAlert {
 }
 export type HostAlertDay = { day: string } & Record<AlertDomain, DayAlert | null>;
 
+// Sites of the dashboard: values of the group field of the hosts, tagged in the settings.
+export type SiteKind = 'main' | 'vpn' | 'external';
+export interface SiteConfig {
+  name: string;
+  kind: SiteKind;
+}
+
 export type Role = 'admin' | 'operator' | 'viewer';
 
 export interface Me {
@@ -679,6 +686,10 @@ export const api = {
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
+  alerts: () => request<{ days: (HostAlertDay & { hostId: string })[] }>('GET', '/api/alerts'),
+  sites: () => request<{ sites: SiteConfig[]; groups: string[] }>('GET', '/api/sites'),
+  saveSites: (sites: SiteConfig[]) => request<{ sites: SiteConfig[] }>('PUT', '/api/settings/sites', { sites }),
+  dockerUpdate: (targets: { hostId: string; stack: string }[]) => request<Job[]>('POST', '/api/jobs/docker-update', { targets }),
   job: (id: string) => request<Job>('GET', `/api/jobs/${id}`),
   runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string }) =>
     request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action, packages, ...target }),
@@ -725,7 +736,8 @@ export const api = {
   testPveCluster: (id: string, c: PveClusterInput) =>
     request<{ ok: boolean; error?: string; cluster?: string | null; nodes?: string[]; jobs?: number }>('POST', `/api/settings/pve/clusters/${encodeURIComponent(id)}/test`, c),
   pveFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pve/fingerprint', { url }),
-  runBulk: (hostIds: string[], action: JobAction, options?: SetupOption[]) => request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action, options }),
+  runBulk: (hostIds: string[], action: JobAction, options?: SetupOption[], securityOnly?: boolean) =>
+    request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action, options, securityOnly }),
 
   setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),
   saveSetupProfile: (p: SetupProfile) => request<SetupProfile>('PUT', '/api/settings/setup', p),

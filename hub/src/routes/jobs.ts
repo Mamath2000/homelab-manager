@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { hosts, jobs, parseId } from '../db.js';
 import { agentOutdated } from '../agentBinaries.js';
-import { createJob, jobDto } from '../jobs.js';
+import { STACK_RE, updatableStacks } from '../docker.js';
+import { createJob, jobDto, securityPackages } from '../jobs.js';
 import { applySetup, canSetup, loadSetupProfile, resetAndApplySetup, resetError } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type JobAction, type SetupOption } from '../types.js';
 
@@ -26,8 +27,9 @@ export function registerJobRoutes(app: FastifyInstance) {
     return jobDto(job, true);
   });
 
-  // Same action on several hosts at once (full upgrades only, package lists are per host).
-  app.post<{ Body: { hostIds: string[]; action: JobAction; options?: SetupOption[] } }>(
+  // Same action on several hosts at once: full upgrades, or the security updates of each host
+  // (securityOnly); package lists are per host.
+  app.post<{ Body: { hostIds: string[]; action: JobAction; options?: SetupOption[]; securityOnly?: boolean } }>(
     '/api/jobs/bulk',
     {
       schema: {
@@ -40,6 +42,7 @@ export function registerJobRoutes(app: FastifyInstance) {
             action: { type: 'string', enum: JOB_ACTIONS },
             // setup_apply: options of the standard to apply, replacing the values of each host
             options: { type: 'array', minItems: 1, maxItems: SETUP_OPTIONS.length, uniqueItems: true, items: { type: 'string', enum: SETUP_OPTIONS } },
+            securityOnly: { type: 'boolean' },
           },
         },
       },
@@ -50,6 +53,7 @@ export function registerJobRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'action Docker par stack : à lancer hôte par hôte' });
       }
       if (req.body.options && req.body.action !== 'setup_apply') return reply.code(400).send({ error: 'options ne concerne que la standardisation' });
+      if (req.body.securityOnly && req.body.action !== 'apt_upgrade') return reply.code(400).send({ error: 'securityOnly ne concerne que apt_upgrade' });
       const ids = req.body.hostIds.map(parseId).filter((x) => x !== null);
       let targets = await hosts.find({ _id: { $in: ids } }).toArray();
       // agents that are up to date or cannot update themselves are skipped
@@ -78,7 +82,52 @@ export function registerJobRoutes(app: FastifyInstance) {
         reply.code(202);
         return created;
       }
-      for (const host of targets) created.push(jobDto(await createJob(host, req.body.action, [], 'manual')));
+      for (const host of targets) {
+        // hosts without security update are left out (never a full upgrade by mistake)
+        const packages = req.body.securityOnly ? securityPackages(host) : [];
+        if (req.body.securityOnly && !packages.length) continue;
+        created.push(jobDto(await createJob(host, req.body.action, packages, 'manual')));
+      }
+      reply.code(202);
+      return created;
+    },
+  );
+
+  // Update of the stacks with a newer image, several hosts at once (dashboard): one docker_update job
+  // per stack. A stack that is no longer to update (or unmanaged, or gone) is left out.
+  app.post<{ Body: { targets: { hostId: string; stack: string }[] } }>(
+    '/api/jobs/docker-update',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['targets'],
+          additionalProperties: false,
+          properties: {
+            targets: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 500,
+              items: {
+                type: 'object',
+                required: ['hostId', 'stack'],
+                additionalProperties: false,
+                properties: { hostId: { type: 'string' }, stack: { type: 'string', pattern: STACK_RE.source } },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const ids = [...new Set(req.body.targets.map((t) => t.hostId))].map(parseId).filter((x) => x !== null);
+      const byId = new Map((await hosts.find({ _id: { $in: ids } }).toArray()).map((h) => [h._id.toHexString(), h]));
+      const created = [];
+      for (const t of req.body.targets) {
+        const host = byId.get(t.hostId);
+        if (!host || !updatableStacks(host).includes(t.stack)) continue;
+        created.push(jobDto(await createJob(host, 'docker_update', [], 'manual', { stack: t.stack })));
+      }
       reply.code(202);
       return created;
     },

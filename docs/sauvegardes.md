@@ -221,7 +221,7 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
   - note : commentaire du snapshot, nom du guest pour un vzdump.
 
   C'est l'historique vu au dernier relevé, sans lecture du PBS en direct.
-- **Liste des hôtes** : badge « sauvegarde en retard / en échec / désactivée ». **Tableau de bord** : section Sauvegardes.
+- **Liste des hôtes** : badge « sauvegarde en retard / en échec / désactivée ». **Tableau de bord** : moitié basse du carré de chaque hôte, chiffres clés et liste « Sauvegardes à surveiller ».
 
 ## Home Assistant
 

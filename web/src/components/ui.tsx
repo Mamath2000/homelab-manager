@@ -118,7 +118,7 @@ export function Panel({ title, icon: Icon, actions, children, className, bodyCla
   return (
     <section className={clsx('panel min-w-0', className)}>
       {title && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
           <h2 className="flex items-center gap-2 text-sm font-medium text-zinc-200">
             {Icon && <Icon className="h-4 w-4 text-muted" />}
             {title}
@@ -348,6 +348,33 @@ export function StatusDot({ tone, pulse }: { tone: Tone; pulse?: boolean }) {
     <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
       {pulse && <span className={clsx('absolute inline-flex h-full w-full animate-ping rounded-full opacity-60', color)} />}
       <span className={clsx('relative inline-flex h-2.5 w-2.5 rounded-full', color)} />
+    </span>
+  );
+}
+
+// Joined toggle buttons, one pressed (display choice inside a panel).
+export function Segmented<T extends string>({ options, value, onChange, label }: {
+  options: { id: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+  label: string;
+}) {
+  return (
+    <span role="group" aria-label={label} className="inline-flex divide-x divide-line overflow-hidden rounded-md border border-line">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          aria-pressed={o.id === value}
+          onClick={() => onChange(o.id)}
+          className={clsx(
+            'h-7 whitespace-nowrap px-2.5 text-xs font-medium transition',
+            o.id === value ? 'bg-emerald-500/15 text-emerald-300' : 'bg-raised text-muted hover:text-zinc-200',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
     </span>
   );
 }

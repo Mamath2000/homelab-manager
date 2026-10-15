@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, staleRegistryCheck } from '../src/docker.js';
+import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, staleRegistryCheck, updatableStacks } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -171,4 +171,20 @@ test('registry check stale after a local image change', () => {
   assert.equal(staleRegistryCheck(report('img-old', OLD), report('img-old', OLD), checked), false);
   assert.equal(staleRegistryCheck(undefined, report('img-new', NEW), checked), false);
   assert.equal(staleRegistryCheck(report('img-old', OLD), report('img-new', NEW), undefined), false);
+});
+
+test('stacks to update: managed ones with a newer image only', () => {
+  const h = dockerHost(
+    {
+      stacks: [stack('web', 'running', [['app', 'nginx:latest', 'running']]), stack('db', 'running', [['pg', 'postgres:16', 'running']]), stack('aio', 'running', [['nc', 'nextcloud:30', 'running']])],
+      images: [
+        { ref: 'nginx:latest', id: 'img-current', digest: OLD },
+        { ref: 'postgres:16', id: 'img-current', digest: NEW },
+        { ref: 'nextcloud:30', id: 'img-current', digest: OLD },
+      ],
+    },
+    { checkedAt: Date.now(), images: [{ ref: 'nginx:latest', digest: NEW }, { ref: 'postgres:16', digest: NEW }, { ref: 'nextcloud:30', digest: NEW }] },
+  );
+  assert.deepEqual(updatableStacks({ ...h, unmanagedStacks: ['aio'] }), ['web']);
+  assert.deepEqual(updatableStacks({ ...h, capabilities: [] }), []);
 });

@@ -34,13 +34,17 @@ export function useLiveEvents(enabled: boolean) {
     es.addEventListener('job', (e) => {
       const job = JSON.parse((e as MessageEvent).data) as Job;
       qc.invalidateQueries({ queryKey: keys.jobs });
-      if (job.status === 'failed') qc.invalidateQueries({ queryKey: keys.hostAlerts(job.hostId) });
+      if (job.status === 'failed') {
+        qc.invalidateQueries({ queryKey: keys.hostAlerts(job.hostId) });
+        qc.invalidateQueries({ queryKey: keys.alerts });
+      }
       qc.setQueryData<Job>(keys.job(job.id), (old) => (old ? { ...old, ...job, log: old.log } : old));
       if (job.status !== 'running') qc.invalidateQueries({ queryKey: keys.job(job.id) });
     });
     es.addEventListener('backups', () => {
       qc.invalidateQueries({ queryKey: keys.backups });
       qc.invalidateQueries({ queryKey: ['host-alerts'] });
+      qc.invalidateQueries({ queryKey: keys.alerts });
       qc.invalidateQueries({ queryKey: ['backup-jobs'] });
     });
     es.addEventListener('job.log', (e) => {

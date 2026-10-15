@@ -16,6 +16,8 @@ test('operator runs jobs but manages neither hosts, settings nor accounts', () =
   assert.ok(authorize('operator', 'GET', '/api/hosts'));
   assert.ok(authorize('operator', 'POST', '/api/hosts/:id/jobs'));
   assert.ok(authorize('operator', 'POST', '/api/jobs/bulk'));
+  assert.ok(authorize('operator', 'POST', '/api/jobs/docker-update'));
+  assert.ok(authorize('operator', 'GET', '/api/sites'));
   assert.ok(authorize('operator', 'POST', '/api/account/password'));
   assert.ok(authorize('operator', 'GET', '/api/settings/agents'));
   for (const [m, r] of [
@@ -25,6 +27,7 @@ test('operator runs jobs but manages neither hosts, settings nor accounts', () =
     ['POST', '/api/hosts/:id/token'],
     ['GET', '/api/settings/homeassistant'],
     ['PUT', '/api/settings/agents'],
+    ['PUT', '/api/settings/sites'],
     ['GET', '/api/users'],
     ['POST', '/api/users'],
   ]) {
@@ -36,6 +39,9 @@ test('viewer is read-only and sees neither settings nor accounts', () => {
   assert.ok(authorize('viewer', 'GET', '/api/hosts'));
   assert.ok(authorize('viewer', 'HEAD', '/api/jobs/:id'));
   assert.ok(authorize('viewer', 'GET', '/api/events'));
+  assert.ok(authorize('viewer', 'GET', '/api/sites'));
+  assert.ok(authorize('viewer', 'GET', '/api/alerts'));
+  assert.ok(!authorize('viewer', 'POST', '/api/jobs/docker-update'));
   assert.ok(authorize('viewer', 'POST', '/api/account/password'));
   assert.ok(!authorize('viewer', 'GET', '/api/settings/homeassistant'));
   assert.ok(!authorize('viewer', 'GET', '/api/users'));

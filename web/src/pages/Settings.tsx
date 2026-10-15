@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { DatabaseBackup, Home, Lock, Server, Settings as SettingsIcon, Terminal, Wand2 } from 'lucide-react';
+import { DatabaseBackup, Home, Lock, MapPin, Server, Settings as SettingsIcon, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { BackupSettings } from '../components/BackupSettings';
 import { PveSettings } from '../components/PveSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { SetupSettings } from '../components/SetupSettings';
+import { SitesSettings } from '../components/SitesSettings';
 import { Button, Modal, PageHeader, Panel, Tabs } from '../components/ui';
 
 const tabs = [
   { id: 'hub', label: 'Hub et agents', icon: Server },
+  { id: 'sites', label: 'Sites', icon: MapPin },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
@@ -51,6 +53,7 @@ export function Settings() {
           </Panel>
         </div>
       )}
+      {tab === 'sites' && <SitesSettings />}
       {tab === 'setup' && <SetupSettings />}
       {tab === 'backups' && (
         <div className="space-y-4">

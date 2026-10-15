@@ -70,7 +70,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
           </label>
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-muted">Groupe (optionnel)</span>
-            <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} placeholder="infra, media, domotique…" />
+            <input className="input" maxLength={64} value={group} onChange={(e) => setGroup(e.target.value)} placeholder="site : Vouille, Jarsay…" />
           </label>
           {tailscale && (
             <label className="block">

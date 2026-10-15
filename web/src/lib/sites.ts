@@ -1,0 +1,129 @@
+import type { AlertDomain, AlertLevel, BackupGroup, Host, HostAlertDay, SiteConfig, SiteKind } from './api';
+import { hostBackups } from './backups';
+import { connection, hasApt, type Tone } from './status';
+
+// Dashboard by site: a site is the group of the hosts, tagged main / VPN / external in the settings.
+
+export const NO_SITE = 'Sans site';
+
+export const siteKindMeta: Record<SiteKind, { label: string; hint: string }> = {
+  main: { label: 'Principal', hint: 'Site principal' },
+  vpn: { label: 'VPN', hint: 'Site joint par un VPN' },
+  external: { label: 'Externe', hint: 'Site externe supervisé' },
+};
+
+export interface Site {
+  name: string;
+  kind: SiteKind | null;
+  hosts: Host[];
+}
+
+// Sites in display order: the configured ones in their order, then the other groups (most hosts
+// first), hosts without group last. Sites without host are left out.
+export function groupSites(hosts: Host[], config: SiteConfig[]): Site[] {
+  const byName = new Map<string, Host[]>();
+  for (const h of hosts) {
+    const name = h.group?.trim() || NO_SITE;
+    byName.set(name, [...(byName.get(name) ?? []), h]);
+  }
+  const sorted = (list: Host[]) => [...list].sort((a, b) => a.name.localeCompare(b.name));
+  const configured = config.filter((c) => byName.has(c.name)).map((c) => ({ name: c.name, kind: c.kind, hosts: sorted(byName.get(c.name)!) }));
+  const known = new Set(config.map((c) => c.name));
+  const others = [...byName.entries()]
+    .filter(([name]) => !known.has(name))
+    .map(([name, list]) => ({ name, kind: null, hosts: sorted(list) }))
+    .sort((a, b) => Number(a.name === NO_SITE) - Number(b.name === NO_SITE) || b.hosts.length - a.hosts.length || a.name.localeCompare(b.name));
+  return [...configured, ...others];
+}
+
+// --- state of a host: system updates (upper half of its square) and backups (lower half) ----------
+
+// na: no APT on the host (Unraid...); offline wins, the last report says nothing of now. Security comes
+// first here, it is what the dashboard is read for.
+export type AptTile = 'security' | 'reboot' | 'updates' | 'uptodate' | 'offline' | 'unknown' | 'na';
+
+export function aptTile(h: Host): AptTile {
+  if (connection(h) === 'offline') return 'offline';
+  if (!hasApt(h)) return 'na';
+  const s = h.aptSummary;
+  if (!s) return 'unknown';
+  if (s.security > 0) return 'security';
+  if (s.rebootRequired) return 'reboot';
+  if (s.upgradable > 0) return 'updates';
+  return 'uptodate';
+}
+
+export const aptTileMeta: Record<AptTile, { label: string; tone: Tone; cls: string }> = {
+  uptodate: { label: 'à jour', tone: 'ok', cls: 'bg-emerald-500' },
+  updates: { label: 'mises à jour', tone: 'warn', cls: 'bg-amber-500' },
+  security: { label: 'sécurité', tone: 'bad', cls: 'bg-red-500' },
+  reboot: { label: 'redémarrage requis', tone: 'info', cls: 'bg-sky-500' },
+  offline: { label: 'hors ligne', tone: 'neutral', cls: 'bg-zinc-600' },
+  unknown: { label: 'inconnu', tone: 'unknown', cls: 'bg-violet-500/60' },
+  na: { label: 'sans APT', tone: 'neutral', cls: 'border-[1.5px] border-dashed border-zinc-600' },
+};
+
+// warn: late, gone from the PBS, job disabled or not applied yet; bad: failed; none: not followed
+export type BackupTile = 'ok' | 'warn' | 'bad' | 'none';
+
+export function backupTile(groups: BackupGroup[] | undefined, hostId: string): BackupTile {
+  const b = hostBackups(groups, hostId);
+  if (!b) return 'none';
+  if (b.state === 'failed' || b.state === 'task_failed') return 'bad';
+  return b.state === 'ok' ? 'ok' : 'warn';
+}
+
+export const backupTileMeta: Record<BackupTile, { label: string; tone: Tone; cls: string }> = {
+  ok: { label: 'à jour', tone: 'ok', cls: 'bg-emerald-500' },
+  warn: { label: 'en retard', tone: 'warn', cls: 'bg-amber-500' },
+  bad: { label: 'en échec', tone: 'bad', cls: 'bg-red-500' },
+  none: { label: 'non suivie', tone: 'neutral', cls: 'border-[1.5px] border-dashed border-zinc-600' },
+};
+
+// Worst state of a site, for its dot: offline, security or failed backup first.
+export function siteTone(hosts: Host[], groups: BackupGroup[] | undefined): Tone {
+  const apt = hosts.map(aptTile);
+  const bak = hosts.map((h) => backupTile(groups, h.id));
+  if (apt.includes('offline') || apt.includes('security') || bak.includes('bad')) return 'bad';
+  if (apt.includes('updates') || apt.includes('reboot') || bak.includes('warn')) return 'warn';
+  return 'ok';
+}
+
+export function count<T>(list: T[], v: T) {
+  return list.filter((x) => x === v).length;
+}
+
+// Age of the oldest last backup among the hosts (ms), null: none followed.
+export function oldestBackup(hosts: Host[], groups: BackupGroup[] | undefined, now = Date.now()) {
+  const lasts = hosts.map((h) => hostBackups(groups, h.id)).filter((b) => b !== null).map((b) => b.last).filter((t) => t > 0);
+  return lasts.length ? now - Math.min(...lasts) : null;
+}
+
+// --- timeline of the alerts, one row per site ------------------------------------------------------
+
+export type TimelineFilter = 'all' | AlertDomain;
+export type SiteCell = { level: AlertLevel | 'none'; alert: number; warn: number };
+
+const rank = { none: -1, ok: 0, warn: 1, alert: 2 } as const;
+
+// Worst level of each day of a site over its hosts, and how many hosts were in alert / warning.
+export function siteDays(hosts: Host[], days: (HostAlertDay & { hostId: string })[], keys: string[], filter: TimelineFilter): SiteCell[] {
+  const ids = new Set(hosts.map((h) => h.id));
+  const domains: AlertDomain[] = filter === 'all' ? ['apt', 'docker', 'backups'] : [filter];
+  const byDay = new Map<string, (HostAlertDay & { hostId: string })[]>();
+  for (const d of days) if (ids.has(d.hostId)) byDay.set(d.day, [...(byDay.get(d.day) ?? []), d]);
+  return keys.map((k) => {
+    const cell: SiteCell = { level: 'none', alert: 0, warn: 0 };
+    for (const d of byDay.get(k) ?? []) {
+      let worst: SiteCell['level'] = 'none';
+      for (const dom of domains) {
+        const l = d[dom]?.level;
+        if (l && rank[l] > rank[worst]) worst = l;
+      }
+      if (worst === 'alert') cell.alert++;
+      if (worst === 'warn') cell.warn++;
+      if (rank[worst] > rank[cell.level]) cell.level = worst;
+    }
+    return cell;
+  });
+}

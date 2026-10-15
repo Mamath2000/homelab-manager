@@ -153,6 +153,11 @@ export const isExternal = (h: HostDoc, stack: string, service?: string) =>
   !!service && !!findStack(h, stack)?.services.some((s) => s.name === service && s.external);
 
 // The stack (and service) named by a request, from the last report of the host.
+// Managed stacks of a host with a newer image (pulled or on the registry): targets of "update all".
+export function updatableStacks(h: HostDoc) {
+  return (dockerView(h)?.stacks ?? []).filter((st) => st.managed && st.updates > 0).map((st) => st.name);
+}
+
 export function findStack(h: HostDoc, stack: string, service?: string) {
   const st = h.docker?.stacks.find((s) => s.name === stack);
   if (!st) return null;

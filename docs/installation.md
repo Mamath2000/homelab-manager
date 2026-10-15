@@ -89,7 +89,7 @@ Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, �
 
 ### Ajouter un hôte
 
-1. Dans l'interface : **Ajouter un hôte**, saisir un nom et éventuellement un groupe (`infra`, `media`, `domotique`…).
+1. Dans l'interface : **Ajouter un hôte**, saisir un nom et éventuellement un groupe : c'est le **site** de l'hôte sur le tableau de bord (`Vouille`, `Jarsay`…).
 2. Copier la commande affichée et la lancer **en root** sur l'hôte :
 
 ```bash
@@ -196,7 +196,7 @@ Particularités :
 
 Le hub distribue les binaires de l'agent livrés avec son image : mettre à jour le hub suffit.
 
-- Chaque agent envoie au hub l'empreinte SHA-256 de son binaire ; s'il diffère de celui du hub pour son architecture, l'agent est signalé **« Agent à mettre à jour »** (cartes et liste des hôtes, fiche de l'hôte, tâche dans le bloc Activité du tableau de bord, Home Assistant).
+- Chaque agent envoie au hub l'empreinte SHA-256 de son binaire ; s'il diffère de celui du hub pour son architecture, l'agent est signalé **« Agent à mettre à jour »** (cartes et liste des hôtes, fiche de l'hôte, action **Agents** du tableau de bord, Home Assistant).
 - Avec **Paramètres → Agent → Mettre à jour les agents automatiquement** (activé par défaut), le hub lance la mise à jour dès qu'un agent obsolète se connecte. Sinon, un bouton « Mettre à jour » est proposé.
 - L'agent télécharge le nouveau binaire depuis le hub, vérifie son empreinte et sa signature (agents de release, voir [Sécurité](securite.md)), remplace `/usr/local/bin/homelab-agent` puis s'arrête : systemd le relance aussitôt avec la nouvelle version. En cas d'échec, un nouvel essai automatique a lieu au plus une fois par heure.
 - L'en-tête de l'interface affiche la version du hub et celle de l'agent qu'il distribue. L'agent a sa propre version (X.Y.Z), indépendante de celle du hub.
@@ -204,7 +204,7 @@ Le hub distribue les binaires de l'agent livrés avec son image : mettre à jour
 
 ### Agents installés avant la connexion TLS
 
-Les premiers agents se connectaient en clair avec un jeton, sur le port 3000. Le hub les refuse désormais : ils apparaissent hors ligne avec le badge **« Réinstallation requise »** (carte « Agents à réinstaller » du tableau de bord, filtre « À réinstaller » de la page Hôtes).
+Les premiers agents se connectaient en clair avec un jeton, sur le port 3000. Le hub les refuse désormais : ils apparaissent hors ligne avec le badge **« Réinstallation requise »** (liste « Autres points à traiter » du tableau de bord, filtre « À réinstaller » de la page Hôtes).
 
 Pour chacun, une seule fois : sur la fiche de l'hôte, **Commande d'installation**, puis lancer la commande en root sur l'hôte. L'hôte garde son historique ; l'installation remplace l'ancienne configuration (`/etc/homelab-agent.env` est supprimé). L'ancienne commande de mise à jour (`http://…:3000/install.sh`) échoue avec un message qui renvoie vers l'interface.
 

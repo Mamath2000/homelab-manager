@@ -20,6 +20,11 @@ export function validPackages(pkgs: string[]) {
   return pkgs.every((p) => PKG_RE.test(p));
 }
 
+// Security updates of the last report of a host (apt_upgrade limited to them).
+export function securityPackages(h: Pick<HostDoc, 'apt'>) {
+  return (h.apt?.upgradable ?? []).filter((p) => p.security).map((p) => p.name);
+}
+
 export function jobDto(j: JobDoc, withLog = false) {
   const id = j._id.toHexString();
   return {

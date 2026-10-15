@@ -24,6 +24,7 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
         (method === 'POST' &&
           (route === '/api/hosts/:id/jobs' ||
             route === '/api/jobs/bulk' ||
+            route === '/api/jobs/docker-update' ||
             route === '/api/hosts/:id/setup/check' ||
             route === '/api/backups/refresh' ||
             route === '/api/backup-jobs/:jobId/run')) ||

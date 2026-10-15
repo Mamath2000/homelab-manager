@@ -137,6 +137,14 @@ export async function hostAlertDays(hostId: ObjectId, days = ALERT_DAYS, now = n
   return list.map((d: HostAlertDoc) => ({ day: d.day, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null }));
 }
 
+// Days of every host (dashboard, one row per site), oldest first.
+export async function allAlertDays(days = ALERT_DAYS, now = new Date()) {
+  const from = new Date(now);
+  from.setDate(from.getDate() - (days - 1));
+  const list = await hostAlerts.find({ day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
+  return list.map((d: HostAlertDoc) => ({ hostId: d.hostId.toHexString(), day: d.day, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null }));
+}
+
 // First start: the failed jobs of the last days (kept 90 days) fill the past days of the timeline;
 // the states of APT and Docker before this version are not known.
 async function backfill() {

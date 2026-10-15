@@ -4,7 +4,7 @@ import { AgentRequestError, agentRequest, disconnectAgent, isOnline } from '../a
 import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { hosts, jobs, parseId } from '../db.js';
-import { hostAlertDays } from '../alerts.js';
+import { allAlertDays, hostAlertDays } from '../alerts.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
@@ -204,6 +204,9 @@ export function registerHostRoutes(app: FastifyInstance) {
     if (!_id || !(await hosts.countDocuments({ _id }, { limit: 1 }))) return reply.code(404).send({ error: 'host not found' });
     return { days: await hostAlertDays(_id) };
   });
+
+  // the same for every host (timeline of the dashboard, by site)
+  app.get('/api/alerts', async () => ({ days: await allAlertDays() }));
 
   app.get<{ Params: { id: string } }>('/api/hosts/:id/jobs', async (req, reply) => {
     const _id = parseId(req.params.id);

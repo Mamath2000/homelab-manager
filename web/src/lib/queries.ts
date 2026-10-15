@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Host, type JobAction, type SetupOption } from './api';
+import { api, type Host, type Job, type JobAction, type SetupOption } from './api';
 import { useToast } from './toast';
 
 export const keys = {
@@ -9,6 +9,8 @@ export const keys = {
   job: (id: string) => ['job', id] as const,
   backups: ['backups'] as const,
   hostAlerts: (id: string) => ['host-alerts', id] as const,
+  alerts: ['alerts'] as const,
+  sites: ['sites'] as const,
 };
 
 export function useBackups() {
@@ -30,6 +32,16 @@ export function useJobs() {
 
 export function useHostAlerts(id: string) {
   return useQuery({ queryKey: keys.hostAlerts(id), queryFn: () => api.hostAlerts(id) });
+}
+
+// Alerts of every host (dashboard): the days change slowly, refreshed every 5 minutes and on the
+// events that record an alert at once (failed job, backups).
+export function useAllAlerts() {
+  return useQuery({ queryKey: keys.alerts, queryFn: api.alerts, refetchInterval: 5 * 60_000 });
+}
+
+export function useSites() {
+  return useQuery({ queryKey: keys.sites, queryFn: api.sites });
 }
 
 export function useHostJobs(id: string) {
@@ -55,13 +67,27 @@ export function useRunJob() {
 export function useRunBulk() {
   const toast = useToast();
   return useMutation({
-    mutationFn: (v: { hostIds: string[]; action: JobAction; options?: SetupOption[] }) => api.runBulk(v.hostIds, v.action, v.options),
-    onSuccess: (jobs) => {
-      const failed = jobs.filter((j) => j.status === 'failed');
-      const started = jobs.length - failed.length;
-      if (started) toast.success(`${started} tâche${started > 1 ? 's' : ''} lancée${started > 1 ? 's' : ''}`);
-      if (failed.length) toast.error(`Hors ligne : ${failed.map((j) => j.hostName).join(', ')}`);
-    },
+    mutationFn: (v: { hostIds: string[]; action: JobAction; options?: SetupOption[]; securityOnly?: boolean }) =>
+      api.runBulk(v.hostIds, v.action, v.options, v.securityOnly),
+    onSuccess: (jobs) => bulkToast(toast, jobs),
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+function bulkToast(toast: ReturnType<typeof useToast>, jobs: Job[]) {
+  const failed = jobs.filter((j) => j.status === 'failed');
+  const started = jobs.length - failed.length;
+  if (started) toast.success(`${started} tâche${started > 1 ? 's' : ''} lancée${started > 1 ? 's' : ''}`);
+  if (failed.length) toast.error(`Hors ligne : ${[...new Set(failed.map((j) => j.hostName))].join(', ')}`);
+  if (!jobs.length) toast.error('Plus rien à lancer : la liste a changé entre-temps');
+}
+
+// docker_update of several stacks, on several hosts (dashboard)
+export function useDockerUpdate() {
+  const toast = useToast();
+  return useMutation({
+    mutationFn: (targets: { hostId: string; stack: string }[]) => api.dockerUpdate(targets),
+    onSuccess: (jobs) => bulkToast(toast, jobs),
     onError: (e) => toast.error(e.message),
   });
 }
