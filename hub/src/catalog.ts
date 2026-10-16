@@ -19,13 +19,13 @@ export async function loadTags(): Promise<TagConfig[]> {
 export const saveTags = (tags: TagConfig[]) => settings.replaceOne({ _id: 'tags' }, { _id: 'tags', tags }, { upsert: true });
 
 // Names trimmed, empty ones dropped, an id given to the new sites. null: a name is given twice.
-export function normalizeSites(list: (Omit<SiteConfig, 'id'> & { id?: string })[]): SiteConfig[] | null {
+export function normalizeSites(list: (Omit<SiteConfig, 'id' | 'color'> & { id?: string; color?: TagColor })[]): SiteConfig[] | null {
   const out: SiteConfig[] = [];
   for (const s of list) {
     const name = s.name.trim();
     if (!name) continue;
     if (out.some((o) => o.name.toLowerCase() === name.toLowerCase())) return null;
-    out.push({ id: s.id || newId(), name, kind: s.kind });
+    out.push({ id: s.id || newId(), name, kind: s.kind, color: s.color ?? 'zinc' });
   }
   return out;
 }

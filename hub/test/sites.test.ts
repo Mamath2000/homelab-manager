@@ -5,11 +5,12 @@ import { securityPackages } from '../src/jobs.js';
 
 test('sites: names trimmed, empty ones dropped, ids kept or given, a name given twice refused', () => {
   const out = normalizeSites([
-    { id: 'a1', name: ' Vouille ', kind: 'main' },
+    { id: 'a1', name: ' Vouille ', kind: 'main', color: 'blue' },
     { name: '', kind: 'vpn' },
     { name: 'Jarsay', kind: 'vpn' },
   ])!;
   assert.deepEqual(out.map((s) => [s.name, s.kind]), [['Vouille', 'main'], ['Jarsay', 'vpn']]);
+  assert.deepEqual(out.map((s) => s.color), ['blue', 'zinc']);
   assert.equal(out[0].id, 'a1');
   assert.match(out[1].id, /^[0-9a-f]{24}$/);
   assert.equal(normalizeSites([{ name: 'Jarsay', kind: 'vpn' }, { name: 'jarsay ', kind: 'external' }]), null);

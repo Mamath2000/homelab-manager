@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Brush } from 'lucide-react';
 import type { Host } from '../lib/api';
 import { useRunJob } from '../lib/queries';
-import { Badge, Button, ConfirmModal, Modal, Tag } from './ui';
+import { Button, ConfirmModal, Modal, Tag } from './ui';
 import { JobConsole } from './JobConsole';
 import { useMe } from '../lib/auth';
 
@@ -18,15 +18,15 @@ export function CleanupButton({ host, running, onStarted }: { host: Host; runnin
 
   return (
     <>
-      <button
-        type="button"
+      <Button
+        size="sm"
+        icon={Brush}
         title={`${pkgs.join(', ')}\n\n${why ? `Nettoyer : impossible, ${why}` : 'Nettoyer (apt autoremove)'}`}
         disabled={!!why}
-        className="rounded-sm transition hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100"
         onClick={() => setConfirm(true)}
       >
-        <Badge tone="neutral" className="gap-1"><Brush className="h-3 w-3" />{pkgs.length} à nettoyer</Badge>
-      </button>
+        {pkgs.length} à nettoyer
+      </Button>
       <ConfirmModal
         open={confirm}
         onClose={() => setConfirm(false)}

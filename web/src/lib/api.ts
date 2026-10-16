@@ -232,7 +232,7 @@ export interface Job {
   log?: string;
 }
 
-// Alerts of a host for one day (timeline of the host page): worst level of the day in each domain and
+// Alerts of a host for one day (timeline of the host page): latest observed level of the day in each domain and
 // its reasons; null: not followed that day (no APT, agent not connected...)
 export type AlertLevel = 'ok' | 'warn' | 'alert';
 export type AlertDomain = 'apt' | 'docker' | 'backups';
@@ -248,6 +248,7 @@ export interface SiteConfig {
   id: string;
   name: string;
   kind: SiteKind;
+  color: TagColor;
 }
 
 // Tags of the hosts (several per host), colour chosen at creation (see hub TAG_COLORS).

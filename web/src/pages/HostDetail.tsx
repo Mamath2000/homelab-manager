@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
@@ -13,10 +14,10 @@ import { SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, IconGroup, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
+import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
-import { useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
+import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
@@ -81,36 +82,29 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
       icon={Package}
       bodyClassName=""
       actions={
-        // upgrade: the selection when packages are ticked, everything otherwise
-        <>
-        <CleanupButton host={host} running={running} onStarted={onStarted} />
-        <IconGroup
-          actions={[
-            {
-              icon: RefreshCw,
-              title: 'Rechercher les mises à jour',
-              disabled: !canWrite || !host.online || running,
-              loading: run.isPending && run.variables?.action === 'apt_update',
-              onClick: () => start('apt_update'),
-            },
-            selected.size > 0
-              ? {
-                  icon: ArrowUpCircle,
-                  title: `Mettre à jour la sélection (${selected.size})`,
-                  disabled: !canWrite || !host.online || running,
-                  loading: run.isPending && run.variables?.action === 'apt_upgrade',
-                  onClick: () => run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) }),
-                }
-              : {
-                  icon: ArrowUpCircle,
-                  title: 'Tout mettre à jour',
-                  disabled: !canWrite || !host.online || running || !host.aptSummary?.upgradable,
-                  loading: run.isPending && run.variables?.action === 'apt_upgrade',
-                  onClick: () => start('apt_upgrade'),
-                },
-          ]}
-        />
-        </>
+        <div className="flex flex-wrap items-center gap-2">
+          <CleanupButton host={host} running={running} onStarted={onStarted} />
+          <Button
+            size="sm"
+            icon={RefreshCw}
+            disabled={!canWrite || !host.online || running}
+            loading={run.isPending && run.variables?.action === 'apt_update'}
+            onClick={() => start('apt_update')}
+          >
+            Rechercher
+          </Button>
+          <Button
+            size="sm"
+            icon={ArrowUpCircle}
+            disabled={!canWrite || !host.online || running || (!selected.size && !host.aptSummary?.upgradable)}
+            loading={run.isPending && run.variables?.action === 'apt_upgrade'}
+            onClick={() => selected.size
+              ? run.mutate({ hostId: host.id, action: 'apt_upgrade', packages: [...selected] }, { onSuccess: () => setSelected(new Set()) })
+              : start('apt_upgrade')}
+          >
+            {selected.size ? `Mettre à jour (${selected.size})` : 'Tout mettre à jour'}
+          </Button>
+        </div>
       }
     >
       {(rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
@@ -210,7 +204,9 @@ function HostDetailPage({ id }: { id: string }) {
   const { data: tags } = useTags();
   const [params] = useSearchParams();
   const { data: jobs } = useHostJobs(id);
+  const queryClient = useQueryClient();
   const run = useRunJob();
+  const refreshRun = useRunJob();
   const { canWrite, canManage } = useMe();
   const navigate = useNavigate();
   const toast = useToast();
@@ -224,6 +220,7 @@ function HostDetailPage({ id }: { id: string }) {
   const tls = useAgentTls();
   const upsert = useUpdateHostCache();
   const [confirmReboot, setConfirmReboot] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const scrolled = useScrolled();
   const [hostPickerOpen, setHostPickerOpen] = useState(false);
   const [hostSearch, setHostSearch] = useState('');
@@ -238,6 +235,39 @@ function HostDetailPage({ id }: { id: string }) {
   const hostPath = (hostId: string) => `/hosts/${hostId}${listSearch ? `?${listSearch}` : ''}`;
   const goToHost = (hostId: string) => navigate(hostPath(hostId));
   const pickerHosts = hostList.filter((item) => hostMatchesSearch(item, hostSearch, sites ?? [], tags ?? []));
+
+  const refreshData = async () => {
+    if (!host) return;
+    setRefreshing(true);
+    try {
+      const actions: ('apt_update' | 'docker_check')[] = [];
+      if (host.online) {
+        if (hasApt(host)) actions.push('apt_update');
+        if (host.docker) actions.push('docker_check');
+      }
+      const checksPromise = Promise.allSettled(actions.map((action) => refreshRun.mutateAsync({ hostId: host.id, action })));
+      const backupsPromise = Promise.allSettled([backupsOn ? api.refreshBackups().then(() => true) : Promise.resolve(false)]);
+      const [checkResults, backupResults] = await Promise.all([checksPromise, backupsPromise]);
+      const started = checkResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+      if (started.length) setJobId(started[0].id);
+      await queryClient.invalidateQueries({ queryKey: keys.hostJobs(id) });
+      if (backupsOn) await queryClient.invalidateQueries({ queryKey: keys.backups });
+
+      const backupResult = backupResults[0];
+      if (backupResult.status === 'rejected') toast.error(`Actualisation des sauvegardes : ${(backupResult.reason as Error).message}`);
+      const backupsUpdated = backupResult.status === 'fulfilled' && backupResult.value;
+      const details = [
+        started.length > 0 && `${started.length} vérification${started.length > 1 ? 's' : ''} lancée${started.length > 1 ? 's' : ''}`,
+        backupsUpdated && 'sauvegardes actualisées',
+        !host.online && (hasApt(host) || !!host.docker) && 'hôte hors ligne : vérifications APT/Docker ignorées',
+      ].filter((detail): detail is string => typeof detail === 'string');
+      if (details.length) toast.success(details.join(' · '));
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!hostPickerOpen) return;
@@ -387,13 +417,24 @@ function HostDetailPage({ id }: { id: string }) {
                 </span>
               }
               actions={
-                canWrite && <>
+                <>
+                  {canWrite && (
+                    <Button
+                      size="sm"
+                      icon={RefreshCw}
+                      loading={refreshing}
+                      disabled={(!host.online && !backupsOn) || (!hasApt(host) && !host.docker && !backupsOn)}
+                      title="Rechercher les mises à jour APT, vérifier les images Docker et actualiser les sauvegardes"
+                      onClick={refreshData}
+                    >
+                      Actualiser
+                    </Button>
+                  )}
                   {canManage && <Button icon={Settings} variant="ghost" title="Options" onClick={() => setEditing(true)} />}
                 </>
               }
             >
               <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
-              <SiteChip host={host} />
               <HostTagList host={host} />
               {host.roaming && <Tag>Itinérant</Tag>}
               {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
@@ -485,6 +526,7 @@ function HostDetailPage({ id }: { id: string }) {
 
         {/* below the bar of the layout and the top padding of the page, up to the bottom of the window */}
         <aside className="flex min-w-0 flex-col gap-5 2xl:sticky 2xl:top-20 2xl:h-[calc(100vh-6.5rem)]">
+        <SiteChip host={host} prominent />
         <Panel title="Historique" icon={History} className="2xl:flex 2xl:max-h-[35%] 2xl:shrink-0 2xl:flex-col" bodyClassName="max-h-[420px] overflow-auto 2xl:max-h-none 2xl:min-h-0">
           {!jobs?.length ? (
             <p className="p-4 text-sm text-muted">Aucune tâche.</p>

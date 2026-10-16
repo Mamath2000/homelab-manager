@@ -227,15 +227,15 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
           {/* agent unable to run backups of its own (HAOS add-on): neither Agent nor Ajouter */}
           {canManage && agentBackups && (
             <>
-              <Button size="sm" variant="ghost" icon={Bot} onClick={() => setAgent(true)} title="Agent de sauvegarde : client PBS et accès au PBS (jeton)">
+              <Button size="sm" icon={Bot} onClick={() => setAgent(true)} title="Agent de sauvegarde : client PBS et accès au PBS (jeton)">
                 Agent
               </Button>
               {nextcloudShown && (
-                <Button size="sm" variant="ghost" icon={Cloud} disabled={!!addBlocked} onClick={() => setNextcloud(true)} title={addBlocked ?? 'Plugin Nextcloud AIO : base, configuration et données de chaque utilisateur'}>
+                <Button size="sm" icon={Cloud} disabled={!!addBlocked} onClick={() => setNextcloud(true)} title={addBlocked ?? 'Plugin Nextcloud AIO : base, configuration et données de chaque utilisateur'}>
                   Nextcloud
                 </Button>
               )}
-              <Button size="sm" variant="ghost" icon={Plus} disabled={!!addBlocked} onClick={() => setEditing('new')} title={addBlocked ?? "Nouvelle sauvegarde lancée par l'agent (répertoires ou base de données)"}>
+              <Button size="sm" icon={Plus} disabled={!!addBlocked} onClick={() => setEditing('new')} title={addBlocked ?? "Nouvelle sauvegarde lancée par l'agent (répertoires ou base de données)"}>
                 Ajouter
               </Button>
             </>

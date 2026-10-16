@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, MapPin, Plus, Save, Tags, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, MapPin, Plus, Tags, Trash2 } from 'lucide-react';
 import { api, type SiteConfig, type SiteKind, type TagColor, type TagConfig } from '../lib/api';
 import { keys, useHosts, useSites, useTags } from '../lib/queries';
 import { siteKindMeta } from '../lib/sites';
@@ -19,42 +19,48 @@ function SitesPanel() {
   const toast = useToast();
   const [draft, setDraft] = useState<Draft[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveVersion = useRef(0);
   if (!sites) return <div className="flex justify-center p-10"><Spinner /></div>;
 
   const list: Draft[] = draft ?? sites;
-  const set = (next: Draft[]) => setDraft(next);
+  const save = async (next: Draft[]) => {
+    setDraft(next);
+    setSaving(true);
+    const version = ++saveVersion.current;
+    const request = saveQueue.current.then(() => api.saveSites(next));
+    saveQueue.current = request.then(() => undefined, () => undefined);
+    try {
+      const result = await request;
+      if (version === saveVersion.current) {
+        qc.setQueryData<{ sites: SiteConfig[] }>(keys.sites, { sites: result.sites });
+        setDraft(null);
+      }
+    } catch (err) {
+      if (version === saveVersion.current) {
+        setDraft(null);
+        toast.error((err as Error).message);
+      }
+    } finally {
+      if (version === saveVersion.current) setSaving(false);
+    }
+  };
   const move = (i: number, d: -1 | 1) => {
     const next = list.slice();
     [next[i], next[i + d]] = [next[i + d], next[i]];
-    set(next);
+    void save(next);
   };
   const count = (id?: string) => (id ? (hosts ?? []).filter((h) => h.siteId === id).length : 0);
 
-  const save = async () => {
-    setSaving(true);
-    try {
-      await api.saveSites(list);
-      await qc.invalidateQueries({ queryKey: keys.sites });
-      setDraft(null);
-      toast.success('Sites enregistrés');
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
-    <Panel
-      title="Sites"
-      icon={MapPin}
-      actions={<Button size="sm" variant="primary" icon={Save} loading={saving} disabled={!draft} onClick={save}>Enregistrer</Button>}
-    >
+    <Panel title="Sites" icon={MapPin}>
       <div className="space-y-4 text-sm">
         <p className="text-muted">
           Chaque hôte appartient à un site (choisi dans sa fiche). Le tableau de bord affiche les sites dans cet ordre ; les sites externes d'un seul hôte
-          sont réunis dans une carte. Retirer un site le retire de ses hôtes.
+          sont réunis dans une carte. Choisis une couleur par site : elle ressort en grand sur sa fiche hôte. Les changements sont enregistrés automatiquement.
+          Retirer un site le retire de ses hôtes.
         </p>
+        {saving && <p className="text-xs text-muted">Enregistrement des modifications…</p>}
         {list.length === 0 && <p className="text-muted">Aucun site.</p>}
         <div className="space-y-2">
           {list.map((s, i) => (
@@ -65,24 +71,29 @@ function SitesPanel() {
                 maxLength={64}
                 aria-label="Nom du site"
                 placeholder="Nom du site"
-                onChange={(e) => set(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                onChange={(e) => setDraft(list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                onBlur={() => draft && void save(list)}
               />
               <select
                 className="input w-40"
                 value={s.kind}
                 aria-label="Type de site"
-                onChange={(e) => set(list.map((x, j) => (j === i ? { ...x, kind: e.target.value as SiteKind } : x)))}
+                onChange={(e) => void save(list.map((x, j) => (j === i ? { ...x, kind: e.target.value as SiteKind } : x)))}
               >
                 {KINDS.map((k) => <option key={k} value={k}>{siteKindMeta[k].label}</option>)}
               </select>
+              <ColorSwatches
+                value={s.color ?? 'zinc'}
+                onChange={(color) => void save(list.map((x, j) => (j === i ? { ...x, color } : x)))}
+              />
               <Button size="sm" variant="ghost" icon={ArrowUp} disabled={i === 0} onClick={() => move(i, -1)} aria-label="Monter" />
               <Button size="sm" variant="ghost" icon={ArrowDown} disabled={i === list.length - 1} onClick={() => move(i, 1)} aria-label="Descendre" />
-              <Button size="sm" variant="ghost" icon={Trash2} onClick={() => set(list.filter((_, j) => j !== i))} aria-label="Retirer" />
+              <Button size="sm" variant="ghost" icon={Trash2} onClick={() => void save(list.filter((_, j) => j !== i))} aria-label="Retirer" />
               <span className="text-xs text-muted">{s.id ? `${count(s.id)} hôte${count(s.id) > 1 ? 's' : ''}` : 'nouveau'}</span>
             </div>
           ))}
         </div>
-        <Button size="sm" icon={Plus} onClick={() => set([...list, { name: '', kind: list.length ? 'vpn' : 'main' }])}>Ajouter un site</Button>
+        <Button size="sm" icon={Plus} onClick={() => void save([...list, { name: '', kind: list.length ? 'vpn' : 'main', color: 'blue' }])}>Ajouter un site</Button>
       </div>
     </Panel>
   );

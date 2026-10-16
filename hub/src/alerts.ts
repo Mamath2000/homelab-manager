@@ -9,14 +9,11 @@ import { backupState } from './pbs.js';
 import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostAlertDoc, HostDoc, JobDoc } from './types.js';
 
 // Alerts of the host page over the last days, for 3 domains: system updates (APT), Docker, backups.
-// Each day of a host keeps the worst level seen that day in each domain, with its reasons: the states
-// are recorded at each change (host event, backups refresh, failed job) and by the scheduler.
+// Each day keeps the latest observed state in each domain, with its reasons.
 
 const STALE_LISTS_MS = 2 * 24 * 3600 * 1000;
 export const ALERT_DAYS = 30;
 const MAX_REASONS = 8;
-const rank: Record<AlertLevel, number> = { ok: 0, warn: 1, alert: 2 };
-
 const day = (lvl: AlertLevel, reasons: string[]): DayAlert => ({ level: lvl, reasons });
 
 // Day of a date in the time zone of the hub (TZ of the container), YYYY-MM-DD.
@@ -46,7 +43,6 @@ export function dockerAlert(h: HostDoc): DayAlert | null {
   for (const st of v.stacks) {
     if (st.managed) {
       if (st.problems.length) alerts.push(`${st.name} : ${st.problems.join(', ')}`);
-      else if (st.status === 'stopped' || st.status === 'down') warns.push(`${st.name} : arrêtée`);
     }
     if (st.updates > 0) warns.push(`${st.name} : ${st.updates} image(s) à mettre à jour`);
   }
@@ -78,11 +74,9 @@ export function jobDomain(action: JobDoc['action']): AlertDomain | null {
   return null;
 }
 
-// Worst of the day: a higher level replaces the reasons, the same level adds its own.
-export function mergeDay(stored: DayAlert | undefined, next: DayAlert): DayAlert {
-  if (!stored || rank[next.level] > rank[stored.level]) return { level: next.level, reasons: next.reasons.slice(0, MAX_REASONS) };
-  if (rank[next.level] < rank[stored.level]) return stored;
-  return { level: stored.level, reasons: [...new Set([...stored.reasons, ...next.reasons])].slice(0, MAX_REASONS) };
+// A new observation replaces the previous state for this domain and day.
+export function latestDay(next: DayAlert): DayAlert {
+  return { level: next.level, reasons: next.reasons.slice(0, MAX_REASONS) };
 }
 
 async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, DayAlert | null>>, now = new Date()) {
@@ -91,8 +85,8 @@ async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, Day
   const set: Partial<Record<AlertDomain, DayAlert>> = {};
   for (const [d, a] of Object.entries(domains) as [AlertDomain, DayAlert | null][]) {
     if (!a) continue;
-    const merged = mergeDay(current?.[d], a);
-    if (JSON.stringify(merged) !== JSON.stringify(current?.[d])) set[d] = merged;
+    const latest = latestDay(a);
+    if (JSON.stringify(latest) !== JSON.stringify(current?.[d])) set[d] = latest;
   }
   if (!Object.keys(set).length) return;
   await hostAlerts.updateOne(

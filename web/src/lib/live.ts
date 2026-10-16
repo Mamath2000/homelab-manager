@@ -34,6 +34,7 @@ export function useLiveEvents(enabled: boolean) {
     es.addEventListener('job', (e) => {
       const job = JSON.parse((e as MessageEvent).data) as Job;
       qc.invalidateQueries({ queryKey: keys.jobs });
+      qc.invalidateQueries({ queryKey: keys.hostJobs(job.hostId) });
       if (job.status === 'failed') {
         qc.invalidateQueries({ queryKey: keys.hostAlerts(job.hostId) });
         qc.invalidateQueries({ queryKey: keys.alerts });

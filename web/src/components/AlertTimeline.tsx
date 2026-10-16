@@ -40,7 +40,7 @@ const shortDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', m
 const longDate = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const reasonText = (a: DayAlert | null) => (!a ? 'non suivi' : a.reasons.length ? a.reasons.join(' · ') : levelLabel[a.level]);
 
-// Alerts of the last 30 days of a host, one row per domain, one square per day (worst level of the day).
+// Alerts of the last 30 days of a host, one row per domain, one square per day (latest known state of the day).
 // A click on a day shows its reasons in the 3 domains. compact: the rows only (page scrolled).
 export function AlertTimeline({ hostId, compact }: { hostId: string; compact?: boolean }) {
   const { data } = useHostAlerts(hostId);
@@ -149,4 +149,3 @@ export function AlertTimeline({ hostId, compact }: { hostId: string; compact?: b
     </Panel>
   );
 }
-

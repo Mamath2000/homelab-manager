@@ -464,6 +464,7 @@ export interface SiteConfig {
   id: string;
   name: string;
   kind: SiteKind;
+  color: TagColor;
 }
 export interface SitesSettings {
   _id: 'sites';
@@ -626,7 +627,7 @@ export interface BackupPve {
   lastTask?: PveTaskResult | null;
 }
 
-// Alerts of a host over the last days (alerts.ts): worst level of the day in each domain, with its reasons
+// Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
 export type AlertDomain = 'apt' | 'docker' | 'backups';
 export interface DayAlert {

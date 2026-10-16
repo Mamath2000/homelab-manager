@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { aptAlert, backupsAlert, dayKey, dockerAlert, jobDomain, jobLabel, mergeDay } from '../src/alerts.js';
+import { aptAlert, backupsAlert, dayKey, dockerAlert, jobDomain, jobLabel, latestDay } from '../src/alerts.js';
 import type { AptReport, BackupDoc, DockerStack, Package } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -33,10 +33,10 @@ function stack(name: string, status: DockerStack['status'], states: string[], he
   };
 }
 
-test('Docker: a problem is an alert, a stopped stack or an image update a warning', () => {
+test('Docker: a problem is an alert, an image update a warning, otherwise it is OK', () => {
   assert.equal(dockerAlert({ ...dockerHost({}), capabilities: [] }), null);
   assert.deepEqual(dockerAlert(dockerHost({ stacks: [stack('web', 'running', ['running'])] })), { level: 'ok', reasons: [] });
-  assert.deepEqual(dockerAlert(dockerHost({ stacks: [stack('web', 'stopped', ['exited'])] })), { level: 'warn', reasons: ['web : arrêtée'] });
+  assert.deepEqual(dockerAlert(dockerHost({ stacks: [stack('web', 'stopped', ['exited'])] })), { level: 'ok', reasons: [] });
   const bad = dockerAlert(dockerHost({ stacks: [stack('web', 'partial', ['running', 'exited']), stack('db', 'running', ['running'], 'unhealthy')] }));
   assert.equal(bad?.level, 'alert');
   assert.deepEqual(bad?.reasons, ['web : 1/2 conteneurs en marche', 'db : s0 : en mauvaise santé']);
@@ -52,14 +52,10 @@ test('backups: failures are alerts, late or pending ones warnings', () => {
   assert.deepEqual(backupsAlert([g({ lastBackup: now - 30 * H }), g({ backupId: 'db', verify: 'failed' })], now), { level: 'alert', reasons: ['db : vérification en échec'] });
 });
 
-test('worst of the day: a higher level replaces the reasons, the same level adds them', () => {
-  const ok = { level: 'ok' as const, reasons: [] };
-  const warn = { level: 'warn' as const, reasons: ['a'] };
-  assert.deepEqual(mergeDay(undefined, ok), ok);
-  assert.deepEqual(mergeDay(ok, warn), warn);
-  assert.deepEqual(mergeDay(warn, ok), warn);
-  assert.deepEqual(mergeDay(warn, { level: 'warn', reasons: ['a', 'b'] }), { level: 'warn', reasons: ['a', 'b'] });
-  assert.deepEqual(mergeDay(warn, { level: 'alert', reasons: ['c'] }), { level: 'alert', reasons: ['c'] });
+test('the latest observation of the day replaces the previous state and reasons', () => {
+  assert.deepEqual(latestDay({ level: 'ok', reasons: [] }), { level: 'ok', reasons: [] });
+  assert.deepEqual(latestDay({ level: 'warn', reasons: ['a'] }), { level: 'warn', reasons: ['a'] });
+  assert.deepEqual(latestDay({ level: 'alert', reasons: ['c'] }), { level: 'alert', reasons: ['c'] });
 });
 
 test('failed jobs: domain and label', () => {
