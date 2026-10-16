@@ -181,6 +181,11 @@ test('outdated agents: update entity, alert and root counter', () => {
   const id = h._id.toHexString();
   const u = JSON.parse(states.get(`hm/hm_${id}/agent_update/state`)!);
   assert.deepEqual([u.installed_version, u.latest_version], ['0.1.1', '0.1.2']);
+  // the agent update follows the agent connectivity; the connectivity sensor itself stays available
+  const comps = devices.find((d) => d.id === `hm_${id}`)!.discovery.components as Record<string, { availability?: { topic: string }[]; availability_mode?: string }>;
+  assert.equal(comps.agent_update.availability_mode, 'all');
+  assert.deepEqual(comps.agent_update.availability!.map((a) => a.topic), ['hm/lwt', `hm/hm_${id}/agent/state`]);
+  assert.equal(comps.agent.availability, undefined);
   // an agent unable to update itself gets the alert but no update entity
   assert.equal(states.get(`hm/hm_${old._id.toHexString()}/agent_update/state`), undefined);
   assert.equal(states.get(`hm/hm_${old._id.toHexString()}/alerts/state`), '1');

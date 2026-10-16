@@ -294,7 +294,12 @@ export function build(all: HostState[], opts: BuildOptions) {
         latest_version: latest,
         title: 'Agent Homelab Manager',
         in_progress: busy,
-      }, { action: 'agent_update', hostIds: [hid] }, { entity_category: 'config' });
+      }, { action: 'agent_update', hostIds: [hid] }, {
+        entity_category: 'config',
+        // unavailable while the agent is offline (no phantom update); the connectivity sensor above stays available
+        availability: [...availability, { topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
+        availability_mode: 'all',
+      });
     }
     // reported with the packages, but a reboot concerns the whole host
     if (r) d.binary('reboot_required', 'Redémarrage requis', r.rebootRequired, { device_class: 'problem', icon: 'mdi:restart-alert' });
