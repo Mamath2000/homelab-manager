@@ -38,7 +38,8 @@ export interface JobInput {
   store: string;
   ns?: string; // ignored: always HOSTS_NS
   backupId?: string; // creation only
-  schedule: string;
+  schedule: string; // ignored when connectEveryDays is set
+  connectEveryDays?: number; // run on connection of the agent, at most every N days (1 to 365), instead of the schedule
   timezone?: string; // ignored: the time zone of the hub at creation
   enabled: boolean;
   kind?: BackupJobKind; // absent: directories
@@ -52,6 +53,9 @@ export function validPath(p: string) {
   if (p !== '/' && parts.some((x) => x === '' || x === '.' || x === '..')) return false;
   return true;
 }
+
+// longest delay between two runs on connection
+export const MAX_CONNECT_DAYS = 365;
 
 // most dumps kept on the host (maxKeep in agent/database.go)
 export const MAX_KEEP = 30;
@@ -154,7 +158,11 @@ export function checkJob(j: JobInput, creating: boolean): string | null {
   if (!STORE_RE.test(j.store)) return 'datastore invalide';
   if (j.ns !== undefined && j.ns !== HOSTS_NS) return `namespace fixé : ${HOSTS_NS}`;
   if (creating && !BACKUP_ID_RE.test(j.backupId ?? '')) return 'identifiant de sauvegarde invalide (lettres, chiffres, . - _)';
-  if (!parseCalendar(j.schedule)) return 'planification non reconnue (ex. 03:00, sun 01:00, mon..fri 22:30, daily)';
+  if (j.connectEveryDays !== undefined) {
+    if (!Number.isInteger(j.connectEveryDays) || j.connectEveryDays < 1 || j.connectEveryDays > MAX_CONNECT_DAYS) return `à la connexion : un délai de 1 à ${MAX_CONNECT_DAYS} jours`;
+  } else if (!parseCalendar(j.schedule)) {
+    return 'planification non reconnue (ex. 03:00, sun 01:00, mon..fri 22:30, daily)';
+  }
   if (j.timezone && !validTimeZone(j.timezone)) return 'fuseau horaire inconnu';
   return null;
 }
@@ -167,9 +175,11 @@ export function pbsServer(pbs: Pick<PbsSettings, 'url'>) {
 
 // An agent too old for database jobs would back up nothing: such jobs are held back until it is
 // updated (shown as not applied).
-export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'kind' | 'prepare'>) {
+export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'kind' | 'prepare' | 'connectEveryDays'>) {
   const kind = jobKind(j);
   const caps = host.capabilities ?? [];
+  // an agent that does not know jobs on connection would refuse the whole definition (no schedule)
+  if (j.connectEveryDays && !caps.includes('backup_connect')) return true;
   // an agent that does not know the kind would refuse the whole definition
   if (kind === 'nextcloud') return !caps.includes('backup_nextcloud');
   return isDatabaseKind(kind) && !caps.includes('backup_database');
@@ -198,9 +208,11 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
             store: j.store,
             ns: j.ns,
             backupId: j.backupId,
-            schedule: j.schedule,
+            schedule: j.connectEveryDays ? '' : j.schedule,
             tz: j.timezone,
             enabled: j.enabled,
+            // only when set: the hashes of the other jobs do not change
+            ...(j.connectEveryDays ? { connectEveryDays: j.connectEveryDays } : {}),
             // database jobs only: the definitions (and hashes) of the directories jobs do not change
             ...(db ? { kind, database: jobDatabase(j) } : {}),
           };
@@ -378,6 +390,7 @@ export async function refreshManaged() {
       name: j.name,
       tz: j.timezone,
       schedule: j.schedule,
+      ...(j.connectEveryDays ? { connectEveryDays: j.connectEveryDays } : {}),
       enabled: j.enabled,
       lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null, ...(j.lastRun.dumps ? { dumps: j.lastRun.dumps } : {}) } : null,
       kind: jobKind(j),
@@ -425,6 +438,7 @@ export function jobView(j: BackupJobDoc) {
     backupId: j.backupId,
     group: groupKey(j.store, j.ns, 'host', j.backupId),
     schedule: j.schedule,
+    connectEveryDays: j.connectEveryDays ?? null,
     timezone: j.timezone,
     enabled: j.enabled,
     kind: jobKind(j),

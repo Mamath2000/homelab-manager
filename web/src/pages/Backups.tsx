@@ -114,7 +114,7 @@ export function Backups() {
   // group whose snapshots are shown
   const [history, setHistory] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
-  const filter = (params.get('f') as Filter) || 'all';
+  const filter = filters.find((f) => f.key === params.get('f'))?.key ?? 'all';
   // type of backup (?t=image|directories|external), combined with the other filters
   const kindFilter = (Object.keys(backupKinds) as BackupKind[]).find((k) => k === params.get('t')) ?? null;
   const setParam = (key: string, value: string | null) => {
@@ -124,7 +124,7 @@ export function Backups() {
     setParams(next, { replace: true });
   };
   const hostFilter = params.get('host');
-  const [q, setQ] = useState('');
+  const q = params.get('q') ?? '';
   const [refreshing, setRefreshing] = useState(false);
   const [orphans, setOrphans] = useState(false);
 
@@ -260,7 +260,7 @@ export function Backups() {
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" />
-                  <input className="input w-64 pl-8" placeholder="Sauvegarde ou hôte…" value={q} onChange={(e) => setQ(e.target.value)} />
+                  <input className="input w-64 pl-8" placeholder="Sauvegarde ou hôte…" value={q} onChange={(e) => setParam('q', e.target.value)} />
                 </label>
                 {filteredHost ? (
                   <button onClick={() => setParam('host', null)} className="rounded-md border border-line bg-raised px-2.5 py-1 text-xs text-zinc-200 hover:text-white">

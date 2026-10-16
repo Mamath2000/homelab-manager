@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
 import { RebootTag } from '../components/Reboot';
 import { useToast } from '../lib/toast';
@@ -21,10 +21,18 @@ export function Updates() {
   const { data: hosts, isLoading } = useHosts();
   const toast = useToast();
   const { canWrite } = useMe();
-  const [q, setQ] = useState('');
-  const [securityOnly, setSecurityOnly] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const q = params.get('q') ?? '';
+  const securityOnly = params.get('security') === '1';
   // package whose upgrade is being started
   const [busy, setBusy] = useState<string | null>(null);
+
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
 
   const rows = useMemo(() => {
     const map = new Map<string, Row>();
@@ -83,10 +91,10 @@ export function Updates() {
       <div className="mb-4 flex flex-wrap items-center gap-4">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input className="input h-9 py-0 pl-9" placeholder="Filtrer les paquets" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input h-9 py-0 pl-9" placeholder="Filtrer les paquets" value={q} onChange={(e) => setParam('q', e.target.value)} />
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
-          <Checkbox checked={securityOnly} onChange={setSecurityOnly} /> Sécurité uniquement
+          <Checkbox checked={securityOnly} onChange={(checked) => setParam('security', checked ? '1' : '')} /> Sécurité uniquement
         </label>
       </div>
 

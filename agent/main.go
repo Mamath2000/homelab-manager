@@ -174,6 +174,8 @@ func (s *session) hello(ctx context.Context) error {
 	caps = append(caps, "backup_database")
 	// jobs of kind nextcloud known (nextcloud.go); backup_database:nextcloud when the instance runs here
 	caps = append(caps, "backup_nextcloud")
+	// jobs run on connection to the hub (connectEveryDays, backup.go)
+	caps = append(caps, "backup_connect")
 	for _, k := range runningDatabaseKinds(ctx) {
 		caps = append(caps, "backup_database:"+k)
 	}

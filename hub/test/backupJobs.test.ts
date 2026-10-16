@@ -267,3 +267,17 @@ test('Tailscale hub address: host name or IP, no scheme nor port', async () => {
   for (const h of ['100.64.1.2', 'hub.tail1234.ts.net', 'hub']) assert.ok(TAILSCALE_HOST.test(h), h);
   for (const h of ['', 'https://hub', 'hub:3443', 'hub/x', "hub';rm", '-hub', 'hub.']) assert.ok(!TAILSCALE_HOST.test(h), h);
 });
+
+test('a job run on connection: no schedule, held back from an agent that does not know them', () => {
+  const input = { name: 'n', archives: [{ name: 'home', path: '/home' }], excludes: [], store: 's', schedule: '', enabled: true };
+  assert.equal(checkJob({ ...input, connectEveryDays: 3 }, false), null);
+  assert.ok(checkJob({ ...input, connectEveryDays: 0 }, false));
+  assert.ok(checkJob({ ...input, connectEveryDays: 400 }, false));
+  assert.ok(checkJob(input, false), 'neither schedule nor delay');
+  const roaming: BackupJobDoc = { ...job, _id: new ObjectId(), backupId: 'laptop', schedule: '', connectEveryDays: 3 };
+  assert.deepEqual(buildSpec({ pbsCredential: cred, capabilities: ['backup'] }, [roaming], pbs).jobs, []);
+  const spec = buildSpec({ pbsCredential: cred, capabilities: ['backup', 'backup_connect'] }, [job, roaming], pbs);
+  assert.equal(spec.jobs[1].connectEveryDays, 3);
+  assert.equal(spec.jobs[1].schedule, '');
+  assert.equal('connectEveryDays' in spec.jobs[0], false, 'hash of the other jobs unchanged');
+});

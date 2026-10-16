@@ -32,6 +32,7 @@ const jobProps = {
   ns: { type: 'string', maxLength: 256 },
   backupId: { type: 'string', maxLength: 64 },
   schedule: { type: 'string', maxLength: 128 },
+  connectEveryDays: { type: ['integer', 'null'], minimum: 1, maximum: 365 },
   timezone: { type: 'string', maxLength: 64 },
   enabled: { type: 'boolean' },
   kind: { type: 'string', enum: ['directories', 'postgres', 'mongodb'] },
@@ -60,7 +61,9 @@ function databaseRefused(host: HostDoc, kind: BackupJobKind) {
 // What is stored for a job of this kind: a database job holds its dumps only.
 function normInput(b: JobInput, kind: BackupJobKind) {
   const db = isDatabaseKind(kind);
-  return { ...b, kind, database: normDatabase(kind, b.database), archives: db ? [] : b.archives, excludes: db ? [] : b.excludes };
+  // on connection: no schedule (null from the form is the same as absent)
+  const connect = b.connectEveryDays ?? undefined;
+  return { ...b, connectEveryDays: connect, schedule: connect ? '' : b.schedule, kind, database: normDatabase(kind, b.database), archives: db ? [] : b.archives, excludes: db ? [] : b.excludes };
 }
 
 async function changed(hostId: ObjectId) {
@@ -159,6 +162,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         ns: body.ns,
         backupId: body.backupId!,
         schedule: body.schedule.trim(),
+        ...(body.connectEveryDays ? { connectEveryDays: body.connectEveryDays } : {}),
         timezone: body.timezone,
         enabled: body.enabled,
         kind: body.kind,
@@ -210,10 +214,10 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         database: body.database,
         updatedAt: new Date(),
       };
-      // the first form of the database jobs goes
-      await backupJobs.updateOne({ _id }, { $set: set, $unset: { prepare: '' } });
+      // the first form of the database jobs goes; connectEveryDays too when back to a schedule
+      await backupJobs.updateOne({ _id }, { $set: { ...set, ...(body.connectEveryDays ? { connectEveryDays: body.connectEveryDays } : {}) }, $unset: { prepare: '', ...(body.connectEveryDays ? {} : { connectEveryDays: '' }) } });
       await changed(cur.hostId);
-      return jobView({ ...cur, ...set, prepare: undefined });
+      return jobView({ ...cur, ...set, connectEveryDays: body.connectEveryDays, prepare: undefined });
     },
   );
 

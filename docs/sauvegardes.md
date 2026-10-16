@@ -104,6 +104,8 @@ Depuis la fiche hôte, carte **Sauvegardes** › **+ Sauvegarde** (administrateu
 
 Planification : syntaxe des calendriers Proxmox — `03:00`, `sun 01:00`, `mon..fri 22:30`, `*/5` (toutes les 5 minutes), `daily`, `weekly`, `monthly`. Les dates et les secondes ne sont pas acceptées.
 
+**Poste nomade : sauvegarde à la connexion.** Le champ **Déclenchement** du job propose, à la place de l'heure fixe, **À la connexion de l'agent** avec un délai **X jours** (1 à 365). À chaque connexion de l'agent au hub, le job se lance si la dernière sauvegarde **réussie** date de plus de X jours (jamais sauvegardé : au premier passage). Un échec est retenté à la connexion suivante, pas en boucle pendant la même ; une sauvegarde manuelle réussie remet le compteur à zéro. Le PBS doit être joignable au moment de la connexion (VPN, Tailscale). Nécessite un agent à jour (sinon le job reste « non appliqué »).
+
 Fonctionnement :
 - le hub envoie à l'agent toute la définition de l'hôte (jobs, jeton, empreinte, image) à chaque modification et à chaque connexion ; l'agent la garde sur disque (fichier lisible par root seulement ; sur Unraid, sur la clé USB) ;
 - **l'agent planifie lui-même** : les sauvegardes continuent si le hub est arrêté ; une heure manquée pendant que l'agent était arrêté est **rattrapée** à son redémarrage ; un job ne rattrape jamais une heure antérieure à sa création ;
@@ -193,7 +195,7 @@ Les sauvegardes image PVE et répertoires ne se rattachent ni ne se détachent �
 | Source du seuil | Règle |
 |---|---|
 | **manuel** | valeur choisie dans la colonne Seuil (26 h, 2 jours, 8 jours, 32 jours) |
-| **planification** | image PVE, répertoires et Home Assistant : en retard si aucun snapshot depuis la dernière heure prévue, 2 h de marge comprises ; seuil affiché = une période + 2 h |
+| **planification** | image PVE, répertoires et Home Assistant : en retard si aucun snapshot depuis la dernière heure prévue, 2 h de marge comprises ; seuil affiché = une période + 2 h. Job « à la connexion » : seuil = X jours + 1 jour |
 | **appris** | 1,5 × l'intervalle médian entre les derniers snapshots (au moins 4), 2 h de marge minimum |
 | **rétention** | même calcul avec la période la plus fine gardée par l'élagage du PBS (`keep-daily` → quotidienne…) |
 | **aucun** | aucune des sources précédentes (sauvegarde externe récente, moins de 4 snapshots, namespace sans élagage) : pas de seuil, **jamais en retard** ni d'alerte |

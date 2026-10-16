@@ -180,6 +180,9 @@ export function haScheduleText(ha: NonNullable<BackupDoc['ha']>) {
   return `${describeCalendar(cal).replace(/ à \d{2}:\d{2}$/, '')}, heure optimale du système (04:45–05:45)`;
 }
 
+// "à la connexion, au plus tous les 3 jours"
+export const connectText = (days: number) => `à la connexion, au plus ${days === 1 ? 'une fois par jour' : `tous les ${days} jours`}`;
+
 // Schedule of a group: the PVE jobs writing it, the backup job of the hub, or the automatic backups of
 // Home Assistant; with the last run (Home Assistant: its failures are read by haFailed).
 export function planOf(b: Planned) {
@@ -236,6 +239,9 @@ export function scheduleExpectation(b: Planned, now = Date.now()) {
 export function effectiveThreshold(b: Pick<BackupDoc, 'staleHours' | 'times' | 'retention' | 'pve' | 'managed' | 'ha'>, now = Date.now()): { hours: number | null; source: ThresholdSource; interval: number | null } {
   const learned = learnedInterval((b.times ?? []).map((s) => s.t));
   if (b.staleHours) return { hours: b.staleHours, source: 'manual' as ThresholdSource, interval: learned };
+  // run on connection of a roaming host: one delay plus a day, whatever the hour
+  const connect = b.managed?.enabled ? b.managed.connectEveryDays : undefined;
+  if (connect) return { hours: (connect + 1) * 24, source: 'schedule' as ThresholdSource, interval: connect * 24 * HOUR };
   const sched = scheduleExpectation(b, now);
   if (sched && !sched.disabled) {
     return { hours: Math.round(((sched.period + SCHEDULE_GRACE) / HOUR) * 10) / 10, source: 'schedule' as ThresholdSource, interval: sched.period };
@@ -279,7 +285,7 @@ export function backupDto(b: BackupDoc, now = Date.now()) {
     interval: t.interval,
     // PVE jobs and backup job of the hub, with their schedule in words
     pve: b.pve ? { ...b.pve, jobs: b.pve.jobs.map((j) => ({ ...j, scheduleText: describeCalendar(j.schedule) })) } : null,
-    managed: b.managed ? { ...b.managed, scheduleText: describeCalendar(b.managed.schedule) } : null,
+    managed: b.managed ? { ...b.managed, scheduleText: b.managed.connectEveryDays ? connectText(b.managed.connectEveryDays) : describeCalendar(b.managed.schedule) } : null,
     ha: b.ha ? { ...b.ha, scheduleText: haScheduleText(b.ha) } : null,
   };
 }

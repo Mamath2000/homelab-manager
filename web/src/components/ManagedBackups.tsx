@@ -393,7 +393,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const qc = useQueryClient();
   const toast = useToast();
   const initial: BackupJobInput = job
-    ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, enabled: job.enabled, kind: job.kind, database: job.database }
+    ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, connectEveryDays: job.connectEveryDays, enabled: job.enabled, kind: job.kind, database: job.database }
     : {
         // named after the machine: the PBS identifier is deduced from it
         name: host.name,
@@ -606,12 +606,29 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
             </div>
             <h3 className={clsx(section, 'pt-2')}>Planification</h3>
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className={field}>Quand</span>
-                <input className="input font-mono text-xs" value={form.schedule} onChange={(e) => set({ schedule: e.target.value })} list="backup-presets" />
-                <datalist id="backup-presets">{PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</datalist>
-                <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox : <code>03:00</code>, <code>sun 01:00</code>, <code>mon..fri 22:30</code>, <code>daily</code>.</span>
-              </label>
+              <div className="space-y-3">
+                <label className="block">
+                  <span className={field}>Déclenchement</span>
+                  <select className="input" value={form.connectEveryDays ? 'connect' : 'schedule'} onChange={(e) => set({ connectEveryDays: e.target.value === 'connect' ? 3 : null })}>
+                    <option value="schedule">À heure fixe</option>
+                    <option value="connect">À la connexion de l'agent (poste nomade)</option>
+                  </select>
+                </label>
+                {form.connectEveryDays ? (
+                  <label className="block">
+                    <span className={field}>Au plus une fois tous les (jours)</span>
+                    <input type="number" min={1} max={365} className="input" value={form.connectEveryDays} onChange={(e) => set({ connectEveryDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })} />
+                    <span className="mt-1 block text-xs text-muted">Lancée à la connexion au hub si la dernière sauvegarde réussie date de plus de ce délai ; un échec est retenté à la connexion suivante.</span>
+                  </label>
+                ) : (
+                  <label className="block">
+                    <span className={field}>Quand</span>
+                    <input className="input font-mono text-xs" value={form.schedule} onChange={(e) => set({ schedule: e.target.value })} list="backup-presets" />
+                    <datalist id="backup-presets">{PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</datalist>
+                    <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox : <code>03:00</code>, <code>sun 01:00</code>, <code>mon..fri 22:30</code>, <code>daily</code>.</span>
+                  </label>
+                )}
+              </div>
               <div>
                 <span className={field}>Fuseau horaire</span>
                 <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : fuseau du hub (variable TZ du compose)">
@@ -621,7 +638,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
             </div>
             <label className="flex cursor-pointer items-center gap-3">
               <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
-              <span>Active (l'agent la lance à l'heure prévue)</span>
+              <span>Active (l'agent la lance {form.connectEveryDays ? 'à la connexion' : "à l'heure prévue"})</span>
             </label>
           </section>
         </div>

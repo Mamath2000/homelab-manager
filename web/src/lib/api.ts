@@ -425,6 +425,7 @@ export interface BackupGroup {
     tz: string;
     schedule: string;
     scheduleText: string;
+    connectEveryDays?: number; // run on connection of the agent instead of the schedule
     enabled: boolean;
     synced: boolean;
     lastRun?: { at: number; ok: boolean; error?: string | null; dumps?: DumpInfo[] } | null;
@@ -559,6 +560,7 @@ export interface BackupJob {
   backupId: string;
   group: string;
   schedule: string;
+  connectEveryDays: number | null;
   timezone: string;
   enabled: boolean;
   kind: BackupJobKind;
@@ -575,6 +577,7 @@ export interface BackupJobInput {
   ns?: string; // fixed by the hub (Hosts)
   backupId?: string;
   schedule: string;
+  connectEveryDays?: number | null; // roaming hosts: run on connection, at most every N days (the schedule is ignored)
   timezone?: string;
   enabled: boolean;
   kind?: BackupJobKind; // creation only

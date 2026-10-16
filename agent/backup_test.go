@@ -150,3 +150,37 @@ func TestBackupResultsQueue(t *testing.T) {
 		t.Fatal("result id length")
 	}
 }
+
+func TestBackupDueOnConnect(t *testing.T) {
+	b := newBackupModule(t.TempDir())
+	s := testSpec()
+	s.Jobs[0].Schedule = ""
+	s.Jobs[0].ConnectEveryDays = 3
+	if err := b.apply(s); err != nil {
+		t.Fatal(err)
+	}
+	id := s.Jobs[0].ID
+	now := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
+	if len(b.due(now)) != 0 {
+		t.Fatal("due while disconnected")
+	}
+	b.connectedAt = now.UnixMilli()
+	if len(b.due(now)) != 1 {
+		t.Fatal("never backed up: due on connection")
+	}
+	// a run started during this connection (even failed) is not retried until the next one
+	b.state.LastRun[id] = now.UnixMilli() + 1
+	if len(b.due(now.Add(time.Hour))) != 0 {
+		t.Fatal("retried within the same connection")
+	}
+	// reconnection two days after a success: too early; four days: due
+	b.state.LastOK[id] = now.UnixMilli()
+	b.connectedAt = now.Add(48 * time.Hour).UnixMilli()
+	if len(b.due(now.Add(48*time.Hour))) != 0 {
+		t.Fatal("ran before the delay")
+	}
+	b.connectedAt = now.Add(96 * time.Hour).UnixMilli()
+	if len(b.due(now.Add(96*time.Hour))) != 1 {
+		t.Fatal("not due after the delay")
+	}
+}

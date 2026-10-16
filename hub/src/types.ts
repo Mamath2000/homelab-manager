@@ -527,7 +527,7 @@ export interface BackupRun {
   end: number;
   ok: boolean;
   error?: string | null;
-  trigger: string; // schedule | catchup | manual
+  trigger: string; // schedule | catchup | connect | manual
   jobId?: ObjectId | null; // JobDoc of the run
   dumps?: DumpInfo[]; // database job: the dumps of the run
 }
@@ -561,7 +561,10 @@ export interface BackupJobDoc {
   store: string;
   ns: string;
   backupId: string; // fixed at creation: the group on the PBS
-  schedule: string; // calendar event (calendar.ts)
+  schedule: string; // calendar event (calendar.ts); empty when connectEveryDays is set
+  // roaming hosts: instead of a schedule, run when the agent connects, at most once every N days
+  // (since the last successful run)
+  connectEveryDays?: number;
   timezone: string;
   enabled: boolean;
   kind?: BackupJobKind; // absent: directories
@@ -586,6 +589,7 @@ export interface BackupManaged {
   name: string;
   tz: string;
   schedule: string;
+  connectEveryDays?: number;
   enabled: boolean;
   lastRun?: { at: number; ok: boolean; error?: string | null; dumps?: DumpInfo[] } | null;
   kind?: BackupJobKind;

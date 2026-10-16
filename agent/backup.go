@@ -41,10 +41,13 @@ type BackupJob struct {
 	NS       string          `json:"ns"`
 	BackupID string          `json:"backupId"`
 	Schedule string          `json:"schedule"`
-	TZ       string          `json:"tz"`
-	Enabled  bool            `json:"enabled"`
-	Kind     string          `json:"kind,omitempty"`     // directories (default) | postgres | mongodb (database.go)
-	Database *DatabaseDump   `json:"database,omitempty"` // postgres, mongodb: what to dump
+	// roaming hosts: instead of a schedule, run when the agent connects to the hub, at most once
+	// every ConnectEveryDays days (since the last successful run)
+	ConnectEveryDays int           `json:"connectEveryDays,omitempty"`
+	TZ               string        `json:"tz"`
+	Enabled          bool          `json:"enabled"`
+	Kind             string        `json:"kind,omitempty"`     // directories (default) | postgres | mongodb (database.go)
+	Database         *DatabaseDump `json:"database,omitempty"` // postgres, mongodb: what to dump
 }
 
 type BackupSpec struct {
@@ -61,7 +64,7 @@ type BackupResult struct {
 	ID      string `json:"id"`
 	JobID   string `json:"jobId"`           // backup job
 	RunID   string `json:"runId,omitempty"` // hub job of a run on demand
-	Trigger string `json:"trigger"`         // schedule | catchup | manual
+	Trigger string `json:"trigger"`         // schedule | catchup | connect | manual
 	Start   int64  `json:"start"`           // unix ms
 	End     int64  `json:"end"`
 	OK      bool   `json:"ok"`
@@ -96,8 +99,13 @@ func validateBackupSpec(s *BackupSpec) error {
 		if !jobIDRe.MatchString(j.ID) || !backupIDRe.MatchString(j.BackupID) || !storeRe.MatchString(j.Store) || (j.NS != "" && !nsRe.MatchString(j.NS)) {
 			return fmt.Errorf("invalid job %q", j.ID)
 		}
-		if _, err := parseCalendar(j.Schedule); err != nil {
-			return fmt.Errorf("job %s: schedule %q: %w", j.ID, j.Schedule, err)
+		if j.ConnectEveryDays < 0 || j.ConnectEveryDays > 365 {
+			return fmt.Errorf("job %s: connectEveryDays %d", j.ID, j.ConnectEveryDays)
+		}
+		if j.ConnectEveryDays == 0 {
+			if _, err := parseCalendar(j.Schedule); err != nil {
+				return fmt.Errorf("job %s: schedule %q: %w", j.ID, j.Schedule, err)
+			}
 		}
 		if _, err := time.LoadLocation(j.TZ); err != nil || j.TZ == "" {
 			return fmt.Errorf("job %s: time zone %q", j.ID, j.TZ)
@@ -155,13 +163,17 @@ type backupState struct {
 	Spec      *BackupSpec      `json:"spec"`
 	FirstSeen map[string]int64 `json:"firstSeen"` // when a job appeared: earlier runs are not caught up
 	LastRun   map[string]int64 `json:"lastRun"`   // start of the last run of each job
+	LastOK    map[string]int64 `json:"lastOk"`    // start of the last successful run of each job
 }
 
 type backupModule struct {
 	mu    sync.Mutex
 	dir   string
 	state backupState
-	runMu sync.Mutex // one backup at a time
+	// when the agent connected to the hub (unix ms), 0 while disconnected: jobs set to run on
+	// connection are due only then
+	connectedAt int64
+	runMu       sync.Mutex // one backup at a time
 
 	sendMu sync.Mutex
 	send   func(Outbound) error
@@ -171,7 +183,7 @@ type backupModule struct {
 var backups = newBackupModule(stateDir())
 
 func newBackupModule(dir string) *backupModule {
-	b := &backupModule{dir: dir, kick: make(chan struct{}, 1), state: backupState{FirstSeen: map[string]int64{}, LastRun: map[string]int64{}}}
+	b := &backupModule{dir: dir, kick: make(chan struct{}, 1), state: backupState{FirstSeen: map[string]int64{}, LastRun: map[string]int64{}, LastOK: map[string]int64{}}}
 	if raw, err := os.ReadFile(b.statePath()); err == nil {
 		var st backupState
 		if json.Unmarshal(raw, &st) == nil {
@@ -180,6 +192,9 @@ func newBackupModule(dir string) *backupModule {
 			}
 			if st.LastRun == nil {
 				st.LastRun = map[string]int64{}
+			}
+			if st.LastOK == nil {
+				st.LastOK = map[string]int64{}
 			}
 			b.state = st
 		}
@@ -354,6 +369,7 @@ func (b *backupModule) apply(s *BackupSpec) error {
 		if !keep[id] {
 			delete(b.state.FirstSeen, id)
 			delete(b.state.LastRun, id)
+			delete(b.state.LastOK, id)
 		}
 	}
 	b.state.Spec = s
@@ -370,7 +386,8 @@ func (b *backupModule) hash() string {
 	return b.state.Spec.Hash
 }
 
-// due returns the jobs whose last scheduled time is after their last run (and after they appeared).
+// due returns the jobs whose last scheduled time is after their last run (and after they appeared),
+// and, while connected to the hub, those set to run on connection whose last success is old enough.
 func (b *backupModule) due(now time.Time) []BackupJob {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -380,6 +397,14 @@ func (b *backupModule) due(now time.Time) []BackupJob {
 	var out []BackupJob
 	for _, j := range b.state.Spec.Jobs {
 		if !j.Enabled {
+			continue
+		}
+		if j.ConnectEveryDays > 0 {
+			// once per connection (a failed run is retried at the next one), when the last success is old enough
+			age := time.Duration(j.ConnectEveryDays) * 24 * time.Hour
+			if b.connectedAt > 0 && b.state.LastRun[j.ID] < b.connectedAt && now.UnixMilli()-b.state.LastOK[j.ID] >= age.Milliseconds() {
+				out = append(out, j)
+			}
 			continue
 		}
 		spec, err := parseCalendar(j.Schedule)
@@ -422,7 +447,9 @@ func (b *backupModule) loop(ctx context.Context) {
 	for {
 		for _, j := range b.due(time.Now()) {
 			trigger := "schedule"
-			if first {
+			if j.ConnectEveryDays > 0 {
+				trigger = "connect"
+			} else if first {
 				trigger = "catchup"
 			}
 			b.runJob(ctx, j.ID, trigger, "", func(string) {})
@@ -432,6 +459,7 @@ func (b *backupModule) loop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		case <-b.kick:
 		}
 	}
 }
@@ -481,6 +509,12 @@ func (b *backupModule) runJob(ctx context.Context, jobID, trigger, runID string,
 		res.Error = err.Error()
 	} else if code != 0 {
 		res.Error = fmt.Sprintf("proxmox-backup-client a échoué (code %d)", code)
+	}
+	if res.OK {
+		b.mu.Lock()
+		b.state.LastOK[j.ID] = start.UnixMilli()
+		b.saveLocked()
+		b.mu.Unlock()
 	}
 	b.keep(res)
 	b.flush()
@@ -605,10 +639,20 @@ func (b *backupModule) attach(send func(Outbound) error) {
 	b.sendMu.Lock()
 	b.send = send
 	b.sendMu.Unlock()
+	b.mu.Lock()
+	b.connectedAt = time.Now().UnixMilli()
+	b.mu.Unlock()
 	go b.flush()
+	select { // the loop need not wait for its tick
+	case b.kick <- struct{}{}:
+	default:
+	}
 }
 
 func (b *backupModule) detach() {
+	b.mu.Lock()
+	b.connectedAt = 0
+	b.mu.Unlock()
 	b.sendMu.Lock()
 	b.send = nil
 	b.sendMu.Unlock()

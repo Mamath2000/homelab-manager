@@ -34,10 +34,17 @@ export function Docker() {
   const toast = useToast();
   const bulk = useRunBulk();
   const [params, setParams] = useSearchParams();
-  const filter = (params.get('f') as Filter) || 'all';
-  const [q, setQ] = useState('');
+  const filter = filters.find((f) => f.key === params.get('f'))?.key ?? 'all';
+  const q = params.get('q') ?? '';
   const [confirmUpdate, setConfirmUpdate] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
 
   const stacks = useMemo(() => allStacks(hosts ?? []), [hosts]);
   const dockerHosts = (hosts ?? []).filter((h) => h.docker);
@@ -121,13 +128,13 @@ export function Docker() {
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <label className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" />
-              <input className="input w-64 pl-8" placeholder="Stack ou hôte…" value={q} onChange={(e) => setQ(e.target.value)} />
+              <input className="input w-64 pl-8" placeholder="Stack ou hôte…" value={q} onChange={(e) => setParam('q', e.target.value)} />
             </label>
             <div className="flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1">
               {filters.map((f) => (
                 <button
                   key={f.key}
-                  onClick={() => setParams(f.key === 'all' ? {} : { f: f.key }, { replace: true })}
+                  onClick={() => setParam('f', f.key === 'all' ? '' : f.key)}
                   className={clsx(
                     'rounded-sm px-2.5 py-1 text-xs font-medium transition',
                     filter === f.key ? 'bg-raised text-zinc-100 ring-1 ring-line' : 'text-muted hover:text-zinc-200',
