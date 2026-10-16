@@ -42,9 +42,9 @@ const longDate = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'long', d
 const reasonText = (a: DayAlert | null) => (!a ? 'non suivi' : a.reasons.length ? a.reasons.join(' · ') : levelLabel[a.level]);
 
 // Alerts of the last 30 days of a host, one row per domain, one square per day (latest known state of the day).
-// A click on a day shows its reasons in each domain. compact: the rows only (page scrolled).
+// A click on a day shows its reasons in each domain.
 // The UPS row only exists for a host with a UPS.
-export function AlertTimeline({ hostId, compact, ups }: { hostId: string; compact?: boolean; ups?: boolean }) {
+export function AlertTimeline({ hostId, ups }: { hostId: string; ups?: boolean }) {
   const { data } = useHostAlerts(hostId);
   const domains = allDomains.filter((d) => d.id !== 'ups' || ups);
   const days = lastDays();
@@ -54,18 +54,16 @@ export function AlertTimeline({ hostId, compact, ups }: { hostId: string; compac
   const at = (key: string, dom: AlertDomain): DayAlert | null => byDay.get(key)?.[dom] ?? null;
 
   const rows = (
-    <div className={clsx(compact ? 'space-y-0.5' : 'space-y-1.5')}>
-      {!compact && (
-        <div className="grid grid-cols-[9rem_minmax(0,1fr)_12rem] items-end gap-4">
-          <span />
-          <div className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px] text-[11px] text-muted">
-            {days.map((d, i) => (
-              <span key={d.key} className="whitespace-nowrap">{i === DAYS - 1 ? 'auj.' : d.date.getDay() === 1 ? shortDate(d.date) : ''}</span>
-            ))}
-          </div>
-          <span />
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[9rem_minmax(0,1fr)_12rem] items-end gap-4">
+        <span />
+        <div className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px] text-[11px] text-muted">
+          {days.map((d, i) => (
+            <span key={d.key} className="whitespace-nowrap">{i === DAYS - 1 ? 'auj.' : d.date.getDay() === 1 ? shortDate(d.date) : ''}</span>
+          ))}
         </div>
-      )}
+        <span />
+      </div>
       {domains.map(({ id, label, icon: Icon }) => {
         const levels = days.map((d) => at(d.key, id)?.level ?? 'none');
         const alerts = levels.filter((l) => l === 'alert').length;
@@ -73,8 +71,8 @@ export function AlertTimeline({ hostId, compact, ups }: { hostId: string; compac
         const followed = levels.some((l) => l !== 'none');
         return (
           <div key={id} className="grid grid-cols-[9rem_minmax(0,1fr)_12rem] items-center gap-4">
-            <span className={clsx('flex items-center gap-2 text-zinc-300', compact ? 'text-xs' : 'text-sm')}>
-              <Icon className={clsx('text-muted', compact ? 'h-3.5 w-3.5' : 'h-4 w-4')} />
+            <span className="flex items-center gap-2 text-sm text-zinc-300">
+              <Icon className="h-4 w-4 text-muted" />
               {label}
             </span>
             <div className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px]">
@@ -86,10 +84,9 @@ export function AlertTimeline({ hostId, compact, ups }: { hostId: string; compac
                   aria-label={`${shortDate(d.date)}, ${label} : ${levelLabel[levels[i]]}`}
                   onClick={() => setPicked(d.key)}
                   className={clsx(
-                    'rounded-[3px] transition-[height] hover:brightness-125',
-                    compact ? 'h-2.5' : 'h-6',
+                    'h-6 rounded-[3px] transition-[height] hover:brightness-125',
                     cellColor[levels[i]],
-                    !compact && d.key === selected.key && 'outline-2 outline-offset-1 outline-zinc-100',
+                    d.key === selected.key && 'outline-2 outline-offset-1 outline-zinc-100',
                   )}
                 />
               ))}
@@ -111,8 +108,6 @@ export function AlertTimeline({ hostId, compact, ups }: { hostId: string; compac
       })}
     </div>
   );
-
-  if (compact) return <section className="panel px-4 py-1.5">{rows}</section>;
 
   return (
     <Panel

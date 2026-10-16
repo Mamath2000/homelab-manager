@@ -37,8 +37,7 @@ function StripItem({ label, grow, children }: { label: string; grow?: boolean; c
   );
 }
 
-// Large screens (fixed header): true once the page is scrolled, the alert timeline then shrinks to its
-// rows; two thresholds so that the change of height does not make it flicker.
+// Large screens: detect scroll to keep the sticky host header compact.
 function useScrolled() {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -462,7 +461,7 @@ function HostDetailPage({ id }: { id: string }) {
               </dl>
             </section>
             <div className={scrolled ? 'mt-2.5' : 'mt-4'}>
-              <AlertTimeline hostId={host.id} compact={scrolled} ups={!!host.ups} />
+              <AlertTimeline hostId={host.id} ups={!!host.ups} />
             </div>
           </div>
 

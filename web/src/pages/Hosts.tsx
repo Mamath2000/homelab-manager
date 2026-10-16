@@ -134,11 +134,12 @@ export function Hosts() {
         {list.length === 0 ? (
           <Empty icon={Server} title={hosts.length ? 'Aucun hôte ne correspond' : 'Aucun hôte'} />
         ) : (
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1200px] text-sm">
             <thead className="border-b border-line">
               <tr>
                 {canWrite && <th className="th w-10"><Checkbox label="Tout sélectionner" checked={allChecked} indeterminate={visibleSelected.length > 0} onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())} /></th>}
                 <th className="th">Hôte</th>
+                <th className="th">Site</th>
                 <th className="th">Système</th>
                 <th className="th">IP</th>
                 <th className="th">Mises à jour</th>
@@ -160,10 +161,12 @@ export function Hosts() {
                       <div className="flex items-center gap-2.5">
                         <StatusDot tone={connectionMeta[c].tone} />
                         <span className="whitespace-nowrap font-medium text-zinc-100">{h.name}</span>
-                        <SiteChip host={h} />
                         <HostTagList host={h} />
                         {h.accessNetwork === 'tailscale' && <Tag>Tailscale</Tag>}
                       </div>
+                    </td>
+                    <td className="td">
+                      {h.siteId ? <SiteChip host={h} /> : <span className="text-muted">—</span>}
                     </td>
                     <td className="td text-zinc-300">
                       {osLabel(h) ?? <span className="text-muted">—</span>}

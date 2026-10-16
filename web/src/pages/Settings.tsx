@@ -1,19 +1,21 @@
 import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
-import { Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Server, Settings as SettingsIcon, Shield, Terminal, Wand2 } from 'lucide-react';
+import { Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { BackupSettings } from '../components/BackupSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { PveSettings } from '../components/PveSettings';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
 import { SitesSettings } from '../components/SitesSettings';
+import { TagsSettings } from '../components/TagsSettings';
 import { SetupSettings } from '../components/SetupSettings';
 import { Button, Modal, Panel, VerticalTabs } from '../components/ui';
 import { api } from '../lib/api';
 
 const tabs = [
-  { id: 'sites', label: 'Sites et tags', icon: MapPin },
+  { id: 'sites', label: 'Sites', icon: MapPin },
+  { id: 'tags', label: 'Tags', icon: Tags },
   { id: 'hub', label: 'Hub', icon: Server },
   { id: 'agents', label: 'Agents', icon: Terminal },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
@@ -55,6 +57,7 @@ export function Settings() {
 
   const content = {
     sites: <SitesSettings />,
+    tags: <TagsSettings />,
     hub: (
       <Panel title="Hub" icon={Server}>
         <AgentHubSettings />

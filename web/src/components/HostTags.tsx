@@ -55,7 +55,7 @@ export function SiteSelect({ value, onChange }: { value: string; onChange: (id: 
       </select>
       {sites?.length === 0 && (
         <span className="mt-1 block text-xs text-zinc-500">
-          Les sites se décrivent dans <Link to="/settings?tab=sites" className="text-emerald-400 hover:underline">Paramètres › Sites et tags</Link>.
+          Les sites se décrivent dans <Link to="/settings?tab=sites" className="text-emerald-400 hover:underline">Paramètres › Sites</Link>.
         </span>
       )}
     </label>
