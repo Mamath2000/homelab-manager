@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Plus, RefreshCw, Search, Server, Wand2 } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Plus, RefreshCw, Search, Server, Settings, Wand2 } from 'lucide-react';
 import { hostBackups } from '../lib/backups';
 import { filterHosts, hostFilters, parseHostFilter } from '../lib/hostFilters';
 import { AddHostModal } from '../components/AddHostModal';
 import { CleanupModal } from '../components/CleanupPanel';
+import { HostOptionsModal } from '../components/HostOptionsModal';
 import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { BulkSetupModal } from '../components/SetupPanel';
@@ -35,6 +36,7 @@ export function Hosts() {
   const [allAgentsModal, setAllAgentsModal] = useState(false);
   const [setupModal, setSetupModal] = useState(false);
   const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
+  const [optionsHostId, setOptionsHostId] = useState<string | null>(null);
   const bulk = useRunBulk();
   const { canWrite, canManage } = useMe();
   const run = useRunJob();
@@ -54,6 +56,7 @@ export function Hosts() {
     [hosts, q, filter, site, tag, sites, tags],
   );
 
+  const optionsHost = hosts?.find((h) => h.id === optionsHostId);
   const visibleSelected = list.filter((h) => selected.has(h.id));
   const allChecked = list.length > 0 && visibleSelected.length === list.length;
   const toggle = (id: string, on: boolean) =>
@@ -214,6 +217,7 @@ export function Hosts() {
                     <td className="td text-right" onClick={(e) => e.stopPropagation()}>
                       {canWrite && <Button size="sm" variant="ghost" icon={RefreshCw} disabled={!h.online} title="Rechercher les mises à jour"
                         onClick={() => run.mutate({ hostId: h.id, action: 'apt_update' })} />}
+                      {canManage && <Button size="sm" variant="ghost" icon={Settings} title="Options" onClick={() => setOptionsHostId(h.id)} />}
                     </td>
                   </tr>
                 );
@@ -224,6 +228,7 @@ export function Hosts() {
       </div>
 
       <CleanupModal host={cleanupHost} onClose={() => setCleanupHost(null)} />
+      {optionsHost && <HostOptionsModal host={optionsHost} onClose={() => setOptionsHostId(null)} />}
 
       <ConfirmModal
         open={confirmUpgrade}

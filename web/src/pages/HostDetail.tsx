@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Pencil, Power, RefreshCw, RotateCw, Search, Server, ShieldAlert, ShieldOff, Terminal, Trash2 } from 'lucide-react';
-import { HaExcludedField } from '../components/HaExcludedField';
-import { HostTagList, SiteChip, SiteSelect, TagPicker } from '../components/HostTags';
-import { RoamingField } from '../components/RoamingField';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
+import { HostOptionsModal } from '../components/HostOptionsModal';
+import { HostTagList, SiteChip } from '../components/HostTags';
 import { InstallInstructions } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
@@ -51,48 +50,6 @@ function useScrolled() {
     };
   }, []);
   return scrolled;
-}
-
-// mounted only while open: its state starts from the current host
-function EditModal({ host, onClose }: { host: Host; onClose: () => void }) {
-  const [name, setName] = useState(host.name);
-  const [siteId, setSiteId] = useState(host.siteId ?? '');
-  const [tags, setTags] = useState(host.tags);
-  const [roaming, setRoaming] = useState(host.roaming);
-  const [haExcluded, setHaExcluded] = useState(host.haExcluded);
-  const [busy, setBusy] = useState(false);
-  const upsert = useUpdateHostCache();
-  const toast = useToast();
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, haExcluded }));
-      onClose();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal open onClose={onClose} title="Modifier l'hôte">
-      <form onSubmit={save} className="space-y-4">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Nom</span>
-          <input className="input" required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <SiteSelect value={siteId} onChange={setSiteId} />
-        <TagPicker value={tags} onChange={setTags} />
-        <RoamingField checked={roaming} onChange={setRoaming} />
-        <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
-          <Button type="submit" variant="primary" loading={busy}>Enregistrer</Button>
-        </div>
-      </form>
-    </Modal>
-  );
 }
 
 // running: a job of the host is in progress; onStarted: the job started here (its console opens)
@@ -432,26 +389,7 @@ function HostDetailPage({ id }: { id: string }) {
               actions={
                 canWrite && <>
                   <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
-                  {canManage && <Button icon={Pencil} variant="ghost" title="Modifier" onClick={() => setEditing(true)} />}
-                  {host.capabilities.includes('reboot') && (
-                    <Button
-                      icon={Power}
-                      variant={host.aptSummary?.rebootRequired ? 'danger' : 'secondary'}
-                      disabled={!host.online || running}
-                      onClick={() => setConfirmReboot(true)}
-                    >
-                      Redémarrer
-                    </Button>
-                  )}
-                  {canManage && (
-                    <>
-                      <Button icon={KeyRound} variant="ghost" title="Nouvelle commande d'installation" onClick={newInstall} />
-                      {host.agentAuth !== 'none' && (
-                        <Button icon={ShieldOff} variant="ghost" title="Révoquer l'agent" className="hover:text-red-400" onClick={() => setConfirmRevoke(true)} />
-                      )}
-                      <Button icon={Trash2} variant="ghost" title="Supprimer" className="hover:text-red-400" onClick={() => setDeleting(true)} />
-                    </>
-                  )}
+                  {canManage && <Button icon={Settings} variant="ghost" title="Options" onClick={() => setEditing(true)} />}
                 </>
               }
             >
@@ -577,7 +515,18 @@ function HostDetailPage({ id }: { id: string }) {
         </aside>
       </div>
 
-      {editing && <EditModal host={host} onClose={() => setEditing(false)} />}
+      {editing && (
+        <HostOptionsModal
+          host={host}
+          onClose={() => setEditing(false)}
+          danger={{
+            onReboot: host.capabilities.includes('reboot') ? () => { setEditing(false); setConfirmReboot(true); } : undefined,
+            rebootDisabled: !host.online || !!running,
+            onRevoke: () => { setEditing(false); setConfirmRevoke(true); },
+            onDelete: () => { setEditing(false); setDeleting(true); },
+          }}
+        />
+      )}
       <SetupModal host={host} open={setupOpen} onClose={() => setSetupOpen(false)} running={!!running} onStarted={setJobId} />
       <ConfirmModal
         open={confirmReboot}
