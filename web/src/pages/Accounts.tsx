@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { KeyRound, Pencil, Plus, Trash2, TriangleAlert, Users } from 'lucide-react';
 import { api, type Account, type AccountSecret, type ApiKey, type Role } from '../lib/api';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
@@ -22,103 +22,233 @@ const ERRORS: Record<string, string> = {
 };
 const message = (err: unknown) => ERRORS[(err as Error).message] ?? (err as Error).message;
 
-// Create (account = null) or edit an account. New accounts get a temporary password.
-function AccountModal({ account, open, onClose, onCreated }: {
-  account: Account | null;
-  open: boolean;
-  onClose: () => void;
-  onCreated: (r: AccountSecret) => void;
-}) {
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
+        {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function RolePicker({ value, onChange }: { value: Role; onChange: (r: Role) => void }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {ROLES.map((r) => (
+        <label
+          key={r.value}
+          className={`cursor-pointer rounded-md border p-3 text-sm transition-colors ${value === r.value ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-line hover:border-zinc-600'}`}
+        >
+          <input type="radio" name="role" className="sr-only" checked={value === r.value} onChange={() => onChange(r.value)} />
+          <div className="font-medium text-zinc-100">{ROLE_LABELS[r.value]}</div>
+          <div className="mt-0.5 text-xs text-muted">{r.hint}</div>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// API keys of an account: one per consumer (Homepage, a script…), each revoked on its own.
+// They carry the rights of the account's role. A new key is shown once, here.
+function ApiKeysSection({ account }: { account: Account }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [username, setUsername] = useState(account?.username ?? '');
-  const [displayName, setDisplayName] = useState(account?.displayName ?? '');
-  const [role, setRole] = useState<Role>(account?.role ?? 'viewer');
-  const [apiOnly, setApiOnly] = useState(false);
-  const [keyName, setKeyName] = useState('');
-  const save = useMutation({
-    mutationFn: async () =>
-      account
-        ? (await api.updateUser(account.id, { username, displayName, role }), null)
-        : api.createUser(username, displayName, role, apiOnly, keyName),
-    onSuccess: (created) => {
+  const [name, setName] = useState('');
+  const [issued, setIssued] = useState<{ name: string; value: string } | null>(null);
+  const [revoking, setRevoking] = useState<ApiKey | null>(null);
+
+  const create = useMutation({
+    mutationFn: () => api.createApiKey(account.id, name.trim()),
+    onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['users'] });
-      // own username / name may have changed
-      if (account) qc.invalidateQueries({ queryKey: ['auth'] });
-      toast.success(account ? 'Compte modifié' : `Compte ${username} créé : ${apiOnly ? "clé d'API" : 'mot de passe temporaire'} dans le tableau`);
-      onClose();
-      if (created) onCreated(created);
+      setIssued({ name: name.trim(), value: r.apiKey! });
+      setName('');
+    },
+    onError: (err) => toast.error(message(err)),
+  });
+  const revoke = useMutation({
+    mutationFn: (k: ApiKey) => api.revokeApiKey(account.id, k.id),
+    onSuccess: (_, k) => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      toast.success(`Clé « ${k.name} » révoquée`);
+      setRevoking(null);
     },
     onError: (err) => toast.error(message(err)),
   });
 
   return (
-    <Modal open={open} onClose={onClose} title={account ? `Modifier ${account.displayName || account.username}` : 'Nouveau compte'}>
-      <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Nom (facultatif)</span>
-          <input className="input" autoFocus maxLength={64} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Prénom Nom" />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Identifiant de connexion</span>
-          <input className="input" required maxLength={64} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
-        </label>
-        <fieldset className="space-y-2">
-          <legend className="mb-1.5 text-xs font-medium text-muted">Rôle</legend>
-          {ROLES.map((r) => (
-            <label key={r.value} className="flex cursor-pointer items-center gap-2.5 text-sm text-zinc-200">
-              <input type="radio" name="role" checked={role === r.value} onChange={() => setRole(r.value)} />
-              {ROLE_LABELS[r.value]}
-              <span className="text-xs text-muted">— {r.hint}</span>
-            </label>
-          ))}
-        </fieldset>
-        {!account && (
-          <label className="flex cursor-pointer items-start gap-2.5 text-sm text-zinc-200">
-            <input type="checkbox" className="mt-1" checked={apiOnly} onChange={(e) => setApiOnly(e.target.checked)} />
-            <span>
-              Compte API
-              <span className="block text-xs text-muted">Sans mot de passe : pas de connexion à l'interface, accès par clé d'API (<code>Authorization: Bearer</code>) avec les droits du rôle.</span>
-            </span>
-          </label>
-        )}
-        {!account && apiOnly && (
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-muted">Nom de la première clé</span>
-            <input className="input" maxLength={64} value={keyName} onChange={(e) => setKeyName(e.target.value)} placeholder="default" />
-          </label>
-        )}
-        {!account && !apiOnly && <p className="text-xs text-muted">Un mot de passe temporaire sera généré ; l'utilisateur le remplacera à sa première connexion.</p>}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
-          <Button type="submit" variant="primary" loading={save.isPending}>{account ? 'Enregistrer' : 'Créer'}</Button>
+    <Section
+      title="Clés d'API"
+      hint="Accès sans mot de passe, en-tête « Authorization: Bearer <clé> », avec les droits du rôle. Une clé par service."
+    >
+      {issued && (
+        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+          <div className="text-sm text-zinc-200">Clé « {issued.name} » créée</div>
+          <CopyField value={issued.value} />
+          <p className="text-xs text-amber-300">
+            Affichée une seule fois, copiez-la maintenant.{' '}
+            <button type="button" className="text-muted underline hover:text-zinc-200" onClick={() => setIssued(null)}>Masquer</button>
+          </p>
         </div>
-      </form>
-    </Modal>
+      )}
+      {account.apiKeys.length > 0 ? (
+        <div className="overflow-hidden rounded-md border border-line">
+          <table className="w-full text-sm">
+            <thead className="border-b border-line bg-white/[0.02]">
+              <tr className="text-left">
+                <th className="th">Nom</th>
+                <th className="th">Créée le</th>
+                <th className="th">Dernière utilisation</th>
+                <th className="th" />
+              </tr>
+            </thead>
+            <tbody>
+              {account.apiKeys.map((k) => (
+                <tr key={k.id} className="border-b border-line/60 last:border-0">
+                  <td className="td font-medium text-zinc-100">{k.name}</td>
+                  <td className="td text-xs text-zinc-400">{dateTime(k.createdAt)}</td>
+                  <td className="td text-xs text-zinc-400">{k.lastUsedAt ? dateTime(k.lastUsedAt) : 'jamais'}</td>
+                  <td className="td text-right">
+                    <Button size="sm" variant="ghost" icon={Trash2} title="Révoquer cette clé" onClick={() => setRevoking(k)}>Révoquer</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="rounded-md border border-dashed border-line px-3 py-4 text-center text-sm text-muted">Aucune clé d'API.</p>
+      )}
+      <div className="flex items-end gap-2">
+        <label className="block flex-1">
+          <span className="mb-1.5 block text-xs font-medium text-muted">Nouvelle clé</span>
+          <input
+            className="input"
+            maxLength={64}
+            value={name}
+            placeholder="Nom du service (Homepage, script de sauvegarde…)"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (name.trim()) create.mutate();
+              }
+            }}
+          />
+        </label>
+        <Button type="button" icon={KeyRound} loading={create.isPending} disabled={!name.trim()} onClick={() => create.mutate()}>Générer</Button>
+      </div>
+      <ConfirmModal
+        open={!!revoking}
+        onClose={() => setRevoking(null)}
+        onConfirm={() => revoking && revoke.mutate(revoking)}
+        title="Révoquer la clé d'API"
+        confirmLabel="Révoquer"
+        danger
+        loading={revoke.isPending}
+      >
+        Révoquer la clé <strong>{revoking?.name}</strong> ? Le service qui l'utilise sera refusé immédiatement.
+      </ConfirmModal>
+    </Section>
   );
 }
 
-// Name of a new API key: one per consumer (Homepage, a script…), revoked on its own.
-function KeyNameModal({ account, loading, onClose, onSubmit }: {
-  account: Account;
-  loading: boolean;
+// Create (accountId = null) or edit an account. Keys are managed when editing only.
+function AccountModal({ accountId, onClose, onCreated }: {
+  accountId: string | null;
   onClose: () => void;
-  onSubmit: (name: string) => void;
+  onCreated: (r: AccountSecret) => void;
 }) {
-  const [name, setName] = useState('');
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery({ queryKey: ['users'], queryFn: api.users });
+  const account = accountId ? data?.find((a) => a.id === accountId) ?? null : null;
+  const [username, setUsername] = useState(account?.username ?? '');
+  const [displayName, setDisplayName] = useState(account?.displayName ?? '');
+  const [role, setRole] = useState<Role>(account?.role ?? 'viewer');
+  const [noPassword, setNoPassword] = useState(false);
+  const save = useMutation({
+    mutationFn: async () =>
+      account
+        ? (await api.updateUser(account.id, { username, displayName, role }), null)
+        : api.createUser(username, displayName, role, noPassword),
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      // own username / name may have changed
+      if (account) qc.invalidateQueries({ queryKey: ['auth'] });
+      toast.success(
+        account ? 'Compte modifié' : noPassword ? `Compte ${username} créé : ajoutez-lui une clé d'API en le modifiant` : `Compte ${username} créé : mot de passe temporaire dans le tableau`,
+      );
+      onClose();
+      if (created?.temporaryPassword) onCreated(created);
+    },
+    onError: (err) => toast.error(message(err)),
+  });
+
+  const editing = !!account;
   return (
-    <Modal open onClose={onClose} title={`Nouvelle clé d'API · ${account.username}`}>
-      <form onSubmit={(e) => { e.preventDefault(); onSubmit(name); }} className="space-y-4">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Nom de la clé</span>
-          <input className="input" autoFocus required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} placeholder="Homepage" />
-        </label>
-        <p className="text-xs text-muted">La clé aura les droits du rôle du compte. Elle ne sera affichée qu'une fois.</p>
+    <Modal
+      open
+      wide
+      scroll
+      onClose={onClose}
+      title={editing ? `Modifier ${account.displayName || account.username}` : 'Nouveau compte'}
+      footer={
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
-          <Button type="submit" variant="primary" loading={loading}>Générer</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>{editing ? 'Fermer' : 'Annuler'}</Button>
+          <Button type="submit" form="account-form" variant="primary" loading={save.isPending}>{editing ? 'Enregistrer' : 'Créer'}</Button>
         </div>
-      </form>
+      }
+    >
+      <div className="space-y-6">
+        <form id="account-form" onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-6">
+          <Section title="Identité">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-muted">Nom (facultatif)</span>
+                <input className="input" autoFocus maxLength={64} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Prénom Nom" />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium text-muted">Identifiant de connexion</span>
+                <input className="input" required maxLength={64} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
+              </label>
+            </div>
+          </Section>
+          <Section title="Rôle">
+            <RolePicker value={role} onChange={setRole} />
+          </Section>
+          {!editing && (
+            <Section title="Mot de passe">
+              <div className="space-y-2">
+                <label className="flex cursor-pointer items-start gap-2.5 text-sm text-zinc-200">
+                  <input type="radio" name="password" className="mt-1 accent-emerald-500" checked={!noPassword} onChange={() => setNoPassword(false)} />
+                  <span>
+                    Mot de passe temporaire
+                    <span className="block text-xs text-muted">Généré et affiché une fois ; l'utilisateur le remplace à sa première connexion.</span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2.5 text-sm text-zinc-200">
+                  <input type="radio" name="password" className="mt-1 accent-emerald-500" checked={noPassword} onChange={() => setNoPassword(true)} />
+                  <span>
+                    Aucun mot de passe
+                    <span className="block text-xs text-muted">Compte réservé aux services : accès par clé d'API, à ajouter ensuite en modifiant le compte.</span>
+                  </span>
+                </label>
+              </div>
+              {noPassword && (
+                <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  Cet utilisateur ne pourra pas se connecter à l'interface.
+                </p>
+              )}
+            </Section>
+          )}
+        </form>
+        {account && <ApiKeysSection account={account} />}
+      </div>
     </Modal>
   );
 }
@@ -129,21 +259,14 @@ export function Accounts() {
   const toast = useToast();
   const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: api.users });
   // undefined: closed, null: creating
-  const [editing, setEditing] = useState<Account | null | undefined>(undefined);
+  const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const [deleting, setDeleting] = useState<Account | null>(null);
-  const [revoking, setRevoking] = useState<{ account: Account; key: ApiKey } | null>(null);
-  // account getting a new API key (name asked in a modal)
-  const [addingKey, setAddingKey] = useState<Account | null>(null);
-  // secrets to hand over, shown in their row until hidden (account id -> temporary password or API key)
-  const [issued, setIssued] = useState<Record<string, { kind: 'password' | 'key'; value: string }>>({});
-  // row whose password reset waits for confirmation
+  // temporary passwords to hand over, shown in their row until hidden (account id -> password)
+  const [issued, setIssued] = useState<Record<string, string>>({});
+  // row whose reset waits for confirmation
   const [confirming, setConfirming] = useState<string | null>(null);
 
-  const showIssued = (r: AccountSecret) =>
-    setIssued((m) => ({
-      ...m,
-      [r.user.id]: 'apiKey' in r ? { kind: 'key', value: r.apiKey } : { kind: 'password', value: r.temporaryPassword },
-    }));
+  const showIssued = (r: AccountSecret) => setIssued((m) => ({ ...m, [r.user.id]: r.temporaryPassword! }));
   const hideIssued = (id: string) =>
     setIssued((m) => {
       const next = { ...m };
@@ -164,24 +287,6 @@ export function Accounts() {
       qc.invalidateQueries({ queryKey: ['users'] });
       setConfirming(null);
       showIssued(r);
-    },
-    onError: (err) => toast.error(message(err)),
-  });
-  const issueKey = useMutation({
-    mutationFn: ({ account, name }: { account: Account; name: string }) => api.createApiKey(account.id, name),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ['users'] });
-      setAddingKey(null);
-      showIssued(r);
-    },
-    onError: (err) => toast.error(message(err)),
-  });
-  const revokeKey = useMutation({
-    mutationFn: ({ account, key }: { account: Account; key: ApiKey }) => api.revokeApiKey(account.id, key.id),
-    onSuccess: (_, { account, key }) => {
-      qc.invalidateQueries({ queryKey: ['users'] });
-      setRevoking(null);
-      toast.success(`Clé « ${key.name} » de ${account.username} révoquée`);
     },
     onError: (err) => toast.error(message(err)),
   });
@@ -212,13 +317,13 @@ export function Accounts() {
         <Spinner />
       ) : (
         <div className="panel overflow-x-auto">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="border-b border-line">
               <tr className="text-left">
                 <th className="th">Compte</th>
                 <th className="th">Rôle</th>
                 <th className="th">Mot de passe</th>
-                <th className="th">Clé d'API</th>
+                <th className="th">Clés d'API</th>
                 <th className="th">Dernière connexion</th>
                 <th className="th">Créé le</th>
                 <th className="th text-right">Actions</th>
@@ -236,14 +341,16 @@ export function Accounts() {
                   </td>
                   <td className="td"><Badge tone={a.role === 'admin' ? 'warn' : a.role === 'operator' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge></td>
                   <td className="td text-xs">
-                    {issued[a.id]?.kind === 'password' ? (
+                    {issued[a.id] ? (
                       <div className="max-w-xs space-y-1.5">
-                        <CopyField value={issued[a.id].value} />
+                        <CopyField value={issued[a.id]} />
                         <p className="text-amber-300">
                           Affiché une seule fois, à transmettre.{' '}
                           <button className="text-muted underline hover:text-zinc-200" onClick={() => hideIssued(a.id)}>Masquer</button>
                         </p>
                       </div>
+                    ) : !a.hasPassword ? (
+                      <span className="text-zinc-400">aucun · connexion impossible</span>
                     ) : confirming === a.id ? (
                       <div className="flex flex-wrap items-center gap-2">
                         <Button size="sm" variant="danger" icon={KeyRound} loading={reset.isPending} onClick={() => reset.mutate(a)}>
@@ -251,8 +358,6 @@ export function Accounts() {
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => setConfirming(null)}>Annuler</Button>
                       </div>
-                    ) : !a.hasPassword ? (
-                      <span className="text-zinc-400">aucun (compte API)</span>
                     ) : (
                       <div className="flex flex-wrap items-center gap-3">
                         {a.mustChangePassword ? <span className="text-amber-300">temporaire, à changer à la connexion</span> : <span className="text-zinc-400">défini</span>}
@@ -265,34 +370,12 @@ export function Accounts() {
                       </div>
                     )}
                   </td>
-                  <td className="td text-xs">
-                    {issued[a.id]?.kind === 'key' ? (
-                      <div className="max-w-xs space-y-1.5">
-                        <CopyField value={issued[a.id].value} />
-                        <p className="text-amber-300">
-                          Affichée une seule fois, à transmettre.{' '}
-                          <button className="text-muted underline hover:text-zinc-200" onClick={() => hideIssued(a.id)}>Masquer</button>
-                        </p>
-                      </div>
-                    ) : null}
-                    {issued[a.id]?.kind === 'key' && <div className="mb-2" />}
-                    <div className="space-y-1">
-                      {a.apiKeys.map((k) => (
-                        <div key={k.id} className="flex items-center justify-between gap-2">
-                          <span className="text-zinc-400">
-                            <span className="text-zinc-200">{k.name}</span> · créée le {dateTime(k.createdAt)} · {k.lastUsedAt ? `utilisée le ${dateTime(k.lastUsedAt)}` : 'jamais utilisée'}
-                          </span>
-                          <Button size="sm" variant="ghost" icon={Trash2} title="Révoquer cette clé" onClick={() => setRevoking({ account: a, key: k })} />
-                        </div>
-                      ))}
-                      <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setAddingKey(a)}>Ajouter une clé</Button>
-                    </div>
-                  </td>
+                  <td className="td text-xs text-zinc-400">{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</td>
                   <td className="td text-xs text-zinc-400">{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</td>
                   <td className="td text-xs text-zinc-400">{dateTime(a.createdAt)}</td>
                   <td className="td">
                     <div className="flex justify-end gap-1">
-                      {!me.isSuperAdmin && <Button size="sm" variant="ghost" icon={Pencil} title="Modifier" onClick={() => setEditing(a)} />}
+                      {!me.isSuperAdmin && <Button size="sm" variant="ghost" icon={Pencil} title="Modifier" onClick={() => setEditing(a.id)} />}
                       {!me.isSuperAdmin && a.username !== me.username && (
                         <Button size="sm" variant="ghost" icon={Trash2} title="Supprimer" onClick={() => setDeleting(a)} />
                       )}
@@ -306,21 +389,7 @@ export function Accounts() {
       )}
 
       {editing !== undefined && (
-        <AccountModal key={editing?.id ?? 'new'} account={editing} open onClose={() => setEditing(undefined)} onCreated={showIssued} />
-      )}
-      <ConfirmModal
-        open={!!revoking}
-        onClose={() => setRevoking(null)}
-        onConfirm={() => revoking && revokeKey.mutate(revoking)}
-        title="Révoquer la clé d'API"
-        confirmLabel="Révoquer"
-        danger
-        loading={revokeKey.isPending}
-      >
-        Révoquer la clé <strong>{revoking?.key.name}</strong> de <strong>{revoking?.account.username}</strong> ? Le service qui l'utilise sera refusé.
-      </ConfirmModal>
-      {addingKey && (
-        <KeyNameModal account={addingKey} loading={issueKey.isPending} onClose={() => setAddingKey(null)} onSubmit={(name) => issueKey.mutate({ account: addingKey, name })} />
+        <AccountModal key={editing ?? 'new'} accountId={editing} onClose={() => setEditing(undefined)} onCreated={showIssued} />
       )}
       <ConfirmModal
         open={!!deleting}
@@ -331,7 +400,7 @@ export function Accounts() {
         danger
         loading={remove.isPending}
       >
-        Supprimer définitivement le compte <strong>{deleting?.username}</strong> ?
+        Supprimer définitivement le compte <strong>{deleting?.username}</strong>{deleting?.apiKeys.length ? ` et ses ${deleting.apiKeys.length} clé(s) d'API` : ''} ?
       </ConfirmModal>
     </>
   );

@@ -69,8 +69,9 @@ export function registerUserRoutes(app: FastifyInstance) {
     return list.map((u) => dto(u, keys.filter((k) => k.userId.equals(u._id))));
   });
 
-  // New accounts get a temporary password, returned once; an API account has no password and gets a key instead.
-  app.post<{ Body: { username: string; displayName?: string; role: Role; apiOnly?: boolean; keyName?: string } }>(
+  // New accounts get a temporary password, returned once; with `noPassword` they get none and cannot log in
+  // (keys are added afterwards, see below).
+  app.post<{ Body: { username: string; displayName?: string; role: Role; noPassword?: boolean } }>(
     '/api/users',
     {
       schema: {
@@ -78,15 +79,14 @@ export function registerUserRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['username', 'role'],
           additionalProperties: false,
-          properties: { username, displayName, role, apiOnly: { type: 'boolean' }, keyName },
+          properties: { username, displayName, role, noPassword: { type: 'boolean' } },
         },
       },
     },
     async (req, reply) => {
       const name = req.body.username.trim();
       if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
-      const apiKey = req.body.apiOnly ? newApiKey() : null;
-      const temp = apiKey ? null : await temporaryPassword();
+      const temp = req.body.noPassword ? null : await temporaryPassword();
       const doc = {
         username: name,
         displayName: req.body.displayName?.trim() ?? '',
@@ -96,9 +96,8 @@ export function registerUserRoutes(app: FastifyInstance) {
       };
       try {
         const { insertedId } = await users.insertOne(doc as UserDoc);
-        if (!apiKey) return { user: dto({ ...doc, _id: insertedId } as UserDoc), temporaryPassword: temp!.password };
-        const key = await insertKey(insertedId, req.body.keyName, apiKey.hash);
-        return { user: dto({ ...doc, _id: insertedId } as UserDoc, [key]), apiKey: apiKey.key };
+        const user = dto({ ...doc, _id: insertedId } as UserDoc);
+        return temp ? { user, temporaryPassword: temp.password } : { user };
       } catch (err) {
         if (duplicate(err)) return reply.code(409).send({ error: 'username already taken' });
         throw err;

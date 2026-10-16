@@ -320,8 +320,12 @@ export interface Account {
   apiKeys: ApiKey[];
 }
 
-// Secret shown once: a temporary password, or the API key of an account without password
-export type AccountSecret = { user: Account } & ({ temporaryPassword: string } | { apiKey: string });
+// Secret shown once: a temporary password or a new API key; none for an account created without password
+export interface AccountSecret {
+  user: Account;
+  temporaryPassword?: string;
+  apiKey?: string;
+}
 
 export interface HomeAssistantSettings {
   enabled: boolean;
@@ -706,8 +710,8 @@ export const api = {
     request('POST', '/api/account/password', { currentPassword, newPassword }),
 
   users: () => request<Account[]>('GET', '/api/users'),
-  createUser: (username: string, displayName: string, role: Role, apiOnly = false, keyName = '') =>
-    request<AccountSecret>('POST', '/api/users', { username, displayName, role, apiOnly, keyName }),
+  createUser: (username: string, displayName: string, role: Role, noPassword = false) =>
+    request<AccountSecret>('POST', '/api/users', { username, displayName, role, noPassword }),
   updateUser: (id: string, patch: { username?: string; displayName?: string; role?: Role }) =>
     request<Account>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
