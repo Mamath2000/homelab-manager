@@ -40,7 +40,8 @@ Les appareils sont organisés en hiérarchie (`via_device`) : les **alertes remo
 ```text
 Homelab Manager
 ├── pve1                      (un appareil par hôte)
-│   └── pve1 · APT            (sous-composant : paquets système)
+│   ├── pve1 · APT            (sous-composant : paquets système)
+│   └── pve1 · Onduleur       (sous-composant : onduleur NUT)
 ├── docker-01
 │   ├── docker-01 · APT
 │   ├── docker-01 · media     (sous-composant : une stack docker compose)
@@ -101,6 +102,21 @@ Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la
 
 Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker](docker.md). Une stack non managée n'est pas publiée (son appareil est retiré).
 
+### Sous-composant Onduleur
+
+Un par hôte dont l'agent remonte un onduleur NUT. Détail et seuils : [Onduleur](onduleur.md).
+
+| Entité | Type |
+|---|---|
+| État | capteur : drapeaux `ups.status` (`OL`, `OB`, `RB`…) |
+| Charge batterie, Autonomie, Charge | capteurs (%, s, %) |
+| Tension d'entrée | capteur (V) |
+| Sur batterie | capteur binaire |
+| Batterie à remplacer | capteur binaire (problème) |
+| Tension batterie, Alertes, Problème | diagnostic |
+
+Indisponible quand l'agent est hors ligne, comme APT et Docker.
+
 ### Alertes
 
 | Composant | Niveau | Alerte |
@@ -114,6 +130,8 @@ Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker
 | Docker | avertissement | Stack partielle (une partie des conteneurs seulement tourne) |
 | Docker | avertissement | Conteneur en mauvaise santé (`unhealthy`) |
 | Docker | avertissement | Conteneur qui redémarre en boucle |
+| Onduleur | critique | Batterie à remplacer, alarme, sur batterie, batterie faible, surcharge, arrêt forcé |
+| Onduleur | avertissement | Charge ou autonomie sous le seuil NUT, auto-test en échec, statut inhabituel |
 
 « Paquets à nettoyer », « Nettoyer les paquets » et « Redémarrer » n'apparaissent qu'avec un agent récent (0.1.1 et plus) : l'agent annonce au hub les actions qu'il sait faire.
 
@@ -128,7 +146,7 @@ Une stack arrêtée volontairement ne déclenche pas d'alerte. Les prochains com
 | `PREFIXE/APPAREIL/alerts/attributes` | JSON : `critical` et les 20 premières alertes |
 | `PREFIXE/APPAREIL/ENTITE/set` | commande : `PRESS` (bouton), `INSTALL` (update) |
 
-Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte), `hm_ID_apt` et `hm_ID_docker_STACK`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
+Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte), `hm_ID_apt`, `hm_ID_ups` et `hm_ID_docker_STACK`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
 
 Topics de découverte, tous sous le *node id* `homelab` : `homeassistant/device/homelab/manager/config` (Homelab Manager), `homeassistant/device/homelab/hm_ID/config`, `homeassistant/device/homelab/hm_ID_apt/config`. Jusqu'à la 0.1.6, ils étaient publiés directement sous `homeassistant/device/<identifiant>/config` : le hub vide ces anciens topics à sa connexion et republie les appareils au nouvel emplacement.
 
