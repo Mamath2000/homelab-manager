@@ -70,7 +70,7 @@ Un hôte peut être **exclu de Home Assistant** (case à l'ajout ou sur sa fiche
 | Agent | capteur binaire de connectivité (agent connecté au hub) |
 | Redémarrage requis | capteur binaire (problème), dès que l'hôte a remonté son état APT |
 | Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
-| Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA |
+| Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA ; indisponible quand l’agent est hors ligne |
 | Vérifier les images Docker | bouton (hôtes avec Docker) : compare les images des stacks à leur registre |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
 | Système, Noyau, Adresse IP, Vu | diagnostic |
