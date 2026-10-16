@@ -5,7 +5,7 @@ import { RefreshCw, Save, Wand2 } from 'lucide-react';
 import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import { describeValue, hostHasUser, isListOption, sectionIcons, setupOptionInfo, setupSections, showSetup, type SetupSection } from '../lib/setup';
+import { describeValue, hostHasUser, isListOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
 import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
@@ -30,23 +30,13 @@ function driftLabel(n: number) {
   return `${n} écart${n > 1 ? 's' : ''}`;
 }
 
-// Header button of the host page, with the number of options that differ from the standard.
-export function SetupButton({ host, onOpen }: { host: Host; onOpen: () => void }) {
-  if (!showSetup(host)) return null;
-  const drift = host.setup?.drift ?? 0;
-  return (
-    <Button icon={Wand2} variant="ghost" onClick={onOpen} title={`Standardisation${drift ? ` : ${driftLabel(drift)}` : ''}`}>
-      {drift > 0 && <Badge tone="warn">{drift}</Badge>}
-    </Button>
-  );
-}
-
 // Conformity in one line (panel Système), opening the same window.
 export function SetupStatus({ host, onOpen }: { host: Host; onOpen: () => void }) {
   if (!host.capabilities.includes('setup')) return <>—</>;
   const drift = host.setup?.drift ?? 0;
   return (
-    <button onClick={onOpen} className="hover:underline">
+    <button onClick={onOpen} className="inline-flex items-center gap-1.5 hover:underline" title="Ouvrir la standardisation">
+      {host.setup && drift > 0 && <Wand2 className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />}
       {!host.setup ? <span className="text-muted">non vérifié</span> : drift ? <span className="text-amber-300">{driftLabel(drift)}</span> : <span className="text-emerald-400">conforme</span>}
     </button>
   );

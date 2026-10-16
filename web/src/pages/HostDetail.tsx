@@ -9,7 +9,7 @@ import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupButton } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
-import { SetupButton, SetupModal, SetupStatus } from '../components/SetupPanel';
+import { SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
@@ -388,7 +388,6 @@ function HostDetailPage({ id }: { id: string }) {
               }
               actions={
                 canWrite && <>
-                  <SetupButton host={host} onOpen={() => setSetupOpen(true)} />
                   {canManage && <Button icon={Settings} variant="ghost" title="Options" onClick={() => setEditing(true)} />}
                 </>
               }

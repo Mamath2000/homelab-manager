@@ -100,7 +100,7 @@ L'agent génère sa clé privée sur l'hôte, reçoit un certificat du hub, puis
 
 :::info Commande d'installation
 - `--pinnedpubkey` épingle la clé du hub : la commande échoue si un autre serveur répond à sa place.
-- `CODE` est **à usage unique et valable 24 h**. La commande n'est affichée qu'une fois ; au besoin, **Nouvelle commande d'installation** (icône clé sur la fiche de l'hôte) en génère une autre et annule la précédente.
+- `CODE` est **à usage unique et valable 24 h**. La commande n'est affichée qu'une fois ; au besoin, **Nouvelle commande d'installation** (engrenage **Options** › **Agent**, sur la fiche ou la liste des hôtes) en génère une autre et annule la précédente.
 
 Détails dans [Sécurité](securite.md).
 :::
@@ -113,7 +113,7 @@ Par défaut, l'agent joint le hub à l'adresse de **Paramètres → Agent → UR
 2. Optionnel, pour les sauvegardes : **Paramètres → Sauvegardes → Adresse du PBS sur Tailscale** (voir [Sauvegardes](sauvegardes.md)).
 3. À l'**ajout de l'hôte**, choisir le réseau d'accès **Tailscale** : la commande d'installation (et le jeton Home Assistant OS) portent l'adresse Tailscale du hub.
 
-Le réseau est choisi **par agent, à la création**, et ne se change pas ensuite : pour passer un hôte d'un réseau à l'autre, le supprimer et le réinstaller. La nouvelle commande d'installation d'un hôte existant (icône clé) garde son réseau ; la fiche et la liste affichent un badge **Tailscale**. Le certificat du hub ne change pas : l'agent épingle sa clé, pas son nom.
+Le réseau est choisi **par agent, à la création**, et ne se change pas ensuite : pour passer un hôte d'un réseau à l'autre, le supprimer et le réinstaller. La nouvelle commande d'installation d'un hôte existant (**Options** › **Agent**) garde son réseau ; la fiche et la liste affichent un badge **Tailscale**. Le certificat du hub ne change pas : l'agent épingle sa clé, pas son nom.
 
 Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée) et **exclu de [Home Assistant](home-assistant.md)**. Les deux restent modifiables sur la fiche de l'hôte.
 
@@ -220,4 +220,13 @@ curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh
 curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh | sh -s -- --uninstall
 ```
 
-**Révoquer l'agent** (fiche de l'hôte) le déconnecte et refuse son certificat ; supprimer l'hôte fait de même. Aucun des deux ne désinstalle l'agent : lancer la commande de désinstallation sur l'hôte.
+**Révoquer l'agent** (**Options** › **Danger**, sur la fiche de l'hôte) le déconnecte et refuse son certificat ; supprimer l'hôte fait de même. Aucun des deux ne désinstalle l'agent : lancer la commande de désinstallation sur l'hôte.
+
+## Options d'un hôte
+
+L'engrenage **Options** (administrateurs), dans l'en-tête de la fiche et à droite de chaque ligne de la liste, ouvre une fenêtre à menu de sections :
+
+- **Identité et comportement** : nom, site, tags, itinérance et exclusion de Home Assistant. Un seul bouton **Enregistrer** ; ces réglages restent modifiables hôte hors ligne.
+- **Éléments de l'hôte** : capacités et services signalés par l'agent (APT, Docker, redémarrage, mise à jour de l'agent, standardisation…).
+- **Agent** : version, authentification et **Nouvelle commande d'installation** (appliquée immédiatement).
+- **Danger** (fiche uniquement) : redémarrer, révoquer l'agent, supprimer l'hôte, chacun avec sa confirmation.

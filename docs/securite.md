@@ -58,7 +58,7 @@ Le résultat doit être identique à la clé épinglée affichée dans les param
 
 ## Révocation
 
-- **Révoquer l'agent**, sur la fiche de l'hôte : la connexion est coupée immédiatement, le certificat et toute commande d'installation en attente sont refusés. L'hôte et son historique sont conservés ; pour le reconnecter, il faut une nouvelle commande d'installation.
+- **Révoquer l'agent**, sur la fiche de l'hôte (**Options** › **Danger**) : la connexion est coupée immédiatement, le certificat et toute commande d'installation en attente sont refusés. L'hôte et son historique sont conservés ; pour le reconnecter, il faut une nouvelle commande d'installation.
 - **Supprimer l'hôte** a le même effet sur l'agent.
 - **Nouvelle commande d'installation** : l'agent en place continue de fonctionner jusqu'à ce que la nouvelle installation s'enrôle et remplace son certificat.
 

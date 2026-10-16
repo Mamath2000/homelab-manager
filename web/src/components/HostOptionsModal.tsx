@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Cpu, KeyRound, Power, ShieldAlert, ShieldOff, SlidersHorizontal, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Cpu, KeyRound, Network, Power, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
-import { agentRevoked, needsReinstall, osLabel } from '../lib/status';
+import { agentRevoked, hasApt, needsReinstall, osLabel } from '../lib/status';
 import { useToast } from '../lib/toast';
 import { HaExcludedField } from './HaExcludedField';
 import { SiteSelect, TagPicker } from './HostTags';
@@ -19,18 +19,30 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'identity' | 'behavior' | 'agent' | 'danger';
+type SectionId = 'settings' | 'host' | 'agent' | 'danger';
 
-// Identity and behavior are saved together (form); agent and danger actions apply immediately.
+// Identity and behavior are saved together; agent and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
-  { id: 'identity', label: 'Identité', icon: Tag },
-  { id: 'behavior', label: 'Comportement', icon: SlidersHorizontal },
+  { id: 'settings', label: 'Identité et comportement', icon: Tag },
+  { id: 'host', label: 'Éléments de l’hôte', icon: Server },
   { id: 'agent', label: 'Agent', icon: Cpu },
   { id: 'danger', label: 'Danger', icon: ShieldAlert },
 ];
 
 const authLabel = (host: Host) =>
   host.agentAuth === 'cert' ? 'Certificat' : host.agentAuth === 'legacy' ? 'Ancien jeton' : agentRevoked(host) ? 'Révoqué' : 'Jamais enrôlé';
+
+function Capability({ label, enabled, detail }: { label: string; enabled: boolean; detail: string }) {
+  return (
+    <div className="flex min-w-0 items-start justify-between gap-3 rounded-md border border-line bg-black/15 px-3.5 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-zinc-200">{label}</p>
+        <p className="mt-0.5 text-xs text-muted">{detail}</p>
+      </div>
+      <Badge tone={enabled ? 'ok' : 'neutral'}>{enabled ? 'Oui' : 'Non'}</Badge>
+    </div>
+  );
+}
 
 // mounted only while open: its state starts from the current host
 export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClose: () => void; danger?: HostDangerActions }) {
@@ -42,7 +54,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
-  const [section, setSection] = useState<SectionId>('identity');
+  const [section, setSection] = useState<SectionId>('settings');
   const upsert = useUpdateHostCache();
   const toast = useToast();
 
@@ -73,7 +85,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   };
 
   const sections = SECTIONS.filter((x) => x.id !== 'danger' || danger);
-  const isForm = section === 'identity' || section === 'behavior';
+  const isForm = section === 'settings';
 
   if (install) {
     return (
@@ -87,7 +99,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
     <Modal
       open
       scroll
-      wide
+      wide="xl"
       onClose={onClose}
       title={
         <>
@@ -106,8 +118,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
         )
       }
     >
-      <div className="flex min-h-72 flex-col gap-4 sm:flex-row sm:gap-6">
-        <nav aria-label="Sections" className="flex shrink-0 gap-1 overflow-x-auto sm:w-40 sm:flex-col">
+      <div className="flex min-h-[26rem] flex-col gap-4 sm:flex-row sm:gap-7">
+        <nav aria-label="Sections" className="flex shrink-0 gap-1 overflow-x-auto sm:w-52 sm:flex-col">
           {sections.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -127,25 +139,44 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
         </nav>
 
         <div className="min-w-0 flex-1">
-          {/* one form for both tabs: the hidden one keeps its state */}
+          {/* One form keeps all editable options together. */}
           <form id="host-options-form" onSubmit={save} className={clsx(!isForm && 'hidden')}>
-            <div className={clsx('space-y-4', section !== 'identity' && 'hidden')}>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-muted">Nom</span>
-                <input className="input" required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
-              </label>
-              <SiteSelect value={siteId} onChange={setSiteId} />
-              <TagPicker value={tags} onChange={setTags} />
-            </div>
-            <div className={clsx('space-y-4', section !== 'behavior' && 'hidden')}>
-              <RoamingField checked={roaming} onChange={setRoaming} />
-              <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
+            <div className="space-y-5">
+              <section className="grid gap-5 md:grid-cols-2">
+                <div className="space-y-4 rounded-lg border border-line bg-black/10 p-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-100">Identité</h4>
+                    <p className="mt-1 text-xs text-muted">Nom et site de rattachement.</p>
+                  </div>
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-medium text-muted">Nom</span>
+                    <input className="input" required maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
+                  </label>
+                  <SiteSelect value={siteId} onChange={setSiteId} />
+                </div>
+                <div className="min-w-0 rounded-lg border border-line bg-black/10 p-4">
+                  <TagPicker value={tags} onChange={setTags} />
+                </div>
+              </section>
+              <section className="space-y-4 border-t border-line pt-5">
+                <div>
+                  <h4 className="text-sm font-semibold text-zinc-100">Comportement</h4>
+                  <p className="mt-1 text-xs text-muted">Présence de l’hôte et intégration avec Home Assistant.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <RoamingField checked={roaming} onChange={setRoaming} />
+                  <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
+                </div>
+              </section>
             </div>
           </form>
 
           {section === 'agent' && (
             <div className="space-y-4">
-              <p className="text-xs text-muted">Ces actions s'appliquent immédiatement, sans passer par Enregistrer.</p>
+              <div>
+                <h4 className="text-sm font-semibold text-zinc-100">État de l’agent</h4>
+                <p className="mt-1 text-xs text-muted">Informations de connexion et de version remontées par l’hôte.</p>
+              </div>
               <dl className="space-y-1.5 text-sm">
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted">Version</dt>
@@ -159,21 +190,85 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                   <dd className={needsReinstall(host) || agentRevoked(host) ? 'text-red-300' : 'text-zinc-200'}>{authLabel(host)}</dd>
                 </div>
               </dl>
-              <Button icon={KeyRound} loading={enrolling} onClick={newInstall}>Nouvelle commande d'installation</Button>
+              <div className="border-t border-line pt-4">
+                <p className="mb-2 text-xs text-muted">Génère une nouvelle commande d’installation. L’agent actuel reste actif jusqu’au nouvel enrôlement.</p>
+                <Button icon={KeyRound} loading={enrolling} onClick={newInstall}>Nouvelle commande d’installation</Button>
+              </div>
+            </div>
+          )}
+
+          {section === 'host' && (
+            <div className="space-y-5">
+              <div>
+                <h4 className="text-sm font-semibold text-zinc-100">Éléments détectés</h4>
+                <p className="mt-1 text-xs text-muted">Capacités et services signalés par l’agent lors de son dernier rapport.</p>
+              </div>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <Capability label="Mises à jour APT" enabled={hasApt(host)} detail="Gestion des paquets système" />
+                <Capability label="Docker" enabled={!!host.docker} detail={host.docker ? `${host.docker.engine} · Compose ${host.docker.compose}` : 'Aucun moteur Docker détecté'} />
+                <Capability label="Redémarrage" enabled={host.capabilities.includes('reboot')} detail="Redémarrage à distance de l’hôte" />
+                <Capability label="Mise à jour de l’agent" enabled={host.capabilities.includes('agent_update')} detail="L’agent peut se mettre à jour lui-même" />
+                <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
+                <Capability label="Sauvegardes Home Assistant" enabled={host.capabilities.includes('ha_backups')} detail="Remontée des sauvegardes Home Assistant" />
+              </div>
+              {host.info && (
+                <dl className="grid gap-x-6 gap-y-2 border-t border-line pt-4 text-sm sm:grid-cols-2">
+                  <div className="flex justify-between gap-3"><dt className="text-muted">Système</dt><dd className="text-right text-zinc-200">{osLabel(host) ?? '—'}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-muted">Architecture</dt><dd className="font-mono text-xs text-zinc-200">{host.info.arch}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-muted">Virtualisation</dt><dd className="text-zinc-200">{host.info.virt}</dd></div>
+                  <div className="flex justify-between gap-3"><dt className="text-muted">Réseau agent</dt><dd className="inline-flex items-center gap-1.5 text-zinc-200"><Network className="h-3.5 w-3.5 text-muted" />{host.accessNetwork === 'tailscale' ? 'Tailscale' : 'Réseau local'}</dd></div>
+                </dl>
+              )}
             </div>
           )}
 
           {section === 'danger' && danger && (
-            <div className="space-y-3">
-              <p className="text-xs text-muted">Ces actions s'appliquent immédiatement et demandent une confirmation.</p>
-              <div className="flex flex-wrap gap-2">
+            <section className="overflow-hidden rounded-lg border border-red-500/40 bg-red-500/[0.025]">
+              <header className="border-b border-red-500/30 px-4 py-3.5">
+                <h4 className="flex items-center gap-2 text-sm font-semibold text-red-200">
+                  <ShieldAlert className="h-4 w-4" />
+                  Zone de danger
+                </h4>
+                <p className="mt-1 text-xs text-zinc-400">Ces opérations peuvent interrompre le service ou supprimer des données. Chacune demande une confirmation.</p>
+              </header>
+              <div className="divide-y divide-red-500/15">
                 {danger.onReboot && (
-                  <Button variant="danger" icon={Power} disabled={danger.rebootDisabled} onClick={danger.onReboot}>Redémarrer</Button>
+                  <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <Power className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                      <div>
+                        <p className="text-sm font-medium text-zinc-100">Redémarrer cet hôte</p>
+                        <p className="mt-0.5 text-xs text-muted">Interrompt temporairement les services de cet hôte.</p>
+                        {danger.rebootDisabled && <p className="mt-1 text-xs text-amber-300">Disponible lorsque l’hôte est en ligne et sans tâche en cours.</p>}
+                      </div>
+                    </div>
+                    <Button variant="danger" icon={Power} disabled={danger.rebootDisabled} onClick={danger.onReboot}>Redémarrer</Button>
+                  </div>
                 )}
-                {host.agentAuth !== 'none' && <Button variant="danger" icon={ShieldOff} onClick={danger.onRevoke}>Révoquer l'agent</Button>}
-                <Button variant="danger" icon={Trash2} onClick={danger.onDelete}>Supprimer l'hôte</Button>
+                {host.agentAuth !== 'none' && (
+                  <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <ShieldOff className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                      <div>
+                        <p className="text-sm font-medium text-zinc-100">Révoquer l’agent</p>
+                        <p className="mt-0.5 text-xs text-muted">Coupe sa connexion au hub. Une nouvelle installation sera nécessaire pour le reconnecter.</p>
+                      </div>
+                    </div>
+                    <Button variant="danger" icon={ShieldOff} onClick={danger.onRevoke}>Révoquer</Button>
+                  </div>
+                )}
+                <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <Trash2 className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                    <div>
+                      <p className="text-sm font-medium text-zinc-100">Supprimer cet hôte</p>
+                      <p className="mt-0.5 text-xs text-muted">Supprime l’hôte et son historique, puis déconnecte son agent. Cette action est irréversible.</p>
+                    </div>
+                  </div>
+                  <Button variant="danger" icon={Trash2} onClick={danger.onDelete}>Supprimer</Button>
+                </div>
               </div>
-            </div>
+            </section>
           )}
         </div>
       </div>
