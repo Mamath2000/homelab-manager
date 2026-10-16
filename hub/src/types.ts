@@ -1,4 +1,5 @@
 import type { ObjectId } from 'mongodb';
+import type { UpsReport } from './ups.js';
 
 export interface Package {
   name: string;
@@ -142,6 +143,7 @@ export interface HostDoc {
   apt?: AptReport;
   aptSummary?: AptSummary;
   docker?: DockerReport;
+  ups?: UpsReport;
   dockerUpdates?: DockerUpdates;
   lastDockerAutoCheckAt?: Date;
   // local images changed since the last registry check: a docker_check is due as soon as the host is free
@@ -633,7 +635,7 @@ export interface BackupPve {
 
 // Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'apt' | 'docker' | 'backups';
+export type AlertDomain = 'apt' | 'docker' | 'backups' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -645,6 +647,7 @@ export interface HostAlertDoc {
   apt?: DayAlert;
   docker?: DayAlert;
   backups?: DayAlert;
+  ups?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;
 }

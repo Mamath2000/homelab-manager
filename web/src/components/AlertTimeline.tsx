@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Activity, Container, DatabaseBackup, Package, type LucideIcon } from 'lucide-react';
+import { Activity, BatteryCharging, Container, DatabaseBackup, Package, type LucideIcon } from 'lucide-react';
 import type { AlertDomain, AlertLevel, DayAlert } from '../lib/api';
 import { useHostAlerts } from '../lib/queries';
 import { Badge, Panel } from './ui';
 
 const DAYS = 30;
 
-const domains: { id: AlertDomain; label: string; icon: LucideIcon }[] = [
+const allDomains: { id: AlertDomain; label: string; icon: LucideIcon }[] = [
   { id: 'apt', label: 'Mises à jour', icon: Package },
   { id: 'docker', label: 'Docker', icon: Container },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
+  { id: 'ups', label: 'Onduleur', icon: BatteryCharging },
 ];
 
 type Cell = AlertLevel | 'none';
@@ -41,9 +42,11 @@ const longDate = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'long', d
 const reasonText = (a: DayAlert | null) => (!a ? 'non suivi' : a.reasons.length ? a.reasons.join(' · ') : levelLabel[a.level]);
 
 // Alerts of the last 30 days of a host, one row per domain, one square per day (latest known state of the day).
-// A click on a day shows its reasons in the 3 domains. compact: the rows only (page scrolled).
-export function AlertTimeline({ hostId, compact }: { hostId: string; compact?: boolean }) {
+// A click on a day shows its reasons in each domain. compact: the rows only (page scrolled).
+// The UPS row only exists for a host with a UPS.
+export function AlertTimeline({ hostId, compact, ups }: { hostId: string; compact?: boolean; ups?: boolean }) {
   const { data } = useHostAlerts(hostId);
+  const domains = allDomains.filter((d) => d.id !== 'ups' || ups);
   const days = lastDays();
   const [picked, setPicked] = useState<string | null>(null);
   const selected = days.find((d) => d.key === picked) ?? days[DAYS - 1];
@@ -128,7 +131,10 @@ export function AlertTimeline({ hostId, compact }: { hostId: string; compact?: b
       }
     >
       {rows}
-      <div className="-mx-4 mt-3 grid grid-cols-[9rem_repeat(3,minmax(0,1fr))] gap-4 border-t border-line px-4 py-2.5 text-sm">
+      <div
+        className="-mx-4 mt-3 grid gap-4 border-t border-line px-4 py-2.5 text-sm"
+        style={{ gridTemplateColumns: `9rem repeat(${domains.length}, minmax(0, 1fr))` }}
+      >
         <span className="font-medium capitalize text-zinc-100">
           {longDate(selected.date)}
           {selected.key === days[DAYS - 1].key && <span className="block text-xs font-normal normal-case text-muted">aujourd'hui</span>}

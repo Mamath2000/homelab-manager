@@ -10,6 +10,7 @@ import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupButton } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
+import { UpsPanel } from '../components/UpsPanel';
 import { SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
@@ -312,9 +313,10 @@ function HostDetailPage({ id }: { id: string }) {
     }
   };
 
-  // content in a fixed order (packages, Docker, then backups), a missing block letting the next one
+  // content in a fixed order (UPS, packages, Docker, then backups), a missing block letting the next one
   // move up: the backups get their own column, otherwise two blocks share the two columns
   const blocks: ReactNode[] = [];
+  if (host.ups) blocks.push(<UpsPanel key="ups" ups={host.ups} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
   if (!hasApt(host) && !host.docker) {
@@ -460,7 +462,7 @@ function HostDetailPage({ id }: { id: string }) {
               </dl>
             </section>
             <div className={scrolled ? 'mt-2.5' : 'mt-4'}>
-              <AlertTimeline hostId={host.id} compact={scrolled} />
+              <AlertTimeline hostId={host.id} compact={scrolled} ups={!!host.ups} />
             </div>
           </div>
 

@@ -4,11 +4,12 @@
 // Hierarchy (via_device):
 //   Homelab Manager (root)
 //   └── one device per host: agent connectivity, alerts rolled up from its sub-components
-//       └── one device per sub-component, with the details: APT, one per Docker compose stack
+//       └── one device per sub-component, with the details: APT, one per Docker compose stack, UPS
 // Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
 import { hasApt, type HostDoc, type JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
-import { agentAlerts, aptAlerts, backupAlerts, dockerAlerts, pveAlerts, type Alert } from './alerts.js';
+import { agentAlerts, aptAlerts, backupAlerts, dockerAlerts, pveAlerts, upsAlerts, type Alert } from './alerts.js';
+import { upsFlags } from '../ups.js';
 import { dockerView } from '../docker.js';
 
 export const PRESS = 'PRESS';
@@ -272,8 +273,37 @@ export function build(all: HostState[], opts: BuildOptions) {
       d.finish();
     }
 
+    // --- UPS (NUT) of the host
+    const ups = upsAlerts(host);
+    const u = host.ups;
+    if (u) {
+      const flags = upsFlags(u.status);
+      const d = device(`${hostId}_ups`, {
+        name: `${host.name} · Onduleur`, model: u.model || 'Onduleur', via_device: hostId,
+        ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
+      }, [{ topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }]);
+      d.sensor('status', 'État', u.status, { icon: 'mdi:power-plug-battery' });
+      d.sensor('battery', 'Charge batterie', u.charge ?? null, {
+        device_class: 'battery', unit_of_measurement: '%', state_class: 'measurement',
+      });
+      d.sensor('runtime', 'Autonomie', u.runtime ?? null, {
+        device_class: 'duration', unit_of_measurement: 's', state_class: 'measurement',
+      });
+      d.sensor('load', 'Charge', u.load ?? null, { icon: 'mdi:gauge', unit_of_measurement: '%', state_class: 'measurement' });
+      d.sensor('input_voltage', "Tension d'entrée", u.inputVoltage ?? null, {
+        device_class: 'voltage', unit_of_measurement: 'V', state_class: 'measurement',
+      });
+      d.sensor('battery_voltage', 'Tension batterie', u.batteryVoltage ?? null, {
+        device_class: 'voltage', unit_of_measurement: 'V', state_class: 'measurement', ...diag,
+      });
+      d.binary('on_battery', 'Sur batterie', flags.has('OB'), { icon: 'mdi:battery-alert-variant-outline' });
+      d.binary('replace_battery', 'Batterie à remplacer', flags.has('RB'), { device_class: 'problem', icon: 'mdi:battery-sync' });
+      d.alerts(ups, diag);
+      d.finish();
+    }
+
     // --- host: connectivity + alerts rolled up from the sub-components
-    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt, ...docker, ...backup];
+    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt, ...docker, ...backup, ...ups];
     const selfUpdate = !!host.capabilities?.includes('agent_update');
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 

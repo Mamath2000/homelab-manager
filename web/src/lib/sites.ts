@@ -125,7 +125,7 @@ const rank = { none: -1, ok: 0, warn: 1, alert: 2 } as const;
 // Worst level of each day of a site over its hosts, and how many hosts were in alert / warning.
 export function siteDays(hosts: Host[], days: (HostAlertDay & { hostId: string })[], keys: string[], filter: TimelineFilter): SiteCell[] {
   const ids = new Set(hosts.map((h) => h.id));
-  const domains: AlertDomain[] = filter === 'all' ? ['apt', 'docker', 'backups'] : [filter];
+  const domains: AlertDomain[] = filter === 'all' ? ['apt', 'docker', 'backups', 'ups'] : [filter];
   const byDay = new Map<string, (HostAlertDay & { hostId: string })[]>();
   for (const d of days) if (ids.has(d.hostId)) byDay.set(d.day, [...(byDay.get(d.day) ?? []), d]);
   return keys.map((k) => {

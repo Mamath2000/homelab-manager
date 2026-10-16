@@ -6,6 +6,7 @@ import { dockerView } from './docker.js';
 import { subscribe } from './events.js';
 import { jobDto } from './jobs.js';
 import { backupState } from './pbs.js';
+import { upsAlert } from './ups.js';
 import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostAlertDoc, HostDoc, JobDoc } from './types.js';
 
 // Alerts of the host page over the last days, for 3 domains: system updates (APT), Docker, backups.
@@ -97,7 +98,7 @@ async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, Day
   );
 }
 
-// Current state of a host in the 3 domains; APT and Docker only while connected (the last report of
+// Current state of a host in the 4 domains; APT, Docker and UPS only while connected (the last report of
 // a host off for days says nothing of those days), the backups always (followed by the hub).
 export async function recordHost(h: HostDoc, now = new Date()) {
   const online = isOnline(h._id.toHexString());
@@ -108,6 +109,7 @@ export async function recordHost(h: HostDoc, now = new Date()) {
       apt: online ? aptAlert(h, online, now.getTime()) : null,
       docker: online ? dockerAlert(h) : null,
       backups: backupsAlert(groups, now.getTime()),
+      ups: online ? upsAlert(h) : null,
     },
     now,
   );
@@ -128,7 +130,7 @@ export async function hostAlertDays(hostId: ObjectId, days = ALERT_DAYS, now = n
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
   const list = await hostAlerts.find({ hostId, day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
-  return list.map((d: HostAlertDoc) => ({ day: d.day, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null }));
+  return list.map((d: HostAlertDoc) => ({ day: d.day, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null, ups: d.ups ?? null }));
 }
 
 // Days of every host (dashboard, one row per site), oldest first.
@@ -136,7 +138,7 @@ export async function allAlertDays(days = ALERT_DAYS, now = new Date()) {
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
   const list = await hostAlerts.find({ day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
-  return list.map((d: HostAlertDoc) => ({ hostId: d.hostId.toHexString(), day: d.day, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null }));
+  return list.map((d: HostAlertDoc) => ({ hostId: d.hostId.toHexString(), day: d.day, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null, ups: d.ups ?? null }));
 }
 
 // First start: the failed jobs of the last days (kept 90 days) fill the past days of the timeline;

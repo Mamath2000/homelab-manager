@@ -57,6 +57,8 @@ export function hostDto(h: HostDoc) {
     // compose stacks, with the update state of each service (null without Docker)
     docker,
     dockerSummary: dockerSummary(docker),
+    // UPS monitored by NUT on the host (null: none)
+    ups: h.ups ?? null,
     setupOverrides: h.setupOverrides ?? {},
     setup: setupDto(h),
     // Proxmox VE guest this host is (see pve.ts)

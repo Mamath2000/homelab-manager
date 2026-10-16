@@ -1,5 +1,6 @@
 import type { HostDoc } from '../types.js';
 import type { StackView } from '../docker.js';
+import { upsProblems } from '../ups.js';
 
 // Alerts are produced by each sub-component of a host (agent, apt, later docker, backups...)
 // and roll up: sub-component -> host -> Homelab Manager.
@@ -69,4 +70,10 @@ export function pveAlerts(h: Pick<HostDoc, 'pve'>): Alert[] {
   if (!h.pve || h.pve.covered) return [];
   const what = h.pve.type === 'lxc' ? 'CT' : 'VM';
   return [{ level: 'warning', source: 'backup', message: `${what} ${h.pve.vmid} couvert par aucun job de sauvegarde Proxmox` }];
+}
+
+// UPS of the host (NUT): battery to replace, on battery, alarm, low charge...
+export function upsAlerts(h: Pick<HostDoc, 'ups'>): Alert[] {
+  if (!h.ups) return [];
+  return upsProblems(h.ups).map((p) => ({ level: p.level === 'alert' ? 'critical' : 'warning', source: 'ups', message: p.message }));
 }

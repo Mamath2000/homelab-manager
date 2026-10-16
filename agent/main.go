@@ -176,6 +176,10 @@ func (s *session) hello(ctx context.Context) error {
 	caps = append(caps, "backup_nextcloud")
 	// jobs run on connection to the hub (connectEveryDays, backup.go)
 	caps = append(caps, "backup_connect")
+	// UPS monitored by NUT (ups.go), re-evaluated at each hello
+	if hasUps(ctx) {
+		caps = append(caps, "ups")
+	}
 	for _, k := range runningDatabaseKinds(ctx) {
 		caps = append(caps, "backup_database:"+k)
 	}
@@ -427,6 +431,8 @@ func (s *session) loop(ctx context.Context) error {
 	}
 	if onHAOS {
 		go s.haBackupLoop(ctx)
+	} else {
+		go s.upsLoop(ctx)
 	}
 
 	// periodic refresh of system info + cached apt state (cheap, no network)

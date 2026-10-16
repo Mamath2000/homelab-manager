@@ -14,6 +14,7 @@ import { refreshLinks } from './pve.js';
 import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
 import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
 import { isHaBackupReport, refreshHaBackups } from './haBackups.js';
+import { isUpsReport } from './ups.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
@@ -120,6 +121,7 @@ interface AgentMessage {
   docker?: unknown;
   updates?: unknown;
   haBackups?: unknown;
+  ups?: unknown;
   reqId?: string;
   result?: unknown;
   jobId?: string;
@@ -236,6 +238,11 @@ export function registerAgentSocket(app: FastifyInstance) {
             case 'ha_backups':
               if (!isHaBackupReport(msg.haBackups)) return;
               await refreshHaBackups(host._id, msg.haBackups);
+              await emitHost(host._id);
+              break;
+            case 'ups_report':
+              if (!isUpsReport(msg.ups)) return;
+              await hosts.updateOne({ _id: host._id }, { $set: { ups: msg.ups, lastSeenAt: new Date() } });
               await emitHost(host._id);
               break;
             case 'backup_synced':

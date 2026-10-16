@@ -267,3 +267,22 @@ test('unmanaged stacks are not published', () => {
   assert.equal(states.get(`hm/hm_${hid}/alerts/state`), '0');
   assert.equal(states.get(`hm/${ROOT_ID}/stacks/state`), '0');
 });
+
+test('UPS: sub-device with its sensors, battery to replace rolls up as a critical alert', () => {
+  const h = host('pbs');
+  h.ups = { checkedAt: Date.now(), name: 'ups', model: 'Back-UPS XS 1400U', driver: 'usbhid-ups', status: 'ALARM OL RB', charge: 100, runtime: 528, load: 20, inputVoltage: 228 };
+  const { devices } = build([{ host: h, online: true, busy: false }], opts);
+  const hostId = `hm_${h._id.toHexString()}`;
+  const ups = devices.find((d) => d.id === `${hostId}_ups`);
+  assert.ok(ups);
+  assert.equal((ups.discovery.device as Record<string, unknown>).via_device, hostId);
+  const states = new Map(ups.states);
+  assert.equal(states.get(`hm/${hostId}_ups/battery/state`), '100');
+  assert.equal(states.get(`hm/${hostId}_ups/runtime/state`), '528');
+  assert.equal(states.get(`hm/${hostId}_ups/replace_battery/state`), 'ON');
+  assert.equal(states.get(`hm/${hostId}_ups/on_battery/state`), 'OFF');
+  const rolled = JSON.parse(devices.find((d) => d.id === hostId)!.states.find(([t]) => t.endsWith('/alerts/attributes'))![1]);
+  assert.ok(rolled.critical >= 1);
+  // a host without UPS gets no such device
+  assert.ok(!build([{ host: host('pve2'), online: true, busy: false }], opts).devices.some((d) => d.id.endsWith('_ups')));
+});

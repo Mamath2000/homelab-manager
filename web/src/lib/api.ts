@@ -29,6 +29,28 @@ export interface HostInfo {
   macs?: string[] | null;
 }
 
+// UPS reported by the agent (NUT); numbers are absent when the UPS does not report them.
+export interface UpsReport {
+  checkedAt: number;
+  name: string;
+  model: string;
+  driver: string;
+  status: string; // ups.status flags: OL OB LB RB CHRG DISCHRG ALARM...
+  charge?: number; // %
+  chargeWarning?: number;
+  chargeLow?: number;
+  runtime?: number; // seconds
+  runtimeLow?: number;
+  load?: number; // %
+  inputVoltage?: number;
+  inputNominal?: number;
+  batteryVoltage?: number;
+  batteryNominal?: number;
+  testResult?: string;
+  beeper?: string;
+  mfrDate?: string;
+}
+
 export interface AptSummary {
   upgradable: number;
   security: number;
@@ -141,6 +163,8 @@ export interface Host {
   aptSummary: AptSummary | null;
   docker: DockerView | null;
   dockerSummary: DockerSummary | null;
+  // UPS monitored by NUT on the host, null: none
+  ups: UpsReport | null;
   // standardisation: values of this host that differ from the standard, last conformity check
   setupOverrides: SetupOverrides;
   setup: SetupState | null;
@@ -235,7 +259,7 @@ export interface Job {
 // Alerts of a host for one day (timeline of the host page): latest observed level of the day in each domain and
 // its reasons; null: not followed that day (no APT, agent not connected...)
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'apt' | 'docker' | 'backups';
+export type AlertDomain = 'apt' | 'docker' | 'backups' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];

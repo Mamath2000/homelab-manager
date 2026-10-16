@@ -103,6 +103,7 @@ type Outbound struct {
 	Docker       *DockerReport   `json:"docker,omitempty"`
 	Updates      *DockerUpdates  `json:"updates,omitempty"`
 	HaBackups    *HaBackupReport `json:"haBackups,omitempty"`
+	Ups          *UpsReport      `json:"ups,omitempty"`
 	ReqID        string          `json:"reqId,omitempty"`
 	Result       any             `json:"result,omitempty"`
 	JobID        string          `json:"jobId,omitempty"`
