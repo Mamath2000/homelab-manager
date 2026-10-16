@@ -300,6 +300,13 @@ export interface AuthStatus {
   user: Me | null;
 }
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export interface Account {
   id: string;
   username: string;
@@ -310,9 +317,7 @@ export interface Account {
   mustChangePassword: boolean;
   // no password: the account only opens with its API key
   hasPassword: boolean;
-  hasApiKey: boolean;
-  apiKeyCreatedAt: string | null;
-  apiKeyLastUsedAt: string | null;
+  apiKeys: ApiKey[];
 }
 
 // Secret shown once: a temporary password, or the API key of an account without password
@@ -701,14 +706,14 @@ export const api = {
     request('POST', '/api/account/password', { currentPassword, newPassword }),
 
   users: () => request<Account[]>('GET', '/api/users'),
-  createUser: (username: string, displayName: string, role: Role, apiOnly = false) =>
-    request<AccountSecret>('POST', '/api/users', { username, displayName, role, apiOnly }),
+  createUser: (username: string, displayName: string, role: Role, apiOnly = false, keyName = '') =>
+    request<AccountSecret>('POST', '/api/users', { username, displayName, role, apiOnly, keyName }),
   updateUser: (id: string, patch: { username?: string; displayName?: string; role?: Role }) =>
     request<Account>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
   resetPassword: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/reset-password`),
-  createApiKey: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/api-key`),
-  revokeApiKey: (id: string) => request<void>('DELETE', `/api/users/${id}/api-key`),
+  createApiKey: (id: string, name: string) => request<AccountSecret>('POST', `/api/users/${id}/api-keys`, { name }),
+  revokeApiKey: (id: string, keyId: string) => request<void>('DELETE', `/api/users/${id}/api-keys/${keyId}`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
   createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>

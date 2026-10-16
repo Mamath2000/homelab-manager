@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 import { hashPassword, randomToken, sha256, verifyPassword } from './crypto.js';
-import { sessions, users } from './db.js';
+import { apiKeys, sessions, users } from './db.js';
 import { allowedBeforePasswordChange, authorize } from './roles.js';
 import { SUPERADMIN, type UserDoc } from './types.js';
 
@@ -64,9 +64,9 @@ export function newApiKey() {
 async function userFromApiKey(req: FastifyRequest) {
   const match = /^Bearer (hm_\S+)$/.exec(req.headers.authorization ?? '');
   if (!match) return undefined;
-  const user = await users.findOne({ apiKeyHash: sha256(match[1]), role: { $ne: SUPERADMIN } });
-  if (user) await users.updateOne({ _id: user._id }, { $set: { apiKeyLastUsedAt: new Date() } });
-  return user;
+  const key = await apiKeys.findOneAndUpdate({ hash: sha256(match[1]) }, { $set: { lastUsedAt: new Date() } });
+  if (!key) return null;
+  return users.findOne({ _id: key.userId, role: { $ne: SUPERADMIN } });
 }
 
 async function userFromRequest(req: FastifyRequest) {

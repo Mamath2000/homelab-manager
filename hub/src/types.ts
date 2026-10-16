@@ -322,10 +322,17 @@ export interface UserDoc {
   passwordExpiresAt?: Date;
   createdAt: Date;
   lastLoginAt?: Date;
-  // API key (one per account, `Authorization: Bearer hm_…`): only its hash is stored
-  apiKeyHash?: string;
-  apiKeyCreatedAt?: Date;
-  apiKeyLastUsedAt?: Date;
+}
+
+// API key of an account (`Authorization: Bearer hm_…`): only its hash is stored. The key has the rights
+// of the account's role.
+export interface ApiKeyDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  name: string;
+  hash: string; // sha256 of the key
+  createdAt: Date;
+  lastUsedAt?: Date;
 }
 
 export interface SessionDoc {

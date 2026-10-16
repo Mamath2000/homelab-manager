@@ -1,7 +1,7 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import type { TokenSetupDoc } from './tokenSetup.js';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -9,6 +9,7 @@ export let hosts: Collection<HostDoc>;
 export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
+export let apiKeys: Collection<ApiKeyDoc>;
 export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
@@ -23,6 +24,7 @@ export async function connectDb() {
   jobs = db.collection('jobs');
   users = db.collection('users');
   sessions = db.collection('sessions');
+  apiKeys = db.collection('apiKeys');
   settings = db.collection('settings');
   backups = db.collection('backups');
   guests = db.collection('guests');
@@ -39,7 +41,8 @@ export async function connectDb() {
     // keep 90 days of job history
     jobs.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 3600, name: 'jobs_ttl' }),
     users.createIndex({ username: 1 }, { unique: true }),
-    users.createIndex({ apiKeyHash: 1 }, { sparse: true }),
+    apiKeys.createIndex({ hash: 1 }, { unique: true }),
+    apiKeys.createIndex({ userId: 1 }),
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     sessions.createIndex({ userId: 1 }),
     backups.createIndex({ hostId: 1 }),

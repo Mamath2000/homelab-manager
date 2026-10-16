@@ -1,11 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import { MongoServerError } from 'mongodb';
+import { MongoServerError, ObjectId } from 'mongodb';
 import { newApiKey, revokeSessions } from '../auth.js';
 import { hashPassword, randomToken } from '../crypto.js';
-import { parseId, users } from '../db.js';
-import { ROLES, SUPERADMIN, type Role, type UserDoc } from '../types.js';
+import { apiKeys, parseId, users } from '../db.js';
+import { ROLES, SUPERADMIN, type ApiKeyDoc, type Role, type UserDoc } from '../types.js';
 
-function dto(u: UserDoc) {
+function keyDto(k: ApiKeyDoc) {
+  return { id: k._id.toHexString(), name: k.name, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt ?? null };
+}
+
+function dto(u: UserDoc, keys: ApiKeyDoc[] = []) {
   return {
     id: u._id.toHexString(),
     username: u.username,
@@ -16,9 +20,7 @@ function dto(u: UserDoc) {
     mustChangePassword: !!u.mustChangePassword,
     // an account without password only opens with its API key
     hasPassword: !!u.passwordHash,
-    hasApiKey: !!u.apiKeyHash,
-    apiKeyCreatedAt: u.apiKeyCreatedAt ?? null,
-    apiKeyLastUsedAt: u.apiKeyLastUsedAt ?? null,
+    apiKeys: keys.map(keyDto),
   };
 }
 
@@ -31,6 +33,7 @@ async function temporaryPassword() {
 const username = { type: 'string', minLength: 1, maxLength: 64, pattern: '\\S' } as const;
 const displayName = { type: 'string', maxLength: 64 } as const;
 const role = { type: 'string', enum: ROLES } as const;
+const keyName = { type: 'string', maxLength: 64 } as const;
 
 function reserved(name: string) {
   return name.toLowerCase() === SUPERADMIN;
@@ -48,17 +51,26 @@ export function registerUserRoutes(app: FastifyInstance) {
     return _id && users.findOne({ _id, role: { $ne: SUPERADMIN } });
   }
 
+  async function insertKey(userId: ObjectId, name: string | undefined, hash: string) {
+    const doc: ApiKeyDoc = { _id: new ObjectId(), userId, name: name?.trim() || 'default', hash, createdAt: new Date() };
+    await apiKeys.insertOne(doc);
+    return doc;
+  }
+
+  const userKeys = (u: UserDoc) => apiKeys.find({ userId: u._id }).sort({ createdAt: 1 }).toArray();
+
   async function lastAdmin(u: UserDoc) {
     return u.role === 'admin' && (await users.countDocuments({ role: 'admin' })) <= 1;
   }
 
   app.get('/api/users', async () => {
     const list = await users.find({ role: { $ne: SUPERADMIN } }).sort({ username: 1 }).toArray();
-    return list.map(dto);
+    const keys = await apiKeys.find({ userId: { $in: list.map((u) => u._id) } }).sort({ createdAt: 1 }).toArray();
+    return list.map((u) => dto(u, keys.filter((k) => k.userId.equals(u._id))));
   });
 
   // New accounts get a temporary password, returned once; an API account has no password and gets a key instead.
-  app.post<{ Body: { username: string; displayName?: string; role: Role; apiOnly?: boolean } }>(
+  app.post<{ Body: { username: string; displayName?: string; role: Role; apiOnly?: boolean; keyName?: string } }>(
     '/api/users',
     {
       schema: {
@@ -66,7 +78,7 @@ export function registerUserRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['username', 'role'],
           additionalProperties: false,
-          properties: { username, displayName, role, apiOnly: { type: 'boolean' } },
+          properties: { username, displayName, role, apiOnly: { type: 'boolean' }, keyName },
         },
       },
     },
@@ -79,13 +91,14 @@ export function registerUserRoutes(app: FastifyInstance) {
         username: name,
         displayName: req.body.displayName?.trim() ?? '',
         role: req.body.role,
-        ...(temp ? temp.fields : { passwordHash: null, apiKeyHash: apiKey!.hash, apiKeyCreatedAt: new Date() }),
+        ...(temp ? temp.fields : { passwordHash: null }),
         createdAt: new Date(),
       };
       try {
         const { insertedId } = await users.insertOne(doc as UserDoc);
-        const user = dto({ ...doc, _id: insertedId } as UserDoc);
-        return temp ? { user, temporaryPassword: temp.password } : { user, apiKey: apiKey!.key };
+        if (!apiKey) return { user: dto({ ...doc, _id: insertedId } as UserDoc), temporaryPassword: temp!.password };
+        const key = await insertKey(insertedId, req.body.keyName, apiKey.hash);
+        return { user: dto({ ...doc, _id: insertedId } as UserDoc, [key]), apiKey: apiKey.key };
       } catch (err) {
         if (duplicate(err)) return reply.code(409).send({ error: 'username already taken' });
         throw err;
@@ -120,7 +133,7 @@ export function registerUserRoutes(app: FastifyInstance) {
         if (!updated) return reply.code(404).send({ error: 'user not found' });
         // sessions carry no role, but log the user out so the UI reloads with the new rights
         if (roleChanged) await revokeSessions(user);
-        return dto(updated);
+        return dto(updated, await userKeys(updated));
       } catch (err) {
         if (duplicate(err)) return reply.code(409).send({ error: 'username already taken' });
         throw err;
@@ -134,6 +147,7 @@ export function registerUserRoutes(app: FastifyInstance) {
     if (user._id.equals(req.user!._id)) return reply.code(409).send({ error: 'cannot delete your own account' });
     if (await lastAdmin(user)) return reply.code(409).send({ error: 'cannot delete the last admin' });
     await users.deleteOne({ _id: user._id });
+    await apiKeys.deleteMany({ userId: user._id });
     await revokeSessions(user);
     return reply.code(204).send();
   });
@@ -145,23 +159,27 @@ export function registerUserRoutes(app: FastifyInstance) {
     const temp = await temporaryPassword();
     await users.updateOne({ _id: user._id }, { $set: temp.fields });
     await revokeSessions(user);
-    return { user: dto({ ...user, ...temp.fields }), temporaryPassword: temp.password };
+    return { user: dto({ ...user, ...temp.fields }, await userKeys(user)), temporaryPassword: temp.password };
   });
 
-  // New API key, returned once; the previous one stops working at once.
-  app.post<{ Params: { id: string } }>('/api/users/:id/api-key', async (req, reply) => {
-    const user = await target(req.params.id);
-    if (!user) return reply.code(404).send({ error: 'user not found' });
-    const { key, hash } = newApiKey();
-    const fields = { apiKeyHash: hash, apiKeyCreatedAt: new Date() };
-    await users.updateOne({ _id: user._id }, { $set: fields, $unset: { apiKeyLastUsedAt: '' } });
-    return { user: dto({ ...user, ...fields, apiKeyLastUsedAt: undefined }), apiKey: key };
-  });
+  // New API key, returned once. An account may have several (one per consumer), each revoked on its own.
+  app.post<{ Params: { id: string }; Body: { name?: string } }>(
+    '/api/users/:id/api-keys',
+    { schema: { body: { type: 'object', additionalProperties: false, properties: { name: keyName } } } },
+    async (req, reply) => {
+      const user = await target(req.params.id);
+      if (!user) return reply.code(404).send({ error: 'user not found' });
+      const { key, hash } = newApiKey();
+      await insertKey(user._id, req.body?.name, hash);
+      return { user: dto(user, await userKeys(user)), apiKey: key };
+    },
+  );
 
-  app.delete<{ Params: { id: string } }>('/api/users/:id/api-key', async (req, reply) => {
+  app.delete<{ Params: { id: string; keyId: string } }>('/api/users/:id/api-keys/:keyId', async (req, reply) => {
     const user = await target(req.params.id);
-    if (!user) return reply.code(404).send({ error: 'user not found' });
-    await users.updateOne({ _id: user._id }, { $unset: { apiKeyHash: '', apiKeyCreatedAt: '', apiKeyLastUsedAt: '' } });
-    return reply.code(204).send();
+    const keyId = parseId(req.params.keyId);
+    if (!user || !keyId) return reply.code(404).send({ error: 'key not found' });
+    const { deletedCount } = await apiKeys.deleteOne({ _id: keyId, userId: user._id });
+    return deletedCount ? reply.code(204).send() : reply.code(404).send({ error: 'key not found' });
   });
 }
