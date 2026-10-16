@@ -284,12 +284,15 @@ export interface Account {
   createdAt: string;
   lastLoginAt: string | null;
   mustChangePassword: boolean;
+  // no password: the account only opens with its API key
+  hasPassword: boolean;
+  hasApiKey: boolean;
+  apiKeyCreatedAt: string | null;
+  apiKeyLastUsedAt: string | null;
 }
 
-export interface AccountWithPassword {
-  user: Account;
-  temporaryPassword: string;
-}
+// Secret shown once: a temporary password, or the API key of an account without password
+export type AccountSecret = { user: Account } & ({ temporaryPassword: string } | { apiKey: string });
 
 export interface HomeAssistantSettings {
   enabled: boolean;
@@ -674,12 +677,14 @@ export const api = {
     request('POST', '/api/account/password', { currentPassword, newPassword }),
 
   users: () => request<Account[]>('GET', '/api/users'),
-  createUser: (username: string, displayName: string, role: Role) =>
-    request<AccountWithPassword>('POST', '/api/users', { username, displayName, role }),
+  createUser: (username: string, displayName: string, role: Role, apiOnly = false) =>
+    request<AccountSecret>('POST', '/api/users', { username, displayName, role, apiOnly }),
   updateUser: (id: string, patch: { username?: string; displayName?: string; role?: Role }) =>
     request<Account>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
-  resetPassword: (id: string) => request<AccountWithPassword>('POST', `/api/users/${id}/reset-password`),
+  resetPassword: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/reset-password`),
+  createApiKey: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/api-key`),
+  revokeApiKey: (id: string) => request<void>('DELETE', `/api/users/${id}/api-key`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
   createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>

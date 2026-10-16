@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { MongoServerError } from 'mongodb';
-import { revokeSessions } from '../auth.js';
+import { newApiKey, revokeSessions } from '../auth.js';
 import { hashPassword, randomToken } from '../crypto.js';
 import { parseId, users } from '../db.js';
 import { ROLES, SUPERADMIN, type Role, type UserDoc } from '../types.js';
@@ -14,6 +14,11 @@ function dto(u: UserDoc) {
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt ?? null,
     mustChangePassword: !!u.mustChangePassword,
+    // an account without password only opens with its API key
+    hasPassword: !!u.passwordHash,
+    hasApiKey: !!u.apiKeyHash,
+    apiKeyCreatedAt: u.apiKeyCreatedAt ?? null,
+    apiKeyLastUsedAt: u.apiKeyLastUsedAt ?? null,
   };
 }
 
@@ -52,8 +57,8 @@ export function registerUserRoutes(app: FastifyInstance) {
     return list.map(dto);
   });
 
-  // New accounts get a temporary password, returned once.
-  app.post<{ Body: { username: string; displayName?: string; role: Role } }>(
+  // New accounts get a temporary password, returned once; an API account has no password and gets a key instead.
+  app.post<{ Body: { username: string; displayName?: string; role: Role; apiOnly?: boolean } }>(
     '/api/users',
     {
       schema: {
@@ -61,24 +66,26 @@ export function registerUserRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['username', 'role'],
           additionalProperties: false,
-          properties: { username, displayName, role },
+          properties: { username, displayName, role, apiOnly: { type: 'boolean' } },
         },
       },
     },
     async (req, reply) => {
       const name = req.body.username.trim();
       if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
-      const temp = await temporaryPassword();
+      const apiKey = req.body.apiOnly ? newApiKey() : null;
+      const temp = apiKey ? null : await temporaryPassword();
       const doc = {
         username: name,
         displayName: req.body.displayName?.trim() ?? '',
         role: req.body.role,
-        ...temp.fields,
+        ...(temp ? temp.fields : { passwordHash: null, apiKeyHash: apiKey!.hash, apiKeyCreatedAt: new Date() }),
         createdAt: new Date(),
       };
       try {
         const { insertedId } = await users.insertOne(doc as UserDoc);
-        return { user: dto({ ...doc, _id: insertedId }), temporaryPassword: temp.password };
+        const user = dto({ ...doc, _id: insertedId } as UserDoc);
+        return temp ? { user, temporaryPassword: temp.password } : { user, apiKey: apiKey!.key };
       } catch (err) {
         if (duplicate(err)) return reply.code(409).send({ error: 'username already taken' });
         throw err;
@@ -139,5 +146,22 @@ export function registerUserRoutes(app: FastifyInstance) {
     await users.updateOne({ _id: user._id }, { $set: temp.fields });
     await revokeSessions(user);
     return { user: dto({ ...user, ...temp.fields }), temporaryPassword: temp.password };
+  });
+
+  // New API key, returned once; the previous one stops working at once.
+  app.post<{ Params: { id: string } }>('/api/users/:id/api-key', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    const { key, hash } = newApiKey();
+    const fields = { apiKeyHash: hash, apiKeyCreatedAt: new Date() };
+    await users.updateOne({ _id: user._id }, { $set: fields, $unset: { apiKeyLastUsedAt: '' } });
+    return { user: dto({ ...user, ...fields, apiKeyLastUsedAt: undefined }), apiKey: key };
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/users/:id/api-key', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    await users.updateOne({ _id: user._id }, { $unset: { apiKeyHash: '', apiKeyCreatedAt: '', apiKeyLastUsedAt: '' } });
+    return reply.code(204).send();
   });
 }

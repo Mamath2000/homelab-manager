@@ -320,6 +320,10 @@ export interface UserDoc {
   passwordExpiresAt?: Date;
   createdAt: Date;
   lastLoginAt?: Date;
+  // API key (one per account, `Authorization: Bearer hm_…`): only its hash is stored
+  apiKeyHash?: string;
+  apiKeyCreatedAt?: Date;
+  apiKeyLastUsedAt?: Date;
 }
 
 export interface SessionDoc {

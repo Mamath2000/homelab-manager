@@ -1,51 +1,72 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAgentTls } from '../lib/agentTls';
 import { useToast } from '../lib/toast';
-import { Button, CopyField } from './ui';
+import { SettingsFormActions } from './SettingsForm';
+import { useSettingsDraft } from './settingsDraft';
+import { CopyField } from './ui';
 
 // Automatic agent updates + the agent version the hub distributes.
-export function AgentAutoUpdate() {
+export function AgentAutoUpdate({ children }: { children?: (actions: ReactNode) => ReactNode }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings });
+  const [draft, setDraft] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const autoUpdate = draft ?? data?.autoUpdate ?? false;
+
+  const save = async () => {
+    if (!data) return false;
+    setBusy(true);
+    try {
+      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({ autoUpdate }));
+      setDraft(null);
+      toast.success(autoUpdate ? 'Mise à jour automatique des agents activée' : 'Mise à jour automatique des agents désactivée');
+      return true;
+    } catch (err) {
+      toast.error((err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const discard = () => setDraft(null);
+  const dirty = !!data && draft !== null && autoUpdate !== data.autoUpdate;
+  useSettingsDraft(dirty, save, discard);
   if (!data) return null;
   const version = data.binaries.find((b) => b.version)?.version;
 
-  const toggle = async (autoUpdate: boolean) => {
-    try {
-      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({ autoUpdate }));
-      toast.success(autoUpdate ? 'Mise à jour automatique des agents activée' : 'Mise à jour automatique des agents désactivée');
-    } catch (err) {
-      toast.error((err as Error).message);
-    }
-  };
-
   return (
-    <div className="rounded-md border border-line bg-raised/40 p-4">
-      <label className="flex cursor-pointer items-start gap-3">
-        <input type="checkbox" checked={data.autoUpdate} onChange={(e) => toggle(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
-        <span>
-          <span className="block font-medium text-zinc-100">Mettre à jour les agents automatiquement</span>
-          <span className="mt-1 block text-xs text-muted">
-            Dès qu'un agent se connecte avec une version différente de celle du hub, il télécharge la nouvelle, vérifie son empreinte et sa signature, puis redémarre.
-            Un nouvel essai a lieu au plus une fois par heure.
+    <>
+      <div className="rounded-md border border-line bg-raised/40 p-4">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input type="checkbox" checked={autoUpdate} onChange={(e) => setDraft(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
+          <span>
+            <span className="block font-medium text-zinc-100">Mettre à jour les agents automatiquement</span>
+            <span className="mt-1 block text-xs text-muted">
+              Dès qu'un agent se connecte avec une version différente de celle du hub, il télécharge la nouvelle, vérifie son empreinte et sa signature, puis redémarre.
+              Un nouvel essai a lieu au plus une fois par heure.
+            </span>
           </span>
-        </span>
-      </label>
-      <p className="mt-3 text-xs text-muted">
-        Agent distribué par ce hub : <span className="font-mono text-zinc-300">{version ?? 'inconnu'}</span>
-        {data.binaries.length > 0 && <> ({data.binaries.map((b) => b.arch).join(', ')})</>}
-        {data.binaries.length > 0 &&
-          (data.binaries.every((b) => b.signed) ? (
-            <span className="text-emerald-400"> · signé</span>
-          ) : (
-            <span className="text-amber-300"> · non signé (build de développement : les agents de release refuseront cette mise à jour)</span>
-          ))}
-      </p>
-    </div>
+        </label>
+        <p className="mt-3 text-xs text-muted">
+          Agent distribué par ce hub : <span className="font-mono text-zinc-300">{version ?? 'inconnu'}</span>
+          {data.binaries.length > 0 && <> ({data.binaries.map((b) => b.arch).join(', ')})</>}
+          {data.binaries.length > 0 &&
+            (data.binaries.every((b) => b.signed) ? (
+              <span className="text-emerald-400"> · signé</span>
+            ) : (
+              <span className="text-amber-300"> · non signé (build de développement : les agents de release refuseront cette mise à jour)</span>
+            ))}
+        </p>
+      </div>
+      {children
+        ? children(<SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />)
+        : <SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />}
+    </>
   );
 }
 
@@ -57,11 +78,15 @@ export function AgentHubSettings() {
   // local draft once edited, server values until then
   const [draft, setDraft] = useState<{ hubUrl: string; agentPort: string; tailscaleHub: string; checkIntervalHours: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  if (!data) return null;
-  const form = draft ?? { hubUrl: data.hubUrl, agentPort: String(data.agentPort), tailscaleHub: data.tailscaleHub, checkIntervalHours: String(data.checkIntervalHours) };
+  const form = draft ?? {
+    hubUrl: data?.hubUrl ?? '',
+    agentPort: String(data?.agentPort ?? 3443),
+    tailscaleHub: data?.tailscaleHub ?? '',
+    checkIntervalHours: String(data?.checkIntervalHours ?? 0),
+  };
 
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const save = async () => {
+    if (!data) return false;
     setBusy(true);
     try {
       qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({
@@ -72,15 +97,26 @@ export function AgentHubSettings() {
       }));
       setDraft(null);
       toast.success('Paramètres des agents enregistrés');
+      return true;
     } catch (err) {
       toast.error((err as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
   };
+  const discard = () => setDraft(null);
+  const dirty = !!data && !!draft && (
+    form.hubUrl !== data.hubUrl ||
+    form.agentPort !== String(data.agentPort) ||
+    form.tailscaleHub !== data.tailscaleHub ||
+    form.checkIntervalHours !== String(data.checkIntervalHours)
+  );
+  useSettingsDraft(dirty, save, discard);
+  if (!data) return null;
 
   return (
-    <form onSubmit={save} className="space-y-4">
+    <form onSubmit={(e) => { e.preventDefault(); void save(); }} className="space-y-4">
       <label className="block">
         <span className="mb-1.5 block text-xs font-medium text-muted">URL du hub</span>
         <input
@@ -135,7 +171,7 @@ export function AgentHubSettings() {
         />
         <span className="mt-1 block text-xs text-zinc-500">Fréquence de l'apt-get update lancé sur chaque hôte. 0 : désactivé.</span>
       </label>
-      <Button type="submit" variant="primary" loading={busy} disabled={!draft}>Enregistrer</Button>
+      <SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />
     </form>
   );
 }

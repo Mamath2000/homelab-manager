@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Monitor, Save, Settings2, Terminal, Wand2, type LucideIcon } from 'lucide-react';
+import { Monitor, Settings2, Terminal, Wand2, type LucideIcon } from 'lucide-react';
 import { api, type SetupOption, type SetupProfile, type SetupValues } from '../lib/api';
 import { sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
 import { useToast } from '../lib/toast';
 import { OptionEditor, OptionNotes, textarea } from './SetupFields';
-import { Button, Panel, Spinner, VerticalTabs } from './ui';
+import { SettingsFormActions } from './SettingsForm';
+import { useSettingsDraft } from './settingsDraft';
+import { Panel, Spinner, VerticalTabs } from './ui';
 
 type Tab = 'general' | SetupSection | 'starship' | 'fastfetch';
 
@@ -22,6 +24,27 @@ export function SetupSettings() {
   const [tab, setTab] = useState<Tab>('general');
 
   const form = draft ?? data;
+  const dirty = !!form && !!draft && JSON.stringify(draft) !== JSON.stringify(data);
+  const discard = () => setForm(null);
+
+  const save = async () => {
+    if (!form) return false;
+    setBusy(true);
+    try {
+      const next = await api.saveSetupProfile(form);
+      qc.setQueryData(['settings', 'setup'], next);
+      qc.invalidateQueries({ queryKey: ['setup'] });
+      setForm(null);
+      toast.success('Configuration standard enregistrée : conformité des hôtes en cours de vérification');
+      return true;
+    } catch (err) {
+      toast.error((err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  useSettingsDraft(dirty, save, discard);
   if (!form) return <div className="flex justify-center p-10"><Spinner /></div>;
   const opts = form.options;
   const setOption = <K extends SetupOption>(k: K, patch: Partial<{ enabled: boolean; value: SetupValues[K] }>) =>
@@ -31,21 +54,6 @@ export function SetupSettings() {
     opts[k].enabled && opts[k].value === style && (k.startsWith('root') || opts.user.enabled);
   const fastfetchUsed = used('root_motd', 'fastfetch') || used('user_motd', 'fastfetch');
   const starshipUsed = used('root_prompt', 'starship') || used('user_prompt', 'starship');
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      const next = await api.saveSetupProfile(form);
-      qc.setQueryData(['settings', 'setup'], next);
-      qc.invalidateQueries({ queryKey: ['setup'] });
-      setForm(null);
-      toast.success('Configuration standard enregistrée : conformité des hôtes en cours de vérification');
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const row = (k: SetupOption) => {
     const o = opts[k];
@@ -84,7 +92,7 @@ export function SetupSettings() {
   const section = setupSections.find((sec) => sec.id === current);
 
   return (
-    <Panel title="Configuration standard" icon={Wand2} bodyClassName="" actions={<Button size="sm" variant="primary" icon={Save} loading={busy} onClick={save}>Enregistrer</Button>}>
+    <Panel title="Configuration standard" icon={Wand2} bodyClassName="">
       <VerticalTabs tabs={tabs} value={current} onChange={setTab} bodyClassName="space-y-3 p-4 text-sm">
           {current === 'general' && (
             <>
@@ -140,6 +148,9 @@ export function SetupSettings() {
             </label>
           )}
       </VerticalTabs>
+      <div className="px-4 pb-4">
+        <SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />
+      </div>
     </Panel>
   );
 }

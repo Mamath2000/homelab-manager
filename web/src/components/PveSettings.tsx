@@ -6,6 +6,7 @@ import { withoutEmptySecret } from '../lib/forms';
 import { pveTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
 import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
+import { useSettingsDraft } from './settingsDraft';
 import { TokenSetup } from './TokenSetup';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
@@ -17,15 +18,23 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
   const qc = useQueryClient();
   const toast = useToast();
   const [id, setId] = useState('');
-  const [form, setForm] = useState<PveClusterInput>(
+  const [initial] = useState<PveClusterInput>(() =>
     cluster
       ? { name: cluster.name, url: cluster.url, fingerprint: cluster.fingerprint, tokenId: cluster.tokenId || DEFAULT_TOKEN, enabled: cluster.enabled }
       : { name: '', url: '', fingerprint: '', tokenId: DEFAULT_TOKEN, enabled: true },
   );
+  const [form, setForm] = useState<PveClusterInput>(initial);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const set = (patch: Partial<PveClusterInput>) => setForm({ ...form, ...patch });
   const clusterId = cluster?.id ?? id;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || (!cluster && !!id);
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   const save = async () => {
     setBusy('save');
@@ -35,12 +44,15 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
       qc.invalidateQueries({ queryKey: ['backups'] });
       toast.success(form.enabled ? 'Enregistré : relevé du cluster en cours' : 'Enregistré');
       onClose();
+      return true;
     } catch (err) {
       toast.error((err as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   };
+  useSettingsDraft(dirty, save, onClose);
   const runTest = async () => {
     setBusy('test');
     setTest(null);
@@ -59,16 +71,17 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
   };
 
   return (
+    <>
     <Modal
       open
-      onClose={onClose}
+      onClose={requestClose}
       wide="xl"
       title={cluster ? `Cluster ${cluster.name}` : 'Nouveau cluster Proxmox VE'}
       footer={
         <>
-          <Button icon={Plug} loading={busy === 'test'} disabled={!clusterId || !form.url || !form.tokenId} onClick={runTest}>Tester la connexion</Button>
-          <Button onClick={onClose}>Annuler</Button>
-          <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={!clusterId} onClick={save}>Enregistrer</Button>
+          <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !clusterId || !form.url || !form.tokenId} onClick={runTest}>Tester la connexion</Button>
+          <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
+          <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !clusterId} onClick={() => void save()}>Enregistrer</Button>
         </>
       }
     >
@@ -130,6 +143,17 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
         />
       </div>
     </Modal>
+    <ConfirmModal
+      open={confirmDiscard}
+      onClose={() => setConfirmDiscard(false)}
+      onConfirm={onClose}
+      title="Abandonner les modifications ?"
+      confirmLabel="Abandonner"
+      danger
+    >
+      Les paramètres du cluster modifiés ne seront pas enregistrés.
+    </ConfirmModal>
+    </>
   );
 }
 

@@ -64,7 +64,7 @@ function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
   );
 }
 
-function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+function Sidebar({ onNavigate, onPassword, onLogout }: { onNavigate?: () => void; onPassword: () => void; onLogout: () => void }) {
   const me = useMe();
   return (
     <nav className="flex h-full flex-col gap-1 p-4">
@@ -82,12 +82,30 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           ))}
         </div>
       ))}
-      {(me.canAccounts || me.canSettings) && (
+      {me.canAccounts && (
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-3">
-          {me.canAccounts && <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} />}
-          {me.canSettings && <SideLink item={{ to: '/settings', label: 'Paramètres', icon: Settings }} onClick={onNavigate} />}
+          <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} />
         </div>
       )}
+      <div className={clsx('flex flex-col gap-2 border-t border-line pt-3', !me.canAccounts && 'mt-auto')}>
+        <div className="flex min-w-0 items-start gap-2 px-3 text-zinc-300" title={ROLE_LABELS[me.role]}>
+          <User className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm">{me.displayName || me.username}</span>
+            <span className="block truncate text-xs text-muted">{ROLE_LABELS[me.role]}</span>
+          </span>
+        </div>
+        <div className="flex gap-1">
+          {!me.isSuperAdmin && (
+            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className="flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100">
+              <KeyRound className="h-4 w-4" /> Mot de passe
+            </button>
+          )}
+          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className="flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100">
+            <LogOut className="h-4 w-4" /> Déconnexion
+          </button>
+        </div>
+      </div>
     </nav>
   );
 }
@@ -158,34 +176,26 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
         {!me.isSuperAdmin && <SearchBox />}
         <div className="flex items-center gap-4 text-sm">
           <Versions />
+          {me.canSettings && (
+            <NavLink to="/settings" aria-label="Paramètres" title="Paramètres" className={({ isActive }) => clsx('rounded-sm p-1.5 transition hover:bg-raised hover:text-zinc-100', isActive ? 'text-emerald-300' : 'text-zinc-400')}>
+              <Settings className="h-4 w-4" />
+            </NavLink>
+          )}
           {!me.isSuperAdmin && (
             <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
               <StatusDot tone={live ? 'ok' : 'bad'} />
             </span>
           )}
-          <span className="hidden items-center gap-1.5 text-zinc-300 sm:flex" title={ROLE_LABELS[me.role]}>
-            <User className="h-4 w-4" />
-            {me.displayName || me.username}
-            <span className="text-xs text-muted">· {ROLE_LABELS[me.role]}</span>
-          </span>
-          {!me.isSuperAdmin && (
-            <button onClick={() => setPasswordOpen(true)} title="Changer mon mot de passe" className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
-              <KeyRound className="h-4 w-4" />
-            </button>
-          )}
-          <button onClick={onLogout} title="Se déconnecter" className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
-            <LogOut className="h-4 w-4" />
-          </button>
         </div>
       </header>
 
       <aside className="fixed bottom-0 left-0 top-14 hidden w-60 border-r border-line bg-bg md:block">
-        <Sidebar />
+        <Sidebar onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
       </aside>
       {drawer && (
         <div className="fixed inset-0 top-14 z-20 bg-black/60 md:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-64 border-r border-line bg-bg" onClick={(e) => e.stopPropagation()}>
-            <Sidebar onNavigate={() => setDrawer(false)} />
+            <Sidebar onNavigate={() => setDrawer(false)} onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
           </aside>
         </div>
       )}

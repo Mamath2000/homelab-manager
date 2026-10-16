@@ -1,4 +1,4 @@
-import { useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -162,7 +162,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, actions }: {
 
 // Tabs listed on the left of their content (on top below md), each with an optional counter.
 export function VerticalTabs<T extends string>({ tabs, value, onChange, children, bodyClassName }: {
-  tabs: { id: T; label: string; icon?: LucideIcon; count?: ReactNode }[];
+  tabs: { id: T; label: string; icon?: LucideIcon; count?: ReactNode; dividerBefore?: boolean }[];
   value: T;
   onChange: (id: T) => void;
   children: ReactNode;
@@ -171,22 +171,24 @@ export function VerticalTabs<T extends string>({ tabs, value, onChange, children
   return (
     <div className="flex flex-col md:flex-row">
       <nav role="tablist" className="flex shrink-0 gap-1 overflow-x-auto border-b border-line p-2 md:w-52 md:flex-col md:border-r md:border-b-0">
-        {tabs.map(({ id, label, icon: Icon, count }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={id === value}
-            onClick={() => onChange(id)}
-            className={clsx(
-              'flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm whitespace-nowrap',
-              id === value ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-muted hover:bg-raised hover:text-zinc-200',
-            )}
-          >
-            {Icon && <Icon className="h-4 w-4 shrink-0" />}
-            <span className="flex-1">{label}</span>
-            {count !== undefined && <span className="text-xs tabular-nums text-zinc-500">{count}</span>}
-          </button>
+        {tabs.map(({ id, label, icon: Icon, count, dividerBefore }) => (
+          <Fragment key={id}>
+            {dividerBefore && <div aria-hidden="true" className="my-1 h-auto min-h-8 w-px shrink-0 self-stretch bg-line md:my-2 md:h-px md:min-h-0 md:w-auto" />}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={id === value}
+              onClick={() => onChange(id)}
+              className={clsx(
+                'flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm whitespace-nowrap',
+                id === value ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-muted hover:bg-raised hover:text-zinc-200',
+              )}
+            >
+              {Icon && <Icon className="h-4 w-4 shrink-0" />}
+              <span className="flex-1">{label}</span>
+              {count !== undefined && <span className="text-xs tabular-nums text-zinc-500">{count}</span>}
+            </button>
+          </Fragment>
         ))}
       </nav>
       <div className={clsx('min-w-0 flex-1', bodyClassName ?? 'p-4')}>{children}</div>

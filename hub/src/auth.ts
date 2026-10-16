@@ -53,6 +53,22 @@ async function startSession(reply: FastifyReply, user: UserDoc) {
   });
 }
 
+export const API_KEY_PREFIX = 'hm_';
+
+export function newApiKey() {
+  const key = API_KEY_PREFIX + randomToken();
+  return { key, hash: sha256(key) };
+}
+
+// `Authorization: Bearer hm_…`: undefined when the request carries no key, null when it is unknown
+async function userFromApiKey(req: FastifyRequest) {
+  const match = /^Bearer (hm_\S+)$/.exec(req.headers.authorization ?? '');
+  if (!match) return undefined;
+  const user = await users.findOne({ apiKeyHash: sha256(match[1]), role: { $ne: SUPERADMIN } });
+  if (user) await users.updateOne({ _id: user._id }, { $set: { apiKeyLastUsedAt: new Date() } });
+  return user;
+}
+
 async function userFromRequest(req: FastifyRequest) {
   const token = req.cookies[COOKIE];
   if (!token) return null;
@@ -95,11 +111,15 @@ async function checkPassword(user: UserDoc, password: string) {
 export function registerAuth(app: FastifyInstance) {
   app.addHook('onRequest', async (req, reply) => {
     if (isPublic(req)) return;
-    const user = await userFromRequest(req);
+    // a key is a credential of its own: it never falls back to the session cookie
+    if (tooManyFailures(req.ip) && req.headers.authorization) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
+    const byKey = await userFromApiKey(req);
+    if (byKey === null) recordFailure(req.ip);
+    const user = byKey === undefined ? await userFromRequest(req) : byKey;
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
     const route = req.routeOptions.url!;
-    // temporary password: it must be replaced before anything else
-    if (user.mustChangePassword && !allowedBeforePasswordChange(req.method, route)) {
+    // temporary password: it must be replaced before anything else (the key is not concerned)
+    if (byKey === undefined && user.mustChangePassword && !allowedBeforePasswordChange(req.method, route)) {
       return reply.code(403).send({ error: 'password_change_required' });
     }
     if (!authorize(user.role, req.method, route)) return reply.code(403).send({ error: 'forbidden' });

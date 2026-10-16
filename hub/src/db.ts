@@ -39,6 +39,7 @@ export async function connectDb() {
     // keep 90 days of job history
     jobs.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 3600, name: 'jobs_ttl' }),
     users.createIndex({ username: 1 }, { unique: true }),
+    users.createIndex({ apiKeyHash: 1 }, { sparse: true }),
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     sessions.createIndex({ userId: 1 }),
     backups.createIndex({ hostId: 1 }),

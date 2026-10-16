@@ -5,6 +5,8 @@ import { api, type HomeAssistantInput, type HomeAssistantSettings } from '../lib
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
+import { SettingsFormActions } from './SettingsForm';
+import { useSettingsDraft } from './settingsDraft';
 import { Button, Panel, Spinner, StatusDot } from './ui';
 
 const stateMeta: Record<HomeAssistantSettings['status']['state'], { label: string; tone: Tone }> = {
@@ -35,30 +37,47 @@ export function HomeAssistantPanel() {
   const [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState<'save' | 'test' | 'republish' | null>(null);
 
-  if (!data) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
-
-  const form: HomeAssistantInput = draft ?? { enabled: data.enabled, broker: data.broker, username: data.username, topic: data.topic, discoveryPrefix: data.discoveryPrefix, publicUrl: data.publicUrl ?? '' };
+  const initial: HomeAssistantInput = {
+    enabled: data?.enabled ?? false,
+    broker: data?.broker ?? '',
+    username: data?.username ?? '',
+    topic: data?.topic ?? '',
+    discoveryPrefix: data?.discoveryPrefix ?? '',
+    publicUrl: data?.publicUrl ?? '',
+  };
+  const form: HomeAssistantInput = draft ?? initial;
   const input = (): HomeAssistantInput => ({
     ...form,
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
   });
   const set = (patch: Partial<HomeAssistantInput>) => setDraft({ ...form, ...patch });
 
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const save = async () => {
+    if (!data) return false;
     setBusy('save');
     try {
       const next = await api.saveHomeAssistant(input());
       qc.setQueryData(['settings', 'homeassistant'], next);
+      setDraft(null);
       setPassword('');
       setClearPassword(false);
       toast.success(next.enabled ? 'Intégration Home Assistant enregistrée' : 'Intégration Home Assistant désactivée');
+      return true;
     } catch (err) {
       toast.error((err as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   };
+  const discard = () => {
+    setDraft(null);
+    setPassword('');
+    setClearPassword(false);
+  };
+  const dirty = !!data && (JSON.stringify(form) !== JSON.stringify(initial) || !!password || clearPassword);
+  useSettingsDraft(dirty, save, discard);
+  if (!data) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
 
   const test = async () => {
     setBusy('test');
@@ -74,6 +93,10 @@ export function HomeAssistantPanel() {
   };
 
   const republish = async () => {
+    if (dirty) {
+      toast.error('Enregistre ou annule les modifications avant de republier.');
+      return;
+    }
     setBusy('republish');
     try {
       await api.republishHomeAssistant();
@@ -89,7 +112,20 @@ export function HomeAssistantPanel() {
   return (
     <Panel title="Home Assistant (MQTT)" icon={Home}>
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <form onSubmit={save} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); void save(); }} className="space-y-4">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" icon={PlugZap} loading={busy === 'test'} disabled={!form.broker || !!busy} onClick={test}>Tester la connexion</Button>
+            <Button
+              type="button"
+              icon={RefreshCw}
+              loading={busy === 'republish'}
+              disabled={st.state !== 'connected' || dirty || !!busy}
+              title="Renvoie toutes les configurations de découverte et tous les états"
+              onClick={republish}
+            >
+              Republier la découverte
+            </Button>
+          </div>
           <label className="flex cursor-pointer items-center gap-3">
             <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
             <span className="text-sm font-medium text-zinc-100">Publier le homelab dans Home Assistant</span>
@@ -129,20 +165,6 @@ export function HomeAssistantPanel() {
               <input className="input" value={form.publicUrl} onChange={(e) => set({ publicUrl: e.target.value })} placeholder="https://homelab-manager.example.org" />
             </Field>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" variant="primary" loading={busy === 'save'}>Enregistrer</Button>
-            <Button type="button" icon={PlugZap} loading={busy === 'test'} disabled={!form.broker} onClick={test}>Tester la connexion</Button>
-            <Button
-              type="button"
-              icon={RefreshCw}
-              loading={busy === 'republish'}
-              disabled={st.state !== 'connected'}
-              title="Renvoie toutes les configurations de découverte et tous les états"
-              onClick={republish}
-            >
-              Republier la découverte
-            </Button>
-          </div>
         </form>
 
         <div className="space-y-4 text-sm">
@@ -169,6 +191,12 @@ export function HomeAssistantPanel() {
           </div>
         </div>
       </div>
+      <SettingsFormActions
+        dirty={dirty}
+        saving={busy === 'save'}
+        onSave={() => void save()}
+        onCancel={discard}
+      />
     </Panel>
   );
 }
