@@ -70,7 +70,7 @@ function Meter<T extends string>({ label, summary, parts }: { label: string; sum
   );
 }
 
-const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#52525b', unknown: '#8b5cf6', uptodate: '#10b981' };
+const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#f59e0b', offlineCritical: '#ef4444', unknown: '#8b5cf6', uptodate: '#10b981' };
 const bakColor: Record<BackupTile, string> = { bad: '#ef4444', warn: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
 const dckColor: Record<DockerTile, string> = { problem: '#ef4444', updates: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
 
@@ -84,7 +84,7 @@ function Meters({ site, groups, backups, stacked }: { site: Site; groups: Backup
     n('security') > 0 && <span key="s" className="text-red-400">{n('security')} sécurité</span>,
     n('updates') + n('security') > 0 && `${n('updates') + n('security')} avec MAJ`,
     n('reboot') > 0 && `${n('reboot')} reboot`,
-    n('offline') > 0 && `${n('offline')} hors ligne`,
+    n('offline') + n('offlineCritical') > 0 && `${n('offline') + n('offlineCritical')} hors ligne`,
   ].filter(Boolean);
   const bakSummary = [
     b('bad') > 0 && <span key="b" className="text-red-400">{b('bad')} en échec</span>,

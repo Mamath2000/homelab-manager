@@ -157,6 +157,8 @@ export interface HostDoc {
   setupPending?: boolean;
   // not connected permanently (laptop...): being offline is expected, neither an error nor an alert
   roaming?: boolean;
+  // an offline host raises a critical alert instead of a warning
+  critical?: boolean;
   // not published to Home Assistant (no device, not counted in the totals)
   haExcluded?: boolean;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
@@ -642,7 +644,7 @@ export interface BackupPve {
 
 // Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'apt' | 'docker' | 'backups' | 'ups';
+export type AlertDomain = 'agent' | 'apt' | 'docker' | 'backups' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -651,6 +653,7 @@ export interface HostAlertDoc {
   _id?: ObjectId;
   hostId: ObjectId;
   day: string; // YYYY-MM-DD, time zone of the hub
+  agent?: DayAlert;
   apt?: DayAlert;
   docker?: DayAlert;
   backups?: DayAlert;

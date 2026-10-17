@@ -51,6 +51,7 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
           onChange={setFilter}
           options={[
             { id: 'all', label: 'Toutes' },
+            { id: 'agent', label: 'Connexion' },
             { id: 'apt', label: 'Mises à jour' },
             { id: 'docker', label: 'Docker' },
             { id: 'backups', label: 'Sauvegardes' },

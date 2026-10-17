@@ -142,6 +142,8 @@ export interface Host {
   online: boolean;
   // not connected permanently: offline is its normal state
   roaming: boolean;
+  // offline connectivity is critical for this host
+  critical: boolean;
   // not published to Home Assistant
   haExcluded: boolean;
   // network the agent reaches the hub and the PBS through, fixed at creation
@@ -259,7 +261,7 @@ export interface Job {
 // Alerts of a host for one day (timeline of the host page): latest observed level of the day in each domain and
 // its reasons; null: not followed that day (no APT, agent not connected...)
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'apt' | 'docker' | 'backups' | 'ups';
+export type AlertDomain = 'agent' | 'apt' | 'docker' | 'backups' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -720,10 +722,10 @@ export const api = {
   revokeApiKey: (id: string, keyId: string) => request<void>('DELETE', `/api/users/${id}/api-keys/${keyId}`),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
-  createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
+  createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; critical?: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
     request<{ host: Host } & InstallInfo>('POST', '/api/hosts', h),
   // siteId '': no site
-  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),

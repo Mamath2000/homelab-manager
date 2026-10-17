@@ -36,6 +36,7 @@ export function hostDto(h: HostDoc) {
     lastSeenAt: h.lastSeenAt ?? null,
     online: isOnline(h._id.toHexString()),
     roaming: !!h.roaming,
+    critical: !!h.critical,
     haExcluded: !!h.haExcluded,
     accessNetwork: h.accessNetwork ?? 'lan',
     agentVersion: h.agentVersion ?? null,

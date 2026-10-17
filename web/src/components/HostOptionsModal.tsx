@@ -9,7 +9,7 @@ import { HaExcludedField } from './HaExcludedField';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
-import { Badge, Button, Modal } from './ui';
+import { Badge, Button, Checkbox, Modal } from './ui';
 
 // Actions of the « Danger » zone, owned by the caller (its confirmations); no zone without them (host list).
 export interface HostDangerActions {
@@ -50,6 +50,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   const [siteId, setSiteId] = useState(host.siteId ?? '');
   const [tags, setTags] = useState(host.tags);
   const [roaming, setRoaming] = useState(host.roaming);
+  const [critical, setCritical] = useState(host.critical);
   const [haExcluded, setHaExcluded] = useState(host.haExcluded);
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
@@ -62,7 +63,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
     e.preventDefault();
     setBusy(true);
     try {
-      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, haExcluded }));
+      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, haExcluded }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -165,6 +166,13 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <RoamingField checked={roaming} onChange={setRoaming} />
+                  <label className="flex cursor-pointer items-start gap-2.5">
+                    <span className="mt-0.5"><Checkbox checked={critical} onChange={setCritical} /></span>
+                    <span>
+                      <span className="block text-sm text-zinc-200">Hôte critique</span>
+                      <span className="block text-xs text-muted">Hors ligne, il déclenche une alerte rouge, sauf s’il est aussi itinérant.</span>
+                    </span>
+                  </label>
                   <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
                 </div>
               </section>

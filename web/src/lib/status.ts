@@ -39,12 +39,13 @@ export function connection(h: Host): Connection {
   return h.roaming ? 'away' : 'offline';
 }
 
-export const connectionMeta: Record<Connection, { label: string; tone: Tone }> = {
-  online: { label: 'En ligne', tone: 'ok' },
-  offline: { label: 'Hors ligne', tone: 'bad' },
-  away: { label: 'Absent', tone: 'neutral' },
-  pending: { label: 'En attente', tone: 'unknown' },
-};
+export function connectionMeta(h: Host): { label: string; tone: Tone } {
+  const state = connection(h);
+  if (state === 'offline') return { label: 'Hors ligne', tone: h.critical ? 'bad' : 'warn' };
+  if (state === 'online') return { label: 'En ligne', tone: 'ok' };
+  if (state === 'away') return { label: 'Absent', tone: 'neutral' };
+  return { label: 'En attente', tone: 'unknown' };
+}
 
 export type UpdateState = 'security' | 'reboot' | 'updates' | 'uptodate' | 'unknown';
 

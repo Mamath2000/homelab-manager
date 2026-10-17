@@ -14,7 +14,7 @@ import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, Stat
 import { timeAgo } from '../lib/format';
 import { useBackups, useHosts, useRunBulk, useRunJob, useSites, useTags } from '../lib/queries';
 import { HostTagList, SiteChip } from '../components/HostTags';
-import { canSelfUpdate, connection, connectionMeta, hasApt, listsStale, needsReinstall, osLabel } from '../lib/status';
+import { canSelfUpdate, connectionMeta, hasApt, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useMe } from '../lib/auth';
 import type { Host } from '../lib/api';
 
@@ -152,14 +152,13 @@ export function Hosts() {
             </thead>
             <tbody className="divide-y divide-line">
               {list.map((h) => {
-                const c = connection(h);
                 const s = h.aptSummary;
                 return (
                   <tr key={h.id} onClick={() => navigate(`/hosts/${h.id}${params.size ? `?${params.toString()}` : ''}`)} className="cursor-pointer transition hover:bg-raised/50">
                     {canWrite && <td className="td"><Checkbox label={`Sélectionner ${h.name}`} checked={selected.has(h.id)} onChange={(on) => toggle(h.id, on)} /></td>}
                     <td className="td">
                       <div className="flex items-center gap-2.5">
-                        <StatusDot tone={connectionMeta[c].tone} />
+                        <StatusDot tone={connectionMeta(h).tone} />
                         <span className="whitespace-nowrap font-medium text-zinc-100">{h.name}</span>
                         <HostTagList host={h} />
                         {h.accessNetwork === 'tailscale' && <Tag>Tailscale</Tag>}

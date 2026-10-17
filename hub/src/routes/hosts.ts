@@ -24,6 +24,7 @@ const hostBody = {
     siteId: { type: 'string', maxLength: 24 },
     tags: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', maxLength: 24 } },
     roaming: { type: 'boolean' },
+    critical: { type: 'boolean' },
     haExcluded: { type: 'boolean' },
   },
 } as const;
@@ -103,7 +104,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map(hostDto);
   });
 
-  app.post<{ Body: { name: string; siteId?: string; tags?: string[]; roaming?: boolean; haExcluded?: boolean; accessNetwork?: AccessNetwork } }>(
+  app.post<{ Body: { name: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; accessNetwork?: AccessNetwork } }>(
     '/api/hosts',
     { schema: { body: createHostBody } },
     async (req, reply) => {
@@ -120,6 +121,7 @@ export function registerHostRoutes(app: FastifyInstance) {
         siteId: req.body.siteId || undefined,
         tags: req.body.tags?.length ? req.body.tags : undefined,
         roaming: req.body.roaming || undefined,
+        critical: req.body.critical || undefined,
         // Tailscale: excluded unless the request says otherwise
         haExcluded: (tailscale ? req.body.haExcluded !== false : req.body.haExcluded) || undefined,
         ...(tailscale ? { accessNetwork: 'tailscale' as const, setupOverrides: UNMANAGED } : {}),
@@ -141,7 +143,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; haExcluded?: boolean } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -150,12 +152,12 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (linkError) return reply.code(400).send({ error: linkError });
       const set: Partial<HostDoc> = {};
       // flags and links: stored only when set
-      const unset: Partial<Record<'roaming' | 'haExcluded' | 'siteId', ''>> = {};
+      const unset: Partial<Record<'roaming' | 'critical' | 'haExcluded' | 'siteId', ''>> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
       if (req.body.siteId) set.siteId = req.body.siteId;
       else if (req.body.siteId === '') unset.siteId = '';
       if (req.body.tags !== undefined) set.tags = req.body.tags;
-      for (const flag of ['roaming', 'haExcluded'] as const) {
+      for (const flag of ['roaming', 'critical', 'haExcluded'] as const) {
         if (req.body[flag]) set[flag] = true;
         else if (req.body[flag] === false) unset[flag] = '';
       }

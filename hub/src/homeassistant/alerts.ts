@@ -18,7 +18,7 @@ export function agentAlerts(h: HostDoc, online: boolean, outdated?: boolean | nu
   if (!h.enrolledAt) return [{ level: 'warning', source: 'agent', message: 'Agent jamais connecté' }];
   // roaming host: being offline is its normal state
   if (h.roaming) return [];
-  return [{ level: 'critical', source: 'agent', message: 'Agent hors ligne' }];
+  return [{ level: h.critical ? 'critical' : 'warning', source: 'agent', message: 'Agent hors ligne' }];
 }
 
 export function aptAlerts(h: HostDoc, online = true, now = Date.now()): Alert[] {

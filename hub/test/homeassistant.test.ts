@@ -56,7 +56,7 @@ test('devices are nested root > host > sub-component', () => {
 test('alerts roll up from the sub-component to the host and the root', () => {
   const ok = host('ok', { upgradable: [pkg('curl')] });
   const bad = host('bad', { upgradable: [pkg('openssl', true)], rebootRequired: true });
-  const off = host('off');
+  const off = { ...host('off'), critical: true };
   const { devices } = build([
     { host: ok, online: true, busy: false },
     { host: bad, online: true, busy: false },

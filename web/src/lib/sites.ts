@@ -36,10 +36,10 @@ export function siteName(h: Host, config: SiteConfig[] | undefined) {
 
 // na: no APT on the host (Unraid...); offline wins, the last report says nothing of now. Security comes
 // first here, it is what the dashboard is read for.
-export type AptTile = 'security' | 'reboot' | 'updates' | 'uptodate' | 'offline' | 'unknown' | 'na';
+export type AptTile = 'security' | 'reboot' | 'updates' | 'uptodate' | 'offline' | 'offlineCritical' | 'unknown' | 'na';
 
 export function aptTile(h: Host): AptTile {
-  if (connection(h) === 'offline') return 'offline';
+  if (connection(h) === 'offline') return h.critical ? 'offlineCritical' : 'offline';
   if (!hasApt(h)) return 'na';
   const s = h.aptSummary;
   if (!s) return 'unknown';
@@ -54,7 +54,8 @@ export const aptTileMeta: Record<AptTile, { label: string; tone: Tone; cls: stri
   updates: { label: 'mises à jour', tone: 'warn', cls: 'bg-amber-500' },
   security: { label: 'sécurité', tone: 'bad', cls: 'bg-red-500' },
   reboot: { label: 'redémarrage requis', tone: 'info', cls: 'bg-sky-500' },
-  offline: { label: 'hors ligne', tone: 'neutral', cls: 'bg-zinc-600' },
+  offline: { label: 'hors ligne', tone: 'warn', cls: 'bg-amber-500' },
+  offlineCritical: { label: 'hors ligne · critique', tone: 'bad', cls: 'bg-red-500' },
   unknown: { label: 'inconnu', tone: 'unknown', cls: 'bg-violet-500/60' },
   na: { label: 'sans APT', tone: 'neutral', cls: 'border-[1.5px] border-dashed border-zinc-600' },
 };
@@ -95,13 +96,13 @@ export const dockerTileMeta: Record<DockerTile, { label: string; tone: Tone; cls
   none: { label: 'non suivi', tone: 'neutral', cls: 'bg-zinc-600' },
 };
 
-// Worst state of a site, for its dot: offline, security, failed backup or Docker problem first.
+// Worst state of a site, for its dot: critical offline, security, failed backup or Docker problem first.
 export function siteTone(hosts: Host[], groups: BackupGroup[] | undefined): Tone {
   const apt = hosts.map(aptTile);
   const bak = hosts.map((h) => backupTile(groups, h.id));
   const dck = hosts.map(dockerTile);
-  if (apt.includes('offline') || apt.includes('security') || bak.includes('bad') || dck.includes('problem')) return 'bad';
-  if (apt.includes('updates') || apt.includes('reboot') || bak.includes('warn') || dck.includes('updates')) return 'warn';
+  if (apt.includes('offlineCritical') || apt.includes('security') || bak.includes('bad') || dck.includes('problem')) return 'bad';
+  if (apt.includes('offline') || apt.includes('updates') || apt.includes('reboot') || bak.includes('warn') || dck.includes('updates')) return 'warn';
   return 'ok';
 }
 
@@ -125,7 +126,7 @@ const rank = { none: -1, ok: 0, warn: 1, alert: 2 } as const;
 // Worst level of each day of a site over its hosts, and how many hosts were in alert / warning.
 export function siteDays(hosts: Host[], days: (HostAlertDay & { hostId: string })[], keys: string[], filter: TimelineFilter): SiteCell[] {
   const ids = new Set(hosts.map((h) => h.id));
-  const domains: AlertDomain[] = filter === 'all' ? ['apt', 'docker', 'backups', 'ups'] : [filter];
+  const domains: AlertDomain[] = filter === 'all' ? ['agent', 'apt', 'docker', 'backups', 'ups'] : [filter];
   const byDay = new Map<string, (HostAlertDay & { hostId: string })[]>();
   for (const d of days) if (ids.has(d.hostId)) byDay.set(d.day, [...(byDay.get(d.day) ?? []), d]);
   return keys.map((k) => {

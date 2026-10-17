@@ -43,7 +43,7 @@ function KpiGroup({ title, children }: { title: string; children: React.ReactNod
 // Figures of the priorities, same weight: system updates (security first), backups and Docker.
 function Kpis({ hosts, groups, backups }: { hosts: Host[]; groups: BackupGroup[] | undefined; backups: boolean }) {
   const apt = hosts.filter(hasApt).map(aptTile);
-  const followed = apt.filter((t) => t !== 'unknown' && t !== 'offline').length;
+  const followed = apt.filter((t) => t !== 'unknown' && t !== 'offline' && t !== 'offlineCritical').length;
   const security = count(apt, 'security');
   const updates = security + count(apt, 'updates');
   const reboot = hosts.filter((h) => h.aptSummary?.rebootRequired).length;

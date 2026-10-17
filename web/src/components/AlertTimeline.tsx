@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Activity, BatteryCharging, Container, DatabaseBackup, Package, type LucideIcon } from 'lucide-react';
+import { Activity, BatteryCharging, Container, DatabaseBackup, Package, Radio, type LucideIcon } from 'lucide-react';
 import type { AlertDomain, AlertLevel, DayAlert } from '../lib/api';
 import { useHostAlerts } from '../lib/queries';
 import { Badge, Panel } from './ui';
@@ -8,6 +8,7 @@ import { Badge, Panel } from './ui';
 const DAYS = 30;
 
 const allDomains: { id: AlertDomain; label: string; icon: LucideIcon }[] = [
+  { id: 'agent', label: 'Connexion', icon: Radio },
   { id: 'apt', label: 'Mises à jour', icon: Package },
   { id: 'docker', label: 'Docker', icon: Container },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },

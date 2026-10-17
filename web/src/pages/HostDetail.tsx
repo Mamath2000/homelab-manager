@@ -434,7 +434,7 @@ function HostDetailPage({ id }: { id: string }) {
                 </>
               }
             >
-              <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>
+              <Badge tone={connectionMeta(host).tone}>{connectionMeta(host).label}</Badge>
               <HostTagList host={host} />
               {host.roaming && <Tag>Itinérant</Tag>}
               {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}

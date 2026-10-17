@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
+import { agentAlert } from '../src/alerts.js';
 import { summarize } from '../src/summary.js';
 import type { AptReport, HostDoc } from '../src/types.js';
 
@@ -22,9 +23,15 @@ test('counts hosts, updates and reboots; hosts excluded from HA are left out', (
   assert.equal(s.hostsToReboot, 1);
 });
 
-test('offline hosts raise a critical alert, roaming ones do not', () => {
-  const s = summarize([host('down'), host('laptop', { roaming: true })]);
-  assert.equal(s.hostsOffline, 1);
+test('offline hosts raise a warning by default, a critical alert when flagged, and no alert when roaming', () => {
+  const offline = host('down');
+  const critical = host('critical-down', { critical: true });
+  const roaming = host('laptop', { roaming: true });
+  const s = summarize([offline, critical, roaming]);
+  assert.equal(s.hostsOffline, 2);
   assert.equal(s.critical, 1);
-  assert.ok(s.alerts >= 1);
+  assert.equal(s.alerts, 2);
+  assert.deepEqual(agentAlert(offline, false), { level: 'warn', reasons: ['Agent hors ligne'] });
+  assert.deepEqual(agentAlert(critical, false), { level: 'alert', reasons: ['Agent hors ligne'] });
+  assert.deepEqual(agentAlert(roaming, false), { level: 'ok', reasons: [] });
 });
