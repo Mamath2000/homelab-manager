@@ -8,7 +8,7 @@ import { useMe } from '../lib/auth';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { PbsTokenButton } from './PbsAgentPicker';
-import { Badge, Button, Modal, Spinner } from './ui';
+import { Badge, Button, Modal, Spinner, Tabs } from './ui';
 
 const PRESETS = [
   { label: 'Tous les jours à 03:00', value: '03:00' },
@@ -189,29 +189,34 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
           </p>
         )}
       </div>
-      <label className="block">
-        <span className={field}>Répertoire de travail (dédié aux dumps)</span>
-        <input className="input font-mono text-xs" value={value.workDir} onChange={(e) => set({ workDir: e.target.value.trim() })} placeholder={DEFAULT_WORKDIR} />
-        <span className="mt-1 block text-xs text-muted">
-          Un sous-répertoire par dump, refait à chaque sauvegarde ; ce sont les archives du snapshot :{' '}
-          <span className="font-mono">{dumpArchives(kind, value).map((a) => `${a.name}.pxar`).join(', ') || '—'}</span>. Dumps non compressés : le PBS les déduplique d'un jour à l'autre.
-        </span>
-      </label>
-      <label className="block">
-        <span className={field}>Dumps gardés sur l'hôte après l'envoi</span>
-        <input
-          className="input w-28"
-          type="number"
-          min={0}
-          max={MAX_KEEP}
-          value={value.keep}
-          onChange={(e) => set({ keep: Math.max(0, Math.min(MAX_KEEP, Math.trunc(Number(e.target.value) || 0))) })}
-        />
-        <span className="mt-1 block text-xs text-muted">
-          {value.keep === 0 ? '0 : le dump est supprimé une fois envoyé.' : `Les ${value.keep > 1 ? `${value.keep} derniers` : 'derniers'} dumps restent dans ${value.workDir}/history/<date>/ (restauration locale rapide, au prix de la place disque).`}
-          {' '}Un dump en échec est toujours supprimé.
-        </span>
-      </label>
+      <details className="border-t border-line pt-3">
+        <summary className="cursor-pointer text-xs text-muted hover:text-zinc-200">Avancé : stockage des dumps sur l'hôte</summary>
+        <div className="mt-3 space-y-4">
+          <label className="block">
+            <span className={field}>Répertoire de travail (dédié aux dumps)</span>
+            <input className="input font-mono text-xs" value={value.workDir} onChange={(e) => set({ workDir: e.target.value.trim() })} placeholder={DEFAULT_WORKDIR} />
+            <span className="mt-1 block text-xs text-muted">
+              Un sous-répertoire par dump, refait à chaque sauvegarde ; ce sont les archives du snapshot :{' '}
+              <span className="font-mono">{dumpArchives(kind, value).map((a) => `${a.name}.pxar`).join(', ') || '—'}</span>. Dumps non compressés : le PBS les déduplique d'un jour à l'autre.
+            </span>
+          </label>
+          <label className="block">
+            <span className={field}>Dumps gardés sur l'hôte après l'envoi</span>
+            <input
+              className="input w-28"
+              type="number"
+              min={0}
+              max={MAX_KEEP}
+              value={value.keep}
+              onChange={(e) => set({ keep: Math.max(0, Math.min(MAX_KEEP, Math.trunc(Number(e.target.value) || 0))) })}
+            />
+            <span className="mt-1 block text-xs text-muted">
+              {value.keep === 0 ? '0 : le dump est supprimé une fois envoyé.' : `Les ${value.keep > 1 ? `${value.keep} derniers` : 'derniers'} dumps restent dans ${value.workDir}/history/<date>/ (restauration locale rapide, au prix de la place disque).`}
+              {' '}Un dump en échec est toujours supprimé.
+            </span>
+          </label>
+        </div>
+      </details>
     </div>
   );
 }
@@ -337,6 +342,30 @@ function AgentHeader({ host, view, sync, actions }: { host: Host; view: HostBack
   );
 }
 
+// The agent on one line in the window of a job (it is not edited there); its details on demand.
+function AgentLine({ host, view }: { host: Host; view: HostBackupJobs }) {
+  const [open, setOpen] = useState(false);
+  if (open) return <AgentHeader host={host} view={view} actions={<Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Réduire</Button>} />;
+  const client = view.mode === 'native' ? 'client PBS (APT)' : view.mode === 'docker' ? 'client PBS (Docker)' : null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-line bg-raised/40 px-3 py-2 text-xs text-muted">
+      <span className="font-medium text-zinc-100">Agent</span>
+      <Badge tone={host.online ? 'ok' : 'warn'}>{host.online ? 'en ligne' : 'hors ligne'}</Badge>
+      <span className={clsx(host.agentOutdated && 'text-amber-400')}>{host.agentVersion ? `v${host.agentVersion}` : 'version inconnue'}</span>
+      <span className={clsx(!client && 'text-amber-400')}>{client ?? 'client PBS absent'}</span>
+      <span className={clsx(view.credential ? 'font-mono' : 'text-amber-400')}>{view.credential ? view.credential.tokenId : 'aucun jeton PBS'}</span>
+      <button type="button" className="ml-auto text-emerald-400 hover:underline" onClick={() => setOpen(true)}>Détails</button>
+    </div>
+  );
+}
+
+type JobTab = 'content' | 'destination' | 'schedule';
+const JOB_TABS: { id: JobTab; label: string }[] = [
+  { id: 'content', label: 'Contenu' },
+  { id: 'destination', label: 'Destination' },
+  { id: 'schedule', label: 'Planning' },
+];
+
 function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBackupJobs; job: BackupJob | null; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -356,6 +385,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         database: null,
       };
   const [form, setForm] = useState<BackupJobInput>(initial);
+  const [tab, setTab] = useState<JobTab>('content');
   // creation: the identifier follows the name until it is typed by hand
   const [idAuto, setIdAuto] = useState(true);
   // group already on the PBS, written by something else: refused by the hub (snapshots would mix)
@@ -415,27 +445,31 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   };
 
   const field = 'mb-1.5 block text-xs font-medium text-muted';
-  const section = 'mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400';
+  // the whole setting at a glance, whatever the tab shown
+  const when = form.connectEveryDays ? `à la connexion, au plus tous les ${form.connectEveryDays} j` : form.schedule;
+  const summary = `${KIND_LABEL[kind]} · ${form.store || '—'} › Hosts › ${(job ? job.backupId : form.backupId) || '—'} · ${when}${form.enabled ? '' : ' · désactivée'}`;
   return (
     <Modal
       open={open}
       onClose={onClose}
-      wide="xl"
+      wide
       scroll
       title={job ? `Sauvegarde ${job.name}` : `Nouvelle sauvegarde de ${host.name}`}
       footer={
         <>
+          <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken ? 'text-amber-400' : 'text-muted')} title={summary}>
+            {taken ? 'Identifiant déjà pris sur le PBS (onglet Destination)' : summary}
+          </span>
           <Button onClick={onClose}>Annuler</Button>
           <Button variant="primary" icon={Save} loading={busy} disabled={!!taken} onClick={save}>Enregistrer</Button>
         </>
       }
     >
-      <div className="space-y-5 text-sm">
-        <AgentHeader host={host} view={view} />
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* what is backed up */}
+      <div className="space-y-4 text-sm">
+        <AgentLine host={host} view={view} />
+        <Tabs tabs={JOB_TABS} value={tab} onChange={setTab} />
+        {tab === 'content' && (
           <section className="space-y-4">
-            <h3 className={section}>Quoi sauvegarder</h3>
             <label className="block">
               <span className={field}>Type de sauvegarde</span>
               {job ? (
@@ -483,9 +517,9 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
               </>
             )}
           </section>
-          {/* where it goes and when */}
-          <section className="space-y-4 lg:border-l lg:border-line lg:pl-6">
-            <h3 className={section}>Destination sur le PBS</h3>
+        )}
+        {tab === 'destination' && (
+          <section className="space-y-4">
             <label className="block">
               <span className={clsx(field, 'flex items-center justify-between')}>
                 Identifiant sur le PBS
@@ -552,7 +586,10 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
                 );
               })()}
             </div>
-            <h3 className={clsx(section, 'pt-2')}>Planification</h3>
+          </section>
+        )}
+        {tab === 'schedule' && (
+          <section className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-3">
                 <label className="block">
@@ -589,7 +626,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
               <span>Active (l'agent la lance {form.connectEveryDays ? 'à la connexion' : "à l'heure prévue"})</span>
             </label>
           </section>
-        </div>
+        )}
       </div>
     </Modal>
   );
