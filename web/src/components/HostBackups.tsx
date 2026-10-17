@@ -25,10 +25,27 @@ const verifyColor: Record<DayVerify, string> = { ok: 'bg-emerald-500', unverifie
 const verifyLabel: Record<DayVerify, string> = { ok: ', vérifié', unverified: ', non vérifié', failed: ', vérification en échec' };
 
 // Thin lane of the copy to the secondary PBS under it (copy: a secondary is configured): blue when the
-// day reached the secondary, orange outline when a copy is missing, red when the run bringing it failed,
-// dashed when the copy is not enabled; none for a backup that cannot be copied.
-const offsiteColor: Record<OffsiteDay, string> = { copied: 'bg-sky-400', missing: 'border border-amber-400', failed: 'bg-red-500', running: 'animate-pulse bg-sky-300', none: 'bg-raised' };
-const offsiteDayLabel: Record<OffsiteDay, string> = { copied: 'copiée', missing: 'copie manquante', failed: 'copie manquante (échec)', running: 'copie en cours', none: 'pas de copie' };
+// day reached the secondary and is verified there (pale blue: not verified yet, red: verification failed),
+// orange outline when a copy is missing, red when the run bringing it failed, dashed when the copy is not
+// enabled; none for a backup that cannot be copied.
+const offsiteColor: Record<OffsiteDay, string> = {
+  copied: 'bg-sky-400',
+  unverified: 'bg-sky-400/40',
+  verify_failed: 'bg-red-500',
+  missing: 'border border-amber-400',
+  failed: 'bg-red-500',
+  running: 'animate-pulse bg-sky-300',
+  none: 'bg-raised',
+};
+const offsiteDayLabel: Record<OffsiteDay, string> = {
+  copied: 'copiée, vérifiée',
+  unverified: 'copiée, non vérifiée',
+  verify_failed: 'copiée, vérification en échec',
+  missing: 'copie manquante',
+  failed: 'copie manquante (échec)',
+  running: 'copie en cours',
+  none: 'pas de copie',
+};
 
 export function BackupTimeline({ group, days = 30, className, copy }: { group: Pick<BackupGroup, 'times' | 'interval' | 'offsite' | 'placeholder'> & { source?: BackupGroup['source'] }; days?: number; className?: string; copy?: boolean }) {
   // Home Assistant does not verify its backups

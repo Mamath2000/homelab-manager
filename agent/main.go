@@ -101,7 +101,8 @@ type session struct {
 // systemd only (on Unraid a reboot from the shell could skip the array shutdown) and not on WSL
 // (a stopped distribution only starts again from Windows).
 func platformCapabilities() []string {
-	caps := []string{}
+	// refresh: rpc reading again what the agent reports on its own (refresh.go)
+	caps := []string{"refresh"}
 	if hasApt() {
 		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
 	}
@@ -153,7 +154,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// HAOS add-on: no action on the host at this stage, it only describes itself (haos.go)
 	if onHAOS {
-		caps := []string{"haos"}
+		caps := []string{"haos", "refresh"}
 		if haBackupsReadable.Load() {
 			caps = append(caps, "ha_backups")
 		}
@@ -305,6 +306,9 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 			out.Result = r
 		}
 		cancel()
+	case "refresh":
+		// reports sent before the answer: the hub has them when the request settles
+		out.Result = map[string][]string{"scopes": s.refresh(ctx, in.Scopes)}
 	case "docker_forget":
 		if err = dock.forget(ctx, in.Stack); err == nil {
 			out.Result = map[string]bool{"ok": true}

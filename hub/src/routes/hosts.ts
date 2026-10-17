@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
-import { AgentRequestError, agentRequest, disconnectAgent, isOnline } from '../agents.js';
+import { AgentRequestError, REFRESH_SCOPES, agentRequest, disconnectAgent, isOnline, refreshAgent, type RefreshScope } from '../agents.js';
 import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { hosts, jobs, parseId } from '../db.js';
@@ -317,6 +317,33 @@ export function registerHostRoutes(app: FastifyInstance) {
         return await agentRequest<{ files: { path: string; content: string; masked?: boolean }[] }>(req.params.id, 'docker_compose_file', {
           stack: req.params.stack,
         });
+      } catch (err) {
+        return agentError(reply, err);
+      }
+    },
+  );
+
+  // The agent reads again what it reports on its own (system, APT state, Docker stacks, Home Assistant
+  // backups, UPS), or only the scopes asked; local state only, the checks on the network stay jobs.
+  app.post<{ Params: { id: string }; Body: { scopes?: RefreshScope[] } | undefined }>(
+    '/api/hosts/:id/refresh',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: {
+          type: ['object', 'null'],
+          additionalProperties: false,
+          properties: { scopes: { type: 'array', maxItems: REFRESH_SCOPES.length, uniqueItems: true, items: { type: 'string', enum: REFRESH_SCOPES } } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }, { projection: { capabilities: 1 } }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!host.capabilities?.includes('refresh')) return reply.code(400).send({ error: "agent trop ancien pour l'actualisation : le mettre à jour" });
+      try {
+        return await refreshAgent(req.params.id, req.body?.scopes);
       } catch (err) {
         return agentError(reply, err);
       }

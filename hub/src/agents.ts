@@ -73,6 +73,16 @@ export function agentRequest<T>(hostId: string, op: string, params: Record<strin
   });
 }
 
+// What an agent reads again on request (agent refresh.go); none asked: all it can read.
+export const REFRESH_SCOPES = ['info', 'apt', 'docker', 'ha_backups', 'ups'] as const;
+export type RefreshScope = (typeof REFRESH_SCOPES)[number];
+
+// Asks an agent to read again what it reports on its own; its reports arrive before the answer, which
+// lists the scopes refreshed.
+export function refreshAgent(hostId: string, scopes?: RefreshScope[]) {
+  return agentRequest<{ scopes: RefreshScope[] }>(hostId, 'refresh', scopes?.length ? { scopes } : {}, 60_000);
+}
+
 function settle(hostId: string, reqId: string | undefined, result: unknown, error?: string) {
   const p = reqId ? pending.get(reqId) : undefined;
   if (!p || p.hostId !== hostId) return;

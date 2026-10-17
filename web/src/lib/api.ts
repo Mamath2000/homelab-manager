@@ -857,6 +857,8 @@ export const api = {
     ),
   stackCompose: (hostId: string, stack: string) =>
     request<{ files: ComposeFile[] }>('GET', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/compose`),
+  // the agent reads again what it reports on its own (system, APT, Docker, Home Assistant backups, UPS)
+  refreshHost: (hostId: string) => request<{ scopes: string[] }>('POST', `/api/hosts/${hostId}/refresh`, {}),
   upsCommand: (hostId: string, command: UpsCommand) => request<{ ok: boolean }>('POST', `/api/hosts/${hostId}/ups/command`, { command }),
   forgetStack: (hostId: string, stack: string) => request<void>('DELETE', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}`),
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>

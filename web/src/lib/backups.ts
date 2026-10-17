@@ -106,13 +106,14 @@ export function offsiteNotCopiable(g: Pick<BackupGroup, 'source' | 'placeholder'
 // missing (a snapshot of the main PBS that the last run should have brought is not there; failed when that
 // run failed), none. A snapshot is expected when older than the start of the last run and not older than
 // the oldest copy (the secondary prunes on its own; before the first copy, only the last one is expected).
+// A copied day carries the worst verification of its snapshots on the secondary (unverified, verify_failed).
 // null: not copiable; off: copy not enabled.
-export type OffsiteDay = 'copied' | 'missing' | 'failed' | 'running' | 'none';
+export type OffsiteDay = 'copied' | 'unverified' | 'verify_failed' | 'missing' | 'failed' | 'running' | 'none';
 
 export function offsiteLane(g: Pick<BackupGroup, 'times' | 'offsite' | 'source' | 'placeholder'>, days = 30, now = Date.now()) {
   if (offsiteNotCopiable(g)) return null;
   const o = g.offsite;
-  const cells = timeline(o?.enabled ? o.times : [], days, now, false);
+  const cells = timeline(o?.enabled ? o.times : [], days, now);
   if (!o?.enabled) return { off: true, cells: cells.map((c) => ({ day: c.day, state: 'none' as OffsiteDay })) };
   const until = o.lastRun?.start ?? -Infinity;
   const before = (g.times ?? []).map((s) => s.t).filter((t) => t <= until);
@@ -120,10 +121,11 @@ export function offsiteLane(g: Pick<BackupGroup, 'times' | 'offsite' | 'source' 
   const expected = timeline(before.filter((t) => t >= from).map((t) => ({ t, verify: null })), days, now, false);
   const miss: OffsiteDay = o.state === 'failed' ? 'failed' : 'missing';
   const last = cells.length - 1;
+  const copied: Record<DayVerify, OffsiteDay> = { ok: 'copied', unverified: 'unverified', failed: 'verify_failed' };
   // a copy running: today's cell shows it
   return {
     off: false,
-    cells: cells.map((c, i) => ({ day: c.day, state: (o.running && i === last ? 'running' : c.count ? 'copied' : expected[i].count ? miss : 'none') as OffsiteDay })),
+    cells: cells.map((c, i) => ({ day: c.day, state: (o.running && i === last ? 'running' : c.count ? copied[c.verify] : expected[i].count ? miss : 'none') as OffsiteDay })),
   };
 }
 

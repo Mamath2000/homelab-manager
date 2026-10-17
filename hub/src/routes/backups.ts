@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { backups, hosts, parseId, settings } from '../db.js';
+import { isOnline, refreshAgent } from '../agents.js';
 import { publish } from '../events.js';
 import {
   FINGERPRINT_RE,
@@ -16,7 +17,7 @@ import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from
 import { validTimeZone } from '../calendar.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken } from '../pbsAgent.js';
-import { loadRemoteSettings, remoteReady } from '../offsite.js';
+import { loadRemoteSettings, pollOffsite, remoteReady } from '../offsite.js';
 import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
@@ -192,8 +193,14 @@ export function registerBackupRoutes(app: FastifyInstance) {
   app.post('/api/backups/refresh', async (req, reply) => {
     const s = await loadPbsSettings();
     if (!s.enabled) return reply.code(409).send({ error: 'suivi PBS désactivé (Paramètres > Sauvegardes)' });
+    // Home Assistant backups: read again by their agents meanwhile (an agent that fails keeps its last report)
+    const ha = await hosts.find({ capabilities: { $all: ['ha_backups', 'refresh'] } }, { projection: { _id: 1 } }).toArray();
+    const agents = Promise.allSettled(ha.map((h) => h._id.toHexString()).filter(isOnline).map((id) => refreshAgent(id, ['ha_backups'])));
     await pollPbs(req.log);
     await pollPve(req.log);
+    // copies on the secondary PBS (their verification included): its errors stay on its own settings
+    await pollOffsite(req.log);
+    await agents;
     const after = await loadPbsSettings();
     if (after.pollError) return reply.code(502).send({ error: after.pollError });
     return { ok: true };

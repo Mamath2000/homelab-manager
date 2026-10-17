@@ -236,6 +236,7 @@ function HostDetailPage({ id }: { id: string }) {
   const goToHost = (hostId: string) => navigate(hostPath(hostId));
   const pickerHosts = hostList.filter((item) => hostMatchesSearch(item, hostSearch, sites ?? [], tags ?? []));
 
+  const canRefreshAgent = !!host?.online && !!host.capabilities?.includes('refresh');
   const refreshData = async () => {
     if (!host) return;
     setRefreshing(true);
@@ -247,7 +248,9 @@ function HostDetailPage({ id }: { id: string }) {
       }
       const checksPromise = Promise.allSettled(actions.map((action) => refreshRun.mutateAsync({ hostId: host.id, action })));
       const backupsPromise = Promise.allSettled([backupsOn ? api.refreshBackups().then(() => true) : Promise.resolve(false)]);
-      const [checkResults, backupResults] = await Promise.all([checksPromise, backupsPromise]);
+      // the agent reads its local state again (system, Docker stacks, Home Assistant backups, UPS)
+      const agentPromise = canRefreshAgent ? api.refreshHost(host.id).then(() => true, () => false) : Promise.resolve(false);
+      const [checkResults, backupResults, agentRefreshed] = await Promise.all([checksPromise, backupsPromise, agentPromise]);
       const started = checkResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
       if (started.length) setJobId(started[0].id);
       await queryClient.invalidateQueries({ queryKey: keys.hostJobs(id) });
@@ -257,6 +260,7 @@ function HostDetailPage({ id }: { id: string }) {
       if (backupResult.status === 'rejected') toast.error(`Actualisation des sauvegardes : ${(backupResult.reason as Error).message}`);
       const backupsUpdated = backupResult.status === 'fulfilled' && backupResult.value;
       const details = [
+        agentRefreshed && 'agent actualisé',
         started.length > 0 && `${started.length} vérification${started.length > 1 ? 's' : ''} lancée${started.length > 1 ? 's' : ''}`,
         backupsUpdated && 'sauvegardes actualisées',
         !host.online && (hasApt(host) || !!host.docker) && 'hôte hors ligne : vérifications APT/Docker ignorées',
@@ -423,8 +427,8 @@ function HostDetailPage({ id }: { id: string }) {
                       size="sm"
                       icon={RefreshCw}
                       loading={refreshing}
-                      disabled={(!host.online && !backupsOn) || (!hasApt(host) && !host.docker && !backupsOn)}
-                      title="Rechercher les mises à jour APT, vérifier les images Docker et actualiser les sauvegardes"
+                      disabled={!canRefreshAgent && ((!host.online && !backupsOn) || (!hasApt(host) && !host.docker && !backupsOn))}
+                      title="Relire l'état de l'agent, rechercher les mises à jour APT, vérifier les images Docker et actualiser les sauvegardes"
                       onClick={refreshData}
                     >
                       Actualiser

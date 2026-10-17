@@ -124,7 +124,7 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | refresh
 	Tail  int    `json:"tail,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`
@@ -144,4 +144,6 @@ type Inbound struct {
 	Method string `json:"method,omitempty"`
 	// pbs_token: user, token and rights to create on the PBS of this host
 	Pbs *PbsTokenSpec `json:"pbs,omitempty"`
+	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read
+	Scopes []string `json:"scopes,omitempty"`
 }

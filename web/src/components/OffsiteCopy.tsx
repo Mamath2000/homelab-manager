@@ -210,7 +210,14 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
               <Rows
                 rows={[
                   ['État', <Badge key="s" tone={stateMeta[state!].tone}>{stateMeta[state!].label}</Badge>],
-                  ['Dernière', <span key="l" title={o.lastBackup ? dateTime(o.lastBackup) : undefined}>{o.lastBackup ? `snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}</span>],
+                  [
+                    'Dernière',
+                    <span key="l" title={o.lastBackup ? dateTime(o.lastBackup) : undefined}>
+                      {o.lastBackup ? `snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}
+                      {o.lastBackup && o.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
+                      {o.lastBackup && o.verify === null && <span className="text-amber-400"> · non vérifiée</span>}
+                    </span>,
+                  ],
                   ['Prochaine', `${o.nextRun ? dateTime(o.nextRun) : 'inconnue'} · ${o.scheduleText}${o.rateIn ? ` · ≤ ${o.rateIn}/s` : ''}`],
                 ]}
               />
