@@ -35,8 +35,10 @@ function Tile({ host, groups, small, backups, showUps }: { host: Host; groups: B
   const dck = dockerTile(host);
   const ups = host.ups ? upsTile(host.ups) : null;
   const connectionState = host.online ? 'Connecté' : !host.enrolledAt ? 'En attente' : host.roaming ? 'Absent (itinérant)' : 'Hors ligne';
-  const connectionColor = host.online || (host.roaming && !!host.enrolledAt)
+  const connectionColor = host.online
     ? 'bg-emerald-500'
+    : host.roaming && !!host.enrolledAt
+      ? 'bg-transparent'
     : !host.enrolledAt
       ? 'border-[1.5px] border-dashed border-zinc-600'
       : host.critical
