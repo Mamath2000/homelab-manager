@@ -11,7 +11,7 @@ import { Badge, Button, ConfirmModal, IconGroup, Panel, Tag } from './ui';
 export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'status' | 'running' | 'total'> }) {
   if (!stack.managed) {
     return (
-      <span title="Gérée en dehors de Homelab Manager : mises à jour d'image affichées pour information, ni état ni action">
+      <span title="Gérée en dehors de Homelab Manager : ni état ni action suivis">
         <Badge tone="neutral">Non managée</Badge>
       </span>
     );
@@ -223,7 +223,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                     {st.problems.length > 0 && <p className="text-xs text-amber-300">{st.problems.join(' · ')}</p>}
                   </td>
                   <td className="td"><StackStatusBadge stack={st} /></td>
-                  <td className="td"><ImageUpdateBadge update={st.update} count={st.updates} /></td>
+                  <td className="td">{st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}</td>
                   <td className="td hidden md:table-cell">
                     <ServiceTags services={st.services} />
                   </td>

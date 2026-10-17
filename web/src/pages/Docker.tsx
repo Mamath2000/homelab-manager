@@ -22,7 +22,7 @@ const filters: { key: Filter; label: string }[] = [
 
 const match: Record<Filter, (s: HostStack) => boolean> = {
   all: () => true,
-  updates: (s) => s.updates > 0,
+  updates: (s) => s.managed && s.updates > 0,
   problems: (s) => s.problems.length > 0,
   stopped: (s) => s.managed && (s.status === 'stopped' || s.status === 'down'),
 };
@@ -175,7 +175,7 @@ export function Docker() {
                         </Link>
                       </td>
                       <td className="td"><StackStatusBadge stack={s} /></td>
-                      <td className="td"><ImageUpdateBadge update={s.update} count={s.updates} /></td>
+                      <td className="td">{s.managed && <ImageUpdateBadge update={s.update} count={s.updates} />}</td>
                       <td className="td">
                         <ServiceTags services={s.services} />
                       </td>

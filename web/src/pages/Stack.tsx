@@ -42,7 +42,6 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
             <tr>
               <th className="th">Service</th>
               <th className="th">Image</th>
-              <th className="th">Mise à jour</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -51,15 +50,6 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
                 <td className="td font-medium text-zinc-100"><ServiceName service={s} /></td>
                 <td className="td">
                   <span className="font-mono text-xs text-zinc-300">{s.image || '—'}</span>
-                  {s.update === 'available' && (
-                    <p className="mt-0.5 font-mono text-[11px] text-muted">
-                      {short(s.localDigest)} → <span className="text-amber-300">{short(s.remoteDigest)}</span>
-                    </p>
-                  )}
-                </td>
-                <td className="td">
-                  <ImageUpdateBadge update={s.update} />
-                  {s.checkError && s.update === 'unknown' && <p className="mt-0.5 text-[11px] text-muted">{s.checkError}</p>}
                 </td>
               </tr>
             ))}
@@ -283,7 +273,7 @@ export function Stack() {
       : []),
     { id: 'history', label: 'Historique', icon: History },
   ];
-  const pending = stack.services.filter((s) => s.update === 'available' || s.update === 'recreate');
+  const pending = stack.managed ? stack.services.filter((s) => s.update === 'available' || s.update === 'recreate') : [];
   const setManaged = async (managed: boolean) => {
     try {
       await api.setStackManaged(host.id, stack.name, managed);
@@ -335,7 +325,7 @@ export function Stack() {
         }
       >
         <StackStatusBadge stack={stack} />
-        <ImageUpdateBadge update={stack.update} count={stack.updates} />
+        {stack.managed && <ImageUpdateBadge update={stack.update} count={stack.updates} />}
         <Link to={`/hosts/${host.id}`}><Tag>{host.name}</Tag></Link>
         {!host.online && <Badge tone="bad">hôte hors ligne</Badge>}
       </PageHeader>
@@ -344,8 +334,8 @@ export function Stack() {
         <div className="panel mb-5 flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
           <EyeOff className="h-5 w-5 text-muted" />
           <span className="text-zinc-300">
-            Stack non managée : elle est gérée en dehors de Homelab Manager (son propre système de mise à jour…). Lecture seule : les mises à
-            jour d'image sont affichées pour information, sans état ni action, et elle n'est pas publiée dans Home Assistant.
+            Stack non managée : elle est gérée en dehors de Homelab Manager. Son état et ses mises à jour ne sont ni suivis ni signalés ici,
+            et elle n'est pas publiée dans Home Assistant.
           </span>
         </div>
       )}
@@ -359,7 +349,7 @@ export function Stack() {
         <div className="panel mb-5 flex flex-wrap items-center gap-3 border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
           <ArrowUpCircle className="h-5 w-5 text-amber-400" />
           <span className="text-zinc-200">
-            {pending.length} service(s) à mettre à jour{!stack.managed && ' (par son propre système)'} :{' '}
+            {pending.length} service(s) à mettre à jour :{' '}
             {pending.map((s) => `${s.name} (${imageUpdateMeta[s.update].label.toLowerCase()})`).join(', ')}
           </span>
         </div>

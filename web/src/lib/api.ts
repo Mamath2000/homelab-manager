@@ -89,7 +89,7 @@ export interface DockerService {
 
 export interface DockerStack {
   name: string;
-  // false: managed elsewhere (own update system), read-only, without state, updates nor problems
+  // false: managed elsewhere and read-only; state and problems are suppressed, image updates are informational
   managed: boolean;
   workingDir: string;
   configFiles: string[];

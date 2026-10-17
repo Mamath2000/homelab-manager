@@ -43,9 +43,8 @@ export function dockerAlert(h: HostDoc): DayAlert | null {
   const alerts: string[] = [];
   const warns: string[] = [];
   for (const st of v.stacks) {
-    if (st.managed) {
-      if (st.problems.length) alerts.push(`${st.name} : ${st.problems.join(', ')}`);
-    }
+    if (!st.managed) continue;
+    if (st.problems.length) alerts.push(`${st.name} : ${st.problems.join(', ')}`);
     if (st.updates > 0) warns.push(`${st.name} : ${st.updates} image(s) à mettre à jour`);
   }
   return alerts.length ? day('alert', alerts) : warns.length ? day('warn', warns) : day('ok', []);

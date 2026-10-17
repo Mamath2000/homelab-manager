@@ -37,6 +37,19 @@ test('Docker: a problem is an alert, an image update a warning, otherwise it is 
   assert.equal(dockerAlert({ ...dockerHost({}), capabilities: [] }), null);
   assert.deepEqual(dockerAlert(dockerHost({ stacks: [stack('web', 'running', ['running'])] })), { level: 'ok', reasons: [] });
   assert.deepEqual(dockerAlert(dockerHost({ stacks: [stack('web', 'stopped', ['exited'])] })), { level: 'ok', reasons: [] });
+  const updates = { checkedAt: now, images: [{ ref: 'img0', digest: 'new' }] };
+  const report = {
+    stacks: [stack('aio', 'running', ['running']), stack('web', 'running', ['running'])],
+    images: [{ ref: 'img0', id: 'img-current', digest: 'old' }],
+  };
+  assert.deepEqual(dockerAlert({ ...dockerHost(report, updates), unmanagedStacks: ['aio'] }), {
+    level: 'warn',
+    reasons: ['web : 1 image(s) à mettre à jour'],
+  });
+  assert.deepEqual(
+    dockerAlert({ ...dockerHost({ ...report, stacks: [report.stacks[0]] }, updates), unmanagedStacks: ['aio'] }),
+    { level: 'ok', reasons: [] },
+  );
   const bad = dockerAlert(dockerHost({ stacks: [stack('web', 'partial', ['running', 'exited']), stack('db', 'running', ['running'], 'unhealthy')] }));
   assert.equal(bad?.level, 'alert');
   assert.deepEqual(bad?.reasons, ['web : 1/2 conteneurs en marche', 'db : s0 : en mauvaise santé']);
