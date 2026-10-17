@@ -73,7 +73,7 @@ L'agent agit sur l'onduleur avec un **utilisateur NUT dédié**, `hm-agent`, qui
 
 **Unraid (plugin NUT)** : le répertoire de l'agent est `/boot/homelab-man` (`/etc` est en RAM), donc le fichier est `/boot/homelab-man/ups.pass`. L'utilisateur se déclare à deux endroits, avec la même section : `/etc/nut/upsd.users` et sa copie persistante `/boot/config/plugins/nut-dw/ups/upsd.users`, que le plugin recopie dans `/etc/nut` au démarrage. Le réglage « Enable Manual Configuration » du plugin doit être sur « for UPS Driver » (`onlyups`) ou « Yes » ; sur « No », l'interface réécrit `upsd.users` et supprime la section.
 
-L'agent détecte le fichier à sa reconnexion au hub (redémarrer `homelab-agent` pour que ce soit immédiat) et annonce la capacité `ups_control`. Pour retirer l'accès, supprimer `ups.pass` (et l'utilisateur dans `upsd.users`).
+L'agent détecte le fichier à sa reconnexion au hub ou au plus tard au bout de 30 minutes (redémarrer `homelab-agent` pour que ce soit immédiat) et annonce la capacité `ups_control`. Pour retirer l'accès, supprimer `ups.pass` (et l'utilisateur dans `upsd.users`).
 
 :::note Sécurité
 Le fichier est en clair, comme tout mot de passe de `upsd.users` : NUT n'en connaît pas d'autre forme. Il n'est lisible que par root, comme le reste du répertoire de l'agent. Le compte `hm-agent` ne peut ni couper la charge ni modifier un réglage ; au pire, une fuite permet de faire sonner ou taire le bip, ou de lancer un test. Si `upsd` écoute sur le réseau (`LISTEN` dans `upsd.conf`), limite l'accès au port 3493 au réseau des serveurs.
