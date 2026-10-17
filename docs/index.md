@@ -25,6 +25,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Fiche hôte** : bandeau système et frise des alertes des 30 derniers jours (mises à jour, Docker, sauvegardes : pire situation de chaque jour, détail au clic) en tête de page ; sur grand écran, l'historique et la console en direct restent visibles à droite, et toute tâche lancée depuis la fiche s'y affiche.
 - **Docker** : stacks compose des hôtes, état des conteneurs, images à mettre à jour, démarrer / arrêter / redémarrer / mettre à jour, logs et fichiers compose.
 - **Onduleur** : état, batterie, autonomie, charge et tensions de l'onduleur d'un hôte (via NUT), indicateur de batterie à remplacer et alertes.
+- **Clés d'API** : comptes sans mot de passe et clés nommées (une par service) pour interroger le hub, par exemple depuis Homepage.
 - **Home Assistant** (option) : appareils, alertes et mises à jour publiés via MQTT, avec découverte automatique.
 
 ## Principes
@@ -41,5 +42,6 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
 - [Onduleur](onduleur.md) : suivi d'un onduleur via NUT, fin de vie de la batterie, alertes.
 - [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.
-- [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe.
+- [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe, comptes sans mot de passe, clés d'API.
+- [API](api.md) : accès par clé d'API et endpoint `/api/summary` pour les tableaux de bord.
 - [Sécurité](securite.md) : connexion des agents, enrôlement, révocation, signature des binaires.

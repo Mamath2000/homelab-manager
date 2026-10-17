@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { Activity } from 'lucide-react';
 import { useAllAlerts } from '../lib/queries';
 import { siteDays, type SiteCell, type Site, type TimelineFilter } from '../lib/sites';
-import { Panel, Segmented } from './ui';
+import { Checkbox, Panel, Segmented } from './ui';
 
 const DAYS = 30;
 
@@ -37,6 +37,8 @@ function cellText(c: SiteCell) {
 export function SiteTimeline({ sites }: { sites: Site[] }) {
   const { data } = useAllAlerts();
   const [filter, setFilter] = useState<TimelineFilter>('all');
+  const [showConnection, setShowConnection] = useState(false);
+  const [showUps, setShowUps] = useState(false);
   const dates = lastDays();
   const keys = dates.map(dayKey);
 
@@ -45,18 +47,29 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
       title="Arrivée des alertes · 30 jours"
       icon={Activity}
       actions={
-        <Segmented
-          label="Type d'alerte"
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { id: 'all', label: 'Toutes' },
-            { id: 'agent', label: 'Connexion' },
-            { id: 'apt', label: 'Mises à jour' },
-            { id: 'docker', label: 'Docker' },
-            { id: 'backups', label: 'Sauvegardes' },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmented
+            label="Type d'alerte"
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { id: 'all', label: 'Toutes' },
+              { id: 'agent', label: 'Connexion' },
+              { id: 'apt', label: 'Mises à jour' },
+              { id: 'docker', label: 'Docker' },
+              { id: 'backups', label: 'Sauvegardes' },
+              { id: 'ups', label: 'Onduleurs' },
+            ]}
+          />
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
+            <Checkbox label="Afficher les lignes de connexion" checked={showConnection} onChange={setShowConnection} />
+            Ligne connexion
+          </label>
+          <label className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
+            <Checkbox label="Afficher les lignes des onduleurs" checked={showUps} onChange={setShowUps} />
+            Ligne onduleurs
+          </label>
+        </div>
       }
     >
       <div className="mb-3 flex flex-wrap gap-x-3.5 gap-y-1 text-[11px] text-muted">
@@ -68,21 +81,28 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
         ))}
       </div>
       <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-[3px]">
-        {sites.map((s) => {
-          const cells = siteDays(s.hosts, data?.days ?? [], keys, filter);
-          return [
-            <span key={`${s.name}-l`} className="max-w-36 truncate text-xs text-muted" title={s.name}>{s.name}</span>,
-            <div key={`${s.name}-d`} className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px]">
-              {cells.map((c, i) => (
-                <span
-                  key={keys[i]}
-                  title={`${s.name} · ${shortDate(dates[i])} : ${cellText(c)}`}
-                  aria-label={`${s.name}, ${shortDate(dates[i])} : ${cellText(c)}`}
-                  className={clsx('h-5 rounded-[3px]', cellColor[c.level])}
-                />
-              ))}
-            </div>,
+        {sites.flatMap((site) => {
+          const rows: { id: string; label: string; filter: TimelineFilter }[] = [
+            { id: 'summary', label: site.name, filter },
+            ...(showConnection ? [{ id: 'agent', label: `${site.name} · Connexion`, filter: 'agent' as const }] : []),
+            ...(showUps ? [{ id: 'ups', label: `${site.name} · Onduleurs`, filter: 'ups' as const }] : []),
           ];
+          return rows.flatMap((row) => {
+            const cells = siteDays(site.hosts, data?.days ?? [], keys, row.filter);
+            return [
+              <span key={`${site.name}-${row.id}-l`} className="max-w-44 truncate text-xs text-muted" title={row.label}>{row.label}</span>,
+              <div key={`${site.name}-${row.id}-d`} className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px]">
+                {cells.map((c, i) => (
+                  <span
+                    key={keys[i]}
+                    title={`${row.label} · ${shortDate(dates[i])} : ${cellText(c)}`}
+                    aria-label={`${row.label}, ${shortDate(dates[i])} : ${cellText(c)}`}
+                    className={clsx('h-5 rounded-[3px]', cellColor[c.level])}
+                  />
+                ))}
+              </div>,
+            ];
+          });
         })}
         <span />
         <div className="mt-1 flex justify-between font-mono text-[10px] text-muted">

@@ -1,6 +1,6 @@
 ---
 title: Comptes et rôles
-description: Premier démarrage, rôles admin / operator / viewer, mots de passe temporaires et compte superadmin
+description: Premier démarrage, rôles admin / operator / viewer, mots de passe temporaires, comptes sans mot de passe, clés d'API et compte superadmin
 sidebar_position: 5
 ---
 
@@ -41,6 +41,29 @@ d'accéder au hub. Une réinitialisation ferme aussi les sessions ouvertes du co
 
 Garde-fous : on ne peut ni supprimer son propre compte, ni supprimer ou rétrograder le dernier `admin`.
 Changer le rôle d'un compte le déconnecte.
+
+## Compte sans mot de passe
+
+À la création, l'option **Aucun mot de passe** crée un compte réservé aux services : il **ne peut pas se connecter à
+l'interface** (un avertissement le rappelle) et ne s'utilise qu'avec une [clé d'API](#clés-dapi). Ce compte n'a aucune clé
+au départ : on les ajoute en le modifiant. « Réinitialiser » dans la colonne *Mot de passe* ne s'applique pas à un tel compte.
+
+## Clés d'API
+
+Une clé d'API permet à un service (Homepage, un script…) d'appeler l'[API du hub](api.md) sans session. Elle s'envoie
+dans l'en-tête `Authorization: Bearer hm_…` et **a les droits du rôle du compte** : pour un simple affichage, un compte
+`viewer` sans mot de passe suffit.
+
+Les clés se gèrent dans le dialogue **Modifier** d'un compte (page **Comptes**), section *Clés d'API* :
+
+- **Plusieurs clés par compte**, chacune avec un nom (le service qui l'utilise), sa date de création et sa dernière
+  utilisation : une clé se révoque sans toucher aux autres.
+- **Générer** affiche la clé **une seule fois** avec un bouton copier ; seule son empreinte est conservée par le hub.
+- **Révoquer** (à confirmer) refuse aussitôt le service qui l'utilise.
+- Supprimer le compte supprime ses clés. Le compte `superadmin` ne peut pas en avoir.
+
+Les clés ne passent jamais par le cookie de session. Une clé inconnue compte comme un échec de connexion (5 échecs par
+minute et par adresse IP, puis refus temporaire).
 
 ## Compte `superadmin`
 
