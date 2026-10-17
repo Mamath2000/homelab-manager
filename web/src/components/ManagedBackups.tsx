@@ -9,7 +9,7 @@ import { useMe } from '../lib/auth';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { PbsTokenButton } from './PbsAgentPicker';
-import { Badge, Button, Modal, Spinner, Tabs } from './ui';
+import { Badge, Button, Modal, Spinner, VerticalTabs } from './ui';
 
 const PRESETS = [
   { label: 'Tous les jours à 03:00', value: '03:00' },
@@ -462,8 +462,7 @@ function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: H
     <Modal
       open={open}
       onClose={onClose}
-      wide
-      scroll
+      wide="screen"
       title={job ? `Sauvegarde ${job.name}` : `Nouvelle sauvegarde de ${host.name}`}
       footer={
         <>
@@ -478,167 +477,168 @@ function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: H
       <div className="space-y-4 text-sm">
         <AgentLine host={host} view={view} />
         {/* the copy tab: only with a secondary PBS */}
-        <Tabs tabs={remote ? JOB_TABS : JOB_TABS.filter((t) => t.id !== 'offsite')} value={tab} onChange={setTab} />
-        {tab === 'offsite' && <OffsiteSettingsTab g={group} remote={remote} value={offsite} onChange={setOffsite} />}
-        {tab === 'content' && (
-          <section className="space-y-4">
-            <label className="block">
-              <span className={field}>Type de sauvegarde</span>
-              {job ? (
-                <div className="input cursor-default bg-raised/40 text-zinc-400" title="Fixé à la création : ses archives sont d'une autre nature">{KIND_LABEL[kind]}</div>
-              ) : (
-                <select className="input" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
-                  {(Object.keys(KIND_LABEL) as FormKind[]).map((k) => (
-                    <option key={k} value={k} disabled={k !== 'directories' && !view.databases}>{KIND_LABEL[k]}</option>
-                  ))}
-                </select>
-              )}
-            </label>
-            <label className="block">
-              <span className={field}>Nom</span>
-              <input
-                className="input"
-                value={form.name}
-                onChange={(e) => set({ name: e.target.value })}
-              />
-            </label>
-            {db && form.database ? (
-              <DatabaseFields host={host} view={view} kind={kind as DatabaseKind} value={form.database} onChange={(database) => set({ database })} />
-            ) : (
-              <>
-                <div>
-                  <span className={field}>Répertoires (une archive .pxar chacun)</span>
-                  <div className="space-y-2">
-                    <div ref={archivesRef} className="space-y-2">
-                      {form.archives.map((a, i) => (
-                        <div key={i} className="flex gap-2">
-                          <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
-                          <input className="input flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
-                          <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
-                        </div>
-                      ))}
-                    </div>
-                    <Button size="sm" icon={Plus} onClick={addArchive}>Répertoire</Button>
-                  </div>
-                </div>
-                <label className="block">
-                  <span className={field}>Exclusions (une par ligne, motifs de proxmox-backup-client)</span>
-                  <textarea className="input h-20 font-mono text-xs" value={excludes} onChange={(e) => setExcludes(e.target.value)} placeholder={'**/.cache\n**/node_modules'} />
-                </label>
-                <DirectoryEstimate host={host} view={view} archives={form.archives} excludes={excludeList} lastSize={lastSize} />
-              </>
-            )}
-          </section>
-        )}
-        {tab === 'destination' && (
-          <section className="space-y-4">
-            <label className="block">
-              <span className={clsx(field, 'flex items-center justify-between')}>
-                Identifiant sur le PBS
-                {!job && (idAuto ? (
-                  <span className="font-normal text-zinc-500">{db ? 'déduit du type et des bases' : 'déduit du nom'}</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="font-normal text-emerald-400 hover:underline"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setIdAuto(true);
-                      setForm({ ...form, backupId: autoId(form) });
-                    }}
-                  >
-                    {db ? 'déduire du type et des bases' : 'déduire du nom'}
-                  </button>
-                ))}
-              </span>
-              <input
-                className="input font-mono text-xs"
-                value={job ? job.backupId : form.backupId ?? ''}
-                disabled={!!job}
-                onChange={(e) => {
-                  setIdAuto(false);
-                  set({ backupId: e.target.value.trim() });
-                }}
-                title="Groupe host/<identifiant> du PBS ; fixé à la création (un autre identifiant commence un nouvel historique)"
-              />
-              {taken && (
-                <span className="mt-1 block text-xs text-amber-400">
-                  Ce groupe existe déjà sur {form.store} › Hosts ({taken.count} snapshot{taken.count > 1 ? 's' : ''}, sauvegarde externe) : choisis un autre identifiant.
-                </span>
-              )}
-            </label>
-            <div className="grid gap-4 sm:grid-cols-2">
+        <VerticalTabs tabs={remote ? JOB_TABS : JOB_TABS.filter((t) => t.id !== 'offsite')} value={tab} onChange={setTab} bodyClassName="pt-4 md:pt-1 md:pl-6">
+          {tab === 'offsite' && <OffsiteSettingsTab g={group} remote={remote} value={offsite} onChange={setOffsite} />}
+          {tab === 'content' && (
+            <section className="space-y-4">
               <label className="block">
-                <span className={field}>Datastore</span>
-                <select className="input" value={form.store} onChange={(e) => set({ store: e.target.value })}>
-                  {!view.datastores.includes(form.store) && <option value={form.store}>{form.store || '—'}</option>}
-                  {view.datastores.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-                {view.credential?.store && view.credential.store !== '*' && form.store !== view.credential.store && (
+                <span className={field}>Type de sauvegarde</span>
+                {job ? (
+                  <div className="input cursor-default bg-raised/40 text-zinc-400" title="Fixé à la création : ses archives sont d'une autre nature">{KIND_LABEL[kind]}</div>
+                ) : (
+                  <select className="input" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
+                    {(Object.keys(KIND_LABEL) as FormKind[]).map((k) => (
+                      <option key={k} value={k} disabled={k !== 'directories' && !view.databases}>{KIND_LABEL[k]}</option>
+                    ))}
+                  </select>
+                )}
+              </label>
+              <label className="block">
+                <span className={field}>Nom</span>
+                <input
+                  className="input"
+                  value={form.name}
+                  onChange={(e) => set({ name: e.target.value })}
+                />
+              </label>
+              {db && form.database ? (
+                <DatabaseFields host={host} view={view} kind={kind as DatabaseKind} value={form.database} onChange={(database) => set({ database })} />
+              ) : (
+                <>
+                  <div>
+                    <span className={field}>Répertoires (une archive .pxar chacun)</span>
+                    <div className="space-y-2">
+                      <div ref={archivesRef} className="space-y-2">
+                        {form.archives.map((a, i) => (
+                          <div key={i} className="flex gap-2">
+                            <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
+                            <input className="input flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
+                            <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
+                          </div>
+                        ))}
+                      </div>
+                      <Button size="sm" icon={Plus} onClick={addArchive}>Répertoire</Button>
+                    </div>
+                  </div>
+                  <label className="block">
+                    <span className={field}>Exclusions (une par ligne, motifs de proxmox-backup-client)</span>
+                    <textarea className="input h-20 font-mono text-xs" value={excludes} onChange={(e) => setExcludes(e.target.value)} placeholder={'**/.cache\n**/node_modules'} />
+                  </label>
+                  <DirectoryEstimate host={host} view={view} archives={form.archives} excludes={excludeList} lastSize={lastSize} />
+                </>
+              )}
+            </section>
+          )}
+          {tab === 'destination' && (
+            <section className="space-y-4">
+              <label className="block">
+                <span className={clsx(field, 'flex items-center justify-between')}>
+                  Identifiant sur le PBS
+                  {!job && (idAuto ? (
+                    <span className="font-normal text-zinc-500">{db ? 'déduit du type et des bases' : 'déduit du nom'}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="font-normal text-emerald-400 hover:underline"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setIdAuto(true);
+                        setForm({ ...form, backupId: autoId(form) });
+                      }}
+                    >
+                      {db ? 'déduire du type et des bases' : 'déduire du nom'}
+                    </button>
+                  ))}
+                </span>
+                <input
+                  className="input font-mono text-xs"
+                  value={job ? job.backupId : form.backupId ?? ''}
+                  disabled={!!job}
+                  onChange={(e) => {
+                    setIdAuto(false);
+                    set({ backupId: e.target.value.trim() });
+                  }}
+                  title="Groupe host/<identifiant> du PBS ; fixé à la création (un autre identifiant commence un nouvel historique)"
+                />
+                {taken && (
                   <span className="mt-1 block text-xs text-amber-400">
-                    Le jeton de cet hôte n'a de droits que sur {view.credential.store} › Hosts : recrée le jeton (Accès au PBS) pour l'étendre à tous les datastores.
+                    Ce groupe existe déjà sur {form.store} › Hosts ({taken.count} snapshot{taken.count > 1 ? 's' : ''}, sauvegarde externe) : choisis un autre identifiant.
                   </span>
                 )}
               </label>
-              <div>
-                <span className={field}>Namespace</span>
-                <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : le jeton de l'hôte n'écrit que dans Hosts">Hosts</div>
-              </div>
-            </div>
-            <div className="-mt-2 text-xs">
-              {(() => {
-                const r = view.retention?.[form.store];
-                if (r === undefined) return null;
-                return r ? (
-                  <span className="text-muted" title={`Job d'élagage du PBS sur ${form.store}${r.ns ? ` › ${r.ns}` : ''} ; modifiable dans le PBS (Datastore › Élagage et GC)`}>
-                    Rétention (élagage du PBS{r.schedule ? `, ${r.schedule}` : ''}) : <span className="text-zinc-300">{r.keep}</span>
-                  </span>
-                ) : (
-                  <span className="text-amber-400">Aucun élagage sur {form.store} › Hosts : les snapshots s'accumulent (à régler dans le PBS, Datastore › Élagage et GC).</span>
-                );
-              })()}
-            </div>
-          </section>
-        )}
-        {tab === 'schedule' && (
-          <section className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-3">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <span className={field}>Déclenchement</span>
-                  <select className="input" value={form.connectEveryDays ? 'connect' : 'schedule'} onChange={(e) => set({ connectEveryDays: e.target.value === 'connect' ? 3 : null })}>
-                    <option value="schedule">À heure fixe</option>
-                    <option value="connect">À la connexion de l'agent (poste nomade)</option>
+                  <span className={field}>Datastore</span>
+                  <select className="input" value={form.store} onChange={(e) => set({ store: e.target.value })}>
+                    {!view.datastores.includes(form.store) && <option value={form.store}>{form.store || '—'}</option>}
+                    {view.datastores.map((d) => <option key={d} value={d}>{d}</option>)}
                   </select>
+                  {view.credential?.store && view.credential.store !== '*' && form.store !== view.credential.store && (
+                    <span className="mt-1 block text-xs text-amber-400">
+                      Le jeton de cet hôte n'a de droits que sur {view.credential.store} › Hosts : recrée le jeton (Accès au PBS) pour l'étendre à tous les datastores.
+                    </span>
+                  )}
                 </label>
-                {form.connectEveryDays ? (
-                  <label className="block">
-                    <span className={field}>Au plus une fois tous les (jours)</span>
-                    <input type="number" min={1} max={365} className="input" value={form.connectEveryDays} onChange={(e) => set({ connectEveryDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })} />
-                    <span className="mt-1 block text-xs text-muted">Lancée à la connexion au hub si la dernière sauvegarde réussie date de plus de ce délai ; un échec est retenté à la connexion suivante.</span>
-                  </label>
-                ) : (
-                  <label className="block">
-                    <span className={field}>Quand</span>
-                    <input className="input font-mono text-xs" value={form.schedule} onChange={(e) => set({ schedule: e.target.value })} list="backup-presets" />
-                    <datalist id="backup-presets">{PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</datalist>
-                    <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox : <code>03:00</code>, <code>sun 01:00</code>, <code>mon..fri 22:30</code>, <code>daily</code>.</span>
-                  </label>
-                )}
-              </div>
-              <div>
-                <span className={field}>Fuseau horaire</span>
-                <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : fuseau du hub (variable TZ du compose)">
-                  {job ? job.timezone : view.timezone}
+                <div>
+                  <span className={field}>Namespace</span>
+                  <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : le jeton de l'hôte n'écrit que dans Hosts">Hosts</div>
                 </div>
               </div>
-            </div>
-            <label className="flex cursor-pointer items-center gap-3">
-              <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
-              <span>Active (l'agent la lance {form.connectEveryDays ? 'à la connexion' : "à l'heure prévue"})</span>
-            </label>
-          </section>
-        )}
+              <div className="-mt-2 text-xs">
+                {(() => {
+                  const r = view.retention?.[form.store];
+                  if (r === undefined) return null;
+                  return r ? (
+                    <span className="text-muted" title={`Job d'élagage du PBS sur ${form.store}${r.ns ? ` › ${r.ns}` : ''} ; modifiable dans le PBS (Datastore › Élagage et GC)`}>
+                      Rétention (élagage du PBS{r.schedule ? `, ${r.schedule}` : ''}) : <span className="text-zinc-300">{r.keep}</span>
+                    </span>
+                  ) : (
+                    <span className="text-amber-400">Aucun élagage sur {form.store} › Hosts : les snapshots s'accumulent (à régler dans le PBS, Datastore › Élagage et GC).</span>
+                  );
+                })()}
+              </div>
+            </section>
+          )}
+          {tab === 'schedule' && (
+            <section className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className={field}>Déclenchement</span>
+                    <select className="input" value={form.connectEveryDays ? 'connect' : 'schedule'} onChange={(e) => set({ connectEveryDays: e.target.value === 'connect' ? 3 : null })}>
+                      <option value="schedule">À heure fixe</option>
+                      <option value="connect">À la connexion de l'agent (poste nomade)</option>
+                    </select>
+                  </label>
+                  {form.connectEveryDays ? (
+                    <label className="block">
+                      <span className={field}>Au plus une fois tous les (jours)</span>
+                      <input type="number" min={1} max={365} className="input" value={form.connectEveryDays} onChange={(e) => set({ connectEveryDays: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })} />
+                      <span className="mt-1 block text-xs text-muted">Lancée à la connexion au hub si la dernière sauvegarde réussie date de plus de ce délai ; un échec est retenté à la connexion suivante.</span>
+                    </label>
+                  ) : (
+                    <label className="block">
+                      <span className={field}>Quand</span>
+                      <input className="input font-mono text-xs" value={form.schedule} onChange={(e) => set({ schedule: e.target.value })} list="backup-presets" />
+                      <datalist id="backup-presets">{PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</datalist>
+                      <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox : <code>03:00</code>, <code>sun 01:00</code>, <code>mon..fri 22:30</code>, <code>daily</code>.</span>
+                    </label>
+                  )}
+                </div>
+                <div>
+                  <span className={field}>Fuseau horaire</span>
+                  <div className="input cursor-default bg-raised/40 font-mono text-xs text-zinc-400" title="Fixé : fuseau du hub (variable TZ du compose)">
+                    {job ? job.timezone : view.timezone}
+                  </div>
+                </div>
+              </div>
+              <label className="flex cursor-pointer items-center gap-3">
+                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
+                <span>Active (l'agent la lance {form.connectEveryDays ? 'à la connexion' : "à l'heure prévue"})</span>
+              </label>
+            </section>
+          )}
+        </VerticalTabs>
       </div>
     </Modal>
   );

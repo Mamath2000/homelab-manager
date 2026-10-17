@@ -231,8 +231,9 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll }: 
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  // true: 2xl, 'xl': 5xl (content in columns)
-  wide?: boolean | 'xl';
+  // true: 2xl, 'xl': 5xl (content in columns), 'screen': 5xl at 16:9, the size of the screen (fixed
+  // height: switching tabs does not resize it; the body scrolls)
+  wide?: boolean | 'xl' | 'screen';
   // long content: the body scrolls inside the window, header and footer stay visible
   scroll?: boolean;
 }) {
@@ -253,9 +254,9 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll }: 
       <div
         className={clsx(
           'panel w-full bg-panel shadow-2xl shadow-black/60',
-          wide === 'xl' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
+          wide === 'xl' || wide === 'screen' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
           // 12vh on top, at most 70vh high: the window stays clear of the bottom of the screen
-          scroll && 'flex max-h-[70vh] flex-col',
+          wide === 'screen' ? 'flex aspect-video max-h-[80vh] flex-col' : scroll && 'flex max-h-[70vh] flex-col',
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -265,7 +266,7 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll }: 
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className={clsx('px-5 py-4', scroll && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
+        <div className={clsx('px-5 py-4', (scroll || wide === 'screen') && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
         {footer && <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </div>
     </div>
