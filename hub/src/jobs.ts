@@ -13,6 +13,8 @@ interface Running {
   hostId: string;
   log: string;
   dirty: boolean;
+  // run by the hub itself (copy to the secondary PBS): not a job of the agent, kept when it disconnects
+  hub?: boolean;
 }
 const running = new Map<string, Running>();
 
@@ -49,7 +51,7 @@ export function jobDto(j: JobDoc, withLog = false) {
 }
 
 export function hasRunningJob(hostId: string) {
-  for (const r of running.values()) if (r.hostId === hostId) return true;
+  for (const r of running.values()) if (r.hostId === hostId && !r.hub) return true;
   return false;
 }
 
@@ -112,6 +114,36 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
   return (await jobs.findOne({ _id: job._id }))!;
 }
 
+// Job run by the hub itself, shown like the others (console, Activité); its caller writes the log
+// (appendJobLog) and ends it (finishJob). target.backupJobName: what it is about. jobId: a job of a previous
+// hub process taken up again (left running by recoverJobs).
+export async function startHubJob(host: Pick<HostDoc, '_id' | 'name'>, action: JobAction, trigger: JobDoc['trigger'], target: { backupJobName: string; createdAt?: Date }, jobId?: string) {
+  const hostId = host._id.toHexString();
+  if (jobId && ObjectId.isValid(jobId)) {
+    const cur = await jobs.findOne({ _id: new ObjectId(jobId), status: 'running' });
+    if (cur) {
+      if (!running.has(jobId)) running.set(jobId, { hostId, log: cur.log, dirty: false, hub: true });
+      return cur;
+    }
+  }
+  const job: JobDoc = {
+    _id: new ObjectId(),
+    hostId: host._id,
+    hostName: host.name,
+    action,
+    packages: [],
+    backupJobName: target.backupJobName,
+    trigger,
+    status: 'running',
+    createdAt: target.createdAt ?? new Date(),
+    log: '',
+  };
+  await jobs.insertOne(job);
+  running.set(job._id.toHexString(), { hostId, log: '', dirty: false, hub: true });
+  publish('job', jobDto(job));
+  return job;
+}
+
 export function appendJobLog(jobId: string, hostId: string, data: string) {
   const r = running.get(jobId);
   if (!r || r.hostId !== hostId) return;
@@ -137,7 +169,7 @@ export async function finishJob(jobId: string, hostId: string, exitCode: number,
 
 export async function failRunningJobs(hostId: string, reason: string) {
   for (const [jobId, r] of running) {
-    if (r.hostId === hostId) await finishJob(jobId, hostId, -1, reason);
+    if (r.hostId === hostId && !r.hub) await finishJob(jobId, hostId, -1, reason);
   }
 }
 
@@ -157,10 +189,11 @@ export function interruptedByRestart(running: Pick<JobDoc, 'action' | 'hostId'>[
   return { agentUpdate: on('agent_update'), dockerCheck: on('docker_check') };
 }
 
+// Copies to the secondary PBS go on without the hub: their job is taken up again (offsite.ts).
 export async function recoverJobs() {
   const interrupted = interruptedByRestart(await jobs.find({ status: 'running' }).toArray());
   await jobs.updateMany(
-    { status: 'running' },
+    { status: 'running', action: { $ne: 'offsite_run' } },
     { $set: { status: 'failed', error: 'hub restarted', finishedAt: new Date() } },
   );
   if (interrupted.agentUpdate.length) {

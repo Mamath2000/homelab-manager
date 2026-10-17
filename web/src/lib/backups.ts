@@ -107,7 +107,7 @@ export function offsiteNotCopiable(g: Pick<BackupGroup, 'source' | 'placeholder'
 // run failed), none. A snapshot is expected when older than the start of the last run and not older than
 // the oldest copy (the secondary prunes on its own; before the first copy, only the last one is expected).
 // null: not copiable; off: copy not enabled.
-export type OffsiteDay = 'copied' | 'missing' | 'failed' | 'none';
+export type OffsiteDay = 'copied' | 'missing' | 'failed' | 'running' | 'none';
 
 export function offsiteLane(g: Pick<BackupGroup, 'times' | 'offsite' | 'source' | 'placeholder'>, days = 30, now = Date.now()) {
   if (offsiteNotCopiable(g)) return null;
@@ -119,24 +119,27 @@ export function offsiteLane(g: Pick<BackupGroup, 'times' | 'offsite' | 'source' 
   const from = o.times?.length ? o.times[0].t : before.length ? Math.max(...before) : Infinity;
   const expected = timeline(before.filter((t) => t >= from).map((t) => ({ t, verify: null })), days, now, false);
   const miss: OffsiteDay = o.state === 'failed' ? 'failed' : 'missing';
-  return { off: false, cells: cells.map((c, i) => ({ day: c.day, state: (c.count ? 'copied' : expected[i].count ? miss : 'none') as OffsiteDay })) };
+  const last = cells.length - 1;
+  // a copy running: today's cell shows it
+  return {
+    off: false,
+    cells: cells.map((c, i) => ({ day: c.day, state: (o.running && i === last ? 'running' : c.count ? 'copied' : expected[i].count ? miss : 'none') as OffsiteDay })),
+  };
 }
 
 // What the hub applies when the copy is enabled without settings (hub offsite.ts OFFSITE_DEFAULTS)
-export const OFFSITE_DEFAULTS = { schedule: '06:00', transferLast: 2 };
+export const OFFSITE_DEFAULTS = { schedule: '06:00' };
 
 // Settings of the copy in the window of a backup
 export interface OffsiteForm {
   enabled: boolean;
   schedule: string;
-  transferLast: number | null;
   rateIn: string;
 }
 
 export const offsiteForm = (o: BackupOffsite | null | undefined): OffsiteForm => ({
   enabled: !!o?.enabled,
   schedule: o?.schedule ?? OFFSITE_DEFAULTS.schedule,
-  transferLast: o ? o.transferLast : OFFSITE_DEFAULTS.transferLast,
   rateIn: o?.rateIn ?? '',
 });
 
@@ -144,7 +147,7 @@ export const offsiteForm = (o: BackupOffsite | null | undefined): OffsiteForm =>
 export function offsiteInput(before: OffsiteForm, after: OffsiteForm): BackupOffsiteInput | null {
   if (JSON.stringify(before) === JSON.stringify(after)) return null;
   if (!after.enabled) return { enabled: false };
-  return { enabled: true, schedule: after.schedule.trim(), transferLast: after.transferLast, rateIn: after.rateIn.trim() || null };
+  return { enabled: true, schedule: after.schedule.trim(), rateIn: after.rateIn.trim() || null };
 }
 
 // PBS client of a host, from the capabilities of its agent (see hub backupJobs.ts clientState)

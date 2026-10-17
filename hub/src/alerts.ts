@@ -76,7 +76,7 @@ export function backupsAlert(groups: BackupDoc[], now = Date.now()): DayAlert | 
 export function jobDomain(action: JobDoc['action']): AlertDomain | null {
   if (action.startsWith('apt_') || action === 'reboot') return 'apt';
   if (action.startsWith('docker_')) return 'docker';
-  if (action.startsWith('backup_')) return 'backups';
+  if (action.startsWith('backup_') || action === 'offsite_run') return 'backups';
   return null;
 }
 
@@ -206,6 +206,7 @@ const actionLabel: Partial<Record<JobDoc['action'], string>> = {
   docker_update: 'mise à jour',
   backup_run: 'sauvegarde',
   backup_install: 'installation du client PBS',
+  offsite_run: 'copie déportée',
 };
 
 export function jobLabel(j: { action: JobDoc['action']; stack?: string | null; backupJobName?: string | null }) {

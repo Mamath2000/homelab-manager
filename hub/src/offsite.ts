@@ -1,9 +1,10 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { sha256 } from './crypto.js';
-import { backups, settings } from './db.js';
+import { backups, hosts, settings } from './db.js';
 import { publish } from './events.js';
+import { appendJobLog, finishJob, startHubJob } from './jobs.js';
 import { HISTORY, loadPbsSettings, pbsCall } from './pbs.js';
-import type { BackupDoc, BackupOffsite, BackupSnapshot, PbsRemoteSettings } from './types.js';
+import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, PbsRemoteSettings } from './types.js';
 
 // Copy of chosen backups to a secondary PBS ("copie déportée"). The secondary pulls from the main PBS:
 // a remote entry (REMOTE_NAME) with a read-only token of the main PBS, and one sync job per group copied,
@@ -12,7 +13,9 @@ import type { BackupDoc, BackupOffsite, BackupSnapshot, PbsRemoteSettings } from
 
 export const REMOTE_NAME = 'hlm-main';
 export const JOB_PREFIX = 'hlm-';
-export const OFFSITE_DEFAULTS = { schedule: '06:00', transferLast: 2, rateIn: null } as const;
+// one snapshot per run, the last one: the backup is on both PBS, the secondary prunes with its own retention
+export const TRANSFER_LAST = 1;
+export const OFFSITE_DEFAULTS = { schedule: '06:00', rateIn: null } as const;
 export const RATE_RE = /^\d{1,6}(\.\d{1,3})?\s?(B|KB|MB|GB|KiB|MiB|GiB)$/;
 
 export const DEFAULT_REMOTE: PbsRemoteSettings = {
@@ -78,7 +81,7 @@ const COMPARED: (keyof SyncJobConfig)[] = ['store', 'ns', 'remote', 'remote-stor
 
 // Sync job of one group: target namespace = source namespace (no level per datastore: a backup moved from
 // a datastore to another stays one target group), never recursive, always exactly one group.
-export function desiredJob(b: Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment'>, o: Pick<BackupOffsite, 'schedule' | 'transferLast' | 'rateIn'>, r: Pick<PbsRemoteSettings, 'store' | 'tokenId'>): SyncJobConfig {
+export function desiredJob(b: Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment'>, o: Pick<BackupOffsite, 'schedule' | 'rateIn'>, r: Pick<PbsRemoteSettings, 'store' | 'tokenId'>): SyncJobConfig {
   if (!b.type || !b.backupId) throw new Error(`groupe incomplet : ${b._id}`);
   return {
     id: syncJobId(b._id),
@@ -92,7 +95,7 @@ export function desiredJob(b: Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 
     'remove-vanished': false,
     owner: r.tokenId,
     schedule: o.schedule,
-    ...(o.transferLast ? { 'transfer-last': o.transferLast } : {}),
+    'transfer-last': TRANSFER_LAST,
     ...(o.rateIn ? { 'rate-in': o.rateIn } : {}),
     comment: `Homelab Manager : ${b._id}`,
   };
@@ -155,11 +158,14 @@ async function ensureRemote(r: PbsRemoteSettings) {
 
 // --- reconciliation -----------------------------------------------------------------------
 
-type Copied = Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment' | 'offsite'>;
+type Copied = Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment' | 'offsite' | 'hostId' | 'managed'>;
 
 async function enabledGroups(): Promise<Copied[]> {
   return backups
-    .find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1, comment: 1, offsite: 1, source: 1, placeholder: 1 } })
+    .find(
+      { 'offsite.enabled': true },
+      { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1, comment: 1, offsite: 1, source: 1, placeholder: 1, hostId: 1, managed: 1 } },
+    )
     .toArray();
 }
 
@@ -286,6 +292,9 @@ async function doPoll(log?: FastifyBaseLogger) {
     for (const g of groups) {
       const copy = seen.get(`${g.ns}/${g.type}/${g.backupId}`);
       const st = status.get(g.offsite!.jobId);
+      // a run the hub did not see (hub stopped meanwhile): recorded as a job too, with its log
+      const upid = st?.['last-run-upid'];
+      if (upid && upid !== g.offsite!.recordedUpid && upid !== g.offsite!.running?.upid && !following.has(upid)) followTask(r, g, upid, 'schedule', log).catch(() => {});
       await backups.updateOne(
         { _id: g._id },
         {
@@ -318,13 +327,131 @@ async function doPoll(log?: FastifyBaseLogger) {
 
 export function startOffsitePoller(log: FastifyBaseLogger) {
   const run = () => pollOffsite(log).catch((err) => log.error({ err }, 'secondary PBS poll failed'));
+  const watch = () => watchTasks(log).catch((err) => log.warn({ err }, 'secondary PBS tasks not read'));
   // after the first poll of the main PBS (30 s)
   const first = setTimeout(run, 60_000);
   const timer = setInterval(run, 15 * 60_000);
+  // copies started by the schedule of the secondary: seen within WATCH_MS, then followed
+  const watcher = setInterval(watch, WATCH_MS);
   return () => {
     clearTimeout(first);
     clearInterval(timer);
+    clearInterval(watcher);
   };
+}
+
+// --- runs of the copy: tasks of the secondary, followed as jobs of the hub -----------------
+
+const WATCH_MS = 30_000;
+const FOLLOW_MS = 2_000;
+const LOG_PAGE = 500;
+
+interface ApiTask {
+  upid: string;
+  worker_type?: string;
+  worker_id?: string;
+  endtime?: number;
+}
+interface ApiTaskLine {
+  n: number;
+  t: string;
+}
+
+const taskPath = (upid: string) => `/nodes/${encodeURIComponent(upid.split(':')[1] || 'localhost')}/tasks/${encodeURIComponent(upid)}`;
+
+// "OK" and "WARNINGS: n" end well; anything else is the error of the task
+export const taskOk = (exit: string) => exit === 'OK' || /^WARNINGS: \d+$/.test(exit);
+
+// The group a running sync task belongs to: its worker id ends with the id of the job (hlm-<hash>).
+export function taskGroup<T extends Pick<Copied, 'offsite'>>(t: ApiTask, groups: T[]) {
+  const w = t.worker_id ?? t.upid;
+  return groups.find((g) => g.offsite?.jobId && (w === g.offsite.jobId || w.endsWith(`:${g.offsite.jobId}`))) ?? null;
+}
+
+const copyLabel = (b: Pick<Copied, 'managed' | 'comment' | 'type' | 'backupId'>) => b.managed?.name ?? (b.comment ? `${b.comment} (${b.type}/${b.backupId})` : `${b.type}/${b.backupId}`);
+
+const following = new Set<string>();
+const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+
+// Follows a task of the secondary until it ends: a job of the hub on the host of the group (console,
+// Activité) with the log of the task, offsite.running meanwhile, then the result and a poll. A job left
+// running by a previous hub process is taken up again. Returns the id of the job.
+export async function followTask(r: PbsRemoteSettings, b: Copied, upid: string, trigger: JobDoc['trigger'], log?: FastifyBaseLogger) {
+  if (following.has(upid)) return b.offsite?.running?.upid === upid ? b.offsite.running.jobId : null;
+  following.add(upid);
+  try {
+    const host = b.hostId ? await hosts.findOne({ _id: b.hostId }, { projection: { _id: 1, name: 1 } }) : null;
+    const start = upidStart(upid) ?? Date.now();
+    const again = b.offsite?.running?.upid === upid ? b.offsite.running.jobId : undefined;
+    const job = host ? await startHubJob(host, 'offsite_run', trigger, { backupJobName: copyLabel(b), createdAt: new Date(start) }, again) : null;
+    const jobId = job?._id.toHexString() ?? '';
+    const hostId = host?._id.toHexString() ?? '';
+    await backups.updateOne({ _id: b._id }, { $set: { 'offsite.running': { upid, start, jobId } } });
+    publish('backups', {});
+    void track(r, b, upid, start, { jobId, hostId, lines: job?.log ? job.log.split('\n').length - 1 : 0 }, log);
+    return jobId || null;
+  } catch (err) {
+    following.delete(upid);
+    throw err;
+  }
+}
+
+async function track(r: PbsRemoteSettings, b: Copied, upid: string, start: number, job: { jobId: string; hostId: string; lines: number }, log?: FastifyBaseLogger) {
+  let n = job.lines;
+  const read = async () => {
+    for (;;) {
+      const lines = await call<ApiTaskLine[]>(r, 'GET', `${taskPath(upid)}/log?start=${n}&limit=${LOG_PAGE}`);
+      n += lines.length;
+      if (job.jobId && lines.length) appendJobLog(job.jobId, job.hostId, lines.map((l) => `${l.t}\n`).join(''));
+      if (lines.length < LOG_PAGE) return;
+    }
+  };
+  let exit = '';
+  let fails = 0;
+  while (!exit) {
+    try {
+      await read();
+      const st = await call<{ status: string; exitstatus?: string }>(r, 'GET', `${taskPath(upid)}/status`);
+      fails = 0;
+      if (st.status === 'stopped') {
+        await read();
+        exit = st.exitstatus || 'fin inconnue';
+        break;
+      }
+    } catch (err) {
+      if (++fails >= 5) exit = `suivi de la tâche impossible : ${(err as Error).message}`;
+    }
+    if (!exit) await sleep(FOLLOW_MS);
+  }
+  const ok = taskOk(exit);
+  try {
+    if (job.jobId) await finishJob(job.jobId, job.hostId, ok ? 0 : 1, ok ? undefined : exit);
+    await backups.updateOne(
+      { _id: b._id },
+      { $set: { 'offsite.running': null, 'offsite.recordedUpid': upid, 'offsite.lastRun': { start, end: Date.now(), ok, ...(ok ? {} : { error: exit }) } } },
+    );
+  } finally {
+    following.delete(upid);
+  }
+  log?.info({ group: b._id, upid, ok }, 'offsite copy ended');
+  // the copy is on the secondary: read it now
+  await pollOffsite(log).catch(() => {});
+}
+
+// Copies running on the secondary that the hub does not follow yet: started by its schedule, or left by a
+// previous hub process.
+async function watchTasks(log?: FastifyBaseLogger) {
+  const r = await loadRemoteSettings();
+  if (!remoteReady(r)) return;
+  const groups = (await enabledGroups()).filter((g) => !notCopiable(g as BackupDoc));
+  if (!groups.length) return;
+  for (const g of groups) if (g.offsite?.running && !following.has(g.offsite.running.upid)) await followTask(r, g, g.offsite.running.upid, 'schedule', log);
+  const tasks = await call<ApiTask[]>(r, 'GET', '/nodes/localhost/tasks?running=1&typefilter=syncjob&limit=100');
+  for (const t of tasks) {
+    if (t.endtime || following.has(t.upid)) continue;
+    const g = taskGroup(t, groups);
+    if (g) await followTask(r, g, t.upid, 'schedule', log);
+  }
 }
 
 // --- state --------------------------------------------------------------------------------

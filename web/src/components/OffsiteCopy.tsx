@@ -1,67 +1,59 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { Cloud, Play, Plus, Power, RefreshCw, Settings2 } from 'lucide-react';
-import { api, type BackupGroup, type BackupOffsite, type BackupOffsiteInput, type BackupsView } from '../lib/api';
+import { Cloud, Loader2, Play, RefreshCw } from 'lucide-react';
+import { api, type BackupGroup, type BackupOffsite, type BackupsView } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { OFFSITE_DEFAULTS, type OffsiteForm, formatBytes, offsiteNotCopiable } from '../lib/backups';
+import {
+  OFFSITE_DEFAULTS,
+  type OffsiteForm,
+  backupKind,
+  databaseJobText,
+  formatBytes,
+  hoursLabel,
+  offsiteNotCopiable,
+  rhythmLabel,
+  scheduleLabel,
+  thresholdSourceLabel,
+} from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { Badge, Button, CopyField } from './ui';
 
-// Copy of a backup to the secondary PBS (hub/src/offsite.ts): pill and detail (host card, backups page),
-// settings (tab of the window of a backup). Enable, disable and run are single actions: no confirmation.
+// Detail of a backup and of its copy to the secondary PBS (hub/src/offsite.ts): pill of every backup
+// (host card, backups page), state of the copy in the table, settings in the tab of the window of a
+// backup. A copy run here is followed as a job (console of the host page, Activité).
 
 type Remote = NonNullable<BackupsView['offsite']>;
-type State = NonNullable<BackupOffsite['state']>;
+type State = NonNullable<BackupOffsite['state']> | 'running';
 
-const offsiteStateMeta: Record<State, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral'; pill: string }> = {
-  ok: { label: 'à jour', tone: 'ok', pill: 'border-sky-400/45 bg-sky-400/10 text-sky-300' },
-  pending: { label: 'en attente', tone: 'neutral', pill: 'border-line text-zinc-400' },
-  late: { label: 'en retard', tone: 'warn', pill: 'border-amber-400/45 text-amber-300' },
-  failed: { label: 'en échec', tone: 'bad', pill: 'border-red-400/45 text-red-300' },
+const stateMeta: Record<State, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral'; cloud: string }> = {
+  ok: { label: 'à jour', tone: 'ok', cloud: 'text-sky-400' },
+  pending: { label: 'jamais copiée', tone: 'neutral', cloud: 'text-zinc-500' },
+  late: { label: 'en retard', tone: 'warn', cloud: 'text-amber-400' },
+  failed: { label: 'en échec', tone: 'bad', cloud: 'text-red-400' },
+  running: { label: 'copie en cours', tone: 'neutral', cloud: 'animate-pulse text-sky-300' },
 };
 
-// "3 h", "2 j", "12 min"
-function shortAgo(t: number) {
-  const m = Math.max(0, Math.round((Date.now() - t) / 60_000));
-  if (m < 60) return `${m} min`;
-  if (m < 48 * 60) return `${Math.round(m / 60)} h`;
-  return `${Math.round(m / 1440)} j`;
-}
+const copyState = (o: BackupOffsite): State => (o.running ? 'running' : (o.state ?? 'pending'));
 
-const transferText = (n: number | null) => (n ? (n > 1 ? `${n} derniers snapshots` : 'dernier snapshot') : 'tous les snapshots');
-
-function offsiteSummary(o: BackupOffsite) {
-  return [transferText(o.transferLast), o.scheduleText, o.rateIn && `≤ ${o.rateIn}/s`].filter(Boolean).join(' · ');
-}
-
-// Actions of a copy, with their busy state; errors in a toast.
-function useOffsiteActions(g: BackupGroup) {
+// Runs the copy now: its job opens in the console of the page (onStarted), or is announced.
+function useRunCopy(g: BackupGroup, onStarted?: (jobId: string) => void) {
   const toast = useToast();
-  const [busy, setBusy] = useState<'run' | 'set' | null>(null);
-  const set = async (o: BackupOffsiteInput) => {
-    setBusy('set');
-    try {
-      await api.setBackupOffsite(g.id, o);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
+  const [busy, setBusy] = useState(false);
   const run = async () => {
-    setBusy('run');
+    setBusy(true);
     try {
-      await api.runBackupOffsite(g.id);
-      toast.success('Copie déportée lancée : son résultat arrive au prochain relevé du PBS de secours');
+      const r = await api.runBackupOffsite(g.id);
+      if (onStarted && r.jobId) onStarted(r.jobId);
+      else toast.success('Copie déportée lancée : suivie dans Activité');
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
-  return { busy, set, run };
+  return { busy, run };
 }
 
 function UsageBar({ remote, size }: { remote: Remote; size?: number | null }) {
@@ -117,58 +109,119 @@ function OffsiteCheckMessage({ check }: { check: ReturnType<typeof useOffsiteChe
   );
 }
 
-// Copy not enabled: what it would do, checked before it can be enabled.
-function OffsiteEnable({ g, where, onSettings }: { g: BackupGroup; where: string; onSettings?: () => void }) {
-  const { canManage } = useMe();
-  const { busy, set } = useOffsiteActions(g);
-  const check = useOffsiteCheck(g, canManage);
+// Copy not enabled: enabled from here with the default hour, once the secondary is ready for it.
+function OffsiteEnable({ g }: { g: BackupGroup }) {
+  const toast = useToast();
+  const check = useOffsiteCheck(g, true);
+  const [busy, setBusy] = useState(false);
+  const enable = async () => {
+    setBusy(true);
+    try {
+      await api.setBackupOffsite(g.id, { enabled: true });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="space-y-2 text-xs">
-      <div><span className="font-medium text-zinc-100">Copie déportée</span> <span className="text-muted">· non activée</span></div>
-      <p className="text-muted">Copier cette sauvegarde vers {where} ({transferText(OFFSITE_DEFAULTS.transferLast)}, tous les jours à {OFFSITE_DEFAULTS.schedule}).</p>
-      {canManage && (
-        <>
-          <OffsiteCheckMessage check={check} />
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="primary" icon={Cloud} loading={busy === 'set'} disabled={!check.data?.ok} onClick={() => set({ enabled: true })}>Activer la copie</Button>
-            {onSettings && <Button size="sm" icon={Settings2} onClick={onSettings}>Régler…</Button>}
-          </div>
-        </>
-      )}
+    <div className="space-y-2">
+      <OffsiteCheckMessage check={check} />
+      <Button size="sm" variant="primary" icon={Cloud} loading={busy} disabled={!check.data?.ok} onClick={enable}>
+        Activer la copie (tous les jours à {OFFSITE_DEFAULTS.schedule})
+      </Button>
     </div>
   );
 }
 
-// What the copy is and the actions on it (content of the floating detail).
-function OffsiteDetail({ g, remote, onSettings }: { g: BackupGroup; remote: Remote; onSettings?: () => void }) {
-  const { canManage, canWrite } = useMe();
-  const { busy, set, run } = useOffsiteActions(g);
-  const o = g.offsite;
-  const where = `${remote.host} › ${remote.store}`;
-  if (!o?.enabled) return <OffsiteEnable g={g} where={where} onSettings={onSettings} />;
-  const meta = offsiteStateMeta[o.state ?? 'pending'];
+function Rows({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <div className="space-y-2 text-xs">
-      <div><span className="font-medium text-zinc-100">Copie déportée</span> <span className="text-muted">· {where}</span></div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={meta.tone}>{meta.label}</Badge>
-        <span className="text-muted" title={o.lastBackup ? dateTime(o.lastBackup) : undefined}>
-          {o.lastBackup ? `dernier snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}
-          {o.count ? ` · ${o.count} sur le PBS de secours` : ''}
-        </span>
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+      {rows.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-muted">{k}</dt>
+          <dd className="min-w-0 text-zinc-300">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+const section = 'text-[11px] font-semibold uppercase tracking-wide text-zinc-400';
+
+// The backup (where, last, schedule, delay before an alert) and its copy (state, last and next copy, room,
+// run it now).
+function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
+  const { canManage, canWrite } = useMe();
+  const { busy, run } = useRunCopy(g, onStarted);
+  const rhythm = rhythmLabel(g.interval);
+  const schedule = g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? scheduleLabel(g) : rhythm ? `rythme ${rhythm} (appris)` : 'rythme inconnu';
+  const why = offsiteNotCopiable(g);
+  const o = g.offsite;
+  const state = o?.enabled ? copyState(o) : null;
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="space-y-1.5">
+        <div className={section}>Sauvegarde</div>
+        <Rows
+          rows={[
+            ['Type', `${backupKind(g).label} · ${g.store}${g.ns ? ` › ${g.ns}` : ''}`],
+            [
+              'Dernière',
+              <>
+                <span title={dateTime(g.lastBackup)}>{g.lastBackup ? timeAgo(g.lastBackup) : 'jamais'}</span> · {formatBytes(g.size)} · {g.count} snapshot{g.count > 1 ? 's' : ''}
+                {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
+                {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
+              </>,
+            ],
+            ['Planification', schedule],
+            ['Alerte', g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`],
+            ...(g.managed && databaseJobText(g.managed) ? ([['Bases', databaseJobText(g.managed)]] as [string, ReactNode][]) : []),
+          ]}
+        />
       </div>
-      <div className="text-muted">
-        {o.nextRun ? `Prochaine copie ${dateTime(o.nextRun)}` : 'Prochaine copie inconnue'} · {offsiteSummary(o)}
-      </div>
-      {o.error && <div className="text-red-400">Job de copie non appliqué : {o.error}</div>}
-      {o.lastRun && !o.lastRun.ok && <div className="text-red-400" title={dateTime(o.lastRun.end)}>Dernière copie en échec {timeAgo(o.lastRun.end)} : {o.lastRun.error}</div>}
-      {o.verify === 'failed' && <div className="text-red-400">Vérification de la copie en échec</div>}
-      <UsageBar remote={remote} size={o.size} />
-      <div className="flex flex-wrap gap-2 pt-1">
-        {canWrite && <Button size="sm" icon={Play} loading={busy === 'run'} onClick={run}>Lancer maintenant</Button>}
-        {canManage && onSettings && <Button size="sm" icon={Settings2} onClick={onSettings}>Régler…</Button>}
-        {canManage && <Button size="sm" icon={Power} loading={busy === 'set'} onClick={() => set({ enabled: false })} title="Le job de copie est retiré du PBS de secours ; les snapshots déjà copiés y restent">Désactiver</Button>}
-      </div>
+      {remote && (
+        <div className="space-y-1.5 border-t border-line pt-2.5">
+          <div className="flex items-center gap-2">
+            <span className={section}>Copie déportée</span>
+            <span className="text-muted">{remote.host} › {remote.store}</span>
+            {state && canWrite && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={state === 'running' ? Loader2 : Play}
+                className={clsx('ml-auto h-6 px-1.5', state === 'running' && '[&>svg]:animate-spin')}
+                loading={busy}
+                disabled={state === 'running'}
+                title={state === 'running' ? 'Copie en cours (suivie dans Activité)' : 'Lancer la copie maintenant'}
+                onClick={run}
+              />
+            )}
+          </div>
+          {why ? (
+            <p className="text-muted">Non copiable : {why}.</p>
+          ) : !o?.enabled ? (
+            <>
+              <p className="text-muted">Non activée.</p>
+              {canManage && <OffsiteEnable g={g} />}
+            </>
+          ) : (
+            <>
+              <Rows
+                rows={[
+                  ['État', <Badge key="s" tone={stateMeta[state!].tone}>{stateMeta[state!].label}</Badge>],
+                  ['Dernière', <span key="l" title={o.lastBackup ? dateTime(o.lastBackup) : undefined}>{o.lastBackup ? `snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}</span>],
+                  ['Prochaine', `${o.nextRun ? dateTime(o.nextRun) : 'inconnue'} · ${o.scheduleText}${o.rateIn ? ` · ≤ ${o.rateIn}/s` : ''}`],
+                ]}
+              />
+              {o.error && <div className="text-red-400">Job de copie non appliqué : {o.error}</div>}
+              {o.lastRun && !o.lastRun.ok && <div className="text-red-400" title={dateTime(o.lastRun.end)}>Dernière copie en échec {timeAgo(o.lastRun.end)} : {o.lastRun.error}</div>}
+              {o.verify === 'failed' && <div className="text-red-400">Vérification de la copie en échec</div>}
+              <UsageBar remote={remote} size={o.size} />
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -180,8 +233,8 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   useLayoutEffect(() => {
     const r = anchor.getBoundingClientRect();
-    const w = ref.current?.offsetWidth ?? 300;
-    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) });
+    const w = ref.current?.offsetWidth ?? 360;
+    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) });
   }, [anchor]);
   useEffect(() => {
     const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node) && onClose();
@@ -200,7 +253,7 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
   return (
     <div
       ref={ref}
-      className="fixed z-30 w-80 max-w-[calc(100vw-16px)] rounded-md border border-line bg-panel px-3.5 py-3 shadow-2xl shadow-black/60"
+      className="fixed z-30 w-96 max-w-[calc(100vw-16px)] rounded-md border border-line bg-panel px-3.5 py-3 shadow-2xl shadow-black/60"
       style={pos ?? { top: -9999, left: -9999 }}
     >
       {children}
@@ -208,77 +261,59 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
   );
 }
 
-// Pill of the copy, next to the badges of a backup: state and age of the last copy; a click opens the
-// detail. Dashed "+" when not enabled (admins), nothing when the backup cannot be copied.
-export function OffsitePill({ g, remote, onSettings }: { g: BackupGroup; remote: BackupsView['offsite']; onSettings?: () => void }) {
-  const { canManage } = useMe();
+// "détail" pill of every backup, next to its badges: a click opens the detail of the backup and of its
+// copy; the cloud gives the state of the copy when there is one (pulsing while it runs).
+export function DetailPill({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  if (!remote || offsiteNotCopiable(g)) return null;
   const o = g.offsite;
-  if (!o?.enabled && !canManage) return null;
-  const state = o?.enabled ? (o.state ?? 'pending') : null;
-  const label = !state ? '+' : state === 'failed' ? 'échec' : state === 'pending' || !o?.lastBackup ? 'en attente' : shortAgo(o.lastBackup);
+  const state = remote && o?.enabled && !offsiteNotCopiable(g) ? copyState(o) : null;
   return (
     <>
       <button
         type="button"
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
-        title={state ? `Copie déportée : ${offsiteStateMeta[state].label}` : 'Activer la copie déportée'}
+        title={state ? `Détail · copie déportée : ${stateMeta[state].label}` : 'Détail de la sauvegarde'}
         className={clsx(
           'inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap',
-          state ? offsiteStateMeta[state].pill : 'border-dashed border-line text-zinc-500 hover:text-zinc-300',
+          anchor ? 'border-zinc-500 text-zinc-100' : 'border-line text-zinc-400 hover:text-zinc-200',
         )}
       >
-        <Cloud className="h-3.5 w-3.5" />
-        {state ? label : <Plus className="h-3 w-3" />}
+        détail
+        {state && <Cloud className={clsx('h-3.5 w-3.5', stateMeta[state].cloud)} />}
       </button>
       {anchor && (
         <Popover anchor={anchor} onClose={() => setAnchor(null)}>
-          <OffsiteDetail
-            g={g}
-            remote={remote}
-            onSettings={
-              onSettings &&
-              (() => {
-                setAnchor(null);
-                onSettings();
-              })
-            }
-          />
+          <BackupDetail g={g} remote={remote} onStarted={onStarted} />
         </Popover>
       )}
     </>
   );
 }
 
-// Column of the backups page: the pill, what the copy does, run it now.
-export function OffsiteCell({ g, remote, onSettings }: { g: BackupGroup; remote: Remote; onSettings?: () => void }) {
-  const { canWrite } = useMe();
-  const { busy, run } = useOffsiteActions(g);
+// Column of the backups page: state of the copy and its last one (the detail and the run: the pill).
+export function OffsiteCell({ g }: { g: BackupGroup }) {
   const why = offsiteNotCopiable(g);
   if (why) return <span className="text-xs text-zinc-500" title={why}>— non copiable</span>;
   const o = g.offsite;
+  if (!o?.enabled) return <span className="text-xs text-zinc-500">non copiée</span>;
+  const state = copyState(o);
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-1.5">
-        <OffsitePill g={g} remote={remote} onSettings={onSettings} />
-        {o?.enabled && canWrite && <Button size="sm" variant="ghost" icon={Play} loading={busy === 'run'} title="Lancer la copie maintenant" onClick={run} />}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge tone={stateMeta[state].tone}>
+          {state === 'running' && <Loader2 className="h-3 w-3 animate-spin" />}
+          {stateMeta[state].label}
+        </Badge>
+        {o.lastBackup && state !== 'running' && <span className="text-xs text-muted" title={dateTime(o.lastBackup)}>{timeAgo(o.lastBackup)}</span>}
       </div>
-      {o?.enabled ? (
-        <div className="text-xs text-muted">{offsiteSummary(o)}</div>
-      ) : (
-        <div className="text-xs text-zinc-500">non copiée</div>
-      )}
-      {o?.enabled && o.error && <div className="text-xs text-red-400">{o.error}</div>}
+      {o.error && <div className="text-xs text-red-400">{o.error}</div>}
     </div>
   );
 }
 
-// Settings of the copy in the window of a backup, saved with the backup (offsiteInput).
-const TRANSFER = [1, 2, 5, 10];
-
+// Settings of the copy in the window of a backup, saved with the backup (offsiteInput): enabled, hour,
+// limit of rate. One snapshot per run, the last one (hub TRANSFER_LAST).
 export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGroup | undefined; remote: BackupsView['offsite']; value: OffsiteForm; onChange: (f: OffsiteForm) => void }) {
-  const { canWrite } = useMe();
   const field = 'mb-1.5 block text-xs font-medium text-muted';
   if (!remote) return <p className="text-sm text-muted">PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes).</p>;
   const why = !g ? 'sauvegarde pas encore écrite sur le PBS' : offsiteNotCopiable(g);
@@ -292,11 +327,12 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
           <span className="font-medium text-zinc-100">Copier vers le PBS de secours</span> <span className="text-muted">{remote.host} › {remote.store}</span>
         </span>
       </label>
-      {g.offsite?.enabled && <OffsiteStateLine g={g} canRun={canWrite} />}
+      <p className="-mt-2 text-xs text-muted">À chaque copie, la dernière sauvegarde est envoyée ; le PBS de secours garde les siennes selon sa propre rétention.</p>
+      {g.offsite?.enabled && <OffsiteStateLine o={g.offsite} />}
       {/* enabled here, not saved yet: can it be copied (namespace on the secondary...) */}
       {value.enabled && !g.offsite?.enabled && <OffsiteTabCheck g={g} />}
       {value.enabled ? (
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
             <span className={field}>Heure de la copie</span>
             <input className="input font-mono text-xs" value={value.schedule} onChange={(e) => set({ schedule: e.target.value })} list="offsite-presets" />
@@ -306,14 +342,6 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
               <option value="sun 08:00">Le dimanche à 08:00</option>
             </datalist>
             <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox, fuseau du PBS de secours.</span>
-          </label>
-          <label className="block">
-            <span className={field}>Snapshots transférés</span>
-            <select className="input" value={value.transferLast ?? ''} onChange={(e) => set({ transferLast: e.target.value ? Number(e.target.value) : null })}>
-              {value.transferLast && !TRANSFER.includes(value.transferLast) && <option value={value.transferLast}>Les {value.transferLast} derniers</option>}
-              {TRANSFER.map((n) => <option key={n} value={n}>{n === 1 ? 'Le dernier' : `Les ${n} derniers`}</option>)}
-              <option value="">Tous</option>
-            </select>
           </label>
           <label className="block">
             <span className={field}>Limite de débit</span>
@@ -336,19 +364,16 @@ function OffsiteTabCheck({ g }: { g: BackupGroup }) {
   return <OffsiteCheckMessage check={useOffsiteCheck(g, true)} />;
 }
 
-function OffsiteStateLine({ g, canRun }: { g: BackupGroup; canRun: boolean }) {
-  const { busy, run } = useOffsiteActions(g);
-  const o = g.offsite!;
-  const meta = offsiteStateMeta[o.state ?? 'pending'];
+function OffsiteStateLine({ o }: { o: BackupOffsite }) {
+  const state = copyState(o);
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Badge tone={meta.tone}>{meta.label}</Badge>
+        <Badge tone={stateMeta[state].tone}>{stateMeta[state].label}</Badge>
         <span className="text-muted">
           {o.lastBackup ? `dernier snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}
           {o.nextRun ? ` · prochaine copie ${dateTime(o.nextRun)}` : ''}
         </span>
-        {canRun && <Button size="sm" icon={Play} loading={busy === 'run'} className="ml-auto" onClick={run}>Lancer maintenant</Button>}
       </div>
       {o.error && <div className="text-xs text-red-400">Job de copie non appliqué : {o.error}</div>}
       {o.lastRun && !o.lastRun.ok && <div className="text-xs text-red-400">Dernière copie en échec {timeAgo(o.lastRun.end)} : {o.lastRun.error}</div>}

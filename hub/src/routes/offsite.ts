@@ -10,6 +10,7 @@ import {
   notCopiable,
   pollOffsite,
   remoteReady,
+  followTask,
   runSyncJob,
   sameGroupElsewhere,
   syncJobId,
@@ -78,7 +79,6 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
 interface OffsiteBody {
   enabled: boolean;
   schedule?: string;
-  transferLast?: number | null;
   rateIn?: string | null;
 }
 
@@ -89,7 +89,6 @@ export const offsiteSchema = {
   properties: {
     enabled: { type: 'boolean' },
     schedule: { type: 'string', maxLength: 64 },
-    transferLast: { type: ['integer', 'null'], minimum: 1, maximum: 1000 },
     rateIn: { type: ['string', 'null'], maxLength: 16 },
   },
 } as const;
@@ -140,11 +139,12 @@ export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
 // Settings of the copy of a group, checked; error message or the new offsite member.
 export async function offsiteOf(b: BackupDoc, body: OffsiteBody): Promise<BackupOffsite | string> {
   const cur = b.offsite;
+  const { transferLast, ...kept } = (cur ?? {}) as BackupOffsite & { transferLast?: unknown };
+  void transferLast; // no longer set: one snapshot per run (TRANSFER_LAST)
   const next: BackupOffsite = {
-    ...cur,
+    ...kept,
     enabled: body.enabled,
     schedule: (body.schedule ?? cur?.schedule ?? OFFSITE_DEFAULTS.schedule).trim(),
-    transferLast: body.transferLast !== undefined ? body.transferLast : (cur?.transferLast ?? OFFSITE_DEFAULTS.transferLast),
     rateIn: body.rateIn !== undefined ? body.rateIn?.trim() || null : (cur?.rateIn ?? OFFSITE_DEFAULTS.rateIn),
     jobId: syncJobId(b._id),
     since: cur?.enabled ? cur.since : Date.now(),
@@ -268,11 +268,15 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     if (!b?.offsite?.enabled) return reply.code(409).send({ error: 'copie déportée non activée pour cette sauvegarde' });
     const r = await loadRemoteSettings();
     if (!remoteReady(r)) return reply.code(409).send({ error: 'PBS de secours non configuré ou désactivé' });
+    if (b.offsite.running) return reply.code(409).send({ error: 'copie déjà en cours', jobId: b.offsite.running.jobId || null });
+    let upid: string;
     try {
-      const upid = await runSyncJob(r, b.offsite.jobId);
-      return { ok: true, upid };
+      upid = await runSyncJob(r, b.offsite.jobId);
     } catch (err) {
       return reply.code(502).send({ error: (err as Error).message });
     }
+    // followed as a job of the hub on the host of the backup: console and Activité
+    const jobId = await followTask(r, b, upid, 'manual', req.log);
+    return { ok: true, upid, jobId };
   });
 }

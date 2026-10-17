@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { backupsAlert } from '../src/alerts.js';
-import { copiedGroups, desiredJob, lastRunOf, notCopiable, offsiteState, planSync, remoteEntry, sameGroupElsewhere, syncJobId, updateBody, upidStart } from '../src/offsite.js';
+import { copiedGroups, taskGroup, taskOk, desiredJob, lastRunOf, notCopiable, offsiteState, planSync, remoteEntry, sameGroupElsewhere, syncJobId, updateBody, upidStart } from '../src/offsite.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, BackupOffsite } from '../src/types.js';
 
 const remote = { store: 'ds9', tokenId: 'homelab@pbs!hub' };
-const settingsOf = { schedule: '06:00', transferLast: 2, rateIn: null };
+const settingsOf = { schedule: '06:00', rateIn: null };
 const group = (o: Partial<BackupDoc> = {}) => ({ _id: 'ds0/Hosts/host/nextcloud-config', store: 'ds0', ns: 'Hosts', type: 'host', backupId: 'nextcloud-config', ...o });
 
 test('sync job of a group: one group, same namespace, never recursive nor removing', () => {
@@ -23,15 +23,15 @@ test('sync job of a group: one group, same namespace, never recursive nor removi
     'remove-vanished': false,
     owner: 'homelab@pbs!hub',
     schedule: '06:00',
-    'transfer-last': 2,
+    'transfer-last': 1,
     comment: 'Homelab Manager : ds0/Hosts/host/nextcloud-config',
   });
   assert.match(j.id, /^hlm-[0-9a-f]{12}$/);
-  // root namespace: no ns at all; a limit of rate when set
-  const root = desiredJob(group({ _id: 'ds1//ct/105', store: 'ds1', ns: '', type: 'ct', backupId: '105' }), { ...settingsOf, transferLast: null, rateIn: '10MiB' }, remote);
+  // root namespace: no ns at all; a limit of rate when set; always the last snapshot only
+  const root = desiredJob(group({ _id: 'ds1//ct/105', store: 'ds1', ns: '', type: 'ct', backupId: '105' }), { ...settingsOf, rateIn: '10MiB' }, remote);
   assert.equal('ns' in root, false);
   assert.equal('remote-ns' in root, false);
-  assert.equal('transfer-last' in root, false);
+  assert.equal(root['transfer-last'], 1);
   assert.equal(root['rate-in'], '10MiB');
   // never an empty filter, which would copy everything
   assert.throws(() => desiredJob(group({ backupId: '' }), settingsOf, remote));
@@ -56,10 +56,10 @@ test('reconciliation: creates, updates and removes its own jobs only', () => {
 });
 
 test('update of a job clears the optional fields no longer set', () => {
-  const j = desiredJob(group({ ns: '' }), { ...settingsOf, transferLast: null }, remote);
+  const j = desiredJob(group({ ns: '' }), settingsOf, remote);
   const body = updateBody(j);
   assert.equal('id' in body, false);
-  assert.deepEqual(body.delete, ['ns', 'remote-ns', 'transfer-last', 'rate-in']);
+  assert.deepEqual(body.delete, ['ns', 'remote-ns', 'rate-in']);
   assert.equal('delete' in updateBody(desiredJob(group(), { ...settingsOf, rateIn: '1MiB' }, remote)), false);
 });
 
@@ -96,7 +96,7 @@ test('last run of a sync job: start read from its UPID', () => {
 });
 
 const H = 3600_000;
-const offsite = (o: Partial<BackupOffsite>): BackupOffsite => ({ enabled: true, schedule: '06:00', transferLast: 2, rateIn: null, jobId: 'hlm-x', since: 0, ...o });
+const offsite = (o: Partial<BackupOffsite>): BackupOffsite => ({ enabled: true, schedule: '06:00', rateIn: null, jobId: 'hlm-x', since: 0, ...o });
 
 test('state of a copy: pending, ok, late, failed', () => {
   const now = 100 * H;
@@ -156,4 +156,15 @@ test('namespace of a group missing on the secondary: levels to create, parents f
   assert.deepEqual(missingLevels('Sites/Jarsay', ['Sites']), ['Sites/Jarsay']);
   assert.deepEqual(missingLevels('Sites/Jarsay', []), ['Sites', 'Sites/Jarsay']);
   assert.deepEqual(namespaceCommands(['Hosts'], 'ds9'), ['proxmox-backup-client namespace create Hosts --repository root@pam@localhost:ds9']);
+});
+
+test('tasks of the secondary: the copy a sync task belongs to, how it ended', () => {
+  const groups = [{ offsite: offsite({ jobId: 'hlm-aaaaaaaaaaaa' }) }, { offsite: offsite({ jobId: 'hlm-bbbbbbbbbbbb' }) }];
+  const t = (worker_id?: string) => ({ upid: 'UPID:pbs2:00001:00002:00000003:6712A000:syncjob:x:root@pam:', worker_id });
+  assert.equal(taskGroup(t('hlm-main:ds0:ds9:Hosts:hlm-bbbbbbbbbbbb'), groups), groups[1]);
+  assert.equal(taskGroup(t('hlm-aaaaaaaaaaaa'), groups), groups[0]);
+  assert.equal(taskGroup(t('other:ds0:ds9::manual-sync'), groups), null);
+  assert.equal(taskOk('OK'), true);
+  assert.equal(taskOk('WARNINGS: 2'), true);
+  assert.equal(taskOk('connection refused'), false);
 });

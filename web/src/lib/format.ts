@@ -46,6 +46,7 @@ export const actionLabel: Record<string, string> = {
   docker_update: 'Mise à jour de stack',
   setup_apply: 'Standardisation',
   backup_run: 'Sauvegarde',
+  offsite_run: 'Copie déportée',
   backup_install: 'Installation du client PBS',
 };
 

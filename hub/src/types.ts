@@ -278,7 +278,8 @@ export const JOB_ACTIONS = [
   'setup_apply',
 ] as const;
 // backup_run: launched from the backup job only (it names the job), never through the generic job routes
-export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install';
+// offsite_run: copy to the secondary PBS, run by the hub (offsite.ts); backupJobName names the backup
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface JobDoc {
@@ -456,7 +457,6 @@ export interface BackupDoc {
 export interface BackupOffsite {
   enabled: boolean;
   schedule: string; // calendar event of the PBS
-  transferLast: number | null; // last N snapshots only; null: all of them
   rateIn: string | null; // "10MiB"; null: no limit (the global one of the PBS applies)
   jobId: string; // hlm-<hash of the group>
   since: number; // enabled at (ms)
@@ -470,6 +470,10 @@ export interface BackupOffsite {
   times?: BackupSnapshot[]; // last snapshots on the secondary, oldest first (timeline)
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
   nextRun?: number | null;
+  // copy being run on the secondary, followed by the hub: its task and its job (Activité)
+  running?: { upid: string; start: number; jobId: string } | null;
+  // last task recorded as a job (a run the hub did not follow is recorded at the next poll)
+  recordedUpid?: string | null;
 }
 
 // Secondary PBS (settings._id 'pbs-remote'): pulls from the main PBS the groups chosen one by one.

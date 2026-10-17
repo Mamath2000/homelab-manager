@@ -235,7 +235,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -560,7 +560,6 @@ export interface BackupOffsite {
   enabled: boolean;
   schedule: string;
   scheduleText: string;
-  transferLast: number | null;
   rateIn: string | null;
   jobId: string;
   since: number;
@@ -573,6 +572,8 @@ export interface BackupOffsite {
   times?: BackupSnapshot[];
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
   nextRun?: number | null;
+  // copy running on the secondary, followed by the hub as a job (console, Activité)
+  running?: { upid: string; start: number; jobId: string } | null;
   // ok, pending (never run), late (a snapshot did not arrive), failed; null: not copied
   state: 'ok' | 'pending' | 'late' | 'failed' | null;
 }
@@ -588,7 +589,6 @@ export interface OffsiteCheck {
 export interface BackupOffsiteInput {
   enabled: boolean;
   schedule?: string;
-  transferLast?: number | null;
   rateIn?: string | null;
 }
 
@@ -878,7 +878,7 @@ export const api = {
     request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/token', { agent, tokenId, store }),
   createPbsReaderToken: (tokenId: string) => request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/reader-token', { tokenId }),
   setBackupOffsite: (id: string, o: BackupOffsiteInput) => request<BackupGroup>('PUT', `/api/backups/${encodeURIComponent(id)}/offsite`, o),
-  runBackupOffsite: (id: string) => request<{ ok: boolean; upid: string }>('POST', `/api/backups/${encodeURIComponent(id)}/offsite/run`),
+  runBackupOffsite: (id: string) => request<{ ok: boolean; upid: string; jobId: string | null }>('POST', `/api/backups/${encodeURIComponent(id)}/offsite/run`),
   checkBackupOffsite: (id: string) => request<OffsiteCheck>('GET', `/api/backups/${encodeURIComponent(id)}/offsite/check`),
   detectPbs: (hostId: string) => request<PbsDetected>('POST', '/api/settings/pbs/detect', { hostId }),
   createPbsToken: (agent: PbsAgentLink, tokenId: string) => request<PbsTokenOutcome & { settings: PbsSettings }>('POST', '/api/settings/pbs/token', { agent, tokenId }),

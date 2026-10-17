@@ -8,8 +8,8 @@ import { BackupJobEditModal, type JobTab, ManagedBackupsModal } from './ManagedB
 import { NextcloudPluginModal } from './NextcloudPlugin';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, databaseJobText, offsiteLane, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
-import { OffsitePill } from './OffsiteCopy';
+import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, offsiteLane, timeline } from '../lib/backups';
+import { DetailPill } from './OffsiteCopy';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -27,8 +27,8 @@ const verifyLabel: Record<DayVerify, string> = { ok: ', vérifié', unverified: 
 // Thin lane of the copy to the secondary PBS under it (copy: a secondary is configured): blue when the
 // day reached the secondary, orange outline when a copy is missing, red when the run bringing it failed,
 // dashed when the copy is not enabled; none for a backup that cannot be copied.
-const offsiteColor: Record<OffsiteDay, string> = { copied: 'bg-sky-400', missing: 'border border-amber-400', failed: 'bg-red-500', none: 'bg-raised' };
-const offsiteDayLabel: Record<OffsiteDay, string> = { copied: 'copiée', missing: 'copie manquante', failed: 'copie manquante (échec)', none: 'pas de copie' };
+const offsiteColor: Record<OffsiteDay, string> = { copied: 'bg-sky-400', missing: 'border border-amber-400', failed: 'bg-red-500', running: 'animate-pulse bg-sky-300', none: 'bg-raised' };
+const offsiteDayLabel: Record<OffsiteDay, string> = { copied: 'copiée', missing: 'copie manquante', failed: 'copie manquante (échec)', running: 'copie en cours', none: 'pas de copie' };
 
 export function BackupTimeline({ group, days = 30, className, copy }: { group: Pick<BackupGroup, 'times' | 'interval' | 'offsite' | 'placeholder'> & { source?: BackupGroup['source'] }; days?: number; className?: string; copy?: boolean }) {
   // Home Assistant does not verify its backups
@@ -285,7 +285,6 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
         <ul className="@container -my-2 divide-y divide-line">
           {mine.map((g) => {
             const meta = backupStateMeta[g.state];
-            const rhythm = rhythmLabel(g.interval);
             return (
               // name, badges and actions on top; below, the details and the timeline side by side (half each)
               // when the card is wide enough (container query), the timeline below the details otherwise
@@ -297,8 +296,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                     <Badge tone="neutral">{backupKind(g).label}</Badge>
                   </span>
                   {g.managed && !g.managed.enabled && <Badge tone="neutral">désactivée</Badge>}
-                  {/* settings of the copy: in the window of the backup (backups of the agent) */}
-                  <OffsitePill g={g} remote={data.offsite} onSettings={g.managed && !g.managed.plugin ? () => edit(g.managed!.jobId, 'offsite') : undefined} />
+                  {/* detail of the backup and of its copy (schedule, delay before an alert...) */}
+                  <DetailPill g={g} remote={data.offsite} onStarted={onStarted} />
                   {/* run, edit and delete: backups of the agent only */}
                   {/* before the block: the blocks of the rows stay aligned on the right */}
                   {canManage && !g.source && (
@@ -332,21 +331,12 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                   />
                 </div>
                 <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:gap-6">
-                  {/* two lines of details, as high as the timeline and its copy lane */}
+                  {/* one line: the schedule and the delay before an alert are in the detail */}
                   <div className="min-w-0 @2xl:flex-1 @2xl:basis-0">
                     <div className="truncate text-xs text-muted">
                       {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.lastBackup ? timeAgo(g.lastBackup) : 'jamais sauvegardée'} · {formatBytes(g.size)}
                       {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
                       {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
-                    </div>
-                    <div className="truncate text-xs text-zinc-500">
-                      {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? `${g.ha ? 'Home Assistant' : 'agent'} · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} ·{' '}
-                      {g.threshold === null ? (
-                        <span title="Aucun rythme connu : pas de retard signalé">sans seuil</span>
-                      ) : (
-                        <span title={`Seuil ${thresholdSourceLabel[g.thresholdSource]}`}>retard après {hoursLabel(g.threshold)}</span>
-                      )}
-                      {g.managed && databaseJobText(g.managed) && <span className="text-zinc-400"> · {databaseJobText(g.managed)}</span>}
                     </div>
                     {g.ha?.failedAt && g.ha.failedAt > g.lastBackup && (
                       <div className="text-xs text-red-400" title={dateTime(g.ha.failedAt)}>Sauvegarde automatique non écrite sur cette destination {timeAgo(g.ha.failedAt)}</div>

@@ -5,7 +5,7 @@ import { Cloud, DatabaseBackup, HardDrive, History, Pencil, RefreshCw, Search, T
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
-import { OffsiteCell } from '../components/OffsiteCopy';
+import { DetailPill, OffsiteCell } from '../components/OffsiteCopy';
 import { Badge, Button, Empty, IconGroup, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -347,6 +347,7 @@ export function Backups() {
                             <td className="td">
                               <div className="flex items-center gap-1 font-medium text-zinc-100">
                                 {groupLabel(g)}
+                                <DetailPill g={g} remote={data.offsite} />
                                 <IconGroup
                                   className="ml-auto"
                                   actions={[
@@ -420,8 +421,7 @@ export function Backups() {
                             <td className="td"><ThresholdCell g={g} canManage={canManage} onChange={(staleHours) => update(g, { staleHours })} /></td>
                             {data.offsite && (
                               <td className="td">
-                                {/* settings of the copy: in the window of the backup (backups of the agent) */}
-                                <OffsiteCell g={g} remote={data.offsite} onSettings={noEdit(g) ? undefined : () => setEditing({ host: hostList.find((h) => h.id === g.hostId)!, jobId: g.managed!.jobId, tab: 'offsite' })} />
+                                <OffsiteCell g={g} />
                               </td>
                             )}
                           </tr>
