@@ -387,9 +387,19 @@ export interface PbsDatastoreUsage {
   avail: number;
 }
 
+// Agent that administers a PBS (pbsAgent.ts): the host it runs on, natively or in a container,
+// found by pbs_detect and validated by the admin.
+export interface PbsAgentLink {
+  hostId: string;
+  mode: 'native' | 'container';
+  container?: string;
+}
+
 export interface PbsSettings {
   _id: 'pbs';
   enabled: boolean;
+  // agent that creates the tokens on this PBS (all of them: monitoring, hosts)
+  agent?: PbsAgentLink;
   url: string; // https://pbs:8007
   // sha256 of the PBS certificate (AB:CD:...), pinned; empty: verified against the system CAs
   fingerprint: string;

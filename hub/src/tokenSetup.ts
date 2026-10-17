@@ -2,35 +2,31 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
-import { refreshManaged, syncHost } from './backupJobs.js';
 import { config } from './config.js';
 import { randomToken, sha256 } from './crypto.js';
-import { hosts, parseId, settings, tokenSetups } from './db.js';
+import { parseId, settings, tokenSetups } from './db.js';
 import { publish } from './events.js';
 import { agentUrl, agentUrlOfRequest, curlPinned } from './hubUrl.js';
-import { pollPbs } from './pbs.js';
 import { loadPki } from './pkiStore.js';
 import { CLUSTER_ID_RE, loadPveSettings, pollPve } from './pve.js';
 import { FINGERPRINT_RE, SERVER_URL_RE, normalizeFingerprint } from './tlsApi.js';
 import type { PveCluster } from './types.js';
 
-// API tokens created by a command pasted on the PBS / a PVE node, like the agent install: a
-// single-use code (1 h) lets the script fetch what to create (user, token, ACL path, role, decided
-// here) and send the token back. The secret goes from the server to the hub only: never displayed,
-// never copied by hand.
+// API token created by a command pasted on a Proxmox VE node, like the agent install: a single-use
+// code (1 h) lets the script fetch what to create (user, token, ACL path, role, decided here) and send
+// the token back. The secret goes from the server to the hub only: never displayed, never copied by
+// hand. The tokens of a PBS are created by its agent instead (pbsAgent.ts); PVE follows in #178.
 
-export type TokenSetupKind = 'pbs' | 'pve' | 'host';
+export type TokenSetupKind = 'pve';
 
 export interface TokenSetupDoc {
   _id: ObjectId;
   codeHash: string;
   kind: TokenSetupKind;
-  tool: 'pbs' | 'pve';
   user: string;
   token: string;
   path: string;
   role: string;
-  hostId?: ObjectId;
   cluster?: Pick<PveCluster, 'id' | 'name' | 'url' | 'fingerprint'>;
   createdAt: Date;
   expiresAt: Date;
@@ -40,12 +36,10 @@ export interface TokenSetupDoc {
 }
 
 const TTL_MS = 3600_000;
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-// What the script creates, decided by the hub only.
-// Token id chosen in the UI: user@realm!name, realm of the server's own users (pbs, pve: the script
-// creates the user there), name with a letter first (PVE).
+// Token id chosen in the UI: user@realm!name, realm of the server's own users (pbs, pve: the user is
+// created there), name with a letter first (PVE).
 export const TOKEN_FULL_RE = /^([A-Za-z0-9._-]{1,64})@(pbs|pve)!([A-Za-z][A-Za-z0-9._-]{0,31})$/;
 
 export function parseTokenId(id: string, realm: 'pbs' | 'pve') {
@@ -53,12 +47,9 @@ export function parseTokenId(id: string, realm: 'pbs' | 'pve') {
   return m && m[2] === realm ? { user: `${m[1]}@${m[2]}`, token: m[3] } : null;
 }
 
-export function setupPlan(kind: TokenSetupKind, o: { hostName?: string; user?: string; tokenName?: string }) {
-  if (kind === 'pbs') return { tool: 'pbs' as const, user: o.user || 'homelab@pbs', token: o.tokenName || 'monitor', path: '/datastore', role: 'DatastoreAudit' };
-  if (kind === 'pve') return { tool: 'pve' as const, user: o.user || 'homelab@pve', token: o.tokenName || 'monitor', path: '/', role: 'PVEAuditor' };
-  // a token per host, DatastoreBackup on the namespace of the hosts of every datastore ({store}: the script
-  // applies it to each one): it only sees the groups it owns, and cannot write in the namespaces of PVE
-  return { tool: 'pbs' as const, user: o.user || `host-${slug(o.hostName ?? '')}@pbs`, token: o.tokenName || 'backup', path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' };
+// What the script creates, decided by the hub only.
+export function setupPlan(o: { user?: string; tokenName?: string }) {
+  return { user: o.user || 'homelab@pve', token: o.tokenName || 'monitor', path: '/', role: 'PVEAuditor' };
 }
 
 // naive brute-force protection, as for the enrollment
@@ -79,21 +70,7 @@ export class SetupError extends Error {}
 // already hold it.
 async function apply(s: TokenSetupDoc, tokenId: string, secret: string | undefined) {
   const unknown = () => new SetupError('token already exists and the hub does not hold it: delete it on the server and run a new command');
-  if (s.kind === 'host' && s.hostId) {
-    const host = await hosts.findOne({ _id: s.hostId });
-    if (!host) throw new SetupError('host not found');
-    const keep = host.pbsCredential?.tokenId === tokenId ? host.pbsCredential.tokenSecret : undefined;
-    if (!secret && !keep) throw unknown();
-    // store '*': rights on the namespace Hosts of every datastore
-    await hosts.updateOne({ _id: s.hostId }, { $set: { pbsCredential: { tokenId, tokenSecret: (secret ?? keep)!, updatedAt: new Date(), store: '*' } } });
-    await refreshManaged();
-    await syncHost(s.hostId);
-  } else if (s.kind === 'pbs') {
-    const cur = (await settings.findOne({ _id: 'pbs' })) as { tokenId?: string; tokenSecret?: string } | null;
-    if (!secret && !(cur?.tokenId === tokenId && cur.tokenSecret)) throw unknown();
-    if (secret) await settings.updateOne({ _id: 'pbs' }, { $set: { tokenId, tokenSecret: secret } }, { upsert: true });
-    pollPbs().catch(() => {});
-  } else if (s.kind === 'pve' && s.cluster) {
+  if (s.kind === 'pve' && s.cluster) {
     const cur = await loadPveSettings();
     const existing = cur.clusters.find((c) => c.id === s.cluster!.id);
     const keep = existing?.tokenId === tokenId ? existing.tokenSecret : undefined;
@@ -108,7 +85,7 @@ async function apply(s: TokenSetupDoc, tokenId: string, secret: string | undefin
 
 // Admin side (UI port): create a command, follow it.
 export function registerTokenSetupRoutes(app: FastifyInstance) {
-  app.post<{ Body: { kind: TokenSetupKind; hostId?: string; tokenId?: string; cluster?: { id: string; name: string; url: string; fingerprint: string } } }>(
+  app.post<{ Body: { kind: TokenSetupKind; tokenId?: string; cluster?: { id: string; name: string; url: string; fingerprint: string } } }>(
     '/api/settings/token-setups',
     {
       schema: {
@@ -117,8 +94,7 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
           required: ['kind'],
           additionalProperties: false,
           properties: {
-            kind: { type: 'string', enum: ['pbs', 'pve', 'host'] },
-            hostId: { type: 'string', maxLength: 24 },
+            kind: { type: 'string', enum: ['pve'] },
             // user@realm!name of the token (default: the one of setupPlan)
             tokenId: { type: 'string', maxLength: 128 },
             cluster: {
@@ -134,29 +110,15 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { kind } = req.body;
       const wanted = req.body.tokenId?.trim();
-      const chosen = wanted ? parseTokenId(wanted, kind === 'pve' ? 'pve' : 'pbs') : null;
-      if (wanted && !chosen) {
-        return reply.code(400).send({ error: `identifiant du jeton invalide : utilisateur@${kind === 'pve' ? 'pve' : 'pbs'}!nom (le nom commence par une lettre)` });
-      }
-      let hostId: ObjectId | undefined;
-      let hostName: string | undefined;
-      let cluster: TokenSetupDoc['cluster'];
-      if (kind === 'host') {
-        const _id = parseId(req.body.hostId ?? '');
-        const host = _id && (await hosts.findOne({ _id }));
-        if (!host) return reply.code(404).send({ error: 'host not found' });
-        hostId = host._id;
-        hostName = host.name;
-      }
-      if (kind === 'pve') {
-        const c = req.body.cluster;
-        if (!c || !CLUSTER_ID_RE.test(c.id)) return reply.code(400).send({ error: 'identifiant du cluster invalide (minuscules, chiffres, - et _)' });
-        const url = c.url.trim().replace(/\/+$/, '');
-        const fingerprint = c.fingerprint ? normalizeFingerprint(c.fingerprint) : '';
-        if (!SERVER_URL_RE.test(url)) return reply.code(400).send({ error: 'URL invalide (https://pve:8006)' });
-        if (fingerprint && !FINGERPRINT_RE.test(fingerprint)) return reply.code(400).send({ error: 'empreinte invalide' });
-        cluster = { id: c.id, name: c.name.trim() || c.id, url, fingerprint };
-      }
+      const chosen = wanted ? parseTokenId(wanted, 'pve') : null;
+      if (wanted && !chosen) return reply.code(400).send({ error: 'identifiant du jeton invalide : utilisateur@pve!nom (le nom commence par une lettre)' });
+      const c = req.body.cluster;
+      if (!c || !CLUSTER_ID_RE.test(c.id)) return reply.code(400).send({ error: 'identifiant du cluster invalide (minuscules, chiffres, - et _)' });
+      const url = c.url.trim().replace(/\/+$/, '');
+      const fingerprint = c.fingerprint ? normalizeFingerprint(c.fingerprint) : '';
+      if (!SERVER_URL_RE.test(url)) return reply.code(400).send({ error: 'URL invalide (https://pve:8006)' });
+      if (fingerprint && !FINGERPRINT_RE.test(fingerprint)) return reply.code(400).send({ error: 'empreinte invalide' });
+      const cluster: TokenSetupDoc['cluster'] = { id: c.id, name: c.name.trim() || c.id, url, fingerprint };
       const base = await agentUrl(req);
       if (!base) return reply.code(400).send({ error: "adresse du hub invalide : la régler dans Paramètres › Hub et agents" });
       const code = randomToken(24);
@@ -165,9 +127,8 @@ export function registerTokenSetupRoutes(app: FastifyInstance) {
         _id: new ObjectId(),
         codeHash: sha256(code),
         kind,
-        ...setupPlan(kind, { hostName, user: chosen?.user, tokenName: chosen?.token }),
-        ...(hostId ? { hostId } : {}),
-        ...(cluster ? { cluster } : {}),
+        ...setupPlan({ user: chosen?.user, tokenName: chosen?.token }),
+        cluster,
         createdAt: new Date(now),
         expiresAt: new Date(now + TTL_MS),
         purgeAt: new Date(now + 24 * TTL_MS),
@@ -206,12 +167,12 @@ export function registerTokenSetupScriptRoutes(app: FastifyInstance) {
   // what to create; does not use the code up (a script stopped on an existing token can be run again)
   app.post<{ Body: { code: string } }>('/token-setup/params', { schema: { body: codeBody } }, async (req, reply) => {
     if (blocked(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry later' });
-    const s = await tokenSetups.findOne({ codeHash: sha256(req.body.code), expiresAt: { $gt: new Date() }, doneAt: { $exists: false } });
+    const s = await tokenSetups.findOne({ codeHash: sha256(req.body.code), kind: 'pve', expiresAt: { $gt: new Date() }, doneAt: { $exists: false } });
     if (!s) {
       fail(req.ip);
       return reply.code(403).send({ error: 'invalid or expired code' });
     }
-    return { tool: s.tool, user: s.user, token: s.token, path: s.path, role: s.role };
+    return { tool: 'pve', user: s.user, token: s.token, path: s.path, role: s.role };
   });
 
   // the token: used up atomically, only for the token id the hub asked for
@@ -232,7 +193,7 @@ export function registerTokenSetupScriptRoutes(app: FastifyInstance) {
       if (blocked(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry later' });
       if (req.body.secret !== undefined && !UUID_RE.test(req.body.secret)) return reply.code(400).send({ error: 'invalid secret' });
       const s = await tokenSetups.findOneAndUpdate(
-        { codeHash: sha256(req.body.code), expiresAt: { $gt: new Date() }, doneAt: { $exists: false } },
+        { codeHash: sha256(req.body.code), kind: 'pve', expiresAt: { $gt: new Date() }, doneAt: { $exists: false } },
         { $set: { doneAt: new Date(), tokenId: req.body.tokenId } },
         { returnDocument: 'after' },
       );

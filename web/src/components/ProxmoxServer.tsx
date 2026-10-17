@@ -11,7 +11,7 @@ import { Badge, Button, CopyField } from './ui';
 export interface Connection {
   url: string;
   fingerprint: string;
-  tokenId: string;
+  tokenId?: string; // PBS: created by its agent, not part of the form
   tokenSecret?: string; // empty: unchanged
   enabled: boolean;
 }
@@ -52,11 +52,12 @@ export function ServerRow({ name, tag, url, enabled, polledAt, pollError, detail
 }
 
 // Address, pinned certificate, secret of the token and polling switch of a server (the token id is set
-// next to the command that creates it, see TokenSetup).
+// next to the command that creates it, see TokenSetup). hasSecret null: no secret field (PBS, its agent
+// creates the token).
 export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerprintHint, fetchFingerprint, enabledLabel }: {
   form: Connection;
   set: (patch: Partial<Connection>) => void;
-  hasSecret: boolean;
+  hasSecret: boolean | null;
   urlPlaceholder: string;
   fingerprintHint: ReactNode;
   fetchFingerprint: (url: string) => Promise<{ fingerprint: string }>;
@@ -88,7 +89,7 @@ export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerp
         </div>
         <p className="mt-1 text-xs text-muted">{fingerprintHint}</p>
       </div>
-      <label className="block">
+      {hasSecret !== null && <label className="block">
         <span className={field}>Secret du jeton {form.tokenId && <span className="font-mono font-normal">({form.tokenId})</span>}</span>
         <input
           className="input font-mono text-xs"
@@ -98,7 +99,7 @@ export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerp
           onChange={(e) => set({ tokenSecret: e.target.value.trim() })}
           placeholder={hasSecret ? '•••••••• (inchangé)' : 'reçu par la commande, ou à coller'}
         />
-      </label>
+      </label>}
       <label className="flex cursor-pointer items-center gap-3">
         <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
         <span>{enabledLabel}</span>
@@ -107,20 +108,21 @@ export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerp
   );
 }
 
-// Right column of the edit window: what the token is, the command that creates it, the manual way.
-export function TokenAside({ title, intro, setup, manualScript, manualUi }: { title: string; intro: ReactNode; setup: ReactNode; manualScript: string; manualUi: ReactNode }) {
+// Right column of the edit window: what the token is, the command that creates it, the manual way (none
+// for a PBS: its agent creates the token).
+export function TokenAside({ title, intro, setup, manualScript, manualUi }: { title: string; intro: ReactNode; setup: ReactNode; manualScript?: string; manualUi?: ReactNode }) {
   return (
     <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
       <p className="font-medium text-zinc-100">{title}</p>
       <p>{intro}</p>
       {setup}
-      <details>
+      {manualScript && <details>
         <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
         <div className="mt-2 space-y-2">
           <CopyField multiline value={manualScript} />
           <p>{manualUi}</p>
         </div>
-      </details>
+      </details>}
     </aside>
   );
 }

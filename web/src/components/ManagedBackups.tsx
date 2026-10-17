@@ -5,11 +5,10 @@ import { Calculator, Container, KeyRound, ListChecks, Package, Plus, Save, X } f
 import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
 import { databaseKindLabel, dumpArchives, formatBytes } from '../lib/backups';
 import { useMe } from '../lib/auth';
-import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { TokenSetup } from './TokenSetup';
-import { Badge, Button, CopyField, Modal, Spinner } from './ui';
+import { PbsTokenButton } from './PbsAgentPicker';
+import { Badge, Button, Modal, Spinner } from './ui';
 
 const PRESETS = [
   { label: 'Tous les jours à 03:00', value: '03:00' },
@@ -20,87 +19,36 @@ const PRESETS = [
 
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
-function tokenHelp(host: Host, tokenId: string) {
-  // DatastoreBackup on the namespace Hosts of every datastore: it only sees and changes the backups it owns
-  return pbsTokenScript({ ...splitTokenId(tokenId, `host-${slug(host.name)}@pbs`, 'backup'), path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' });
-}
-
-// PBS token of the host: the agent writes its backups with it.
+// PBS token of the host: the agent writes its backups with it. The agent of the PBS creates it.
 function CredentialModal({ host, view, open, onClose }: { host: Host; view: HostBackupJobs; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
-  const toast = useToast();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
-  const [secret, setSecret] = useState('');
-  const [busy, setBusy] = useState(false);
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.setPbsCredential(host.id, { tokenId, ...(secret ? { tokenSecret: secret } : {}) });
-      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
-      setSecret('');
-      onClose();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const field = 'mb-1.5 block text-xs font-medium text-muted';
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      wide="xl"
-      title={`Accès au PBS de ${host.name}`}
-      footer={
-        <>
-          <Button onClick={onClose}>Annuler</Button>
-          <Button variant="primary" icon={Save} loading={busy} onClick={save}>Enregistrer</Button>
-        </>
-      }
-    >
-      <div className="grid gap-6 text-sm lg:grid-cols-2">
-        <div className="space-y-4">
-          <p className="text-muted">
-            L'agent écrit les sauvegardes de cet hôte avec ce jeton. Le hub le lui transmet par la connexion chiffrée de l'agent ; il est gardé sur l'hôte dans un
-            fichier lisible par root seulement, et jamais renvoyé à l'interface.
-          </p>
-          <label className="block">
-            <span className={field}>Secret du jeton <span className="font-mono font-normal">({tokenId})</span></span>
-            <input
-              className="input font-mono text-xs"
-              type="password"
-              autoComplete="off"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value.trim())}
-              placeholder={view.credential ? '•••••••• (inchangé)' : 'reçu par la commande, ou à coller'}
-            />
-          </label>
-        </div>
-        <aside className="space-y-2 self-start rounded-md border border-line bg-raised/40 p-4 text-xs text-muted">
-          <p className="font-medium text-zinc-100">Créer le jeton sur le PBS</p>
-          <p>
-            Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace <code>Hosts</code> de chaque datastore : un hôte compromis ne peut ni lire ni
-            modifier les sauvegardes des autres, ni écrire dans les namespaces de Proxmox VE. Une commande collée pour un jeton existant met ses droits à jour (nouveau
-            datastore) en gardant son secret.
-          </p>
-          <TokenSetup
-            where="du PBS"
+    <Modal open={open} onClose={onClose} wide="xl" title={`Accès au PBS de ${host.name}`} footer={<Button onClick={onClose}>Fermer</Button>}>
+      <div className="space-y-4 text-sm">
+        <p className="text-muted">
+          L'agent écrit les sauvegardes de cet hôte avec ce jeton. L'agent du PBS le crée et l'envoie au hub, qui le transmet à cet hôte par la connexion chiffrée de
+          l'agent ; il est gardé sur l'hôte dans un fichier lisible par root seulement, et jamais affiché.
+        </p>
+        <p className="text-xs text-muted">
+          Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace <code>Hosts</code> de chaque datastore : un hôte compromis ne peut ni lire ni modifier
+          les sauvegardes des autres, ni écrire dans les namespaces de Proxmox VE. Recréer un jeton existant met ses droits à jour (nouveau datastore) en gardant son
+          secret.
+        </p>
+        {view.pbsAgent ? (
+          <PbsTokenButton
             tokenId={tokenId}
             onTokenIdChange={setTokenId}
-            request={() => ({ kind: 'host', hostId: host.id })}
-            onDone={() => {
+            create={async () => {
+              const r = await api.createPbsCredential(host.id, tokenId);
               qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
-              onClose();
+              return r;
             }}
           />
-          <details>
-            <summary className="cursor-pointer">Sans la commande : bloc à coller (affiche le secret à recopier)</summary>
-            <div className="mt-2">
-              <CopyField multiline value={tokenHelp(host, tokenId)} />
-            </div>
-          </details>
-        </aside>
+        ) : (
+          <p className="text-amber-400">Le PBS n'est pas relié à son agent : le faire dans Paramètres › Sauvegardes, puis revenir créer le jeton.</p>
+        )}
+        {view.credential && <p className="text-xs text-muted">Jeton enregistré : <code>{view.credential.tokenId}</code>.</p>}
       </div>
     </Modal>
   );
@@ -582,7 +530,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
                 </select>
                 {view.credential?.store && view.credential.store !== '*' && form.store !== view.credential.store && (
                   <span className="mt-1 block text-xs text-amber-400">
-                    Le jeton de cet hôte n'a de droits que sur {view.credential.store} › Hosts : recolle la commande d'accès PBS pour l'étendre à tous les datastores.
+                    Le jeton de cet hôte n'a de droits que sur {view.credential.store} › Hosts : recrée le jeton (Accès au PBS) pour l'étendre à tous les datastores.
                   </span>
                 )}
               </label>

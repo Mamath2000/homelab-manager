@@ -110,31 +110,57 @@ test('a job created after its last scheduled time is not late', () => {
 test('running a backup job: operator; defining it: admin', () => {
   assert.equal(authorize('operator', 'POST', '/api/backup-jobs/:jobId/run'), true);
   assert.equal(authorize('operator', 'POST', '/api/hosts/:id/backup-jobs'), false);
-  assert.equal(authorize('operator', 'PUT', '/api/hosts/:id/pbs-credential'), false);
+  assert.equal(authorize('operator', 'POST', '/api/hosts/:id/pbs-credential'), false);
   assert.equal(authorize('viewer', 'POST', '/api/backup-jobs/:jobId/run'), false);
   assert.equal(authorize('viewer', 'GET', '/api/hosts/:id/backup-jobs'), true);
 });
 
-test('API tokens created by a pasted command: what the hub asks for, admin only', async () => {
+test('Proxmox VE token created by a pasted command: what the hub asks for, admin only', async () => {
   const { parseTokenId, setupPlan } = await import('../src/tokenSetup.js');
-  // the namespace Hosts of every datastore: the script applies the path to each one
-  assert.deepEqual(setupPlan('host', { hostName: 'Canicoif PProd' }), {
-    tool: 'pbs',
-    user: 'host-canicoif-pprod@pbs',
-    token: 'backup',
-    path: '/datastore/{store}/Hosts',
-    role: 'DatastoreBackup',
-  });
-  assert.equal(setupPlan('pve', {}).role, 'PVEAuditor');
+  assert.deepEqual(setupPlan({}), { user: 'homelab@pve', token: 'monitor', path: '/', role: 'PVEAuditor' });
   // another id when the default token already exists on the server
-  assert.equal(setupPlan('pve', { tokenName: 'hlm2' }).token, 'hlm2');
+  assert.equal(setupPlan({ tokenName: 'hlm2' }).token, 'hlm2');
   assert.deepEqual(parseTokenId('hlm@pve!backup2', 'pve'), { user: 'hlm@pve', token: 'backup2' });
   assert.equal(parseTokenId('hlm@pam!x', 'pve'), null);
   assert.equal(parseTokenId('hlm@pve!x', 'pbs'), null);
   assert.equal(parseTokenId('hlm@pbs!1x', 'pbs'), null);
-  assert.equal(setupPlan('pbs', {}).path, '/datastore');
   assert.equal(authorize('operator', 'POST', '/api/settings/token-setups'), false);
   assert.equal(authorize('admin', 'POST', '/api/settings/token-setups'), true);
+});
+
+test('PBS tokens created by the agent of the PBS: rights, secret, admin only', async () => {
+  const { PBS_TOKEN_ACLS, defaultHostTokenId, tokenSecretOf, PbsAgentError } = await import('../src/pbsAgent.js');
+  // monitoring reads nothing; a host writes in the namespace Hosts of every datastore only
+  assert.deepEqual(PBS_TOKEN_ACLS.monitor, [{ path: '/datastore', role: 'DatastoreAudit' }]);
+  assert.deepEqual(PBS_TOKEN_ACLS.host, [{ path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' }]);
+  assert.equal(defaultHostTokenId('Canicoif PProd'), 'host-canicoif-pprod@pbs!backup');
+  const uuid = '0b1c2d3e-1111-2222-3333-444455556666';
+  // new token: the secret of the agent
+  assert.equal(tokenSecretOf('a@pbs!t', uuid, { tokenId: 'a@pbs!t', tokenSecret: 'old' }), uuid);
+  // existing token: the one the hub holds for this token only
+  assert.equal(tokenSecretOf('a@pbs!t', undefined, { tokenId: 'a@pbs!t', tokenSecret: 'old' }), 'old');
+  assert.throws(() => tokenSecretOf('a@pbs!t', undefined, { tokenId: 'a@pbs!other', tokenSecret: 'old' }), PbsAgentError);
+  assert.throws(() => tokenSecretOf('a@pbs!t', undefined, null), PbsAgentError);
+  assert.throws(() => tokenSecretOf('a@pbs!t', 'not-a-uuid', null), PbsAgentError);
+  for (const route of ['/api/settings/pbs/detect', '/api/settings/pbs/token', '/api/hosts/:id/pbs-credential']) {
+    assert.equal(authorize('operator', 'POST', route), false, route);
+    assert.equal(authorize('admin', 'POST', route), true, route);
+  }
+});
+
+test('PBS found by an agent: address suggested, link checked', async () => {
+  const { checkLink, suggestedUrl } = await import('../src/pbsAgent.js');
+  // the LAN address, not a Docker bridge
+  assert.equal(suggestedUrl(['172.17.0.1', '192.168.2.101', '100.71.188.9'], 8007), 'https://192.168.2.101:8007');
+  assert.equal(suggestedUrl(['172.18.0.1', '100.71.188.9'], 8007), 'https://100.71.188.9:8007');
+  assert.equal(suggestedUrl(['192.168.2.101'], 0), '');
+  assert.equal(suggestedUrl(null, 8007), '');
+  const id = '0123456789abcdef01234567';
+  assert.equal(checkLink({ hostId: id, mode: 'native' }), null);
+  assert.equal(checkLink({ hostId: id, mode: 'container', container: 'pbs' }), null);
+  assert.notEqual(checkLink({ hostId: id, mode: 'container' }), null);
+  assert.notEqual(checkLink({ hostId: id, mode: 'container', container: 'a;b' }), null);
+  assert.notEqual(checkLink({ hostId: 'x', mode: 'native' }), null);
 });
 
 test('error of a failed run: the last "Error:" line of the client', () => {

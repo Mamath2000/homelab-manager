@@ -20,28 +20,50 @@ Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur
 
 ## Mise en place
 
-Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition avec la connexion à gauche (adresse, empreinte du certificat, jeton, test) et la création du jeton à droite.
+Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition avec la connexion à gauche (adresse, empreinte du certificat, test) et la création du jeton à droite.
 
-### Jetons : une commande à usage unique
+### Jetons du PBS : créés par l'agent du PBS
 
-Les jetons ne se recopient pas à la main. À côté de **Générer la commande**, l'**identifiant du jeton** (`utilisateur@royaume!nom`) est pré-rempli et modifiable ; le bouton donne une ligne à coller dans un shell root du serveur (le PBS, ou un nœud du cluster) :
+Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le PBS : **l'agent de l'hôte du PBS** les crée, que le PBS soit installé sur l'hôte ou lancé dans un conteneur Docker.
+
+1. **Relier le PBS à son agent** (fenêtre du PBS, colonne de droite) : choisir l'**hôte du PBS** parmi les agents qui savent administrer un PBS, puis **Détecter**. L'agent cherche `proxmox-backup-manager` sur l'hôte, puis dans les conteneurs lancés, et renvoie le mode (installé ou conteneur, avec son nom), la version, les datastores, le port publié et l'empreinte du certificat. L'**adresse** (première adresse privée de l'hôte) et l'**empreinte** sont pré-remplies ; le conteneur trouvé est celui qu'utilisent ensuite toutes les créations de jetons.
+2. **Créer le jeton** : l'**identifiant** (`utilisateur@pbs!nom`) est pré-rempli et modifiable. L'agent crée l'utilisateur s'il manque, puis le jeton, et donne chaque droit à l'utilisateur **et** au jeton (les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur). Le secret va de l'agent au hub par la connexion chiffrée de l'agent : **jamais affiché, jamais écrit dans un journal**. Le jeton de supervision et le lien vers l'agent sont enregistrés aussitôt.
+3. Les **jetons des hôtes** se créent ensuite depuis la fiche de chaque hôte (**Accès PBS**), par le même agent.
+
+- Jeton **déjà existant** : ses droits sont remis à ceux décidés par le hub — les droits manquants sont ajoutés, ceux **du jeton** qui ne sont plus prévus lui sont retirés (ceux de l'utilisateur restent : il peut porter d'autres jetons du hub). Son secret n'étant plus lisible, le hub garde celui qu'il détient ; s'il ne le connaît pas, choisir un autre nom, ou supprimer le jeton sur le PBS.
+- Si la création échoue après celle du jeton (droit refusé, PBS qui ne répond plus), l'agent supprime le jeton : un nouvel essai repart de zéro.
+- L'agent n'accepte que les rôles et chemins prévus (`DatastoreAudit`, `DatastoreBackup`, `DatastoreReader` sous `/datastore`, `RemoteAdmin` sous `/remote`), jamais `/`.
+- L'agent du PBS doit être à jour (capacité « pbs ») et en ligne.
+
+:::note PBS en conteneur
+Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backup-server`. Si le conteneur est en `network_mode: host`, le port est celui du PBS (8007) ; sinon, le port publié pour 8007. Un conteneur renommé ou recréé sous un autre nom : refaire **Détecter**.
+:::
+
+#### Portée de chaque jeton
+
+| Jeton | Utilisateur (défaut) | Rôle et chemin | Permet | Ne permet pas |
+|---|---|---|---|---|
+| supervision du PBS | `homelab@pbs!monitor` | `DatastoreAudit` sur `/datastore` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
+| écriture d'un hôte | `host-<hôte>@pbs!backup` | `DatastoreBackup` sur `/datastore/<chaque datastore>/Hosts` | créer des sauvegardes dans le namespace `Hosts`, voir et relire **ses propres** groupes | voir ou relire les groupes des autres hôtes, écrire hors de `Hosts` (namespaces de Proxmox VE) |
+
+Le chemin `{store}` est développé sur chaque datastore présent au moment de la création : après l'ajout d'un datastore, recréer le jeton de l'hôte (le secret est conservé) pour l'étendre.
+
+### Jetons de Proxmox VE : une commande à usage unique
+
+Pour un cluster Proxmox VE, le jeton se crée encore par une commande à coller (son passage par l'agent est prévu). À côté de **Générer la commande**, l'**identifiant du jeton** (`utilisateur@pve!nom`) est pré-rempli et modifiable ; le bouton donne une ligne à coller dans un shell root d'un nœud du cluster :
 
 ```bash
 curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -- <code>
 ```
 
 - Le script vient du port des agents du hub, dont la clé est épinglée : rien d'autre ne peut répondre.
-- Le **hub décide** de ce qui est créé (utilisateur, jeton, chemin et rôle) ; le script crée l'utilisateur s'il manque, le jeton, les droits de l'utilisateur **et** du jeton (les droits d'un jeton sont l'intersection des siens et de ceux de son utilisateur), puis renvoie le jeton au hub, qui le range au bon endroit. **Le secret n'est jamais affiché.**
-- Code à usage unique, valable 1 heure. Le serveur doit joindre le port des agents du hub.
-- L'**identifiant** se change quand un jeton de ce nom existe déjà sur le serveur sans que le hub connaisse son secret ; le royaume est `pbs` pour le PBS et les hôtes, `pve` pour un cluster.
-- Recoller une commande pour un jeton **que le hub détient** met seulement ses droits à jour (secret conservé).
+- Le **hub décide** de ce qui est créé ; le script crée l'utilisateur s'il manque, le jeton (séparation des privilèges), les droits de l'utilisateur **et** du jeton, puis renvoie le jeton au hub. **Le secret n'est jamais affiché.**
+- Code à usage unique, valable 1 heure. Le nœud doit joindre le port des agents du hub.
 - Repli : le bloc « Sans la commande » fait la même chose et affiche le secret à recopier dans le formulaire.
 
 | Jeton | Utilisateur | Rôle et chemin |
 |---|---|---|
-| lecture du PBS | `homelab@pbs` | `DatastoreAudit` sur `/datastore` |
-| lecture d'un cluster PVE | `homelab@pve` (séparation des privilèges) | `PVEAuditor` sur `/` |
-| écriture d'un hôte (sauvegardes de répertoires) | `host-<hôte>@pbs` | `DatastoreBackup` sur `/datastore/<chaque datastore>/Hosts` |
+| lecture d'un cluster PVE | `homelab@pve!monitor` (séparation des privilèges) | `PVEAuditor` sur `/` |
 
 ### Proxmox Backup Server
 
@@ -49,7 +71,8 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 |---|---|
 | Adresse | `https://192.168.100.8:8007` |
 | Empreinte du certificat | **Récupérer** lit celle que présente le PBS ; à comparer avec **Tableau de bord › Afficher l'empreinte** |
-| Jeton | `homelab@pbs!monitor` (créé par la commande) |
+| Hôte du PBS | l'hôte dont l'agent administre le PBS (**Détecter** : PBS installé ou conteneur) |
+| Jeton | `homelab@pbs!monitor` (créé par l'agent du PBS) |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
 
 **Adresse du PBS sur Tailscale** (optionnel, saisie à la main) : adresse que reçoivent les agents des hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale), avec la même empreinte de certificat. Elle est vide par défaut : ces hôtes ne reçoivent alors aucune définition de sauvegarde, ils ne basculent jamais sur l'adresse du LAN.
@@ -92,7 +115,7 @@ Depuis la fiche hôte, carte **Sauvegardes** › **+ Sauvegarde** (administrateu
    - **Installer via Docker** : téléchargement de l'image du client, publiée pour **amd64** uniquement (repo [pbs-client](https://github.com/Mamath2000/pbs-client)).
 
    L'installation est une tâche de l'agent (visible dans Activité). Un hôte en mode Docker peut passer au client APT, qui est alors préféré. Ailleurs (arm64, autre distribution), installer le client à la main : l'agent le détecte.
-2. **Accès PBS** : le jeton propre à l'hôte, créé par la commande à usage unique. Il a `DatastoreBackup` sur le namespace `Hosts` de chaque datastore : il ne voit et ne modifie que les sauvegardes dont il est propriétaire, et ne peut pas écrire dans les namespaces de Proxmox VE.
+2. **Accès PBS** : le jeton propre à l'hôte, créé par l'agent du PBS (**Créer le jeton** ; le PBS doit être relié à son agent). Il a `DatastoreBackup` sur le namespace `Hosts` de chaque datastore : il ne voit et ne modifie que les sauvegardes dont il est propriétaire, et ne peut pas écrire dans les namespaces de Proxmox VE.
 3. **Ajouter** (bloqué tant qu'il n'y a ni client ni jeton) : type (**Répertoires**, **Base PostgreSQL**, **Base MongoDB** ; fixé à la création), nom, répertoires (une archive `.pxar` par répertoire, chemins absolus), exclusions, datastore, identifiant sur le PBS (groupe `host/<identifiant>`, fixé à la création), planification. Le namespace (`Hosts`) et le fuseau (celui du hub, variable `TZ`, fixé à la création du job) sont affichés sans être modifiables.
 
 **Estimer la taille** (sous les exclusions, agent ≥ 0.3) : l'agent parcourt les répertoires du formulaire avec les exclusions saisies, **sans rien envoyer**, et affiche par répertoire la taille et le nombre de fichiers retenus, ce que les exclusions retirent et les 8 plus gros éléments exclus. Pour un job existant, la taille de son dernier snapshot sur le PBS est affichée à côté. Le résultat devient « à relancer » dès que les répertoires ou les exclusions changent ; l'estimation n'est jamais lancée automatiquement (elle lit l'arborescence de l'hôte, 3 minutes et 5 millions d'entrées au plus : au-delà, le chiffre est un minimum).

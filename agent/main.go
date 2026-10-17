@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -162,6 +163,10 @@ func (s *session) hello(ctx context.Context) error {
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
 	}
+	// Proxmox Backup Server administration (pbs.go): installed here, or possibly in a container
+	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil || slices.Contains(caps, "docker") {
+		caps = append(caps, "pbs")
+	}
 	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
 	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)
 	caps = append(caps, "backup_setup")
@@ -289,6 +294,17 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 			out.Result = map[string]bool{"ok": true}
 			go s.sendUps(ctx) // beeper state and test result without waiting for the next poll
 		}
+	case "pbs_detect":
+		cctx, cancel := context.WithTimeout(ctx, time.Minute)
+		out.Result = detectPbs(cctx)
+		cancel()
+	case "pbs_token":
+		cctx, cancel := context.WithTimeout(ctx, time.Minute)
+		var r *PbsTokenResult
+		if r, err = ensurePbsToken(cctx, pbsRunner(pbsContainerOf(in.Pbs)), in.Pbs); err == nil {
+			out.Result = r
+		}
+		cancel()
 	case "docker_forget":
 		if err = dock.forget(ctx, in.Stack); err == nil {
 			out.Result = map[string]bool{"ok": true}

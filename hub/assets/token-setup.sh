@@ -1,6 +1,6 @@
 #!/bin/sh
-# Homelab Manager: creates an API token on this Proxmox Backup Server or Proxmox VE node and sends
-# it to the hub, with the single-use code of the command shown in the hub UI:
+# Homelab Manager: creates an API token on this Proxmox VE node and sends it to the hub, with the
+# single-use code of the command shown in the hub UI (the tokens of a PBS are created by its agent):
 #   curl … /token-setup.sh | sh -s -- <code>
 # The hub decides the user, token, ACL path and role; the secret is never printed. An existing
 # token is kept: its rights are updated and the hub keeps the secret it already holds.
@@ -32,27 +32,6 @@ EXISTING=
 OUT=
 
 case "$TOOL" in
-  pbs)
-    command -v proxmox-backup-manager >/dev/null 2>&1 || fail "run this on the Proxmox Backup Server (proxmox-backup-manager not found)"
-    proxmox-backup-manager user list --output-format json | jq -e --arg u "$U" 'any(.[]; .userid == $u)' >/dev/null \
-      || proxmox-backup-manager user create "$U"
-    if proxmox-backup-manager user list-tokens "$U" --output-format json | jq -e --arg t "$T" 'any(.[]; .tokenid == $t or (.tokenid | endswith("!" + $t)))' >/dev/null; then
-      EXISTING=1
-    else
-      OUT=$(proxmox-backup-manager user generate-token "$U" "$T")
-    fi
-    # {store}: the same path on every datastore
-    case "$ACL" in
-      *"{store}"*) PATHS=$(proxmox-backup-manager datastore list --output-format json | jq -r --arg a "$ACL" '.[].name | . as $s | $a | sub("{store}"; $s)') ;;
-      *) PATHS="$ACL" ;;
-    esac
-    # rights of the user AND of the token (intersection)
-    for P in $PATHS; do
-      proxmox-backup-manager acl update "$P" "$ROLE" --auth-id "$U"
-      proxmox-backup-manager acl update "$P" "$ROLE" --auth-id "$ID"
-      echo "$ROLE on $P"
-    done
-    ;;
   pve)
     command -v pveum >/dev/null 2>&1 || fail "run this on a node of the Proxmox VE cluster (pveum not found)"
     pveum user list --output-format json | jq -e --arg u "$U" 'any(.[]; .userid == $u)' >/dev/null \

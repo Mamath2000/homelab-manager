@@ -1,0 +1,189 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// fakePbs answers like proxmox-backup-manager; calls records the commands.
+type fakePbs struct {
+	users, tokens []string
+	stores        []string
+	acls          [][3]string // path, role, auth id
+	failOn        string      // commands with this prefix fail
+	calls         []string
+}
+
+func newFakePbs() *fakePbs { return &fakePbs{stores: []string{"ds0", "ds1"}} }
+
+func (f *fakePbs) run(_ context.Context, args ...string) (string, error) {
+	cmd := strings.Join(args, " ")
+	f.calls = append(f.calls, cmd)
+	if f.failOn != "" && strings.HasPrefix(cmd, f.failOn) {
+		return "", fmt.Errorf("%s: failed", cmd)
+	}
+	switch {
+	case strings.HasPrefix(cmd, "acl list"):
+		var b []string
+		for _, a := range f.acls {
+			b = append(b, fmt.Sprintf(`{"path":%q,"roleid":%q,"ugid":%q,"ugid_type":"user","propagate":true}`, a[0], a[1], a[2]))
+		}
+		return "[" + strings.Join(b, ",") + "]", nil
+	case strings.HasPrefix(cmd, "user list-tokens"):
+		var b []string
+		for _, t := range f.tokens {
+			b = append(b, fmt.Sprintf(`{"tokenid":%q}`, t))
+		}
+		return "[" + strings.Join(b, ",") + "]", nil
+	case strings.HasPrefix(cmd, "user list"):
+		var b []string
+		for _, u := range f.users {
+			b = append(b, fmt.Sprintf(`{"userid":%q}`, u))
+		}
+		return "[" + strings.Join(b, ",") + "]", nil
+	case strings.HasPrefix(cmd, "datastore list"):
+		var b []string
+		for _, st := range f.stores {
+			b = append(b, fmt.Sprintf(`{"name":%q}`, st))
+		}
+		return "[" + strings.Join(b, ",") + "]", nil
+	case strings.HasPrefix(cmd, "user generate-token"):
+		// the user id looks like a UUID too: only "value" holds the secret
+		return `Result: {"tokenid":"0b1c2d3e-aaaa-2222-3333-444455556666@pbs!x","value":"0b1c2d3e-1111-2222-3333-444455556666"}`, nil
+	}
+	return "", nil
+}
+
+func TestEnsurePbsTokenCreates(t *testing.T) {
+	f := newFakePbs()
+	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
+		User: "host-x4@pbs", Token: "backup",
+		ACLs: []PbsACL{{Path: "/datastore/{store}/Hosts", Role: "DatastoreBackup"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Created || r.Secret != "0b1c2d3e-1111-2222-3333-444455556666" || r.TokenID != "host-x4@pbs!backup" {
+		t.Fatalf("result %+v", r)
+	}
+	// user AND token, on every datastore
+	want := []string{
+		"acl update /datastore/ds0/Hosts DatastoreBackup --auth-id host-x4@pbs",
+		"acl update /datastore/ds0/Hosts DatastoreBackup --auth-id host-x4@pbs!backup",
+		"acl update /datastore/ds1/Hosts DatastoreBackup --auth-id host-x4@pbs",
+		"acl update /datastore/ds1/Hosts DatastoreBackup --auth-id host-x4@pbs!backup",
+	}
+	got := strings.Join(f.calls, "\n")
+	for _, w := range want {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing call %q in\n%s", w, got)
+		}
+	}
+}
+
+func TestEnsurePbsTokenExisting(t *testing.T) {
+	f := newFakePbs()
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}
+	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
+		User: "homelab@pbs", Token: "monitor", ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Created || r.Secret != "" {
+		t.Fatalf("existing token must not return a secret: %+v", r)
+	}
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "user create") || strings.HasPrefix(c, "user generate-token") {
+			t.Errorf("unexpected call %q", c)
+		}
+	}
+}
+
+func TestEnsurePbsTokenPrunesTokenACLs(t *testing.T) {
+	f := newFakePbs()
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}
+	f.acls = [][3]string{
+		{"/", "DatastoreAudit", "homelab@pbs!monitor"},          // former right: removed
+		{"/datastore", "DatastoreAudit", "homelab@pbs!monitor"}, // still asked for: kept
+		{"/", "DatastoreAudit", "homelab@pbs"},                  // user's: left alone
+		{"/", "DatastoreAudit", "homelab@pbs!other"},            // another token: left alone
+	}
+	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
+		User: "homelab@pbs", Token: "monitor", ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deletes []string
+	for _, c := range f.calls {
+		if strings.HasSuffix(c, "--delete true") {
+			deletes = append(deletes, c)
+		}
+	}
+	if len(deletes) != 1 || deletes[0] != "acl update / DatastoreAudit --auth-id homelab@pbs!monitor --delete true" {
+		t.Fatalf("deletes %q", deletes)
+	}
+	if len(r.Removed) != 1 {
+		t.Fatalf("removed %q", r.Removed)
+	}
+}
+
+func TestEnsurePbsTokenRollsBackOnFailure(t *testing.T) {
+	f := newFakePbs()
+	f.failOn = "acl update"
+	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
+		User: "host-x4@pbs", Token: "backup", ACLs: []PbsACL{{Path: "/datastore/{store}/Hosts", Role: "DatastoreBackup"}},
+	})
+	if err == nil || r != nil {
+		t.Fatalf("expected an error and no result: %+v %v", r, err)
+	}
+	if last := f.calls[len(f.calls)-1]; last != "user delete-token host-x4@pbs backup" {
+		t.Fatalf("token not deleted, last call %q", last)
+	}
+}
+
+func TestEnsurePbsTokenNoDatastore(t *testing.T) {
+	f := newFakePbs()
+	f.stores = nil
+	if _, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
+		User: "host-x4@pbs", Token: "backup", ACLs: []PbsACL{{Path: "/datastore/{store}/Hosts", Role: "DatastoreBackup"}},
+	}); err == nil {
+		t.Fatal("token created without any right")
+	}
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "user generate-token") || strings.HasPrefix(c, "user create") {
+			t.Errorf("unexpected call %q", c)
+		}
+	}
+}
+
+func TestValidatePbsToken(t *testing.T) {
+	ok := func() *PbsTokenSpec {
+		return &PbsTokenSpec{User: "a@pbs", Token: "t1", ACLs: []PbsACL{{Path: "/datastore/ds9", Role: "DatastoreBackup"}, {Path: "/remote", Role: "RemoteAdmin"}}}
+	}
+	if err := validatePbsToken(ok()); err != nil {
+		t.Fatal(err)
+	}
+	bad := map[string]func(s *PbsTokenSpec){
+		"user realm":     func(s *PbsTokenSpec) { s.User = "a@pam" },
+		"user injection": func(s *PbsTokenSpec) { s.User = "a b@pbs" },
+		"token":          func(s *PbsTokenSpec) { s.Token = "1x" },
+		"role":           func(s *PbsTokenSpec) { s.ACLs[0].Role = "Admin" },
+		"system path":    func(s *PbsTokenSpec) { s.ACLs[0].Path = "/system" },
+		"root path":      func(s *PbsTokenSpec) { s.ACLs[0].Path = "/" },
+		"role on path":   func(s *PbsTokenSpec) { s.ACLs[1].Path = "/datastore" },
+		"path traversal": func(s *PbsTokenSpec) { s.ACLs[0].Path = "/datastore/../x" },
+		"container":      func(s *PbsTokenSpec) { s.Container = "a;b" },
+		"empty":          func(s *PbsTokenSpec) { s.ACLs = nil },
+	}
+	for name, mut := range bad {
+		s := ok()
+		mut(s)
+		if validatePbsToken(s) == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

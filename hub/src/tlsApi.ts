@@ -53,16 +53,27 @@ function oneSocketAgent(socket: TLSSocket) {
 }
 
 // GET /api2/json<path>, answers its data member.
-export async function apiGet<T>(c: ApiConn, path: string, timeoutMs = 20_000): Promise<T> {
+export function apiGet<T>(c: ApiConn, path: string, timeoutMs = 20_000): Promise<T> {
+  return apiRequest<T>(c, 'GET', path, undefined, timeoutMs);
+}
+
+// <method> /api2/json<path> with a JSON body (none for GET / DELETE), answers its data member.
+export async function apiRequest<T>(c: ApiConn, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeoutMs = 20_000): Promise<T> {
   const url = new URL(`/api2/json${path}`, c.url);
   const pinned = c.fingerprint ? normalizeFingerprint(c.fingerprint) : '';
+  const payload = body === undefined ? undefined : JSON.stringify(body);
   const socket = pinned ? await pinnedSocket(url, c, pinned, timeoutMs) : null;
   return new Promise<T>((resolve, reject) => {
     const req = request(
       url,
       {
-        method: 'GET',
-        headers: { Authorization: c.authorization, Accept: 'application/json', Connection: 'close' },
+        method,
+        headers: {
+          Authorization: c.authorization,
+          Accept: 'application/json',
+          Connection: 'close',
+          ...(payload !== undefined ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
         timeout: timeoutMs,
         // pinned: an agent handing over the connection already checked (agent: false would open another)
         agent: socket ? oneSocketAgent(socket) : false,
@@ -77,7 +88,8 @@ export async function apiGet<T>(c: ApiConn, path: string, timeoutMs = 20_000): P
         res.on('end', () => {
           if (res.statusCode === 401) return reject(new ApiError(c.denied[401]));
           if (res.statusCode === 403) return reject(new ApiError(c.denied[403]));
-          if (res.statusCode !== 200) return reject(new ApiError(`HTTP ${res.statusCode} sur ${path}`));
+          // the PBS / PVE explain a refused write in the message of the answer
+          if (res.statusCode !== 200) return reject(new ApiError(`HTTP ${res.statusCode} sur ${method} ${path}${errorMessage(body)}`));
           try {
             resolve((JSON.parse(body) as { data: T }).data);
           } catch {
@@ -88,8 +100,19 @@ export async function apiGet<T>(c: ApiConn, path: string, timeoutMs = 20_000): P
     );
     req.on('timeout', () => req.destroy(new ApiError(c.unreachable)));
     req.on('error', (err) => reject(err instanceof ApiError ? err : new ApiError(err.message)));
-    req.end();
+    req.end(payload);
   });
+}
+
+// " : <message>" of an error answer ({"message": …} for the PBS, {"errors": {…}} for PVE), shortened.
+function errorMessage(body: string) {
+  try {
+    const j = JSON.parse(body) as { message?: string; errors?: Record<string, string> };
+    const m = j.message ?? (j.errors ? Object.entries(j.errors).map(([k, v]) => `${k}: ${v}`).join(', ') : '');
+    return m ? ` : ${String(m).trim().slice(0, 300)}` : '';
+  } catch {
+    return '';
+  }
 }
 
 // Fingerprint of the certificate a server presents, to pin it (shown to the admin before saving).

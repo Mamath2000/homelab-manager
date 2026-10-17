@@ -512,8 +512,35 @@ export interface BackupsView {
   orphans: BackupOrphan[];
 }
 
+// Agent that administers a PBS (hub/src/pbsAgent.ts): host, PBS installed on it or in a container
+export interface PbsAgentLink {
+  hostId: string;
+  mode: 'native' | 'container';
+  container?: string;
+}
+
+// What the agent of a host found (rpc pbs_detect)
+export interface PbsDetected {
+  found: boolean;
+  mode?: 'native' | 'container';
+  container?: string;
+  version?: string;
+  datastores?: string[];
+  port?: number; // 0: the container does not publish the API
+  fingerprint?: string;
+  url?: string; // suggested from the addresses of the host
+}
+
+// Token created by the agent of the PBS: rights granted, and those removed from the token
+export interface PbsTokenOutcome {
+  created: boolean;
+  applied: string[];
+  removed: string[];
+}
+
 export interface PbsSettings {
   enabled: boolean;
+  agent?: PbsAgentLink;
   url: string;
   fingerprint: string;
   tokenId: string;
@@ -530,12 +557,12 @@ export interface PbsTestResult {
   datastores?: string[];
 }
 
+// the token is created by the agent of the PBS (createPbsToken), not part of the form
 export interface PbsSettingsInput {
   enabled: boolean;
   url: string;
   fingerprint: string;
-  tokenId: string;
-  tokenSecret?: string;
+  agent?: PbsAgentLink;
   clientImage?: string;
   tailscaleUrl?: string;
 }
@@ -634,10 +661,11 @@ export interface HostBackupJobs {
   databases: DatabaseKind[] | null;
   estimate: boolean;
   supported: boolean;
-  // store: datastore of the rights of the token, when created by the command of the UI
+  // store: datastore of the rights of the token ('*': namespace Hosts of every datastore), when created by the hub
   credential: { tokenId: string; updatedAt: string; store: string | null } | null;
   sync: { hash: string; at: string; error: string | null; current: boolean } | null;
   pbsReady: boolean;
+  pbsAgent: boolean; // the agent of the PBS can create the token of the host
   datastores: string[];
   // retention the PBS applies to the namespace Hosts of each datastore; null: no pruning
   retention: Record<string, { keep: string; schedule: string | null; ns: string } | null>;
@@ -675,10 +703,9 @@ export interface NextcloudDiscovery {
   free: number;
 }
 
-// API token created by a command pasted on the PBS / a PVE node (hub/src/tokenSetup.ts)
+// API token created by a command pasted on a PVE node (hub/src/tokenSetup.ts); PBS tokens: its agent
 export interface TokenSetupRequest {
-  kind: 'pbs' | 'pve' | 'host';
-  hostId?: string;
+  kind: 'pve';
   tokenId?: string; // user@realm!name, default: the generic one of the hub
   cluster?: { id: string; name: string; url: string; fingerprint: string };
 }
@@ -780,6 +807,8 @@ export const api = {
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
   testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult & { tailscale?: PbsTestResult }>('POST', '/api/settings/pbs/test', s),
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
+  detectPbs: (hostId: string) => request<PbsDetected>('POST', '/api/settings/pbs/detect', { hostId }),
+  createPbsToken: (agent: PbsAgentLink, tokenId: string) => request<PbsTokenOutcome & { settings: PbsSettings }>('POST', '/api/settings/pbs/token', { agent, tokenId }),
   hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
   createBackupJob: (hostId: string, j: BackupJobInput) => request<BackupJob>('POST', `/api/hosts/${hostId}/backup-jobs`, j),
   checkBackupDatabase: (hostId: string, kind: DatabaseKind, database: DatabaseDump) =>
@@ -793,7 +822,7 @@ export const api = {
   deleteNextcloud: (hostId: string) => request<{ removed: number }>('DELETE', `/api/hosts/${hostId}/nextcloud`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
-  setPbsCredential: (hostId: string, c: { tokenId: string; tokenSecret?: string } | null) => request<{ ok: boolean }>('PUT', `/api/hosts/${hostId}/pbs-credential`, c),
+  createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
   createTokenSetup: (r: TokenSetupRequest) => request<{ id: string; command: string; tokenId: string; expiresAt: string }>('POST', '/api/settings/token-setups', r),
   tokenSetupStatus: (id: string) => request<{ status: 'pending' | 'done' | 'expired'; tokenId: string | null }>('GET', `/api/settings/token-setups/${id}`),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),

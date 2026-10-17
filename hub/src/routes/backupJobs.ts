@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, TOKEN_ID_RE, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobKind, jobView, normDatabase, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobKind, jobView, normDatabase, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import type { BackupArchive, BackupJobKind, DatabaseDump, HostDoc } from '../types.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
 import { keepText, loadPbsSettings, policyFor } from '../pbs.js';
+import { PBS_TOKEN_ACLS, PbsAgentError, ensurePbsToken } from '../pbsAgent.js';
 import { describeCalendar } from '../calendar.js';
 import { config } from '../config.js';
 import { isPluginJob } from '../nextcloud.js';
@@ -87,6 +88,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       credential: host.pbsCredential ? { tokenId: host.pbsCredential.tokenId, updatedAt: host.pbsCredential.updatedAt, store: host.pbsCredential.store ?? null } : null,
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
       pbsReady: pbs.enabled && !!pbs.url,
+      // the agent of the PBS creates the token of the host
+      pbsAgent: !!pbs.agent,
       datastores: (pbs.datastores ?? []).map((d) => d.store),
       // retention the PBS applies to the namespace of each datastore (null: none, snapshots pile up)
       retention: Object.fromEntries(
@@ -103,36 +106,41 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     };
   });
 
-  app.put<{ Params: { id: string }; Body: { tokenId: string; tokenSecret?: string } | null }>(
+  // PBS token of the host, created (or its rights updated) by the agent of the PBS: DatastoreBackup on the
+  // namespace Hosts of every datastore (pbsAgent.ts).
+  app.post<{ Params: { id: string }; Body: { tokenId: string } }>(
     '/api/hosts/:id/pbs-credential',
-    {
-      schema: {
-        body: {
-          type: ['object', 'null'],
-          additionalProperties: false,
-          required: ['tokenId'],
-          properties: { tokenId: { type: 'string', maxLength: 128 }, tokenSecret: { type: 'string', maxLength: 128 } },
-        },
-      },
-    },
+    { schema: { body: { type: 'object', additionalProperties: false, required: ['tokenId'], properties: { tokenId: { type: 'string', maxLength: 128 } } } } },
     async (req, reply) => {
       const _id = parseId(req.params.id);
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
-      if (req.body === null) {
-        await hosts.updateOne({ _id }, { $unset: { pbsCredential: '' } });
-      } else {
-        const tokenId = req.body.tokenId.trim();
-        const tokenSecret = req.body.tokenSecret?.trim() || host.pbsCredential?.tokenSecret;
-        if (!TOKEN_ID_RE.test(tokenId)) return reply.code(400).send({ error: 'identifiant du jeton invalide (utilisateur@royaume!jeton)' });
-        if (!tokenSecret) return reply.code(400).send({ error: 'secret du jeton requis' });
-        // entered by hand: the datastore of its rights is not known
-        await hosts.updateOne({ _id }, { $set: { pbsCredential: { tokenId, tokenSecret, updatedAt: new Date() } } });
+      const pbs = await loadPbsSettings();
+      if (!pbs.agent) return reply.code(409).send({ error: "agent du PBS non configuré : relier le PBS à son agent dans Paramètres › Sauvegardes" });
+      let t;
+      try {
+        t = await ensurePbsToken(pbs.agent, req.body.tokenId.trim(), PBS_TOKEN_ACLS.host, host.pbsCredential);
+      } catch (err) {
+        if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+        throw err;
       }
+      // store '*': rights on the namespace Hosts of every datastore
+      await hosts.updateOne({ _id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
+      req.log.info({ host: host.name, tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed }, 'PBS token of a host set by the agent');
       await changed(_id);
-      return { ok: true };
+      return { ok: true, tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed };
     },
   );
+
+  // the hub forgets the token (it stays on the PBS)
+  app.delete<{ Params: { id: string } }>('/api/hosts/:id/pbs-credential', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    const host = _id && (await hosts.findOne({ _id }));
+    if (!host) return reply.code(404).send({ error: 'host not found' });
+    await hosts.updateOne({ _id }, { $unset: { pbsCredential: '' } });
+    await changed(_id);
+    return { ok: true };
+  });
 
   app.post<{ Params: { id: string }; Body: JobInput }>(
     '/api/hosts/:id/backup-jobs',

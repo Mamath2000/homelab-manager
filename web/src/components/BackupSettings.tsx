@@ -2,16 +2,13 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatabaseBackup, Pencil, Plug, Save } from 'lucide-react';
 import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
-import { pbsTokenScript, splitTokenId } from '../lib/tokenScripts';
 import { useToast } from '../lib/toast';
-import { withoutEmptySecret } from '../lib/forms';
 import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
+import { PbsAgentPicker, PbsTokenButton } from './PbsAgentPicker';
 import { useSettingsDraft } from './settingsDraft';
-import { TokenSetup } from './TokenSetup';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pbs!monitor';
-const pbsSetup = (tokenId: string) => pbsTokenScript({ ...splitTokenId(tokenId, 'homelab@pbs', 'monitor'), path: '/datastore', role: 'DatastoreAudit' });
 
 // the PBS filters the list by permission instead of answering 403
 function outcome(r: PbsTestResult, label: string): TestState {
@@ -28,11 +25,14 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     enabled: data.enabled,
     url: data.url,
     fingerprint: data.fingerprint,
-    tokenId: data.tokenId || DEFAULT_TOKEN,
+    ...(data.agent ? { agent: data.agent } : {}),
     clientImage: data.clientImage ?? '',
     tailscaleUrl: data.tailscaleUrl ?? '',
   }));
   const [form, setForm] = useState<PbsSettingsInput>(initial);
+  // the token is saved as soon as the agent created it, apart from the form
+  const [tokenId, setTokenId] = useState(data.tokenId || DEFAULT_TOKEN);
+  const [saved, setSaved] = useState(data);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
   const [testTs, setTestTs] = useState<TestState>(null);
@@ -48,7 +48,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
   const save = async () => {
     setBusy('save');
     try {
-      qc.setQueryData(['settings', 'pbs'], await api.savePbsSettings(withoutEmptySecret(form)));
+      qc.setQueryData(['settings', 'pbs'], await api.savePbsSettings(form));
       qc.invalidateQueries({ queryKey: ['backups'] });
       toast.success(form.enabled ? 'Enregistré : relevé du PBS en cours' : 'Enregistré');
       onClose();
@@ -66,7 +66,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     setTest(null);
     setTestTs(null);
     try {
-      const r = await api.testPbsSettings(withoutEmptySecret(form));
+      const r = await api.testPbsSettings(form);
       // with a Tailscale address, each result says which address it is about
       const both = !!r.tailscale;
       setTest(outcome(r, both ? 'LAN' : ''));
@@ -87,7 +87,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
         title="Proxmox Backup Server"
         footer={
           <>
-            <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !form.url || !form.tokenId} onClick={runTest}>Tester la connexion</Button>
+            <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !form.url || !saved.hasSecret} onClick={runTest}>Tester la connexion</Button>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>Enregistrer</Button>
           </>
@@ -98,7 +98,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             <ConnectionFields
               form={form}
               set={set}
-              hasSecret={data.hasSecret}
+              hasSecret={null}
               urlPlaceholder="https://192.168.100.8:8007"
               fingerprintHint="Certificat auto-signé : son empreinte est épinglée. À comparer avec celle du PBS (Tableau de bord › Afficher l'empreinte)."
               fetchFingerprint={api.pbsFingerprint}
@@ -119,31 +119,38 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             </div>
           </div>
           <TokenAside
-            title="Créer le jeton sur le PBS"
+            title="Agent et jeton du PBS"
             intro={
               <>
-                Jeton de l'utilisateur <code>homelab@pbs</code>, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule), donné à l'utilisateur <b>et</b> au jeton :
-                les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur.
+                L'agent de l'hôte du PBS crée l'utilisateur <code>homelab@pbs</code> et son jeton, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule),
+                donné à l'utilisateur <b>et</b> au jeton : les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur. Le secret va de l'agent
+                au hub, jamais affiché. Le même agent crée ensuite les jetons des hôtes.
               </>
             }
             setup={
-              <TokenSetup
-                where="du PBS"
-                tokenId={form.tokenId}
-                onTokenIdChange={(tokenId) => set({ tokenId })}
-                request={() => ({ kind: 'pbs' })}
-                onDone={() => {
-                  qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
-                  set({ tokenSecret: undefined });
-                }}
-              />
-            }
-            manualScript={pbsSetup(form.tokenId)}
-            manualUi={
-              <>
-                Ou dans l'interface du PBS, Configuration › Contrôle d'accès : <b>Gestion des utilisateurs</b> › Ajouter (realm <code>pbs</code>), <b>Jetons API</b> › Ajouter, puis{' '}
-                <b>Permissions</b> : « Permission utilisateur » et « Permission de jeton API », chemin <code>/datastore</code>, rôle <code>DatastoreAudit</code>, Propager coché.
-              </>
+              <div className="space-y-3">
+                <PbsAgentPicker
+                  link={form.agent}
+                  onDetected={(agent, found) =>
+                    set({ agent, ...(!form.url && found.url ? { url: found.url } : {}), ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) })
+                  }
+                />
+                <PbsTokenButton
+                  tokenId={tokenId}
+                  onTokenIdChange={setTokenId}
+                  disabled={!form.agent}
+                  create={async () => {
+                    const r = await api.createPbsToken(form.agent!, tokenId);
+                    qc.setQueryData(['settings', 'pbs'], r.settings);
+                    setSaved(r.settings);
+                    return r;
+                  }}
+                />
+                <p>
+                  {saved.hasSecret ? <>Jeton enregistré : <code>{saved.tokenId}</code>.</> : 'Aucun jeton enregistré.'} Un jeton existant garde son secret ; ses droits sont
+                  remis à ceux ci-dessus (les autres lui sont retirés).
+                </p>
+              </div>
             }
           />
         </div>

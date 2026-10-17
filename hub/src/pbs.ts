@@ -18,7 +18,6 @@ export const DEFAULT_PBS: PbsSettings = {
 };
 
 export const PBS_URL_RE = SERVER_URL_RE;
-export const TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$/;
 export { ApiError as PbsError, FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint };
 
 export async function loadPbsSettings(): Promise<PbsSettings> {

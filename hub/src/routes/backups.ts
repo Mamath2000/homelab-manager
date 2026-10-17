@@ -4,7 +4,6 @@ import { publish } from '../events.js';
 import {
   FINGERPRINT_RE,
   PBS_URL_RE,
-  TOKEN_ID_RE,
   backupDto,
   orphanDto,
   fetchFingerprint,
@@ -16,7 +15,8 @@ import {
 import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from '../pve.js';
 import { validTimeZone } from '../calendar.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
-import type { PbsSettings, PveCluster } from '../types.js';
+import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken } from '../pbsAgent.js';
+import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
 function settingsDto(s: PbsSettings) {
@@ -24,26 +24,32 @@ function settingsDto(s: PbsSettings) {
   return { ...rest, hasSecret: !!tokenSecret };
 }
 
+// The token is not part of the form: only the agent of the PBS creates it (POST /api/settings/pbs/token).
 interface SettingsBody {
   enabled: boolean;
   url: string;
   fingerprint: string;
-  tokenId: string;
-  tokenSecret?: string; // absent: unchanged
+  agent?: PbsAgentLink;
   tailscaleUrl?: string;
   clientImage?: string;
 }
 
+const agentLinkSchema = {
+  type: 'object',
+  required: ['hostId', 'mode'],
+  additionalProperties: false,
+  properties: { hostId: { type: 'string', maxLength: 24 }, mode: { type: 'string', enum: ['native', 'container'] }, container: { type: 'string', maxLength: 128 } },
+} as const;
+
 const settingsBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['enabled', 'url', 'fingerprint', 'tokenId'],
+  required: ['enabled', 'url', 'fingerprint'],
   properties: {
     enabled: { type: 'boolean' },
     url: { type: 'string', maxLength: 256 },
     fingerprint: { type: 'string', maxLength: 128 },
-    tokenId: { type: 'string', maxLength: 128 },
-    tokenSecret: { type: 'string', maxLength: 128 },
+    agent: agentLinkSchema,
     clientImage: { type: 'string', maxLength: 256 },
     tailscaleUrl: { type: 'string', maxLength: 256 },
   },
@@ -57,16 +63,18 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
     ...body,
     url: body.url.trim().replace(/\/+$/, ''),
     fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
-    tokenId: body.tokenId.trim(),
-    tokenSecret: body.tokenSecret ?? current.tokenSecret,
     _id: 'pbs',
   };
   next.tailscaleUrl = (body.tailscaleUrl ?? current.tailscaleUrl ?? '').trim().replace(/\/+$/, '');
   if (next.tailscaleUrl && !PBS_URL_RE.test(next.tailscaleUrl)) return 'URL Tailscale invalide (https://100.x.y.z:8007)';
   if (next.url && !PBS_URL_RE.test(next.url)) return 'URL invalide (https://pbs:8007)';
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
-  if (next.tokenId && !TOKEN_ID_RE.test(next.tokenId)) return 'identifiant du jeton invalide (utilisateur@royaume!jeton)';
-  if (next.enabled && (!next.url || !next.tokenId || !next.tokenSecret)) return 'URL, identifiant et secret du jeton sont requis';
+  if (next.agent) {
+    const bad = checkLink(next.agent);
+    if (bad) return bad;
+    if (next.agent.mode === 'native') delete next.agent.container;
+  }
+  if (next.enabled && (!next.url || !next.tokenId || !next.tokenSecret)) return "URL et jeton requis : créer le jeton avec l'agent du PBS";
   if (next.clientImage) next.clientImage = next.clientImage.trim();
   if (next.clientImage && !IMAGE_RE.test(next.clientImage)) return 'image du client invalide (dépôt/nom:tag)';
   return next;
@@ -116,6 +124,46 @@ export function registerBackupRoutes(app: FastifyInstance) {
       } catch (err) {
         return reply.code(502).send({ error: (err as Error).message });
       }
+    },
+  );
+
+  // PBS of a host, found by its agent: mode (native / container), version, datastores, address, fingerprint.
+  app.post<{ Body: { hostId: string } }>(
+    '/api/settings/pbs/detect',
+    { schema: { body: { type: 'object', required: ['hostId'], additionalProperties: false, properties: { hostId: { type: 'string', maxLength: 24 } } } } },
+    async (req, reply) => {
+      try {
+        return await detectPbsOn(req.body.hostId);
+      } catch (err) {
+        if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+        throw err;
+      }
+    },
+  );
+
+  // Monitoring token created by the agent of the PBS, saved at once with the agent it was created with.
+  app.post<{ Body: { agent: PbsAgentLink; tokenId: string } }>(
+    '/api/settings/pbs/token',
+    {
+      schema: {
+        body: { type: 'object', required: ['agent', 'tokenId'], additionalProperties: false, properties: { agent: agentLinkSchema, tokenId: { type: 'string', maxLength: 128 } } },
+      },
+    },
+    async (req, reply) => {
+      const current = await loadPbsSettings();
+      const agent: PbsAgentLink = req.body.agent.mode === 'native' ? { hostId: req.body.agent.hostId, mode: 'native' } : req.body.agent;
+      let t;
+      try {
+        t = await ensurePbsToken(agent, req.body.tokenId.trim(), PBS_TOKEN_ACLS.monitor, current);
+      } catch (err) {
+        if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+        throw err;
+      }
+      await settings.updateOne({ _id: 'pbs' }, { $set: { agent, tokenId: t.tokenId, tokenSecret: t.tokenSecret } }, { upsert: true });
+      req.log.info({ tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed }, 'PBS monitoring token set by the agent');
+      if (current.enabled) pollPbs(req.log).catch(() => {});
+      publish('backups', {});
+      return { settings: settingsDto(await loadPbsSettings()), created: t.created, applied: t.applied, removed: t.removed };
     },
   );
 
