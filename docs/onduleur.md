@@ -71,6 +71,8 @@ L'agent agit sur l'onduleur avec un **utilisateur NUT dédié**, `hm-agent`, qui
 
 4. Vérifier : `echo 'MOT_DE_PASSE' | upscmd -u hm-agent NOM_UPS beeper.mute` doit répondre `OK`.
 
+**Unraid (plugin NUT)** : le répertoire de l'agent est `/boot/homelab-man` (`/etc` est en RAM), donc le fichier est `/boot/homelab-man/ups.pass`. L'utilisateur se déclare à deux endroits, avec la même section : `/etc/nut/upsd.users` et sa copie persistante `/boot/config/plugins/nut-dw/ups/upsd.users`, que le plugin recopie dans `/etc/nut` au démarrage. Le réglage « Enable Manual Configuration » du plugin doit être sur « for UPS Driver » (`onlyups`) ou « Yes » ; sur « No », l'interface réécrit `upsd.users` et supprime la section.
+
 L'agent détecte le fichier à sa reconnexion au hub (redémarrer `homelab-agent` pour que ce soit immédiat) et annonce la capacité `ups_control`. Pour retirer l'accès, supprimer `ups.pass` (et l'utilisateur dans `upsd.users`).
 
 :::note Sécurité
