@@ -94,6 +94,49 @@ export const offsiteSchema = {
   },
 } as const;
 
+// Levels of the namespace of a group missing on the target datastore of the secondary, parents first (the
+// sync job cannot create them: no Datastore.Modify for the token of the hub); [] when all are there.
+export function missingLevels(ns: string, present: string[]) {
+  const parts = ns.split('/').filter(Boolean);
+  return parts.map((_, i) => parts.slice(0, i + 1).join('/')).filter((l) => !present.includes(l));
+}
+
+// Commands creating them, from a shell of the secondary PBS
+export const namespaceCommands = (levels: string[], store: string) => levels.map((l) => `proxmox-backup-client namespace create ${l} --repository root@pam@localhost:${store}`);
+
+export interface OffsiteCheck {
+  ok: boolean;
+  error?: string;
+  // namespace to create first on the secondary
+  namespace?: { ns: string; store: string; missing: string[]; commands: string[] };
+}
+
+// Can this group be copied now: copiable, secondary ready, not copied from another datastore, its namespace
+// on the target datastore. Asked as soon as the copy is enabled in the interface, checked again on save.
+export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
+  const why = notCopiable(b);
+  if (why) return { ok: false, error: why };
+  const r = await loadRemoteSettings();
+  if (!remoteReady(r)) return { ok: false, error: 'PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes)' };
+  const others = await backups.find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1 } }).toArray();
+  const twin = sameGroupElsewhere(b, others);
+  if (twin) return { ok: false, error: `${b.ns || 'racine'}/${b.type}/${b.backupId} est déjà copié depuis le datastore ${twin.store} : une seule copie par groupe` };
+  if (!b.ns) return { ok: true };
+  let present: string[];
+  try {
+    present = await targetNamespaces(r);
+  } catch (err) {
+    return { ok: false, error: `PBS de secours : ${(err as Error).message}` };
+  }
+  const missing = missingLevels(b.ns, present);
+  if (!missing.length) return { ok: true };
+  return {
+    ok: false,
+    error: `namespace ${b.ns} absent du datastore ${r.store} du PBS de secours`,
+    namespace: { ns: b.ns, store: r.store, missing, commands: namespaceCommands(missing, r.store) },
+  };
+}
+
 // Settings of the copy of a group, checked; error message or the new offsite member.
 export async function offsiteOf(b: BackupDoc, body: OffsiteBody): Promise<BackupOffsite | string> {
   const cur = b.offsite;
@@ -109,23 +152,13 @@ export async function offsiteOf(b: BackupDoc, body: OffsiteBody): Promise<Backup
   if (!parseCalendar(next.schedule)) return 'planification invalide (ex. 06:00, mon..fri 21:00)';
   if (next.rateIn && !RATE_RE.test(next.rateIn)) return 'débit invalide (ex. 10MiB, 500KB)';
   if (!next.enabled) return next;
-  const why = notCopiable(b);
-  if (why) return why;
-  const r = await loadRemoteSettings();
-  if (!remoteReady(r)) return 'PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes)';
-  const others = await backups.find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1 } }).toArray();
-  const twin = sameGroupElsewhere(b, others);
-  if (twin) return `${b.ns || 'racine'}/${b.type}/${b.backupId} est déjà copié depuis le datastore ${twin.store} : une seule copie par groupe`;
-  // the sync job cannot create the target namespace (no Datastore.Modify for the token of the hub)
-  if (b.ns && !cur?.enabled) {
-    let nss: string[];
-    try {
-      nss = await targetNamespaces(r);
-    } catch (err) {
-      return `PBS de secours : ${(err as Error).message}`;
-    }
-    if (!nss.includes(b.ns)) return `namespace ${b.ns} absent du datastore ${r.store} du PBS de secours : le créer dans PBS, puis réessayer`;
+  // already copied: its namespace is there (not asked again at each change of settings)
+  if (cur?.enabled) {
+    const why = notCopiable(b);
+    return why ?? next;
   }
+  const check = await checkOffsite(b);
+  if (!check.ok) return check.namespace ? `${check.error} : le créer d'abord (${check.namespace.commands.join(' ; ')})` : check.error!;
   return next;
 }
 
@@ -220,6 +253,13 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     pollOffsite(req.log).catch(() => {});
     publish('backups', {});
     return backupDto((await backups.findOne({ _id: b._id }))!);
+  });
+
+  // Whether the group can be copied now (asked when the copy is enabled in the interface).
+  app.get<{ Params: { id: string } }>('/api/backups/:id/offsite/check', async (req, reply) => {
+    const b = await backups.findOne({ _id: req.params.id });
+    if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
+    return checkOffsite(b);
   });
 
   // Runs the copy now (operator); its result comes with the next poll of the secondary.

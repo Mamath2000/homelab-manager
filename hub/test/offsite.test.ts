@@ -148,3 +148,12 @@ test('poll of the secondary: last snapshot of each copied group and its timeline
   assert.deepEqual(out.get('host/b'), { lastBackup: 50_000, count: 0, verify: null, size: null, times: [] });
   assert.equal(out.has('host/other'), false);
 });
+
+test('namespace of a group missing on the secondary: levels to create, parents first', async () => {
+  const { missingLevels, namespaceCommands } = await import('../src/routes/offsite.js');
+  assert.deepEqual(missingLevels('Hosts', ['Hosts', 'Vouille']), []);
+  assert.deepEqual(missingLevels('Hosts', ['Vouille']), ['Hosts']);
+  assert.deepEqual(missingLevels('Sites/Jarsay', ['Sites']), ['Sites/Jarsay']);
+  assert.deepEqual(missingLevels('Sites/Jarsay', []), ['Sites', 'Sites/Jarsay']);
+  assert.deepEqual(namespaceCommands(['Hosts'], 'ds9'), ['proxmox-backup-client namespace create Hosts --repository root@pam@localhost:ds9']);
+});

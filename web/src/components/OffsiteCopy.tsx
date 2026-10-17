@@ -1,12 +1,13 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
-import { Cloud, Play, Plus, Power, Settings2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Cloud, Play, Plus, Power, RefreshCw, Settings2 } from 'lucide-react';
 import { api, type BackupGroup, type BackupOffsite, type BackupOffsiteInput, type BackupsView } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { OFFSITE_DEFAULTS, type OffsiteForm, formatBytes, offsiteNotCopiable } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Badge, Button } from './ui';
+import { Badge, Button, CopyField } from './ui';
 
 // Copy of a backup to the secondary PBS (hub/src/offsite.ts): pill and detail (host card, backups page),
 // settings (tab of the window of a backup). Enable, disable and run are single actions: no confirmation.
@@ -79,26 +80,72 @@ function UsageBar({ remote, size }: { remote: Remote; size?: number | null }) {
   );
 }
 
+// Whether the group can be copied now (namespace on the secondary...), asked as soon as the copy is about
+// to be enabled.
+function useOffsiteCheck(g: BackupGroup, enabled: boolean) {
+  return useQuery({ queryKey: ['offsite-check', g.id], queryFn: () => api.checkBackupOffsite(g.id), enabled, staleTime: 0, gcTime: 0 });
+}
+
+function OffsiteCheckMessage({ check }: { check: ReturnType<typeof useOffsiteCheck> }) {
+  if (check.isPending) return <p className="text-xs text-muted">Vérification du PBS de secours…</p>;
+  if (check.error) return <p className="text-xs text-red-400">Vérification impossible : {(check.error as Error).message}</p>;
+  const c = check.data;
+  if (c.ok) return <p className="text-xs text-emerald-400">Copiable : le PBS de secours est prêt pour cette sauvegarde.</p>;
+  const retry = (
+    <Button size="sm" icon={RefreshCw} loading={check.isFetching} onClick={() => check.refetch()}>
+      Revérifier
+    </Button>
+  );
+  if (!c.namespace) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-red-400">
+        <span className="flex-1">Non copiable : {c.error}</span>
+        {retry}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+      <p>
+        Non copiable pour l’instant : le namespace <span className="font-mono">{c.namespace.ns}</span> n’existe pas sur le datastore{' '}
+        <span className="font-mono">{c.namespace.store}</span> du PBS de secours, et le jeton du hub ne peut pas le créer. À lancer dans un shell du PBS de secours, puis
+        revérifier :
+      </p>
+      <CopyField value={c.namespace.commands.join('\n')} multiline={c.namespace.commands.length > 1} />
+      {retry}
+    </div>
+  );
+}
+
+// Copy not enabled: what it would do, checked before it can be enabled.
+function OffsiteEnable({ g, where, onSettings }: { g: BackupGroup; where: string; onSettings?: () => void }) {
+  const { canManage } = useMe();
+  const { busy, set } = useOffsiteActions(g);
+  const check = useOffsiteCheck(g, canManage);
+  return (
+    <div className="space-y-2 text-xs">
+      <div><span className="font-medium text-zinc-100">Copie déportée</span> <span className="text-muted">· non activée</span></div>
+      <p className="text-muted">Copier cette sauvegarde vers {where} ({transferText(OFFSITE_DEFAULTS.transferLast)}, tous les jours à {OFFSITE_DEFAULTS.schedule}).</p>
+      {canManage && (
+        <>
+          <OffsiteCheckMessage check={check} />
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" icon={Cloud} loading={busy === 'set'} disabled={!check.data?.ok} onClick={() => set({ enabled: true })}>Activer la copie</Button>
+            {onSettings && <Button size="sm" icon={Settings2} onClick={onSettings}>Régler…</Button>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // What the copy is and the actions on it (content of the floating detail).
 function OffsiteDetail({ g, remote, onSettings }: { g: BackupGroup; remote: Remote; onSettings?: () => void }) {
   const { canManage, canWrite } = useMe();
   const { busy, set, run } = useOffsiteActions(g);
   const o = g.offsite;
   const where = `${remote.host} › ${remote.store}`;
-  if (!o?.enabled) {
-    return (
-      <div className="space-y-2 text-xs">
-        <div><span className="font-medium text-zinc-100">Copie déportée</span> <span className="text-muted">· non activée</span></div>
-        <p className="text-muted">Copier cette sauvegarde vers {where} ({transferText(OFFSITE_DEFAULTS.transferLast)}, tous les jours à {OFFSITE_DEFAULTS.schedule}).</p>
-        {canManage && (
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="primary" icon={Cloud} loading={busy === 'set'} onClick={() => set({ enabled: true })}>Activer la copie</Button>
-            {onSettings && <Button size="sm" icon={Settings2} onClick={onSettings}>Régler…</Button>}
-          </div>
-        )}
-      </div>
-    );
-  }
+  if (!o?.enabled) return <OffsiteEnable g={g} where={where} onSettings={onSettings} />;
   const meta = offsiteStateMeta[o.state ?? 'pending'];
   return (
     <div className="space-y-2 text-xs">
@@ -246,6 +293,8 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
         </span>
       </label>
       {g.offsite?.enabled && <OffsiteStateLine g={g} canRun={canWrite} />}
+      {/* enabled here, not saved yet: can it be copied (namespace on the secondary...) */}
+      {value.enabled && !g.offsite?.enabled && <OffsiteTabCheck g={g} />}
       {value.enabled ? (
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block">
@@ -279,9 +328,12 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
         <span className={field}>Place sur le PBS de secours</span>
         <UsageBar remote={remote} size={g.offsite?.size} />
       </div>
-      {g.ns && !g.offsite?.enabled && <p className="text-xs text-muted">Le namespace {g.ns} doit exister sur {remote.store} (à créer dans le PBS de secours sinon).</p>}
     </section>
   );
+}
+
+function OffsiteTabCheck({ g }: { g: BackupGroup }) {
+  return <OffsiteCheckMessage check={useOffsiteCheck(g, true)} />;
 }
 
 function OffsiteStateLine({ g, canRun }: { g: BackupGroup; canRun: boolean }) {

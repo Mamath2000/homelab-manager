@@ -577,6 +577,14 @@ export interface BackupOffsite {
   state: 'ok' | 'pending' | 'late' | 'failed' | null;
 }
 
+// Whether a group can be copied now (hub routes/offsite.ts checkOffsite)
+export interface OffsiteCheck {
+  ok: boolean;
+  error?: string;
+  // namespace to create first on the secondary: the levels missing and the commands creating them
+  namespace?: { ns: string; store: string; missing: string[]; commands: string[] };
+}
+
 export interface BackupOffsiteInput {
   enabled: boolean;
   schedule?: string;
@@ -871,6 +879,7 @@ export const api = {
   createPbsReaderToken: (tokenId: string) => request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/reader-token', { tokenId }),
   setBackupOffsite: (id: string, o: BackupOffsiteInput) => request<BackupGroup>('PUT', `/api/backups/${encodeURIComponent(id)}/offsite`, o),
   runBackupOffsite: (id: string) => request<{ ok: boolean; upid: string }>('POST', `/api/backups/${encodeURIComponent(id)}/offsite/run`),
+  checkBackupOffsite: (id: string) => request<OffsiteCheck>('GET', `/api/backups/${encodeURIComponent(id)}/offsite/check`),
   detectPbs: (hostId: string) => request<PbsDetected>('POST', '/api/settings/pbs/detect', { hostId }),
   createPbsToken: (agent: PbsAgentLink, tokenId: string) => request<PbsTokenOutcome & { settings: PbsSettings }>('POST', '/api/settings/pbs/token', { agent, tokenId }),
   hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
