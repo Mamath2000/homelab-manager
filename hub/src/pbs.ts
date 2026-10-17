@@ -291,7 +291,7 @@ export function backupDto(b: BackupDoc, now = Date.now()) {
     managed: b.managed ? { ...b.managed, scheduleText: b.managed.connectEveryDays ? connectText(b.managed.connectEveryDays) : describeCalendar(b.managed.schedule) } : null,
     ha: b.ha ? { ...b.ha, scheduleText: haScheduleText(b.ha) } : null,
     // copy to the secondary PBS, with its state (offsite.ts)
-    offsite: b.offsite ? { ...b.offsite, state: offsiteState(b), scheduleText: describeCalendar(b.offsite.schedule) } : null,
+    offsite: b.offsite ? { ...b.offsite, state: offsiteState(b, undefined, now) } : null,
   };
 }
 

@@ -456,7 +456,7 @@ function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: H
   const field = 'mb-1.5 block text-xs font-medium text-muted';
   // the whole setting at a glance, whatever the tab shown
   const when = form.connectEveryDays ? `à la connexion, au plus tous les ${form.connectEveryDays} j` : form.schedule;
-  const copyText = !remote || !group || offsiteNotCopiable(group) ? '' : offsite.enabled ? ` · copie ${offsite.schedule}` : ' · sans copie';
+  const copyText = !remote || !group || offsiteNotCopiable(group) ? '' : offsite.enabled ? ' · copie déportée' : ' · sans copie';
   const summary = `${KIND_LABEL[kind]} · ${form.store || '—'} › Hosts › ${(job ? job.backupId : form.backupId) || '—'} · ${when}${form.enabled ? '' : ' · désactivée'}${copyText}`;
   return (
     <Modal

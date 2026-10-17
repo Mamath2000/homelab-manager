@@ -1,12 +1,29 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { backupsAlert } from '../src/alerts.js';
-import { copiedGroups, taskGroup, taskOk, desiredJob, lastRunOf, notCopiable, offsiteState, planSync, remoteEntry, sameGroupElsewhere, syncJobId, updateBody, upidStart } from '../src/offsite.js';
+import {
+  copiedGroups,
+  taskGroup,
+  taskOk,
+  desiredJob,
+  isQueueReport,
+  lastRunOf,
+  notCopiable,
+  offsiteSpec,
+  offsiteState,
+  planSync,
+  queuePositions,
+  remoteEntry,
+  sameGroupElsewhere,
+  syncJobId,
+  updateBody,
+  upidStart,
+} from '../src/offsite.js';
 import { authorize } from '../src/roles.js';
-import type { BackupDoc, BackupOffsite } from '../src/types.js';
+import type { BackupDoc, BackupOffsite, PbsRemoteSettings } from '../src/types.js';
 
 const remote = { store: 'ds9', tokenId: 'homelab@pbs!hub' };
-const settingsOf = { schedule: '06:00', rateIn: null };
+const settingsOf = { rateIn: null };
 const group = (o: Partial<BackupDoc> = {}) => ({ _id: 'ds0/Hosts/host/nextcloud-config', store: 'ds0', ns: 'Hosts', type: 'host', backupId: 'nextcloud-config', ...o });
 
 test('sync job of a group: one group, same namespace, never recursive nor removing', () => {
@@ -22,7 +39,6 @@ test('sync job of a group: one group, same namespace, never recursive nor removi
     'group-filter': ['group:host/nextcloud-config'],
     'remove-vanished': false,
     owner: 'homelab@pbs!hub',
-    schedule: '06:00',
     'transfer-last': 1,
     comment: 'Homelab Manager : ds0/Hosts/host/nextcloud-config',
   });
@@ -35,6 +51,18 @@ test('sync job of a group: one group, same namespace, never recursive nor removi
   assert.equal(root['rate-in'], '10MiB');
   // never an empty filter, which would copy everything
   assert.throws(() => desiredJob(group({ backupId: '' }), settingsOf, remote));
+  // the agent of the secondary does not run the queue yet: the schedule of the PBS, the group's or 06:00
+  assert.equal(desiredJob(group(), settingsOf, remote, false).schedule, '06:00');
+  assert.equal(desiredJob(group(), { ...settingsOf, schedule: '06:30' }, remote, false).schedule, '06:30');
+});
+
+test('the queue takes over: the schedule of the existing jobs is removed', () => {
+  const queued = desiredJob(group(), settingsOf, remote);
+  const plan = planSync([queued], [{ ...queued, schedule: '06:00' }]);
+  assert.deepEqual(plan.update.map((j) => j.id), [queued.id]);
+  assert.deepEqual(updateBody(plan.update[0]).delete, ['schedule', 'rate-in']);
+  // already without: nothing to do
+  assert.equal(planSync([queued], [{ ...queued }]).update.length, 0);
 });
 
 test('reconciliation: creates, updates and removes its own jobs only', () => {
@@ -43,7 +71,7 @@ test('reconciliation: creates, updates and removes its own jobs only', () => {
   const c = desiredJob(group({ _id: 'ds0/Jarsay/ct/105', ns: 'Jarsay', type: 'ct', backupId: '105' }), settingsOf, remote);
   const plan = planSync([a, b, c], [
     { ...a }, // same: nothing
-    { ...b, schedule: '05:00' }, // differs: update
+    { ...b, comment: 'changed by hand' }, // differs: update
     { id: 'hlm-000000000000', store: 'ds9' }, // no longer wanted: removed
     { id: 'manual-sync', store: 'ds9' }, // not the hub's: left alone
   ]);
@@ -59,8 +87,9 @@ test('update of a job clears the optional fields no longer set', () => {
   const j = desiredJob(group({ ns: '' }), settingsOf, remote);
   const body = updateBody(j);
   assert.equal('id' in body, false);
-  assert.deepEqual(body.delete, ['ns', 'remote-ns', 'rate-in']);
-  assert.equal('delete' in updateBody(desiredJob(group(), { ...settingsOf, rateIn: '1MiB' }, remote)), false);
+  assert.deepEqual(body.delete, ['ns', 'remote-ns', 'schedule', 'rate-in']);
+  assert.deepEqual(updateBody(desiredJob(group(), { ...settingsOf, rateIn: '1MiB' }, remote)).delete, ['schedule']);
+  assert.equal('delete' in updateBody(desiredJob(group(), { ...settingsOf, rateIn: '1MiB' }, remote, false)), false);
 });
 
 test('remote entry: address of the main PBS, rewritten when the reader token changes', () => {
@@ -96,29 +125,84 @@ test('last run of a sync job: start read from its UPID', () => {
 });
 
 const H = 3600_000;
-const offsite = (o: Partial<BackupOffsite>): BackupOffsite => ({ enabled: true, schedule: '06:00', rateIn: null, jobId: 'hlm-x', since: 0, ...o });
+const offsite = (o: Partial<BackupOffsite>): BackupOffsite => ({ enabled: true, rateIn: null, jobId: 'hlm-x', since: 0, ...o });
 
 test('state of a copy: pending, ok, late, failed', () => {
-  const now = 100 * H;
-  const times = [{ t: now - 30 * H, verify: null }, { t: now - 6 * H, verify: null }];
-  const b = (o: Partial<BackupOffsite>) => ({ times, lastBackup: now - 6 * H, offsite: offsite(o) });
-  assert.equal(offsiteState({ times, lastBackup: now, offsite: offsite({ enabled: false }) }), null);
-  assert.equal(offsiteState(b({})), 'pending');
-  // run after the last snapshot, which arrived
-  assert.equal(offsiteState(b({ lastRun: { start: now - 2 * H, end: now - H, ok: true }, lastBackup: now - 6 * H })), 'ok');
-  // run after the last snapshot, only the previous one is there
-  assert.equal(offsiteState(b({ lastRun: { start: now - 2 * H, end: now - H, ok: true }, lastBackup: now - 30 * H })), 'late');
-  // the last snapshot was made after the run started: the previous one is enough
-  assert.equal(offsiteState(b({ lastRun: { start: now - 10 * H, end: now - 5 * H, ok: true }, lastBackup: now - 30 * H })), 'ok');
-  assert.equal(offsiteState(b({ lastRun: { start: now - 2 * H, end: now - H, ok: false, error: 'x' }, lastBackup: now - 6 * H })), 'failed');
+  const now = 1000 * H;
+  const run = { start: now - 2 * H, end: now - H, ok: true };
+  const b = (mainLast: number, o: Partial<BackupOffsite>) => ({ lastBackup: mainLast, offsite: offsite(o) });
+  assert.equal(offsiteState({ lastBackup: now, offsite: offsite({ enabled: false }) }, 24, now), null);
+  // never copied, recent snapshot: waits for the queue
+  assert.equal(offsiteState(b(now - 6 * H, {}), 24, now), 'pending');
+  // never copied for more than the delay plus a day
+  assert.equal(offsiteState(b(now - 49 * H, {}), 24, now), 'late');
+  // ... counted from the enabling of the copy when later
+  assert.equal(offsiteState(b(now - 100 * H, { since: now - 2 * H }), 24, now), 'pending');
+  // last snapshot copied
+  assert.equal(offsiteState(b(now - 6 * H, { lastRun: run, lastBackup: now - 6 * H }), 24, now), 'ok');
+  // newer snapshot not copied yet, within the delay plus a day
+  assert.equal(offsiteState(b(now - 30 * H, { lastRun: run, lastBackup: now - 54 * H }), 24, now), 'ok');
+  // ... beyond it
+  assert.equal(offsiteState(b(now - 50 * H, { lastRun: run, lastBackup: now - 74 * H }), 24, now), 'late');
+  // shorter delay: late sooner
+  assert.equal(offsiteState(b(now - 30 * H, { lastRun: run, lastBackup: now - 54 * H }), 4, now), 'late');
+  assert.equal(offsiteState(b(now - 6 * H, { lastRun: { ...run, ok: false, error: 'x' }, lastBackup: now - 30 * H }), 24, now), 'failed');
   // sync job refused by the secondary
-  assert.equal(offsiteState(b({ error: 'HTTP 403' })), 'failed');
+  assert.equal(offsiteState(b(now - 6 * H, { error: 'HTTP 403' }), 24, now), 'failed');
+});
+
+test('definition of the queue for the agent of the secondary', () => {
+  const r: PbsRemoteSettings = {
+    _id: 'pbs-remote',
+    enabled: true,
+    agent: { hostId: 'a'.repeat(24), mode: 'container', container: 'pbs' },
+    url: 'https://192.168.2.101:8007',
+    fingerprint: '',
+    store: 'ds9',
+    tokenId: 'homelab@pbs!hub',
+    tokenSecret: 's',
+    readerTokenId: 'homelab@pbs!reader',
+    readerTokenSecret: 'r',
+  };
+  const g = (id: string, store: string, ns: string, enabled = true) => ({ store, ns, type: 'host', backupId: id, offsite: offsite({ enabled, jobId: syncJobId(`${store}/${ns}/host/${id}`) }) });
+  const groups = [g('b', 'ds3', 'Hosts'), g('a', 'ds0', ''), g('off', 'ds0', 'Hosts', false)];
+  const s = offsiteSpec(r, groups, 'Europe/Paris');
+  assert.equal(s.container, 'pbs');
+  assert.equal(s.store, 'ds9');
+  assert.equal(s.remote, 'hlm-main');
+  assert.deepEqual(
+    [s.windowStart, s.windowEnd, s.concurrency, s.minDelayH, s.countMaintenance, s.tz],
+    ['04:00', '09:00', 1, 24, true, 'Europe/Paris'],
+  );
+  assert.deepEqual(s.jobs.map((j) => j.backupId).sort(), ['a', 'b']);
+  assert.deepEqual(s.jobs.find((j) => j.backupId === 'a'), { id: syncJobId('ds0//host/a'), remoteStore: 'ds0', ns: '', type: 'host', backupId: 'a' });
+  // stable: the same groups in another order give the same definition
+  assert.equal(offsiteSpec(r, [...groups].reverse(), 'Europe/Paris').hash, s.hash);
+  // settings changed: a new definition
+  const t = offsiteSpec({ ...r, queue: { windowStart: '22:00', windowEnd: '06:00', concurrency: 2, minDelayH: 12, countMaintenance: false } }, groups, 'Europe/Paris');
+  assert.notEqual(t.hash, s.hash);
+  assert.equal(t.concurrency, 2);
+  // secondary disabled: no job, the agent empties its queue
+  assert.deepEqual(offsiteSpec({ ...r, enabled: false }, groups).jobs, []);
+  // native PBS: no container
+  assert.equal(offsiteSpec({ ...r, agent: { hostId: 'a'.repeat(24), mode: 'native' } }, groups).container, '');
+});
+
+test('report of the queue: checked, positions of the groups', () => {
+  const report = { hash: 'h', scannedAt: 1, queue: [{ jobId: 'hlm-b', since: 5 }, { jobId: 'hlm-a', since: 7 }], running: [], inWindow: false };
+  assert.equal(isQueueReport(report), true);
+  assert.equal(isQueueReport({ ...report, queue: null }), false);
+  assert.equal(isQueueReport(null), false);
+  const pos = queuePositions(report);
+  assert.deepEqual(pos.get('hlm-a'), { since: 7, position: 2 });
+  assert.deepEqual(pos.get('hlm-b'), { since: 5, position: 1 });
+  assert.equal(pos.has('hlm-c'), false);
 });
 
 test('alerts: a failed copy is an alert, a late one a warning; running it is for operators', () => {
   const now = Date.now();
   const base = { _id: 'ds0/Hosts/host/a', store: 'ds0', ns: 'Hosts', type: 'host', backupId: 'a', count: 3, lastBackup: now - H, size: null, verify: 'ok' as const, hostId: null, seenAt: new Date(), times: [{ t: now - H, verify: null }] };
-  const late = backupsAlert([{ ...base, offsite: offsite({ lastRun: { start: now - 0.5 * H, end: now - 0.4 * H, ok: true }, lastBackup: now - 30 * H }) }], now);
+  const late = backupsAlert([{ ...base, lastBackup: now - 50 * H, offsite: offsite({ lastRun: { start: now - 60 * H, end: now - 59 * H, ok: true }, lastBackup: now - 74 * H }) }], now);
   assert.equal(late?.level, 'warn');
   assert.match(late!.reasons[0], /copie déportée en retard/);
   const failed = backupsAlert([{ ...base, offsite: offsite({ lastRun: { start: now, end: now, ok: false, error: 'x' } }) }], now);

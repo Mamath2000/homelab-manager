@@ -65,22 +65,25 @@ var (
 	}
 )
 
-// pbsRun runs proxmox-backup-manager with the arguments and returns its output.
+// pbsRun runs a command line tool of the PBS (proxmox-backup-manager by default) with the arguments
+// and returns its output.
 type pbsRun func(ctx context.Context, args ...string) (string, error)
 
-func pbsRunner(container string) pbsRun {
+func pbsRunner(container string) pbsRun { return pbsTool(container, "proxmox-backup-manager") }
+
+func pbsTool(container, bin string) pbsRun {
 	return func(ctx context.Context, args ...string) (string, error) {
 		var cmd *exec.Cmd
 		if container == "" {
-			cmd = exec.CommandContext(ctx, "proxmox-backup-manager", args...)
+			cmd = exec.CommandContext(ctx, bin, args...)
 		} else {
-			cmd = exec.CommandContext(ctx, "docker", append([]string{"exec", container, "proxmox-backup-manager"}, args...)...)
+			cmd = exec.CommandContext(ctx, "docker", append([]string{"exec", container, bin}, args...)...)
 		}
 		var out, errb bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &errb
 		if err := cmd.Run(); err != nil {
 			// stderr of generate-token never holds the secret; the output is not echoed on error
-			return "", fmt.Errorf("proxmox-backup-manager %s: %v: %s", args[0], err, strings.TrimSpace(errb.String()))
+			return "", fmt.Errorf("%s %s: %v: %s", bin, args[0], err, strings.TrimSpace(errb.String()))
 		}
 		return out.String(), nil
 	}

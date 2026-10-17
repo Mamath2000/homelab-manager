@@ -5,13 +5,14 @@ import { Cloud, Loader2, Play, RefreshCw } from 'lucide-react';
 import { api, type BackupGroup, type BackupOffsite, type BackupsView } from '../lib/api';
 import { useMe } from '../lib/auth';
 import {
-  OFFSITE_DEFAULTS,
   type OffsiteForm,
   backupKind,
   databaseJobText,
   formatBytes,
   hoursLabel,
   offsiteNotCopiable,
+  queueRule,
+  queueText,
   rhythmLabel,
   scheduleLabel,
   thresholdSourceLabel,
@@ -36,6 +37,14 @@ const stateMeta: Record<State, { label: string; tone: 'ok' | 'warn' | 'bad' | 'n
 };
 
 const copyState = (o: BackupOffsite): State => (o.running ? 'running' : (o.state ?? 'pending'));
+
+// Place of the copy in the queue of the agent of the secondary, or why there is none.
+function queueLine(o: BackupOffsite, remote: Remote) {
+  const q = remote.queue;
+  if (!q.active) return 'planification du PBS : agent du PBS de secours à mettre à jour';
+  if (!q.agentOnline && !o.running) return 'agent du PBS de secours hors ligne : aucune copie lancée';
+  return queueText(o, q) ?? '';
+}
 
 // Runs the copy now: its job opens in the console of the page (onStarted), or is announced.
 function useRunCopy(g: BackupGroup, onStarted?: (jobId: string) => void) {
@@ -109,7 +118,7 @@ function OffsiteCheckMessage({ check }: { check: ReturnType<typeof useOffsiteChe
   );
 }
 
-// Copy not enabled: enabled from here with the default hour, once the secondary is ready for it.
+// Copy not enabled: enabled from here, once the secondary is ready for it (the queue does the rest).
 function OffsiteEnable({ g }: { g: BackupGroup }) {
   const toast = useToast();
   const check = useOffsiteCheck(g, true);
@@ -128,7 +137,7 @@ function OffsiteEnable({ g }: { g: BackupGroup }) {
     <div className="space-y-2">
       <OffsiteCheckMessage check={check} />
       <Button size="sm" variant="primary" icon={Cloud} loading={busy} disabled={!check.data?.ok} onClick={enable}>
-        Activer la copie (tous les jours à {OFFSITE_DEFAULTS.schedule})
+        Activer la copie
       </Button>
     </div>
   );
@@ -149,8 +158,8 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
 
 const section = 'text-[11px] font-semibold uppercase tracking-wide text-zinc-400';
 
-// The backup (where, last, schedule, delay before an alert) and its copy (state, last and next copy, room,
-// run it now).
+// The backup (where, last, schedule, delay before an alert) and its copy (state, last copy, place in the
+// queue of the secondary, room, run it now).
 function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
   const { canManage, canWrite } = useMe();
   const { busy, run } = useRunCopy(g, onStarted);
@@ -218,7 +227,7 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
                       {o.lastBackup && o.verify === null && <span className="text-amber-400"> · non vérifiée</span>}
                     </span>,
                   ],
-                  ['Prochaine', `${o.nextRun ? dateTime(o.nextRun) : 'inconnue'} · ${o.scheduleText}${o.rateIn ? ` · ≤ ${o.rateIn}/s` : ''}`],
+                  ['File', `${queueLine(o, remote)}${o.rateIn ? ` · ≤ ${o.rateIn}/s` : ''}`],
                 ]}
               />
               {o.error && <div className="text-red-400">Job de copie non appliqué : {o.error}</div>}
@@ -318,8 +327,8 @@ export function OffsiteCell({ g }: { g: BackupGroup }) {
   );
 }
 
-// Settings of the copy in the window of a backup, saved with the backup (offsiteInput): enabled, hour,
-// limit of rate. One snapshot per run, the last one (hub TRANSFER_LAST).
+// Settings of the copy in the window of a backup, saved with the backup (offsiteInput): enabled, limit of
+// rate; when it runs is the queue of the secondary. One snapshot per run, the last one (hub TRANSFER_LAST).
 export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGroup | undefined; remote: BackupsView['offsite']; value: OffsiteForm; onChange: (f: OffsiteForm) => void }) {
   const field = 'mb-1.5 block text-xs font-medium text-muted';
   if (!remote) return <p className="text-sm text-muted">PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes).</p>;
@@ -335,21 +344,15 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
         </span>
       </label>
       <p className="-mt-2 text-xs text-muted">À chaque copie, la dernière sauvegarde est envoyée ; le PBS de secours garde les siennes selon sa propre rétention.</p>
-      {g.offsite?.enabled && <OffsiteStateLine o={g.offsite} />}
+      {g.offsite?.enabled && <OffsiteStateLine o={g.offsite} remote={remote} />}
       {/* enabled here, not saved yet: can it be copied (namespace on the secondary...) */}
       {value.enabled && !g.offsite?.enabled && <OffsiteTabCheck g={g} />}
       {value.enabled ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className={field}>Heure de la copie</span>
-            <input className="input font-mono text-xs" value={value.schedule} onChange={(e) => set({ schedule: e.target.value })} list="offsite-presets" />
-            <datalist id="offsite-presets">
-              <option value="06:00">Tous les jours à 06:00</option>
-              <option value="12:00">Tous les jours à 12:00</option>
-              <option value="sun 08:00">Le dimanche à 08:00</option>
-            </datalist>
-            <span className="mt-1 block text-xs text-muted">Syntaxe Proxmox, fuseau du PBS de secours.</span>
-          </label>
+          <div className="text-xs text-muted">
+            <span className={field}>Quand</span>
+            Dès qu’une nouvelle sauvegarde est sur le PBS principal, l’agent du PBS de secours la met en file : {queueRule(remote.queue)} (Paramètres › Sauvegardes).
+          </div>
           <label className="block">
             <span className={field}>Limite de débit</span>
             <input className="input font-mono text-xs" value={value.rateIn} onChange={(e) => set({ rateIn: e.target.value })} placeholder="sans limite" />
@@ -371,15 +374,16 @@ function OffsiteTabCheck({ g }: { g: BackupGroup }) {
   return <OffsiteCheckMessage check={useOffsiteCheck(g, true)} />;
 }
 
-function OffsiteStateLine({ o }: { o: BackupOffsite }) {
+function OffsiteStateLine({ o, remote }: { o: BackupOffsite; remote: Remote }) {
   const state = copyState(o);
+  const queue = queueLine(o, remote);
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <Badge tone={stateMeta[state].tone}>{stateMeta[state].label}</Badge>
         <span className="text-muted">
           {o.lastBackup ? `dernier snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}
-          {o.nextRun ? ` · prochaine copie ${dateTime(o.nextRun)}` : ''}
+          {queue && state !== 'running' ? ` · ${queue}` : ''}
         </span>
       </div>
       {o.error && <div className="text-xs text-red-400">Job de copie non appliqué : {o.error}</div>}

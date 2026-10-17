@@ -14,6 +14,7 @@ import { refreshLinks } from './pve.js';
 import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
 import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
 import { isHaBackupReport, refreshHaBackups } from './haBackups.js';
+import { isQueueReport, onOffsiteHello, onOffsiteReport, onOffsiteSynced } from './offsite.js';
 import { isUpsReport } from './ups.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
@@ -131,6 +132,7 @@ interface AgentMessage {
   docker?: unknown;
   updates?: unknown;
   haBackups?: unknown;
+  offsite?: unknown;
   ups?: unknown;
   reqId?: string;
   result?: unknown;
@@ -202,6 +204,8 @@ export function registerAgentSocket(app: FastifyInstance) {
               onAgentHello(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
               // its backups: the agent keeps them on disk, this resends the current definition
               syncHost(host._id).catch((err) => log.warn({ err }, 'backup sync failed'));
+              // the secondary PBS: the definition of the queue of the copies
+              onOffsiteHello(host._id).catch((err) => log.warn({ err }, 'offsite queue sync failed'));
               // new MAC addresses: the link with a Proxmox VE guest may change
               if (JSON.stringify(before?.info?.macs ?? null) !== JSON.stringify(msg.info?.macs ?? null)) {
                 refreshLinks().then(() => publish('backups', {})).catch((err) => log.warn({ err }, 'PVE link failed'));
@@ -257,6 +261,13 @@ export function registerAgentSocket(app: FastifyInstance) {
               break;
             case 'backup_synced':
               await onSynced(host._id, msg.data, msg.error);
+              break;
+            case 'offsite_synced':
+              await onOffsiteSynced(host._id, msg.data, msg.error, log);
+              break;
+            case 'offsite_report':
+              if (!isQueueReport(msg.offsite)) return;
+              await onOffsiteReport(host._id, msg.offsite, log);
               break;
             case 'backup_result':
               if (!isResult(msg.result)) return;

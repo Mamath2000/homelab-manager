@@ -93,7 +93,7 @@ type DockerUpdates struct {
 
 // agent -> hub
 type Outbound struct {
-	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result | backup_synced | backup_result | ha_backups
+	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result | backup_synced | backup_result | ha_backups | offsite_synced | offsite_report
 	Version string    `json:"version,omitempty"`
 	Info    *HostInfo `json:"info,omitempty"`
 	// actions this agent can run, so that the hub only offers those
@@ -104,6 +104,7 @@ type Outbound struct {
 	Updates      *DockerUpdates  `json:"updates,omitempty"`
 	HaBackups    *HaBackupReport `json:"haBackups,omitempty"`
 	Ups          *UpsReport      `json:"ups,omitempty"`
+	Offsite      *OffsiteReport  `json:"offsite,omitempty"`
 	ReqID        string          `json:"reqId,omitempty"`
 	Result       any             `json:"result,omitempty"`
 	JobID        string          `json:"jobId,omitempty"`
@@ -114,7 +115,7 @@ type Outbound struct {
 
 // hub -> agent
 type Inbound struct {
-	Type     string   `json:"type"` // run | rpc | backup_sync | backup_result_ack
+	Type     string   `json:"type"` // run | rpc | backup_sync | backup_result_ack | offsite_sync
 	JobID    string   `json:"jobId"`
 	Action   string   `json:"action"` // apt_update, apt_upgrade, docker_up...
 	Packages []string `json:"packages,omitempty"`
@@ -144,6 +145,8 @@ type Inbound struct {
 	Method string `json:"method,omitempty"`
 	// pbs_token: user, token and rights to create on the PBS of this host
 	Pbs *PbsTokenSpec `json:"pbs,omitempty"`
+	// offsite_sync: the copy to this secondary PBS (offsite.go)
+	Offsite *OffsiteSpec `json:"offsite,omitempty"`
 	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read
 	Scopes []string `json:"scopes,omitempty"`
 }

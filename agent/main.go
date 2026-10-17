@@ -167,6 +167,8 @@ func (s *session) hello(ctx context.Context) error {
 	// Proxmox Backup Server administration (pbs.go): installed here, or possibly in a container
 	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil || slices.Contains(caps, "docker") {
 		caps = append(caps, "pbs")
+		// secondary PBS: the agent runs the queue of the copy (offsite.go)
+		caps = append(caps, "offsite_queue")
 	}
 	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
 	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)
@@ -454,6 +456,8 @@ func (s *session) loop(ctx context.Context) error {
 	// pending backup results go to this connection
 	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer backups.detach()
+	offsite.attach(func(o Outbound) error { return s.send(ctx, o) })
+	defer offsite.detach()
 	go s.report(ctx)
 	if !onWSL && !onHAOS { // WSL, HAOS: Docker is not managed
 		go s.dockerReport(ctx)
@@ -506,6 +510,18 @@ func (s *session) loop(ctx context.Context) error {
 				}
 				_ = s.send(ctx, o)
 			}()
+		case "offsite_sync":
+			go func() {
+				o := Outbound{Type: "offsite_synced"}
+				if in.Offsite == nil {
+					o.Error = "missing definition"
+				} else if err := offsite.apply(in.Offsite); err != nil {
+					o.Error = err.Error()
+				} else {
+					o.Data = in.Offsite.Hash
+				}
+				_ = s.send(ctx, o)
+			}()
 		case "backup_result_ack":
 			backups.ack(in.ReqID)
 		}
@@ -540,6 +556,8 @@ func main() {
 
 	// scheduled backups run whether the hub is reachable or not
 	go backups.loop(ctx)
+	// and so do the copies to this secondary PBS
+	go offsite.loop(ctx)
 
 	endpoint := wsURL(cfg.Hub)
 	backoff := backoffMin

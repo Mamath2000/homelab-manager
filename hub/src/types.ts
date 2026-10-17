@@ -456,7 +456,9 @@ export interface BackupDoc {
 // the admin; the rest is the poll of the secondary.
 export interface BackupOffsite {
   enabled: boolean;
-  schedule: string; // calendar event of the PBS
+  // calendar event of the PBS, before the queue of the agent of the secondary (#185): no longer set, used
+  // only while that agent cannot run the queue
+  schedule?: string;
   rateIn: string | null; // "10MiB"; null: no limit (the global one of the PBS applies)
   jobId: string; // hlm-<hash of the group>
   since: number; // enabled at (ms)
@@ -469,7 +471,8 @@ export interface BackupOffsite {
   size?: number | null; // of the last snapshot copied
   times?: BackupSnapshot[]; // last snapshots on the secondary, oldest first (timeline)
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
-  nextRun?: number | null;
+  // in the queue of the agent of the secondary: since when, position (1: next)
+  queued?: { since: number; position: number } | null;
   // copy being run on the secondary, followed by the hub: its task and its job (Activité)
   running?: { upid: string; start: number; jobId: string } | null;
   // last task recorded as a job (a run the hub did not follow is recorded at the next poll)
@@ -490,9 +493,32 @@ export interface PbsRemoteSettings {
   readerTokenSecret: string;
   // remote entry last written on the secondary (hash of address, fingerprint, reader token)
   remoteHash?: string;
+  // queue of the copies, run by the agent of the secondary (agent offsite.go)
+  queue?: OffsiteQueueSettings;
+  queueAck?: string | null; // hash of the definition the agent applied
+  queueError?: string | null; // the agent refused the definition
+  queueReport?: (OffsiteQueueReport & { receivedAt: Date }) | null;
   polledAt?: Date;
   pollError?: string | null;
   usage?: PbsDatastoreUsage | null;
+}
+
+export interface OffsiteQueueSettings {
+  windowStart: string; // HH:MM, launches from…
+  windowEnd: string; // …to (may cross midnight; equal: all day)
+  concurrency: number; // heavy tasks at a time on the secondary
+  minDelayH: number; // a group at most once per…
+  countMaintenance: boolean; // verifications and garbage collections count in the concurrency
+}
+
+// State of the queue, as the agent of the secondary reports it (offsite_report).
+export interface OffsiteQueueReport {
+  hash: string;
+  scannedAt: number; // unix ms, 0: never
+  queue: { jobId: string; since: number }[];
+  running: { jobId?: string; upid: string; type: string; start: number }[];
+  inWindow: boolean;
+  error?: string;
 }
 
 // One snapshot of the history of a group: its date and its verification; size and note when known

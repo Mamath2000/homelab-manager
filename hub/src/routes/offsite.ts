@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { STORE_RE } from '../backupJobs.js';
-import { parseCalendar } from '../calendar.js';
 import { backups, settings } from '../db.js';
 import { publish } from '../events.js';
 import {
+  HHMM_RE,
   OFFSITE_DEFAULTS,
   RATE_RE,
   loadRemoteSettings,
@@ -12,22 +12,28 @@ import {
   remoteReady,
   followTask,
   runSyncJob,
+  queueOf,
+  queueView,
   sameGroupElsewhere,
   syncJobId,
+  syncOffsiteAgent,
   targetNamespaces,
 } from '../offsite.js';
 import { FINGERPRINT_RE, PBS_URL_RE, backupDto, loadPbsSettings, normalizeFingerprint, pbsGet } from '../pbs.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, ensurePbsToken, offsiteHubAcls } from '../pbsAgent.js';
-import type { BackupDoc, BackupOffsite, PbsAgentLink, PbsRemoteSettings } from '../types.js';
+import type { BackupDoc, BackupOffsite, OffsiteQueueSettings, PbsAgentLink, PbsRemoteSettings } from '../types.js';
 
 // Secondary PBS and the copy of the backups to it (offsite.ts). Settings: admin (/api/settings/*); running
 // a copy now: operator too (roles.ts).
 
-function remoteDto(r: PbsRemoteSettings) {
-  const { _id, tokenSecret, readerTokenSecret, remoteHash, ...rest } = r;
+async function remoteDto(r: PbsRemoteSettings) {
+  const { _id, tokenSecret, readerTokenSecret, remoteHash, queueAck, queueError, queueReport, ...rest } = r;
   void _id;
   void remoteHash;
-  return { ...rest, hasSecret: !!tokenSecret, hasReaderSecret: !!readerTokenSecret };
+  void queueAck;
+  void queueError;
+  void queueReport;
+  return { ...rest, queue: queueOf(r), queueState: await queueView(r), hasSecret: !!tokenSecret, hasReaderSecret: !!readerTokenSecret };
 }
 
 const agentLinkSchema = {
@@ -42,13 +48,27 @@ interface RemoteBody {
   url: string;
   fingerprint: string;
   agent?: PbsAgentLink;
+  queue?: OffsiteQueueSettings;
 }
+
+const queueSchema = {
+  type: 'object',
+  required: ['windowStart', 'windowEnd', 'concurrency', 'minDelayH', 'countMaintenance'],
+  additionalProperties: false,
+  properties: {
+    windowStart: { type: 'string', maxLength: 5 },
+    windowEnd: { type: 'string', maxLength: 5 },
+    concurrency: { type: 'integer', minimum: 1, maximum: 8 },
+    minDelayH: { type: 'integer', minimum: 0, maximum: 720 },
+    countMaintenance: { type: 'boolean' },
+  },
+} as const;
 
 const remoteBody = {
   type: 'object',
   additionalProperties: false,
   required: ['enabled', 'url', 'fingerprint'],
-  properties: { enabled: { type: 'boolean' }, url: { type: 'string', maxLength: 256 }, fingerprint: { type: 'string', maxLength: 128 }, agent: agentLinkSchema },
+  properties: { enabled: { type: 'boolean' }, url: { type: 'string', maxLength: 256 }, fingerprint: { type: 'string', maxLength: 128 }, agent: agentLinkSchema, queue: queueSchema },
 } as const;
 
 const nativeOrContainer = (a: PbsAgentLink): PbsAgentLink => (a.mode === 'native' ? { hostId: a.hostId, mode: 'native' } : a);
@@ -61,7 +81,9 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
     url: body.url.trim().replace(/\/+$/, ''),
     fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
     ...(body.agent ? { agent: nativeOrContainer(body.agent) } : {}),
+    ...(body.queue ? { queue: body.queue } : {}),
   };
+  if (body.queue && (!HHMM_RE.test(body.queue.windowStart) || !HHMM_RE.test(body.queue.windowEnd))) return 'plage horaire invalide (HH:MM)';
   if (next.url && !PBS_URL_RE.test(next.url)) return 'URL invalide (https://pbs:8007)';
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
   if (next.agent) {
@@ -78,7 +100,7 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
 
 interface OffsiteBody {
   enabled: boolean;
-  schedule?: string;
+  schedule?: string; // ignored: the queue of the agent of the secondary runs the copies (#185)
   rateIn?: string | null;
 }
 
@@ -144,12 +166,10 @@ export async function offsiteOf(b: BackupDoc, body: OffsiteBody): Promise<Backup
   const next: BackupOffsite = {
     ...kept,
     enabled: body.enabled,
-    schedule: (body.schedule ?? cur?.schedule ?? OFFSITE_DEFAULTS.schedule).trim(),
     rateIn: body.rateIn !== undefined ? body.rateIn?.trim() || null : (cur?.rateIn ?? OFFSITE_DEFAULTS.rateIn),
     jobId: syncJobId(b._id),
     since: cur?.enabled ? cur.since : Date.now(),
   };
-  if (!parseCalendar(next.schedule)) return 'planification invalide (ex. 06:00, mon..fri 21:00)';
   if (next.rateIn && !RATE_RE.test(next.rateIn)) return 'débit invalide (ex. 10MiB, 500KB)';
   if (!next.enabled) return next;
   // already copied: its namespace is there (not asked again at each change of settings)
@@ -170,6 +190,8 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     await settings.replaceOne({ _id: 'pbs-remote' }, next, { upsert: true });
     if (next.enabled) pollOffsite(req.log).catch(() => {});
+    // disabled: the agent of the secondary empties its queue
+    else syncOffsiteAgent().catch((err) => req.log.warn({ err }, 'offsite queue definition not sent'));
     publish('backups', {});
     return remoteDto(next);
   });
@@ -216,7 +238,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agent, store, tokenId: t.tokenId, tokenSecret: t.tokenSecret }, $unset: { remoteHash: '' } }, { upsert: true });
       req.log.info({ tokenId: t.tokenId, store, created: t.created, applied: t.applied, removed: t.removed }, 'secondary PBS token set by the agent');
       if (current.enabled) pollOffsite(req.log).catch(() => {});
-      return { settings: remoteDto(await loadRemoteSettings()), created: t.created, applied: t.applied, removed: t.removed };
+      return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, applied: t.applied, removed: t.removed };
     },
   );
 
@@ -238,7 +260,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { readerTokenId: t.tokenId, readerTokenSecret: t.tokenSecret } }, { upsert: true });
       req.log.info({ tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed }, 'reader token of the main PBS set by the agent');
       if (current.enabled) pollOffsite(req.log).catch(() => {});
-      return { settings: remoteDto(await loadRemoteSettings()), created: t.created, applied: t.applied, removed: t.removed };
+      return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, applied: t.applied, removed: t.removed };
     },
   );
 
