@@ -15,6 +15,8 @@ import {
   oldestBackup,
   siteKindMeta,
   siteTone,
+  upsTile,
+  upsTileMeta,
   type AptTile,
   type BackupTile,
   type DockerTile,
@@ -26,17 +28,29 @@ import { Badge, Panel } from './ui';
 const dayMs = 24 * 3600 * 1000;
 const ageText = (ms: number | null) => (ms === null ? '—' : ms < dayMs ? "moins d'un jour" : `${Math.floor(ms / dayMs)} j`);
 
-// One square per host, linked to its page: updates, backups and Docker in combined mode.
-function Tile({ host, groups, small, backups }: { host: Host; groups: BackupGroup[] | undefined; small?: boolean; backups: boolean }) {
+// One column per host: connection, updates, backups, Docker and (when present in the site) UPS.
+function Tile({ host, groups, small, backups, showUps }: { host: Host; groups: BackupGroup[] | undefined; small?: boolean; backups: boolean; showUps: boolean }) {
   const apt = aptTile(host);
   const bak = backupTile(groups, host.id);
   const dck = dockerTile(host);
+  const ups = host.ups ? upsTile(host.ups) : null;
+  const connectionState = host.online ? 'Connecté' : !host.enrolledAt ? 'En attente' : host.roaming ? 'Absent (itinérant)' : 'Hors ligne';
+  const connectionColor = host.online || (host.roaming && !!host.enrolledAt)
+    ? 'bg-emerald-500'
+    : !host.enrolledAt
+      ? 'border-[1.5px] border-dashed border-zinc-600'
+      : host.critical
+        ? 'bg-red-500'
+        : 'bg-amber-500';
+  const upsLabel = ups ? `Onduleur : ${upsTileMeta[ups].label}` : 'Aucun onduleur';
   const last = hostBackups(groups, host.id)?.last;
   const title = [
     host.name,
+    `connexion : ${connectionState}`,
     `mises à jour : ${aptTileMeta[apt].label}`,
     backups && `sauvegarde : ${bak === 'none' ? 'aucune' : `${backupTileMeta[bak].label}${last ? ` (${timeAgo(last)})` : ''}`}`,
     `Docker : ${host.online ? (host.docker ? dockerTileMeta[dck].label : 'aucun') : 'hors ligne'}`,
+    showUps && upsLabel,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -47,9 +61,11 @@ function Tile({ host, groups, small, backups }: { host: Host; groups: BackupGrou
       aria-label={title}
       className={clsx('flex flex-col gap-px transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-emerald-400', small ? 'h-[26px] w-[26px]' : 'h-[30px] w-[30px]')}
     >
+      <span className={clsx('flex-1 rounded-[3px]', connectionColor)} />
       <span className={clsx('flex-1 rounded-[3px]', aptTileMeta[apt].cls)} />
       {backups && <span className={clsx('flex-1 rounded-[3px]', bak === 'none' ? 'bg-transparent' : backupTileMeta[bak].cls)} />}
       <span className={clsx('flex-1 rounded-[3px]', host.online && !host.docker ? 'bg-transparent' : dockerTileMeta[dck].cls)} />
+      {showUps && <span className={clsx('flex-1 rounded-[3px]', ups ? upsTileMeta[ups].cls : 'border-[1.5px] border-dashed border-zinc-600')} />}
     </Link>
   );
 }
@@ -70,7 +86,7 @@ function Meter<T extends string>({ label, summary, parts }: { label: string; sum
   );
 }
 
-const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#f59e0b', offlineCritical: '#ef4444', unknown: '#8b5cf6', uptodate: '#10b981' };
+const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#52525b', unknown: '#8b5cf6', uptodate: '#10b981' };
 const bakColor: Record<BackupTile, string> = { bad: '#ef4444', warn: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
 const dckColor: Record<DockerTile, string> = { problem: '#ef4444', updates: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
 
@@ -84,7 +100,7 @@ function Meters({ site, groups, backups, stacked }: { site: Site; groups: Backup
     n('security') > 0 && <span key="s" className="text-red-400">{n('security')} sécurité</span>,
     n('updates') + n('security') > 0 && `${n('updates') + n('security')} avec MAJ`,
     n('reboot') > 0 && `${n('reboot')} reboot`,
-    n('offline') + n('offlineCritical') > 0 && `${n('offline') + n('offlineCritical')} hors ligne`,
+    n('offline') > 0 && `${n('offline')} hors ligne`,
   ].filter(Boolean);
   const bakSummary = [
     b('bad') > 0 && <span key="b" className="text-red-400">{b('bad')} en échec</span>,
@@ -127,11 +143,12 @@ function SiteHeader({ site, groups }: { site: Site; groups: BackupGroup[] | unde
 }
 
 function SiteCard({ site, groups, backups, small }: { site: Site; groups: BackupGroup[] | undefined; backups: boolean; small?: boolean }) {
+  const showUps = site.hosts.some((host) => !!host.ups);
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <SiteHeader site={site} groups={groups} />
       <div className="flex flex-wrap gap-x-1.5 gap-y-2">
-        {site.hosts.map((h) => <Tile key={h.id} host={h} groups={groups} small={small} backups={backups} />)}
+        {site.hosts.map((h) => <Tile key={h.id} host={h} groups={groups} small={small} backups={backups} showUps={showUps} />)}
       </div>
       <Meters site={site} groups={groups} backups={backups} stacked={small} />
     </div>
@@ -176,17 +193,18 @@ function ExternalSites({ sites, groups, backups }: { sites: Site[]; groups: Back
   );
 }
 
-function Legend({ backups }: { backups: boolean }) {
+function Legend({ backups, ups }: { backups: boolean; ups: boolean }) {
   const items = [
-    { cls: 'bg-emerald-500', label: 'OK' },
-    { cls: 'bg-amber-500', label: 'mises à jour / en retard' },
-    { cls: 'bg-red-500', label: 'sécurité / échec / problème Docker' },
+    { cls: 'bg-emerald-500', label: 'OK / connecté' },
+    { cls: 'bg-amber-500', label: 'hors ligne / mises à jour / en retard' },
+    { cls: 'bg-red-500', label: 'hôte critique hors ligne / sécurité / échec / problème / UPS' },
     { cls: 'bg-sky-500', label: 'reboot' },
-    { cls: 'bg-zinc-600', label: 'hors ligne / Docker non suivi' },
+    { cls: 'bg-zinc-600', label: 'Docker non suivi' },
   ];
+  const order = ['connexion', 'mises à jour', backups && 'sauvegarde', 'Docker', ups && 'onduleur'].filter(Boolean).join(' · ');
   return (
     <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-muted">
-      <span>{backups ? 'haut : mises à jour · milieu : sauvegarde · bas : Docker' : 'haut : mises à jour · bas : Docker'}</span>
+      <span>haut → bas : {order}</span>
       {items.map((i) => (
         <span key={i.label} className="inline-flex items-center gap-1.5">
           <i className={clsx('block h-2.5 w-2.5 rounded-[2px]', i.cls)} />
@@ -202,6 +220,7 @@ function Legend({ backups }: { backups: boolean }) {
 export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups: BackupGroup[] | undefined; backups: boolean }) {
   const external = sites.filter((s) => s.kind === 'external' && s.hosts.length === 1);
   const rest = sites.filter((s) => !external.includes(s));
+  const hasUps = sites.some((site) => site.hosts.some((host) => !!host.ups));
   // the biggest sites take the whole width, the small ones share a row
   const large = rest.filter((s) => s.kind === 'main' || s.hosts.length > 8);
   const small = rest.filter((s) => !large.includes(s));
@@ -209,7 +228,7 @@ export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups
   return (
     <Panel title="Sites" icon={MapPin}>
       <div className="mb-4">
-        <Legend backups={backups} />
+        <Legend backups={backups} ups={hasUps} />
       </div>
       <div className="flex flex-col gap-5">
         {large.map((s) => <SiteCard key={s.name} site={s} groups={groups} backups={backups} />)}

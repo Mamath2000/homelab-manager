@@ -1,4 +1,4 @@
-import type { AlertDomain, AlertLevel, BackupGroup, Host, HostAlertDay, SiteConfig, SiteKind } from './api';
+import type { AlertDomain, AlertLevel, BackupGroup, Host, HostAlertDay, SiteConfig, SiteKind, UpsReport } from './api';
 import { hostBackups } from './backups';
 import { connection, hasApt, type Tone } from './status';
 
@@ -36,10 +36,10 @@ export function siteName(h: Host, config: SiteConfig[] | undefined) {
 
 // na: no APT on the host (Unraid...); offline wins, the last report says nothing of now. Security comes
 // first here, it is what the dashboard is read for.
-export type AptTile = 'security' | 'reboot' | 'updates' | 'uptodate' | 'offline' | 'offlineCritical' | 'unknown' | 'na';
+export type AptTile = 'security' | 'reboot' | 'updates' | 'uptodate' | 'offline' | 'unknown' | 'na';
 
 export function aptTile(h: Host): AptTile {
-  if (connection(h) === 'offline') return h.critical ? 'offlineCritical' : 'offline';
+  if (connection(h) === 'offline') return 'offline';
   if (!hasApt(h)) return 'na';
   const s = h.aptSummary;
   if (!s) return 'unknown';
@@ -54,8 +54,7 @@ export const aptTileMeta: Record<AptTile, { label: string; tone: Tone; cls: stri
   updates: { label: 'mises à jour', tone: 'warn', cls: 'bg-amber-500' },
   security: { label: 'sécurité', tone: 'bad', cls: 'bg-red-500' },
   reboot: { label: 'redémarrage requis', tone: 'info', cls: 'bg-sky-500' },
-  offline: { label: 'hors ligne', tone: 'warn', cls: 'bg-amber-500' },
-  offlineCritical: { label: 'hors ligne · critique', tone: 'bad', cls: 'bg-red-500' },
+  offline: { label: 'hors ligne', tone: 'neutral', cls: 'bg-zinc-600' },
   unknown: { label: 'inconnu', tone: 'unknown', cls: 'bg-violet-500/60' },
   na: { label: 'sans APT', tone: 'neutral', cls: 'border-[1.5px] border-dashed border-zinc-600' },
 };
@@ -96,13 +95,35 @@ export const dockerTileMeta: Record<DockerTile, { label: string; tone: Tone; cls
   none: { label: 'non suivi', tone: 'neutral', cls: 'bg-zinc-600' },
 };
 
-// Worst state of a site, for its dot: critical offline, security, failed backup or Docker problem first.
+export type UpsTile = 'ok' | 'warn' | 'bad';
+export const upsTileMeta: Record<UpsTile, { label: string; cls: string }> = {
+  ok: { label: 'à jour', cls: 'bg-emerald-500' },
+  warn: { label: 'avertissement', cls: 'bg-amber-500' },
+  bad: { label: 'alerte', cls: 'bg-red-500' },
+};
+
+export function upsTile(ups: UpsReport): UpsTile {
+  const flags = new Set(ups.status.split(/\s+/).filter(Boolean));
+  if (['RB', 'ALARM', 'FSD', 'OB', 'LB', 'OVER'].some((flag) => flags.has(flag))) return 'bad';
+  if (
+    (!flags.has('OL') && !flags.has('OB')) ||
+    (ups.charge !== undefined && ups.chargeWarning !== undefined && ups.charge < ups.chargeWarning) ||
+    (ups.runtime !== undefined && ups.runtimeLow !== undefined && ups.runtime <= ups.runtimeLow) ||
+    (!!ups.testResult && /(error|fail|warning)/i.test(ups.testResult) && !/passed/i.test(ups.testResult))
+  ) return 'warn';
+  return 'ok';
+}
+
+// Worst state of a site across its host, update, backup, Docker and UPS indicators.
 export function siteTone(hosts: Host[], groups: BackupGroup[] | undefined): Tone {
   const apt = hosts.map(aptTile);
   const bak = hosts.map((h) => backupTile(groups, h.id));
   const dck = hosts.map(dockerTile);
-  if (apt.includes('offlineCritical') || apt.includes('security') || bak.includes('bad') || dck.includes('problem')) return 'bad';
-  if (apt.includes('offline') || apt.includes('updates') || apt.includes('reboot') || bak.includes('warn') || dck.includes('updates')) return 'warn';
+  const ups = hosts.flatMap((h) => h.ups ? [upsTile(h.ups)] : []);
+  const offlineCritical = hosts.some((h) => connection(h) === 'offline' && h.critical);
+  const offline = hosts.some((h) => connection(h) === 'offline' && !h.critical);
+  if (offlineCritical || apt.includes('security') || bak.includes('bad') || dck.includes('problem') || ups.includes('bad')) return 'bad';
+  if (offline || apt.includes('updates') || apt.includes('reboot') || bak.includes('warn') || dck.includes('updates') || ups.includes('warn')) return 'warn';
   return 'ok';
 }
 
