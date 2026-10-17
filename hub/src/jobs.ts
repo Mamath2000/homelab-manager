@@ -152,15 +152,19 @@ export async function flushLogs() {
 // Jobs left "running" by a previous hub process can never complete. Those that only a hub restart
 // interrupted must not count as an attempt: the agent update is retried at the next hello, and the
 // registry check left due is run again at the next docker report.
+export function interruptedByRestart(running: Pick<JobDoc, 'action' | 'hostId'>[]) {
+  const on = (action: JobAction) => running.filter((j) => j.action === action).map((j) => j.hostId);
+  return { agentUpdate: on('agent_update'), dockerCheck: on('docker_check') };
+}
+
 export async function recoverJobs() {
-  const interrupted = await jobs.find({ status: 'running', action: { $in: ['agent_update', 'docker_check'] } }).toArray();
+  const interrupted = interruptedByRestart(await jobs.find({ status: 'running' }).toArray());
   await jobs.updateMany(
     { status: 'running' },
     { $set: { status: 'failed', error: 'hub restarted', finishedAt: new Date() } },
   );
-  const ids = (action: JobAction) => interrupted.filter((j) => j.action === action).map((j) => j.hostId);
-  const update = ids('agent_update');
-  if (update.length) await hosts.updateMany({ _id: { $in: update } }, { $unset: { lastAgentUpdateAt: '', lastAgentUpdateHash: '' } });
-  const check = ids('docker_check');
-  if (check.length) await hosts.updateMany({ _id: { $in: check } }, { $set: { dockerRecheck: true } });
+  if (interrupted.agentUpdate.length) {
+    await hosts.updateMany({ _id: { $in: interrupted.agentUpdate } }, { $unset: { lastAgentUpdateAt: '', lastAgentUpdateHash: '' } });
+  }
+  if (interrupted.dockerCheck.length) await hosts.updateMany({ _id: { $in: interrupted.dockerCheck } }, { $set: { dockerRecheck: true } });
 }
