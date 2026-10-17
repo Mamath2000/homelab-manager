@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -53,6 +54,7 @@ func loadConfig(args []string) (config, string) {
 		os.Exit(0)
 	}
 	cfg := config{Hub: strings.TrimRight(*hub, "/"), Dir: *dir}
+	upsPassPath = filepath.Join(cfg.Dir, upsPassFile)
 	if !strings.HasPrefix(cfg.Hub, "https://") {
 		log.Fatal("HUB_URL must be the https:// agent address of the hub (flag -hub or environment)")
 	}
@@ -179,6 +181,9 @@ func (s *session) hello(ctx context.Context) error {
 	// UPS monitored by NUT (ups.go), re-evaluated at each hello
 	if hasUps(ctx) {
 		caps = append(caps, "ups")
+		if canControlUps(ctx) {
+			caps = append(caps, "ups_control")
+		}
 	}
 	for _, k := range runningDatabaseKinds(ctx) {
 		caps = append(caps, "backup_database:"+k)
@@ -279,6 +284,11 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 			out.Result = r
 		}
 		cancel()
+	case "ups_command":
+		if err = runUpsCommand(ctx, in.UpsCmd); err == nil {
+			out.Result = map[string]bool{"ok": true}
+			go s.sendUps(ctx) // beeper state and test result without waiting for the next poll
+		}
 	case "docker_forget":
 		if err = dock.forget(ctx, in.Stack); err == nil {
 			out.Result = map[string]bool{"ok": true}

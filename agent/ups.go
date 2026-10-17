@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -107,6 +110,96 @@ func collectUps(ctx context.Context) *UpsReport {
 }
 
 func hasUps(ctx context.Context) bool { return collectUps(ctx) != nil }
+
+// Actions on the UPS: a fixed list of NUT instant commands, run as the NUT user "hm-agent" whose
+// password is read from <agent dir>/ups.pass (one line, root only). The hub never sends the
+// password nor a free command line. Without that file the UPS stays read only.
+const (
+	upsUser     = "hm-agent"
+	upsPassFile = "ups.pass"
+)
+
+var upsCommands = map[string]bool{
+	"beeper.enable":            true,
+	"beeper.disable":           true,
+	"beeper.mute":              true,
+	"test.battery.start.quick": true,
+}
+
+// upsPassPath is set from the agent directory at start.
+var upsPassPath = filepath.Join(defaultDir, upsPassFile)
+
+func readUpsPass() (string, error) {
+	b, err := os.ReadFile(upsPassPath)
+	if err != nil {
+		return "", err
+	}
+	pw := strings.TrimSpace(string(b))
+	if pw == "" {
+		return "", fmt.Errorf("%s is empty", upsPassPath)
+	}
+	return pw, nil
+}
+
+func canControlUps(ctx context.Context) bool {
+	if _, err := readUpsPass(); err != nil {
+		return false
+	}
+	return hasUps(ctx)
+}
+
+// runUpsCommand runs one instant command on the UPS of the host. The password goes through stdin,
+// not on the command line (visible in ps).
+func runUpsCommand(ctx context.Context, cmd string) error {
+	if !upsCommands[cmd] {
+		return fmt.Errorf("unsupported UPS command %q", cmd)
+	}
+	pw, err := readUpsPass()
+	if err != nil {
+		return fmt.Errorf("UPS control not set up on this host (%s): %w", upsPassPath, err)
+	}
+	bin, err := exec.LookPath("upscmd")
+	if err != nil {
+		return fmt.Errorf("upscmd not found")
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	list, err := exec.CommandContext(cctx, "upsc", "-l").Output()
+	name := strings.TrimSpace(strings.SplitN(string(list), "\n", 2)[0])
+	if err != nil || name == "" {
+		return fmt.Errorf("no UPS found")
+	}
+	c := exec.CommandContext(cctx, bin, "-u", upsUser, name, cmd)
+	c.Stdin = strings.NewReader(pw + "\n")
+	out, err := c.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "OK") {
+		return fmt.Errorf("upscmd %s: %s", cmd, upsError(string(out)))
+	}
+	return nil
+}
+
+// upsError keeps the useful line of upscmd (ERR ..., Error: ...), without the prompt or SSL notice.
+func upsError(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "Password:"))
+		if l != "" && !strings.HasPrefix(l, "Init SSL") {
+			return l
+		}
+	}
+	return "failed"
+}
+
+// sendUps reports the UPS right now, after a command (the NUT driver takes a moment to reflect it).
+func (s *session) sendUps(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(3 * time.Second):
+	}
+	if r := collectUps(ctx); r != nil {
+		_ = s.send(ctx, Outbound{Type: "ups_report", Ups: r})
+	}
+}
 
 // upsLoop polls every minute; a report goes to the hub when something changed, and at least every
 // 5 minutes.

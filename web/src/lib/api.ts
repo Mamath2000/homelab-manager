@@ -261,6 +261,9 @@ export interface Job {
 // Alerts of a host for one day (timeline of the host page): latest observed level of the day in each domain and
 // its reasons; null: not followed that day (no APT, agent not connected...)
 export type AlertLevel = 'ok' | 'warn' | 'alert';
+// Instant commands the UI offers on the UPS (same list as hub and agent)
+export type UpsCommand = 'beeper.enable' | 'beeper.disable' | 'beeper.mute' | 'test.battery.start.quick';
+
 export type AlertDomain = 'agent' | 'apt' | 'docker' | 'backups' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
@@ -763,6 +766,7 @@ export const api = {
     ),
   stackCompose: (hostId: string, stack: string) =>
     request<{ files: ComposeFile[] }>('GET', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/compose`),
+  upsCommand: (hostId: string, command: UpsCommand) => request<{ ok: boolean }>('POST', `/api/hosts/${hostId}/ups/command`, { command }),
   forgetStack: (hostId: string, stack: string) => request<void>('DELETE', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}`),
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),

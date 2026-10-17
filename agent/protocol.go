@@ -124,8 +124,10 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command
 	Tail  int    `json:"tail,omitempty"`
+	// ups_command: NUT instant command (fixed list on the agent side)
+	UpsCmd string `json:"upsCmd,omitempty"`
 	// setup_apply / setup_check: modules of the standardisation and their parameters
 	Setup *SetupSpec `json:"setup,omitempty"`
 	// backup_sync: definition of the backups of this host; backup_run: the job to run

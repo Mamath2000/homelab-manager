@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { BatteryCharging, TriangleAlert } from 'lucide-react';
-import type { UpsReport } from '../lib/api';
+import { api, type UpsCommand, type UpsReport } from '../lib/api';
+import { useToast } from '../lib/toast';
 import { timeAgo } from '../lib/format';
 import { toneText, type Tone } from '../lib/status';
-import { Badge, Panel } from './ui';
+import { Badge, Button, ConfirmModal, Panel } from './ui';
 
 // Failed self-test: same rule as the hub (alerts of the UPS domain).
 const testFailed = (t?: string) => !!t && /(error|fail|warning)/i.test(t) && !/passed/i.test(t);
@@ -45,7 +46,23 @@ function Metric({ label, value, unit, hint, children }: { label: string; value: 
 const fr = (n: number) => String(n).replace('.', ',');
 
 // UPS of the host (NUT): state, battery health and the usual measures. One UPS per host.
-export function UpsPanel({ ups }: { ups: UpsReport }) {
+// `canControl`: the agent of the host holds the NUT credentials (capability ups_control).
+export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: UpsReport; canControl: boolean }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<UpsCommand | null>(null);
+  const [confirmTest, setConfirmTest] = useState(false);
+  const run = async (command: UpsCommand, done: string) => {
+    setBusy(command);
+    try {
+      await api.upsCommand(hostId, command);
+      toast.success(done);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+      setConfirmTest(false);
+    }
+  };
   const f = flags(ups.status);
   const replace = f.has('RB');
   const onBattery = f.has('OB');
@@ -115,6 +132,26 @@ export function UpsPanel({ ups }: { ups: UpsReport }) {
         <Metric label="Tension batterie" value={ups.batteryVoltage !== undefined ? fr(ups.batteryVoltage) : null} unit="V" hint={ups.batteryNominal !== undefined ? `nominale ${fr(ups.batteryNominal)} V` : undefined} />
       </div>
 
+      {canControl && (
+        <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+          <Button size="sm" loading={busy === 'beeper.mute'} disabled={!!busy} onClick={() => run('beeper.mute', 'Alarme sonore coupée temporairement')}>
+            Couper le bip
+          </Button>
+          {ups.beeper === 'enabled' ? (
+            <Button size="sm" loading={busy === 'beeper.disable'} disabled={!!busy} onClick={() => run('beeper.disable', 'Alarme sonore désactivée')}>
+              Désactiver l'alarme
+            </Button>
+          ) : (
+            <Button size="sm" loading={busy === 'beeper.enable'} disabled={!!busy} onClick={() => run('beeper.enable', 'Alarme sonore activée')}>
+              Activer l'alarme
+            </Button>
+          )}
+          <Button size="sm" disabled={!!busy} onClick={() => setConfirmTest(true)}>
+            Test batterie rapide
+          </Button>
+        </div>
+      )}
+
       {(ups.testResult || ups.beeper) && (
         <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-3 text-xs text-muted">
           {ups.testResult && (
@@ -129,6 +166,18 @@ export function UpsPanel({ ups }: { ups: UpsReport }) {
           )}
         </div>
       )}
+    <ConfirmModal
+        open={confirmTest}
+        onClose={() => setConfirmTest(false)}
+        title="Test batterie rapide"
+        confirmLabel="Lancer le test"
+        danger={replace || lowBattery}
+        loading={busy === 'test.battery.start.quick'}
+        onConfirm={() => run('test.battery.start.quick', 'Test batterie lancé')}
+      >
+        L'onduleur bascule brièvement sur batterie pour la tester. Le résultat apparaît dans « Dernier auto-test ».
+        {(replace || lowBattery) && ' La batterie est signalée à remplacer : si elle est morte, l\'onduleur peut couper les charges pendant le test.'}
+      </ConfirmModal>
     </Panel>
   );
 }

@@ -40,6 +40,9 @@ const createHostBody = {
 // option off, and not published to Home Assistant. Both stay editable afterwards.
 const UNMANAGED: SetupOverrides = Object.fromEntries(SETUP_OPTIONS.map((k) => [k, { mode: 'off' }]));
 
+// Instant commands of the UPS the UI offers; same list on the agent.
+const UPS_COMMANDS = ['beeper.enable', 'beeper.disable', 'beeper.mute', 'test.battery.start.quick'] as const;
+
 const jobBody = {
   type: 'object',
   required: ['action'],
@@ -317,6 +320,32 @@ export function registerHostRoutes(app: FastifyInstance) {
       } catch (err) {
         return agentError(reply, err);
       }
+    },
+  );
+
+  // Instant command on the UPS of the host: beeper and quick battery test only (the agent checks
+  // its own list again and holds the NUT credentials).
+  app.post<{ Params: { id: string }; Body: { command: (typeof UPS_COMMANDS)[number] } }>(
+    '/api/hosts/:id/ups/command',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+        body: { type: 'object', required: ['command'], additionalProperties: false, properties: { command: { type: 'string', enum: UPS_COMMANDS } } },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!host.capabilities?.includes('ups_control')) {
+        return reply.code(400).send({ error: "les actions sur l'onduleur ne sont pas configurées sur cet hôte (voir la doc Onduleur)" });
+      }
+      try {
+        await agentRequest(req.params.id, 'ups_command', { upsCmd: req.body.command });
+      } catch (err) {
+        return agentError(reply, err);
+      }
+      return { ok: true };
     },
   );
 

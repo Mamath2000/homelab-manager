@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 const upscSample = `battery.charge: 100
 battery.charge.low: 10
@@ -43,5 +47,24 @@ func TestParseUpscMissing(t *testing.T) {
 	r := parseUpsc("ups", "ups.status: OL\n")
 	if r == nil || r.Charge != nil || r.Runtime != nil {
 		t.Errorf("absent values must stay nil: %+v", r)
+	}
+}
+
+func TestUpsCommandWhitelist(t *testing.T) {
+	for _, c := range []string{"beeper.mute", "beeper.enable", "beeper.disable", "test.battery.start.quick"} {
+		if !upsCommands[c] {
+			t.Errorf("%s must be allowed", c)
+		}
+	}
+	for _, c := range []string{"load.off", "shutdown.reboot", "driver.killpower", "test.battery.start.deep", "beeper.mute; id", ""} {
+		if err := runUpsCommand(context.Background(), c); err == nil || !strings.Contains(err.Error(), "unsupported") {
+			t.Errorf("%q must be refused, got %v", c, err)
+		}
+	}
+}
+
+func TestUpsError(t *testing.T) {
+	if got := upsError("Init SSL without certificate database\nPassword: ERR ACCESS-DENIED\n"); got != "ERR ACCESS-DENIED" {
+		t.Errorf("got %q", got)
 	}
 }

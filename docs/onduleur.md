@@ -1,6 +1,6 @@
 ---
 title: Onduleur
-description: Suivi de l'onduleur d'un hôte via NUT (état, batterie, autonomie, charge, tensions), indicateur de fin de vie de la batterie et alertes dans l'interface et Home Assistant
+description: Suivi de l'onduleur d'un hôte via NUT (état, batterie, autonomie, charge, tensions), indicateur de fin de vie de la batterie, alertes, et actions (bip, test batterie) dans l'interface et Home Assistant
 sidebar_position: 3.8
 ---
 
@@ -34,6 +34,47 @@ Une valeur que l'onduleur ne remonte pas est affichée « — ».
 
 :::note Âge de la batterie
 La date de fabrication de la batterie (`battery.mfr.date`) est affichée à titre indicatif. L'âge n'entre pas dans les alertes : `battery.date` garde la valeur d'usine sur beaucoup d'onduleurs, et la fin de vie repose sur le drapeau `RB`, l'autonomie et les auto-tests.
+:::
+
+## Actions : bip et test batterie
+
+Le panneau propose trois actions, **désactivées tant que l'hôte n'est pas configuré** (l'onduleur reste alors en lecture seule) :
+
+| Bouton | Commande NUT | Effet |
+|---|---|---|
+| Couper le bip | `beeper.mute` | coupe l'alarme sonore en cours, temporairement |
+| Activer / Désactiver l'alarme | `beeper.enable` / `beeper.disable` | l'une ou l'autre selon l'état de `ups.beeper.status` |
+| Test batterie rapide | `test.battery.start.quick` | l'onduleur bascule brièvement sur batterie ; le résultat apparaît dans « Dernier auto-test ». Une confirmation est demandée |
+
+Ces quatre commandes sont les seules possibles : la liste est fixée dans le hub et dans l'agent, qui n'exécute jamais une commande libre. Un test peut faire décrocher un onduleur dont la batterie est morte ; l'interface le rappelle quand `RB` ou `LB` est actif.
+
+### Configuration d'un hôte
+
+L'agent agit sur l'onduleur avec un **utilisateur NUT dédié**, `hm-agent`, qui n'a le droit que de ces quatre commandes (pas de `SET`, pas de coupure de charge). Son mot de passe est lu dans un fichier de l'hôte ; le hub ne le voit jamais. Une fois par hôte, en root :
+
+1. Ajouter l'utilisateur à `upsd.users` (généralement `/etc/nut/upsd.users`), avec un mot de passe aléatoire :
+
+   ```ini
+   [hm-agent]
+     password = MOT_DE_PASSE
+     instcmds = beeper.enable beeper.disable beeper.mute test.battery.start.quick
+   ```
+
+2. Recharger `upsd` : `systemctl reload nut-server` (ou `upsd -c reload`).
+3. Écrire le même mot de passe, seul sur sa ligne, dans le répertoire de l'agent :
+
+   ```bash
+   install -d -m 0700 /etc/homelab-agent
+   install -m 0600 /dev/null /etc/homelab-agent/ups.pass
+   echo 'MOT_DE_PASSE' > /etc/homelab-agent/ups.pass
+   ```
+
+4. Vérifier : `echo 'MOT_DE_PASSE' | upscmd -u hm-agent NOM_UPS beeper.mute` doit répondre `OK`.
+
+L'agent détecte le fichier à sa reconnexion au hub (redémarrer `homelab-agent` pour que ce soit immédiat) et annonce la capacité `ups_control`. Pour retirer l'accès, supprimer `ups.pass` (et l'utilisateur dans `upsd.users`).
+
+:::note Sécurité
+Le fichier est en clair, comme tout mot de passe de `upsd.users` : NUT n'en connaît pas d'autre forme. Il n'est lisible que par root, comme le reste du répertoire de l'agent. Le compte `hm-agent` ne peut ni couper la charge ni modifier un réglage ; au pire, une fuite permet de faire sonner ou taire le bip, ou de lancer un test. Si `upsd` écoute sur le réseau (`LISTEN` dans `upsd.conf`), limite l'accès au port 3493 au réseau des serveurs.
 :::
 
 ## Alertes
