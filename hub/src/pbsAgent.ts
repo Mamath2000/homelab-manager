@@ -21,7 +21,18 @@ export const PBS_TOKEN_ACLS = {
   monitor: [{ path: '/datastore', role: 'DatastoreAudit' }],
   // a host: writes and sees its own groups in the namespace Hosts only
   host: [{ path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' }],
+  // on the main PBS, used by the secondary to pull: reads every backup, writes nothing
+  reader: [{ path: '/datastore', role: 'DatastoreReader' }],
 } satisfies Record<string, PbsAcl[]>;
+
+// Token of the hub on the secondary PBS: lists and writes (through the sync jobs it owns) in the target
+// datastore, declares the remote and the sync jobs. Neither Datastore.Prune nor Datastore.Modify: it can
+// neither delete a snapshot nor create a namespace, nor enable remove-vanished.
+export const offsiteHubAcls = (store: string): PbsAcl[] => [
+  { path: `/datastore/${store}`, role: 'DatastoreBackup' },
+  { path: `/datastore/${store}`, role: 'DatastoreAudit' },
+  { path: '/remote', role: 'RemoteAdmin' },
+];
 
 export interface PbsDetected {
   found: boolean;

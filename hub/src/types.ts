@@ -447,6 +447,46 @@ export interface BackupDoc {
   ha?: BackupHa;
   // expected by a PVE job but never seen on the PBS yet
   placeholder?: boolean;
+  // copy to the secondary PBS (offsite.ts); written by the routes and the poll of the secondary only
+  offsite?: BackupOffsite;
+}
+
+// Copy of a group to the secondary PBS: one sync job per group, pulled by the secondary. Settings by
+// the admin; the rest is the poll of the secondary.
+export interface BackupOffsite {
+  enabled: boolean;
+  schedule: string; // calendar event of the PBS
+  transferLast: number | null; // last N snapshots only; null: all of them
+  rateIn: string | null; // "10MiB"; null: no limit (the global one of the PBS applies)
+  jobId: string; // hlm-<hash of the group>
+  since: number; // enabled at (ms)
+  // the sync job could not be created / updated (reconciliation)
+  error?: string | null;
+  // poll of the secondary: the copied group and the last run of its job
+  lastBackup?: number | null; // unix ms of the last snapshot copied
+  count?: number;
+  verify?: 'ok' | 'failed' | null;
+  lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
+  nextRun?: number | null;
+}
+
+// Secondary PBS (settings._id 'pbs-remote'): pulls from the main PBS the groups chosen one by one.
+export interface PbsRemoteSettings {
+  _id: 'pbs-remote';
+  enabled: boolean;
+  agent?: PbsAgentLink;
+  url: string;
+  fingerprint: string;
+  store: string; // target datastore, the one the token of the hub has rights on
+  tokenId: string; // token of the hub on the secondary
+  tokenSecret: string;
+  readerTokenId: string; // token on the main PBS, used by the secondary to pull
+  readerTokenSecret: string;
+  // remote entry last written on the secondary (hash of address, fingerprint, reader token)
+  remoteHash?: string;
+  polledAt?: Date;
+  pollError?: string | null;
+  usage?: PbsDatastoreUsage | null;
 }
 
 // One snapshot of the history of a group: its date and its verification; size and note when known

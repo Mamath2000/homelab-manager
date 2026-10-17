@@ -45,6 +45,8 @@ Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backu
 |---|---|---|---|---|
 | supervision du PBS | `homelab@pbs!monitor` | `DatastoreAudit` sur `/datastore` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
 | écriture d'un hôte | `host-<hôte>@pbs!backup` | `DatastoreBackup` sur `/datastore/<chaque datastore>/Hosts` | créer des sauvegardes dans le namespace `Hosts`, voir et relire **ses propres** groupes | voir ou relire les groupes des autres hôtes, écrire hors de `Hosts` (namespaces de Proxmox VE) |
+| lecteur (PBS principal) | `homelab@pbs!reader` | `DatastoreReader` sur `/datastore` | lire toutes les sauvegardes du PBS principal : c'est avec lui que le [PBS de secours](#copie-déportée-pbs-de-secours) les tire | écrire, supprimer, modifier quoi que ce soit |
+| hub sur le PBS de secours | `homelab@pbs!hub` | `DatastoreBackup` + `DatastoreAudit` sur `/datastore/<datastore cible>`, `RemoteAdmin` sur `/remote` | déclarer l'entrée remote et les sync jobs (dont il est propriétaire), lister les copies et leur état, lancer une copie | **supprimer un snapshot**, activer `remove-vanished`, créer un namespace (ni `Datastore.Prune` ni `Datastore.Modify`), toucher aux autres datastores |
 
 Le chemin `{store}` est développé sur chaque datastore présent au moment de la création : après l'ajout d'un datastore, recréer le jeton de l'hôte (le secret est conservé) pour l'étendre.
 
@@ -97,6 +99,56 @@ Toutes les 15 minutes, le hub lit pour chaque cluster :
 - le fuseau horaire des nœuds : les planifications sont des heures de ce fuseau.
 
 **Retirer** un cluster supprime ses guests, leurs liens et le rattachement automatique de leurs sauvegardes (les snapshots restent sur le PBS, orphelins).
+
+## Copie déportée (PBS de secours)
+
+Un second PBS, distant, garde une copie des sauvegardes choisies **une à une** (la place y est comptée : on ne copie pas tout). Il **tire** les sauvegardes du PBS principal : un PBS principal compromis ne peut pas effacer les copies, le hub non plus. Contrepartie assumée : le PBS de secours détient un jeton qui lit tout le PBS principal.
+
+### Mise en place
+
+Paramètres › Sauvegardes › **PBS de secours (copie déportée)** :
+
+1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse et empreinte pré-remplies, datastores proposés.
+2. **Datastore cible**, puis **Créer le jeton** du hub sur le PBS de secours (droits sur ce datastore seulement).
+3. **Jeton lecteur sur le PBS principal**, créé par l'agent du PBS principal (qui doit donc être relié).
+4. Cocher **Copier les sauvegardes choisies vers ce PBS**, **Tester la connexion** (datastore visible, namespaces existants), **Enregistrer**.
+5. **Créer à la main, dans le datastore cible du PBS de secours, les namespaces** des sauvegardes à copier, avec les mêmes noms que sur le PBS principal (`Hosts`, `Vouille`, `Jarsay`…) : le jeton du hub n'a pas le droit de les créer.
+
+Le hub déclare lui-même sur le PBS de secours l'entrée **remote `hlm-main`** (adresse et empreinte du PBS principal, jeton lecteur) ; elle est réécrite quand l'adresse, l'empreinte ou le jeton lecteur changent.
+
+### Une copie par sauvegarde
+
+Chaque sauvegarde copiée a **son propre sync job** sur le PBS de secours, nommé `hlm-<empreinte du groupe>` ; le hub ne touche jamais aux autres jobs ni à une autre entrée remote.
+
+| Réglage du job | Valeur |
+|---|---|
+| source | remote `hlm-main`, datastore et namespace de la sauvegarde |
+| cible | datastore cible, **même namespace** que la source (sans niveau par datastore : une sauvegarde déplacée d'un datastore à l'autre reste un seul groupe) |
+| filtre | **exactement un groupe** (`group:<type>/<id>`), jamais vide ; profondeur 0 |
+| `remove-vanished` | non : une sauvegarde purgée du principal reste sur le PBS de secours |
+| propriétaire | le jeton du hub |
+| planification, `transfer-last`, `rate-in` | réglés par sauvegarde ; par défaut 06:00, les 2 derniers snapshots, sans limite de débit (le plafond global se règle dans le PBS de secours) |
+
+- Le hub **réconcilie** les jobs à chaque changement et à chaque relevé : il crée ceux qui manquent, remet en état ceux qui diffèrent (un filtre modifié à la main est rétabli) et supprime les jobs `hlm-*` qui ne sont plus voulus. Les copies déjà faites restent : **les purges sont celles du PBS de secours** (rétention, verify et GC s'y règlent).
+- Activation refusée : sauvegarde Home Assistant (pas sur le PBS) ou jamais écrite ; namespace cible absent (message avec le namespace à créer) ; même groupe (namespace + `type/id`) déjà copié depuis un autre datastore.
+- Sauvegarde disparue du PBS principal : son job reste (sans effet) et la copie est conservée ; le job est supprimé quand la sauvegarde est oubliée.
+- Copie désactivée : son job est supprimé, la copie reste sur le PBS de secours.
+- **Lancer** une copie tout de suite : action unitaire (opérateurs compris), son résultat arrive avec le relevé suivant.
+
+API (l'affichage et le réglage dans les pages Sauvegardes et hôte viennent ensuite) : `PUT /api/backups/<id>/offsite` (`enabled`, `schedule`, `transferLast`, `rateIn`), `POST /api/backups/<id>/offsite/run` ; le DTO de chaque sauvegarde porte `offsite` et son état.
+
+### État d'une copie
+
+Toutes les 15 minutes, le hub relève sur le PBS de secours l'état des sync jobs (dernier passage, prochain) et les groupes copiés (dernier snapshot, nombre, vérification), ainsi que l'occupation du datastore cible.
+
+| État | Signification |
+|---|---|
+| à jour | le dernier snapshot du PBS principal antérieur au dernier passage est sur le PBS de secours |
+| en attente | activée, le job n'est pas encore passé |
+| en retard | un snapshot existait avant le dernier passage et n'est pas arrivé |
+| en échec | le dernier passage a échoué, ou le PBS de secours a refusé le job |
+
+« En échec » est une alerte, « en retard » un avertissement : ils s'ajoutent à ceux de la sauvegarde.
 
 ## Lien hôte ↔ guest Proxmox
 
@@ -251,9 +303,9 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 ## Home Assistant
 
 - Par hôte ayant des sauvegardes, un sous-appareil **Sauvegardes** : date de la dernière sauvegarde (détail des groupes en attributs), nombre en retard, alertes.
-- Alertes : en retard / jamais sauvegardée, dernière exécution en échec, job désactivé, pas encore appliquée par l'agent, vérification en échec, disparue du PBS, guest non couvert. Elles remontent à l'hôte puis à Homelab Manager. Pas d'alerte pour les orphelines, ni de retard pour un hôte itinérant absent.
+- Alertes : en retard / jamais sauvegardée, dernière exécution en échec, job désactivé, pas encore appliquée par l'agent, vérification en échec, disparue du PBS, copie déportée en retard / en échec, guest non couvert. Elles remontent à l'hôte puis à Homelab Manager. Pas d'alerte pour les orphelines, ni de retard pour un hôte itinérant absent.
 - Sur Homelab Manager : **Sauvegardes en retard** et l'occupation de chaque datastore.
 
 ## Rôles
 
-Tous les rôles voient les sauvegardes. Les opérateurs peuvent relever et **lancer** une sauvegarde de répertoires. Seuls les administrateurs règlent les connexions (PBS, clusters), les jetons, les jobs, l'installation du client, le rattachement et le seuil propre à une sauvegarde.
+Tous les rôles voient les sauvegardes. Les opérateurs peuvent relever, **lancer** une sauvegarde de répertoires et lancer une copie déportée. Seuls les administrateurs règlent les connexions (PBS, PBS de secours, clusters), les jetons, les jobs, l'installation du client, le rattachement, le seuil propre à une sauvegarde et sa copie déportée.

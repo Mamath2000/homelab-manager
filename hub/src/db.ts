@@ -1,7 +1,7 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import type { TokenSetupDoc } from './tokenSetup.js';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -10,7 +10,7 @@ export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
 export let apiKeys: Collection<ApiKeyDoc>;
-export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PveSettings | SitesSettings | TagsSettings>;
+export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let tokenSetups: Collection<TokenSetupDoc>;

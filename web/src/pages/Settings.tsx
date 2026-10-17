@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router';
 import { Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { BackupSettings } from '../components/BackupSettings';
+import { OffsiteSettings } from '../components/OffsiteSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { PveSettings } from '../components/PveSettings';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
@@ -94,6 +95,7 @@ export function Settings() {
     backups: (
       <div className="space-y-4">
         <BackupSettings />
+        <OffsiteSettings />
         <PveSettings />
       </div>
     ),

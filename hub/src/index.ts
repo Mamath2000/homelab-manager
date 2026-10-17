@@ -15,10 +15,12 @@ import { registerSiteRoutes } from './routes/sites.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerBackupRoutes } from './routes/backups.js';
 import { registerBackupJobRoutes } from './routes/backupJobs.js';
+import { registerOffsiteRoutes } from './routes/offsite.js';
 import { registerNextcloudRoutes } from './routes/nextcloud.js';
 import { registerTokenSetupRoutes } from './tokenSetup.js';
 import { refreshManaged } from './backupJobs.js';
 import { startPbsPoller } from './pbs.js';
+import { startOffsitePoller } from './offsite.js';
 import { startPvePoller } from './pve.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
@@ -52,6 +54,7 @@ registerSiteRoutes(app);
 registerSetupRoutes(app);
 registerBackupRoutes(app);
 registerBackupJobRoutes(app);
+registerOffsiteRoutes(app);
 registerNextcloudRoutes(app);
 registerTokenSetupRoutes(app);
 registerUserRoutes(app);
@@ -84,6 +87,7 @@ const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ 
 const stopScheduler = startScheduler(app.log);
 const stopAlerts = startAlerts(app.log);
 const stopPbsPoller = startPbsPoller(app.log);
+const stopOffsitePoller = startOffsitePoller(app.log);
 const stopPvePoller = startPvePoller(app.log);
 await bridge.apply(await loadHomeAssistantSettings());
 
@@ -96,6 +100,7 @@ async function shutdown() {
   stopScheduler();
   stopAlerts();
   stopPbsPoller();
+  stopOffsitePoller();
   stopPvePoller();
   await bridge.stop(false);
   await flushLogs().catch(() => {});

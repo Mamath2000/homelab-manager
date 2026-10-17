@@ -2,7 +2,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import { backups, settings } from './db.js';
 import { publish } from './events.js';
 import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
-import { ApiError, apiGet, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
+import { offsiteState } from './offsite.js';
+import { ApiError, apiGet, apiRequest, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
 // Backups kept on a Proxmox Backup Server, read through its API with a read-only token
@@ -26,20 +27,23 @@ export async function loadPbsSettings(): Promise<PbsSettings> {
 
 type Conn = Pick<PbsSettings, 'url' | 'fingerprint' | 'tokenId' | 'tokenSecret'>;
 
+const apiConn = (c: Conn, role = 'DatastoreAudit') => ({
+  url: c.url,
+  fingerprint: c.fingerprint,
+  authorization: `PBSAPIToken=${c.tokenId}:${c.tokenSecret}`,
+  defaultPort: 8007,
+  denied: { 401: 'jeton refusé (401) : vérifie l’identifiant et le secret', 403: `accès refusé (403) : le jeton doit avoir le rôle ${role}` },
+  unreachable: 'le PBS ne répond pas',
+});
+
 // GET on the PBS API (see tlsApi.ts).
 export function pbsGet<T>(c: Conn, path: string, timeoutMs = 20_000): Promise<T> {
-  return apiGet<T>(
-    {
-      url: c.url,
-      fingerprint: c.fingerprint,
-      authorization: `PBSAPIToken=${c.tokenId}:${c.tokenSecret}`,
-      defaultPort: 8007,
-      denied: { 401: 'jeton refusé (401) : vérifie l’identifiant et le secret', 403: 'accès refusé (403) : le jeton doit avoir le rôle DatastoreAudit' },
-      unreachable: 'le PBS ne répond pas',
-    },
-    path,
-    timeoutMs,
-  );
+  return apiGet<T>(apiConn(c), path, timeoutMs);
+}
+
+// Any call on the PBS API, writes included; role: the one a 403 points at.
+export function pbsCall<T>(c: Conn, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, role?: string, timeoutMs = 20_000): Promise<T> {
+  return apiRequest<T>(apiConn(c, role), method, path, body, timeoutMs);
 }
 
 // --- API answers (subset) ---------------------------------------------------------------
@@ -286,6 +290,8 @@ export function backupDto(b: BackupDoc, now = Date.now()) {
     pve: b.pve ? { ...b.pve, jobs: b.pve.jobs.map((j) => ({ ...j, scheduleText: describeCalendar(j.schedule) })) } : null,
     managed: b.managed ? { ...b.managed, scheduleText: b.managed.connectEveryDays ? connectText(b.managed.connectEveryDays) : describeCalendar(b.managed.schedule) } : null,
     ha: b.ha ? { ...b.ha, scheduleText: haScheduleText(b.ha) } : null,
+    // copy to the secondary PBS, with its state (offsite.ts)
+    offsite: b.offsite ? { ...b.offsite, state: offsiteState(b), scheduleText: describeCalendar(b.offsite.schedule) } : null,
   };
 }
 

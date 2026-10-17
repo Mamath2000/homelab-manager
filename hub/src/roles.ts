@@ -27,7 +27,8 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
             route === '/api/jobs/docker-update' ||
             route === '/api/hosts/:id/setup/check' ||
             route === '/api/backups/refresh' ||
-            route === '/api/backup-jobs/:jobId/run')) ||
+            route === '/api/backup-jobs/:jobId/run' ||
+            route === '/api/backups/:id/offsite/run')) ||
         (method === 'PUT' && route === '/api/hosts/:id/setup')
       );
     case 'viewer':

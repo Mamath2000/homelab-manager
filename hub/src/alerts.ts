@@ -6,6 +6,7 @@ import { dockerView } from './docker.js';
 import { subscribe } from './events.js';
 import { jobDto } from './jobs.js';
 import { backupState } from './pbs.js';
+import { offsiteState } from './offsite.js';
 import { upsAlert } from './ups.js';
 import { agentAlerts } from './homeassistant/alerts.js';
 import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostAlertDoc, HostDoc, JobDoc } from './types.js';
@@ -63,6 +64,10 @@ export function backupsAlert(groups: BackupDoc[], now = Date.now()): DayAlert | 
     else if (s === 'gone') warns.push(`${name} : disparue du PBS`);
     else if (s === 'disabled') warns.push(`${name} : job désactivé`);
     else if (s === 'not_synced') warns.push(`${name} : pas encore appliquée par l'agent`);
+    // copy to the secondary PBS
+    const o = offsiteState(b);
+    if (o === 'failed') alerts.push(`${name} : copie déportée en échec`);
+    else if (o === 'late') warns.push(`${name} : copie déportée en retard`);
   }
   return alerts.length ? day('alert', alerts) : warns.length ? day('warn', warns) : day('ok', []);
 }

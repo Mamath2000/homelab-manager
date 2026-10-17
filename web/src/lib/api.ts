@@ -460,6 +460,8 @@ export interface BackupGroup {
   // vzdump: attached by Proxmox VE; managed: written by a backup job of the hub; haos: destination of the
   // Home Assistant backups of a HAOS host (not on the PBS). None is attached by hand.
   source?: 'vzdump' | 'managed' | 'haos';
+  // copy to the secondary PBS (hub/src/offsite.ts); null: never set
+  offsite: BackupOffsite | null;
   pve: { cluster: string; vmid: number; tz: string; jobs: PveJobRef[]; lastTask?: PveTaskResult | null } | null;
   managed: {
     jobId: string;
@@ -549,6 +551,55 @@ export interface PbsSettings {
   tailscaleUrl?: string; // PBS address for the hosts of the Tailscale access network
   polledAt?: string;
   pollError?: string | null;
+}
+
+// Copy of a group to the secondary PBS: settings, and what the poll of the secondary found
+export interface BackupOffsite {
+  enabled: boolean;
+  schedule: string;
+  scheduleText: string;
+  transferLast: number | null;
+  rateIn: string | null;
+  jobId: string;
+  since: number;
+  error?: string | null;
+  lastBackup?: number | null;
+  count?: number;
+  verify?: 'ok' | 'failed' | null;
+  lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
+  nextRun?: number | null;
+  // ok, pending (never run), late (a snapshot did not arrive), failed; null: not copied
+  state: 'ok' | 'pending' | 'late' | 'failed' | null;
+}
+
+export interface BackupOffsiteInput {
+  enabled: boolean;
+  schedule?: string;
+  transferLast?: number | null;
+  rateIn?: string | null;
+}
+
+// Secondary PBS (hub/src/routes/offsite.ts); the tokens are created by the agents of both PBS
+export interface PbsRemoteSettings {
+  enabled: boolean;
+  agent?: PbsAgentLink;
+  url: string;
+  fingerprint: string;
+  store: string;
+  tokenId: string;
+  hasSecret: boolean;
+  readerTokenId: string;
+  hasReaderSecret: boolean;
+  polledAt?: string;
+  pollError?: string | null;
+  usage?: { store: string; total: number; used: number; avail: number } | null;
+}
+
+export interface PbsRemoteInput {
+  enabled: boolean;
+  url: string;
+  fingerprint: string;
+  agent?: PbsAgentLink;
 }
 
 export interface PbsTestResult {
@@ -807,6 +858,14 @@ export const api = {
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
   testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult & { tailscale?: PbsTestResult }>('POST', '/api/settings/pbs/test', s),
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
+  pbsRemoteSettings: () => request<PbsRemoteSettings>('GET', '/api/settings/pbs-remote'),
+  savePbsRemoteSettings: (s: PbsRemoteInput) => request<PbsRemoteSettings>('PUT', '/api/settings/pbs-remote', s),
+  testPbsRemoteSettings: (s: PbsRemoteInput) => request<PbsTestResult & { namespaces?: string[] }>('POST', '/api/settings/pbs-remote/test', s),
+  createPbsRemoteToken: (agent: PbsAgentLink, tokenId: string, store: string) =>
+    request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/token', { agent, tokenId, store }),
+  createPbsReaderToken: (tokenId: string) => request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/reader-token', { tokenId }),
+  setBackupOffsite: (id: string, o: BackupOffsiteInput) => request<BackupGroup>('PUT', `/api/backups/${encodeURIComponent(id)}/offsite`, o),
+  runBackupOffsite: (id: string) => request<{ ok: boolean; upid: string }>('POST', `/api/backups/${encodeURIComponent(id)}/offsite/run`),
   detectPbs: (hostId: string) => request<PbsDetected>('POST', '/api/settings/pbs/detect', { hostId }),
   createPbsToken: (agent: PbsAgentLink, tokenId: string) => request<PbsTokenOutcome & { settings: PbsSettings }>('POST', '/api/settings/pbs/token', { agent, tokenId }),
   hostBackupJobs: (hostId: string) => request<HostBackupJobs>('GET', `/api/hosts/${hostId}/backup-jobs`),
