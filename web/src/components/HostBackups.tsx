@@ -4,11 +4,12 @@ import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Bot, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink } from 'lucide-react';
 import { SnapshotsModal } from './BackupSnapshots';
-import { BackupJobEditModal, ManagedBackupsModal } from './ManagedBackups';
+import { BackupJobEditModal, type JobTab, ManagedBackupsModal } from './ManagedBackups';
 import { NextcloudPluginModal } from './NextcloudPlugin';
 import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { type DayVerify, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, hoursLabel, databaseJobText, offsiteLane, rhythmLabel, scheduleLabel, thresholdSourceLabel, timeline } from '../lib/backups';
+import { OffsitePill } from './OffsiteCopy';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -23,26 +24,47 @@ const DAY = 24 * 3600_000;
 const verifyColor: Record<DayVerify, string> = { ok: 'bg-emerald-500', unverified: 'bg-amber-500', failed: 'bg-red-500' };
 const verifyLabel: Record<DayVerify, string> = { ok: ', vérifié', unverified: ', non vérifié', failed: ', vérification en échec' };
 
-export function BackupTimeline({ group, days = 30, className }: { group: Pick<BackupGroup, 'times' | 'interval'> & { source?: BackupGroup['source'] }; days?: number; className?: string }) {
+// Thin lane of the copy to the secondary PBS under it (copy: a secondary is configured): blue when the
+// day reached the secondary, orange outline when a copy is missing, red when the run bringing it failed,
+// dashed when the copy is not enabled; none for a backup that cannot be copied.
+const offsiteColor: Record<OffsiteDay, string> = { copied: 'bg-sky-400', missing: 'border border-amber-400', failed: 'bg-red-500', none: 'bg-raised' };
+const offsiteDayLabel: Record<OffsiteDay, string> = { copied: 'copiée', missing: 'copie manquante', failed: 'copie manquante (échec)', none: 'pas de copie' };
+
+export function BackupTimeline({ group, days = 30, className, copy }: { group: Pick<BackupGroup, 'times' | 'interval' | 'offsite' | 'placeholder'> & { source?: BackupGroup['source'] }; days?: number; className?: string; copy?: boolean }) {
   // Home Assistant does not verify its backups
   const verified = group.source !== 'haos';
   const cells = timeline(group.times, days, undefined, verified);
   const daily = !!group.interval && group.interval <= 1.2 * DAY;
   const oldest = group.times?.[0]?.t ?? Infinity;
   const today = cells[cells.length - 1].day;
+  const lane = copy ? offsiteLane(group, days) : null;
+  const day = (t: number) => new Date(t).toLocaleDateString('fr-FR');
   return (
     // cells share the width (no minimum: 30 of them never overflow a narrow box)
-    <div className={clsx('flex gap-[2px]', className ?? 'w-full')} aria-label="Snapshots des 30 derniers jours">
-      {cells.map((c) => {
-        const missing = daily && !c.count && c.day + DAY > oldest && c.day < today;
-        return (
-          <span
-            key={c.day}
-            title={`${new Date(c.day).toLocaleDateString('fr-FR')} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}${verified ? verifyLabel[c.verify] : ''}` : 'aucun snapshot'}`}
-            className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.count ? verifyColor[c.verify] : missing ? 'bg-red-500/70' : 'bg-raised')}
-          />
-        );
-      })}
+    <div className={clsx('flex flex-col gap-[3px]', className ?? 'w-full')}>
+      <div className="flex gap-[2px]" aria-label="Snapshots des 30 derniers jours">
+        {cells.map((c) => {
+          const missing = daily && !c.count && c.day + DAY > oldest && c.day < today;
+          return (
+            <span
+              key={c.day}
+              title={`${day(c.day)} : ${c.count ? `${c.count} snapshot${c.count > 1 ? 's' : ''}${verified ? verifyLabel[c.verify] : ''}` : 'aucun snapshot'}`}
+              className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.count ? verifyColor[c.verify] : missing ? 'bg-red-500/70' : 'bg-raised')}
+            />
+          );
+        })}
+      </div>
+      {lane && (
+        <div className="flex gap-[2px]" aria-label={lane.off ? 'Copie déportée non activée' : 'Copies sur le PBS de secours, 30 derniers jours'}>
+          {lane.cells.map((c) =>
+            lane.off ? (
+              <span key={c.day} title="Copie déportée non activée" className="h-1.5 min-w-0 flex-1 border-b border-dashed border-zinc-600" />
+            ) : (
+              <span key={c.day} title={`${day(c.day)} : ${offsiteDayLabel[c.state]}`} className={clsx('h-1.5 min-w-0 flex-1 rounded-[2px]', offsiteColor[c.state])} />
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -158,6 +180,11 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
   const [nextcloud, setNextcloud] = useState(false);
   // job id, or 'new'
   const [editing, setEditing] = useState<string | null>(null);
+  const [editTab, setEditTab] = useState<JobTab | undefined>();
+  const edit = (jobId: string, tab?: JobTab) => {
+    setEditTab(tab);
+    setEditing(jobId);
+  };
   const [running, setRunning] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
   const [removing, setRemoving] = useState<BackupGroup | null>(null);
@@ -235,7 +262,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                   Nextcloud
                 </Button>
               )}
-              <Button size="sm" icon={Plus} disabled={!!addBlocked} onClick={() => setEditing('new')} title={addBlocked ?? "Nouvelle sauvegarde lancée par l'agent (répertoires ou base de données)"}>
+              <Button size="sm" icon={Plus} disabled={!!addBlocked} onClick={() => edit('new')} title={addBlocked ?? "Nouvelle sauvegarde lancée par l'agent (répertoires ou base de données)"}>
                 Ajouter
               </Button>
             </>
@@ -270,6 +297,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                     <Badge tone="neutral">{backupKind(g).label}</Badge>
                   </span>
                   {g.managed && !g.managed.enabled && <Badge tone="neutral">désactivée</Badge>}
+                  {/* settings of the copy: in the window of the backup (backups of the agent) */}
+                  <OffsitePill g={g} remote={data.offsite} onSettings={g.managed && !g.managed.plugin ? () => edit(g.managed!.jobId, 'offsite') : undefined} />
                   {/* run, edit and delete: backups of the agent only */}
                   {/* before the block: the blocks of the rows stay aligned on the right */}
                   {canManage && !g.source && (
@@ -289,7 +318,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                         icon: Pencil,
                         title: g.managed?.plugin ? 'Générée par le plugin Nextcloud AIO : la modifier depuis le plugin' : g.managed ? 'Modifier la sauvegarde' : "Modifier : seulement les sauvegardes de l'agent",
                         disabled: !canManage || !g.managed || !!g.managed.plugin,
-                        onClick: () => setEditing(g.managed!.jobId),
+                        onClick: () => edit(g.managed!.jobId),
                       },
                       { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                       {
@@ -303,16 +332,22 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                   />
                 </div>
                 <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:gap-6">
+                  {/* two lines of details, as high as the timeline and its copy lane */}
                   <div className="min-w-0 @2xl:flex-1 @2xl:basis-0">
-                    <div className="text-xs text-muted">
+                    <div className="truncate text-xs text-muted">
                       {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.lastBackup ? timeAgo(g.lastBackup) : 'jamais sauvegardée'} · {formatBytes(g.size)}
                       {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
                       {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? `${g.ha ? 'Home Assistant' : 'agent'} · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} · {g.threshold === null ? 'aucun rythme connu : pas de retard signalé' : `en retard après ${hoursLabel(g.threshold)} (${thresholdSourceLabel[g.thresholdSource]})`}
+                    <div className="truncate text-xs text-zinc-500">
+                      {g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? `${g.ha ? 'Home Assistant' : 'agent'} · ${scheduleLabel(g)}` : rhythm ? `rythme ${rhythm}` : 'rythme inconnu'} ·{' '}
+                      {g.threshold === null ? (
+                        <span title="Aucun rythme connu : pas de retard signalé">sans seuil</span>
+                      ) : (
+                        <span title={`Seuil ${thresholdSourceLabel[g.thresholdSource]}`}>retard après {hoursLabel(g.threshold)}</span>
+                      )}
+                      {g.managed && databaseJobText(g.managed) && <span className="text-zinc-400"> · {databaseJobText(g.managed)}</span>}
                     </div>
-                    {g.managed && databaseJobText(g.managed) && <div className="text-xs text-zinc-400">{databaseJobText(g.managed)}</div>}
                     {g.ha?.failedAt && g.ha.failedAt > g.lastBackup && (
                       <div className="text-xs text-red-400" title={dateTime(g.ha.failedAt)}>Sauvegarde automatique non écrite sur cette destination {timeAgo(g.ha.failedAt)}</div>
                     )}
@@ -321,7 +356,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                       <div className="text-xs text-red-400" title={dateTime(g.pve.lastTask.at)}>Dernière tâche en échec {timeAgo(g.pve.lastTask.at)} : {g.pve.lastTask.error}</div>
                     )}
                   </div>
-                  <BackupTimeline group={g} className="w-full @2xl:flex-1 @2xl:basis-0" />
+                  <BackupTimeline group={g} copy={!!data.offsite} className="w-full @2xl:flex-1 @2xl:basis-0" />
                 </div>
               </li>
             );
@@ -333,7 +368,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
       </p>
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
       <ManagedBackupsModal host={host} open={agent} onClose={() => setAgent(false)} />
-      {canManage && <BackupJobEditModal host={host} jobId={editing} onClose={() => setEditing(null)} />}
+      {canManage && <BackupJobEditModal host={host} jobId={editing} tab={editTab} onClose={() => setEditing(null)} />}
       {canManage && nextcloudShown && <NextcloudPluginModal host={host} open={nextcloud} onClose={() => setNextcloud(false)} />}
       {(() => {
         // looked up at each render: follows the refreshes of the list

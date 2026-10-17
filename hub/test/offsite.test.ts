@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { backupsAlert } from '../src/alerts.js';
-import { desiredJob, lastRunOf, notCopiable, offsiteState, planSync, remoteEntry, sameGroupElsewhere, syncJobId, updateBody, upidStart } from '../src/offsite.js';
+import { copiedGroups, desiredJob, lastRunOf, notCopiable, offsiteState, planSync, remoteEntry, sameGroupElsewhere, syncJobId, updateBody, upidStart } from '../src/offsite.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, BackupOffsite } from '../src/types.js';
 
@@ -127,4 +127,24 @@ test('alerts: a failed copy is an alert, a late one a warning; running it is for
   assert.equal(authorize('operator', 'PUT', '/api/backups/:id/offsite'), false);
   assert.equal(authorize('operator', 'POST', '/api/settings/pbs-remote/token'), false);
   assert.equal(authorize('viewer', 'POST', '/api/backups/:id/offsite/run'), false);
+});
+
+test('poll of the secondary: last snapshot of each copied group and its timeline, oldest first', () => {
+  const g = (id: string, last: number, count: number) => ({ 'backup-type': 'host', 'backup-id': id, 'last-backup': last, 'backup-count': count });
+  const s = (id: string, t: number, state?: string, size?: number) => ({ 'backup-type': 'host', 'backup-id': id, 'backup-time': t, ...(size ? { size } : {}), ...(state ? { verification: { state } } : {}) });
+  const out = copiedGroups([g('a', 300, 3), g('b', 50, 0)], [s('a', 300, undefined, 9), s('a', 100, 'ok', 7), s('a', 200, 'failed'), s('other', 400)]);
+  assert.deepEqual(out.get('host/a'), {
+    lastBackup: 300_000,
+    count: 3,
+    verify: null,
+    size: 9,
+    times: [
+      { t: 100_000, verify: 'ok', size: 7 },
+      { t: 200_000, verify: 'failed', size: null },
+      { t: 300_000, verify: null, size: 9 },
+    ],
+  });
+  // a group listed without snapshots (pruned meanwhile): no timeline
+  assert.deepEqual(out.get('host/b'), { lastBackup: 50_000, count: 0, verify: null, size: null, times: [] });
+  assert.equal(out.has('host/other'), false);
 });

@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Calculator, Container, KeyRound, ListChecks, Package, Plus, Save, X } from 'lucide-react';
 import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
-import { databaseKindLabel, dumpArchives, formatBytes } from '../lib/backups';
+import { databaseKindLabel, dumpArchives, formatBytes, offsiteForm, offsiteInput, offsiteNotCopiable } from '../lib/backups';
+import { OffsiteSettingsTab } from './OffsiteCopy';
 import { useMe } from '../lib/auth';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -359,14 +360,15 @@ function AgentLine({ host, view }: { host: Host; view: HostBackupJobs }) {
   );
 }
 
-type JobTab = 'content' | 'destination' | 'schedule';
+export type JobTab = 'content' | 'destination' | 'schedule' | 'offsite';
 const JOB_TABS: { id: JobTab; label: string }[] = [
   { id: 'content', label: 'Contenu' },
   { id: 'destination', label: 'Destination' },
   { id: 'schedule', label: 'Planning' },
+  { id: 'offsite', label: 'Copie déportée' },
 ];
 
-function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBackupJobs; job: BackupJob | null; open: boolean; onClose: () => void }) {
+function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: Host; view: HostBackupJobs; job: BackupJob | null; open: boolean; onClose: () => void; tab?: JobTab }) {
   const qc = useQueryClient();
   const toast = useToast();
   const initial: BackupJobInput = job
@@ -385,7 +387,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
         database: null,
       };
   const [form, setForm] = useState<BackupJobInput>(initial);
-  const [tab, setTab] = useState<JobTab>('content');
+  const [tab, setTab] = useState<JobTab>(initialTab ?? 'content');
   // creation: the identifier follows the name until it is typed by hand
   const [idAuto, setIdAuto] = useState(true);
   // group already on the PBS, written by something else: refused by the hub (snapshots would mix)
@@ -394,8 +396,13 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const taken = !job && [...(pbs?.groups ?? []), ...(pbs?.orphans ?? [])].find((g) => g.id === groupId && !g.gone && !('source' in g && g.source === 'managed'));
   const [excludes, setExcludes] = useState(initial.excludes.join('\n'));
   const excludeList = excludes.split('\n').map((e) => e.trim()).filter(Boolean);
-  // size of the last snapshot of the job, to compare with the estimate
-  const lastSize = (job && pbs?.groups.find((g) => g.id === job.group && !g.gone)?.size) ?? null;
+  // group written by the job: size of its last snapshot (compared with the estimate), its copy
+  const group = job ? pbs?.groups.find((g) => g.id === job.group && !g.gone) : undefined;
+  const lastSize = group?.size ?? null;
+  // copy to the secondary PBS: saved with the job, when changed
+  const [offsiteBefore] = useState(() => offsiteForm(group?.offsite));
+  const [offsite, setOffsite] = useState(offsiteBefore);
+  const remote = pbs?.offsite ?? null;
   const [busy, setBusy] = useState(false);
   // identifier on the PBS, until typed by hand: the name for directories; for a database job, the host, the
   // kind and the databases (the namespace Hosts is shared by all the hosts)
@@ -426,6 +433,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
     try {
       if (job) await api.updateBackupJob(job.id, body);
       else await api.createBackupJob(host.id, body);
+      const o = group && offsiteInput(offsiteBefore, offsite);
+      if (group && o) await api.setBackupOffsite(group.id, o);
       qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
       // the card of the host lists the groups of the backups
       qc.invalidateQueries({ queryKey: keys.backups });
@@ -447,7 +456,8 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
   const field = 'mb-1.5 block text-xs font-medium text-muted';
   // the whole setting at a glance, whatever the tab shown
   const when = form.connectEveryDays ? `à la connexion, au plus tous les ${form.connectEveryDays} j` : form.schedule;
-  const summary = `${KIND_LABEL[kind]} · ${form.store || '—'} › Hosts › ${(job ? job.backupId : form.backupId) || '—'} · ${when}${form.enabled ? '' : ' · désactivée'}`;
+  const copyText = !remote || !group || offsiteNotCopiable(group) ? '' : offsite.enabled ? ` · copie ${offsite.schedule}` : ' · sans copie';
+  const summary = `${KIND_LABEL[kind]} · ${form.store || '—'} › Hosts › ${(job ? job.backupId : form.backupId) || '—'} · ${when}${form.enabled ? '' : ' · désactivée'}${copyText}`;
   return (
     <Modal
       open={open}
@@ -467,7 +477,9 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
     >
       <div className="space-y-4 text-sm">
         <AgentLine host={host} view={view} />
-        <Tabs tabs={JOB_TABS} value={tab} onChange={setTab} />
+        {/* the copy tab: only with a secondary PBS */}
+        <Tabs tabs={remote ? JOB_TABS : JOB_TABS.filter((t) => t.id !== 'offsite')} value={tab} onChange={setTab} />
+        {tab === 'offsite' && <OffsiteSettingsTab g={group} remote={remote} value={offsite} onChange={setOffsite} />}
         {tab === 'content' && (
           <section className="space-y-4">
             <label className="block">
@@ -633,7 +645,7 @@ function JobModal({ host, view, job, open, onClose }: { host: Host; view: HostBa
 }
 
 // Creation ('new') or edition of one backup job, from the list of the backups of the host.
-export function BackupJobEditModal({ host, jobId, onClose }: { host: Host; jobId: string | null; onClose: () => void }) {
+export function BackupJobEditModal({ host, jobId, tab, onClose }: { host: Host; jobId: string | null; tab?: JobTab; onClose: () => void }) {
   const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!jobId });
   if (!jobId) return null;
   const job = jobId === 'new' ? null : data?.jobs.find((j) => j.id === jobId);
@@ -651,7 +663,7 @@ export function BackupJobEditModal({ host, jobId, onClose }: { host: Host; jobId
       </Modal>
     );
   }
-  return <JobModal key={jobId} host={host} view={data} job={job} open onClose={onClose} />;
+  return <JobModal key={jobId} host={host} view={data} job={job} open onClose={onClose} tab={tab} />;
 }
 
 // Installation of the PBS client, by the agent: Proxmox repository + package (APT), or the client image

@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { DatabaseBackup, HardDrive, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { Cloud, DatabaseBackup, HardDrive, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
-import { BackupJobEditModal } from '../components/ManagedBackups';
+import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
+import { OffsiteCell } from '../components/OffsiteCopy';
 import { Badge, Button, Empty, IconGroup, Modal, PageHeader, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -110,7 +111,7 @@ export function Backups() {
   const { canWrite, canManage, canSettings } = useMe();
   const toast = useToast();
   // backup job edited from its line (pencil): its host and job
-  const [editing, setEditing] = useState<{ host: Host; jobId: string } | null>(null);
+  const [editing, setEditing] = useState<{ host: Host; jobId: string; tab?: JobTab } | null>(null);
   // group whose snapshots are shown
   const [history, setHistory] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
@@ -245,6 +246,24 @@ export function Backups() {
                   </div>
                 );
               })}
+              {data.offsite?.usage && (() => {
+                const u = data.offsite.usage;
+                const pct = u.total ? Math.round((u.used / u.total) * 100) : 0;
+                return (
+                  <div className="panel px-5 py-4" title={data.offsite.pollError ? `Relevé en échec : ${data.offsite.pollError}` : `Relevé ${timeAgo(data.offsite.polledAt)}`}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 text-zinc-200"><Cloud className="h-4 w-4 text-sky-400" />{data.offsite.store} <span className="text-xs text-muted">· secours {data.offsite.host}</span></span>
+                      <span className="tabular-nums text-xs text-muted">{formatBytes(u.used)} / {formatBytes(u.total)}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-raised">
+                      <div className={clsx('h-full rounded-full', pct >= 90 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-400' : 'bg-sky-400')} style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className={clsx('mt-1 text-xs', data.offsite.pollError ? 'text-red-400' : 'text-muted')}>
+                      {data.offsite.pollError ? 'relevé du PBS de secours en échec' : `${pct} % utilisé · ${formatBytes(u.avail)} libres`}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -304,7 +323,7 @@ export function Backups() {
                 {list.length === 0 ? (
                   <p className="p-6 text-sm text-muted">Aucune sauvegarde pour ce filtre.</p>
                 ) : (
-                  <table className="w-full min-w-[1200px] text-sm">
+                  <table className={clsx('w-full text-sm', data.offsite ? 'min-w-[1400px]' : 'min-w-[1200px]')}>
                     <thead className="border-b border-line">
                       <tr>
                         <th className="th">Sauvegarde</th>
@@ -316,6 +335,7 @@ export function Backups() {
                         <th className="th">Vérif.</th>
                         <th className="th">État</th>
                         <th className="th">Seuil</th>
+                        {data.offsite && <th className="th" title={`PBS de secours ${data.offsite.host} › ${data.offsite.store}`}>Copie déportée</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-line">
@@ -390,7 +410,7 @@ export function Backups() {
                                 <Link to={`/hosts/${g.hostId}`} className="text-zinc-300 hover:text-emerald-300">{hostName(g.hostId)}</Link>
                               )}
                             </td>
-                            <td className="td"><BackupTimeline group={g} className="w-56" /></td>
+                            <td className="td"><BackupTimeline group={g} copy={!!data.offsite} className="w-56" /></td>
                             <td className="td" title={g.lastBackup ? dateTime(g.lastBackup) : undefined}>{g.lastBackup ? timeAgo(g.lastBackup) : <span className="text-zinc-500">jamais</span>}</td>
                             <td className="td tabular-nums text-zinc-300">{formatBytes(g.size)}</td>
                             <td className="td text-xs">
@@ -398,6 +418,12 @@ export function Backups() {
                             </td>
                             <td className="td"><Badge tone={meta.tone}>{meta.label}</Badge></td>
                             <td className="td"><ThresholdCell g={g} canManage={canManage} onChange={(staleHours) => update(g, { staleHours })} /></td>
+                            {data.offsite && (
+                              <td className="td">
+                                {/* settings of the copy: in the window of the backup (backups of the agent) */}
+                                <OffsiteCell g={g} remote={data.offsite} onSettings={noEdit(g) ? undefined : () => setEditing({ host: hostList.find((h) => h.id === g.hostId)!, jobId: g.managed!.jobId, tab: 'offsite' })} />
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -411,7 +437,7 @@ export function Backups() {
       )}
       {data.enabled && <OrphansModal data={data} open={orphans} onClose={() => setOrphans(false)} canManage={canManage} />}
       {shownGroup && <SnapshotsModal group={shownGroup} open onClose={() => setHistory(null)} />}
-      {canManage && editing && <BackupJobEditModal key={editing.jobId} host={editing.host} jobId={editing.jobId} onClose={() => setEditing(null)} />}
+      {canManage && editing && <BackupJobEditModal key={editing.jobId} host={editing.host} jobId={editing.jobId} tab={editing.tab} onClose={() => setEditing(null)} />}
     </>
   );
 }

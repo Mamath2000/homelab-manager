@@ -506,6 +506,8 @@ export interface BackupOrphan {
 
 export interface BackupsView {
   enabled: boolean;
+  // secondary PBS of the copies; null: not configured or disabled
+  offsite: { host: string; store: string; polledAt: string | null; pollError: string | null; usage: { total: number; used: number; avail: number } | null } | null;
   polledAt: string | null;
   pollError: string | null;
   datastores: { store: string; total: number; used: number; avail: number }[];
@@ -566,6 +568,9 @@ export interface BackupOffsite {
   lastBackup?: number | null;
   count?: number;
   verify?: 'ok' | 'failed' | null;
+  size?: number | null;
+  // last snapshots on the secondary, oldest first (timeline of the copy)
+  times?: BackupSnapshot[];
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
   nextRun?: number | null;
   // ok, pending (never run), late (a snapshot did not arrive), failed; null: not copied

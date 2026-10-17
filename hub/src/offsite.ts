@@ -2,8 +2,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import { sha256 } from './crypto.js';
 import { backups, settings } from './db.js';
 import { publish } from './events.js';
-import { loadPbsSettings, pbsCall } from './pbs.js';
-import type { BackupDoc, BackupOffsite, PbsRemoteSettings } from './types.js';
+import { HISTORY, loadPbsSettings, pbsCall } from './pbs.js';
+import type { BackupDoc, BackupOffsite, BackupSnapshot, PbsRemoteSettings } from './types.js';
 
 // Copy of chosen backups to a secondary PBS ("copie déportée"). The secondary pulls from the main PBS:
 // a remote entry (REMOTE_NAME) with a read-only token of the main PBS, and one sync job per group copied,
@@ -201,7 +201,36 @@ interface ApiSnapshot {
   'backup-type': string;
   'backup-id': string;
   'backup-time': number;
+  size?: number;
   verification?: { state: string };
+}
+
+type Copy = Required<Pick<BackupOffsite, 'lastBackup' | 'count' | 'verify' | 'size' | 'times'>>;
+
+const verifyOf = (s: ApiSnapshot | undefined): BackupSnapshot['verify'] => (s?.verification?.state === 'ok' ? 'ok' : s?.verification?.state === 'failed' ? 'failed' : null);
+
+// Groups of one namespace of the secondary (key type/id): their last snapshot and the last HISTORY ones
+// (the timeline of the copy, same window as the one of the main PBS).
+export function copiedGroups(list: ApiGroup[], snaps: ApiSnapshot[]) {
+  const times = new Map<string, ApiSnapshot[]>();
+  for (const s of snaps) {
+    const k = `${s['backup-type']}/${s['backup-id']}`;
+    times.set(k, [...(times.get(k) ?? []), s]);
+  }
+  const out = new Map<string, Copy>();
+  for (const g of list) {
+    const k = `${g['backup-type']}/${g['backup-id']}`;
+    const sorted = (times.get(k) ?? []).sort((a, b) => a['backup-time'] - b['backup-time']);
+    const last = sorted[sorted.length - 1];
+    out.set(k, {
+      lastBackup: g['last-backup'] * 1000,
+      count: g['backup-count'],
+      verify: verifyOf(last),
+      size: last?.size ?? null,
+      times: sorted.slice(-HISTORY).map((s) => ({ t: s['backup-time'] * 1000, verify: verifyOf(s), size: s.size ?? null })),
+    });
+  }
+  return out;
 }
 
 // Start time of a task, from its UPID (UPID:node:pid:pstart:taskid:starttime:...; hexadecimal seconds).
@@ -243,7 +272,7 @@ async function doPoll(log?: FastifyBaseLogger) {
     const status = new Map((await call<SyncJobStatus[]>(r, 'GET', '/admin/sync')).map((s) => [s.id, s]));
     const groups = (await enabledGroups()).filter((g) => !notCopiable(g as BackupDoc));
     const e = encodeURIComponent(r.store);
-    const seen = new Map<string, { last: number; count: number; verify: BackupOffsite['verify'] }>();
+    const seen = new Map<string, Copy>();
     for (const ns of new Set(groups.map((g) => g.ns))) {
       const q = ns ? `?ns=${encodeURIComponent(ns)}` : '';
       // a namespace missing on the secondary: its groups show as never copied
@@ -251,16 +280,7 @@ async function doPoll(log?: FastifyBaseLogger) {
         call<ApiGroup[]>(r, 'GET', `/admin/datastore/${e}/groups${q}`).catch(() => []),
         call<ApiSnapshot[]>(r, 'GET', `/admin/datastore/${e}/snapshots${q}`).catch(() => []),
       ]);
-      const lastSnap = new Map<string, ApiSnapshot>();
-      for (const s of snaps) {
-        const k = `${s['backup-type']}/${s['backup-id']}`;
-        if (!lastSnap.has(k) || s['backup-time'] > lastSnap.get(k)!['backup-time']) lastSnap.set(k, s);
-      }
-      for (const g of list) {
-        const k = `${g['backup-type']}/${g['backup-id']}`;
-        const v = lastSnap.get(k)?.verification?.state;
-        seen.set(`${ns}/${k}`, { last: g['last-backup'] * 1000, count: g['backup-count'], verify: v === 'ok' ? 'ok' : v === 'failed' ? 'failed' : null });
-      }
+      for (const [k, c] of copiedGroups(list, snaps)) seen.set(`${ns}/${k}`, c);
     }
     // only offsite.* is written: the poll of the main PBS owns the rest of the group
     for (const g of groups) {
@@ -270,9 +290,11 @@ async function doPoll(log?: FastifyBaseLogger) {
         { _id: g._id },
         {
           $set: {
-            'offsite.lastBackup': copy?.last ?? null,
+            'offsite.lastBackup': copy?.lastBackup ?? null,
             'offsite.count': copy?.count ?? 0,
             'offsite.verify': copy?.verify ?? null,
+            'offsite.size': copy?.size ?? null,
+            'offsite.times': copy?.times ?? [],
             'offsite.lastRun': lastRunOf(st),
             'offsite.nextRun': st?.['next-run'] ? st['next-run'] * 1000 : null,
           },

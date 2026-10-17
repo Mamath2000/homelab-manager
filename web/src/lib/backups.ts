@@ -1,4 +1,4 @@
-import type { BackupGroup, BackupState, DatabaseDump, DatabaseKind, DumpInfo } from './api';
+import type { BackupGroup, BackupOffsite, BackupOffsiteInput, BackupState, DatabaseDump, DatabaseKind, DumpInfo } from './api';
 
 export const backupStateMeta: Record<BackupState, { label: string; tone: 'ok' | 'warn' | 'bad' | 'unknown' | 'neutral' }> = {
   ok: { label: 'à jour', tone: 'ok' },
@@ -93,6 +93,58 @@ export function timeline(times: BackupGroup['times'], days = 30, now = Date.now(
     else if (verified && s.verify === null && c.verify === 'ok') c.verify = 'unverified';
   }
   return out;
+}
+
+// Copy of a group to the secondary PBS: why it cannot be (same rules as hub offsite.ts notCopiable), else null
+export function offsiteNotCopiable(g: Pick<BackupGroup, 'source' | 'placeholder'>) {
+  if (g.source === 'haos') return 'sauvegarde Home Assistant : elle n’est pas sur le PBS';
+  if (g.placeholder) return 'sauvegarde jamais écrite sur le PBS';
+  return null;
+}
+
+// Lane of the copy under the timeline, day by day: copied (a snapshot of that day is on the secondary),
+// missing (a snapshot of the main PBS that the last run should have brought is not there; failed when that
+// run failed), none. A snapshot is expected when older than the start of the last run and not older than
+// the oldest copy (the secondary prunes on its own; before the first copy, only the last one is expected).
+// null: not copiable; off: copy not enabled.
+export type OffsiteDay = 'copied' | 'missing' | 'failed' | 'none';
+
+export function offsiteLane(g: Pick<BackupGroup, 'times' | 'offsite' | 'source' | 'placeholder'>, days = 30, now = Date.now()) {
+  if (offsiteNotCopiable(g)) return null;
+  const o = g.offsite;
+  const cells = timeline(o?.enabled ? o.times : [], days, now, false);
+  if (!o?.enabled) return { off: true, cells: cells.map((c) => ({ day: c.day, state: 'none' as OffsiteDay })) };
+  const until = o.lastRun?.start ?? -Infinity;
+  const before = (g.times ?? []).map((s) => s.t).filter((t) => t <= until);
+  const from = o.times?.length ? o.times[0].t : before.length ? Math.max(...before) : Infinity;
+  const expected = timeline(before.filter((t) => t >= from).map((t) => ({ t, verify: null })), days, now, false);
+  const miss: OffsiteDay = o.state === 'failed' ? 'failed' : 'missing';
+  return { off: false, cells: cells.map((c, i) => ({ day: c.day, state: (c.count ? 'copied' : expected[i].count ? miss : 'none') as OffsiteDay })) };
+}
+
+// What the hub applies when the copy is enabled without settings (hub offsite.ts OFFSITE_DEFAULTS)
+export const OFFSITE_DEFAULTS = { schedule: '06:00', transferLast: 2 };
+
+// Settings of the copy in the window of a backup
+export interface OffsiteForm {
+  enabled: boolean;
+  schedule: string;
+  transferLast: number | null;
+  rateIn: string;
+}
+
+export const offsiteForm = (o: BackupOffsite | null | undefined): OffsiteForm => ({
+  enabled: !!o?.enabled,
+  schedule: o?.schedule ?? OFFSITE_DEFAULTS.schedule,
+  transferLast: o ? o.transferLast : OFFSITE_DEFAULTS.transferLast,
+  rateIn: o?.rateIn ?? '',
+});
+
+// What to send for the copy when the window is saved; null: nothing changed.
+export function offsiteInput(before: OffsiteForm, after: OffsiteForm): BackupOffsiteInput | null {
+  if (JSON.stringify(before) === JSON.stringify(after)) return null;
+  if (!after.enabled) return { enabled: false };
+  return { enabled: true, schedule: after.schedule.trim(), transferLast: after.transferLast, rateIn: after.rateIn.trim() || null };
 }
 
 // PBS client of a host, from the capabilities of its agent (see hub backupJobs.ts clientState)

@@ -466,6 +466,8 @@ export interface BackupOffsite {
   lastBackup?: number | null; // unix ms of the last snapshot copied
   count?: number;
   verify?: 'ok' | 'failed' | null;
+  size?: number | null; // of the last snapshot copied
+  times?: BackupSnapshot[]; // last snapshots on the secondary, oldest first (timeline)
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
   nextRun?: number | null;
 }
