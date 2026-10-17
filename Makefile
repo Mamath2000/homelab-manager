@@ -130,7 +130,7 @@ docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]
 	YES=$(YES) bash docker-release.sh direct
 
-publish: ## Prod : récupère la dernière image du hub (Docker Hub) et relance la stack (docker compose up -d + restart) [YES=1]
+publish: ## Prod : récupère la dernière image du hub (Docker Hub) et relance la stack (docker compose up -d) [YES=1]
 	@echo "Stack de prod : $(PROD_SSH)$(if $(PROD_PCT), / CT $(PROD_PCT)):$(PROD_DIR)"
 	@[ "$(YES)" = 1 ] || { printf "Mettre à jour le hub et relancer la stack ? [o/N] "; read a; case "$$a" in o|O|oui|y|Y) ;; *) echo "Annulé"; exit 1 ;; esac; }
-	$(call PROD_RUN,docker compose pull hub && docker compose up -d && docker compose restart && docker compose ps)
+	$(call PROD_RUN,docker compose pull hub && docker compose up -d && docker compose ps)

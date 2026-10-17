@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { agentBinary } from './agentBinaries.js';
 import { sendToAgent } from './agents.js';
-import { jobs } from './db.js';
+import { hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import type { HostDoc, JobAction, JobDoc, SetupOption } from './types.js';
 
@@ -149,10 +149,18 @@ export async function flushLogs() {
   }
 }
 
-// Jobs left "running" by a previous hub process can never complete.
+// Jobs left "running" by a previous hub process can never complete. Those that only a hub restart
+// interrupted must not count as an attempt: the agent update is retried at the next hello, and the
+// registry check left due is run again at the next docker report.
 export async function recoverJobs() {
+  const interrupted = await jobs.find({ status: 'running', action: { $in: ['agent_update', 'docker_check'] } }).toArray();
   await jobs.updateMany(
     { status: 'running' },
     { $set: { status: 'failed', error: 'hub restarted', finishedAt: new Date() } },
   );
+  const ids = (action: JobAction) => interrupted.filter((j) => j.action === action).map((j) => j.hostId);
+  const update = ids('agent_update');
+  if (update.length) await hosts.updateMany({ _id: { $in: update } }, { $unset: { lastAgentUpdateAt: '', lastAgentUpdateHash: '' } });
+  const check = ids('docker_check');
+  if (check.length) await hosts.updateMany({ _id: { $in: check } }, { $set: { dockerRecheck: true } });
 }
