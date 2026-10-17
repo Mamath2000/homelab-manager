@@ -312,8 +312,7 @@ function HostDetailPage({ id }: { id: string }) {
     }
   };
 
-  // content in a fixed order (UPS, packages, Docker, then backups), a missing block letting the next one
-  // move up: the backups get their own column, otherwise two blocks share the two columns
+  // Ordered cards flow into balanced columns when there is enough room.
   const blocks: ReactNode[] = [];
   if (host.ups) blocks.push(<UpsPanel key="ups" ups={host.ups} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
@@ -329,13 +328,13 @@ function HostDetailPage({ id }: { id: string }) {
       </Panel>,
     );
   }
-  const columns: ReactNode[][] = backupsOn ? [blocks, [<HostBackups key="backups" host={host} onStarted={setJobId} />]] : blocks.length > 1 ? blocks.map((b) => [b]) : [blocks];
+  if (backupsOn) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
 
   return (
     <>
       {/* large screens: the content on the left, history and console on the right, fixed */}
       <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
-        <div className="min-w-0">
+        <div className="min-w-0 @container">
           {/* title, system strip and alert timeline stay on top while the content scrolls (below the 3.5rem bar of the layout) */}
           <div className={clsx('2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6', scrolled ? 'pb-3 shadow-[0_14px_18px_-12px_rgb(0_0_0/0.7)]' : 'pb-5')}>
             <Link to={`/hosts${listSearch ? `?${listSearch}` : ''}`} className={clsx('mb-3 items-center gap-1.5 text-sm text-muted hover:text-zinc-200', scrolled ? 'hidden' : 'inline-flex')}>
@@ -518,9 +517,11 @@ function HostDetailPage({ id }: { id: string }) {
             </Panel>
           )}
 
-          <div className={clsx('grid items-start gap-5', columns.length > 1 && 'min-[2200px]:grid-cols-2')}>
-            {columns.map((col, i) => (
-              <div key={i} className="flex min-w-0 flex-col gap-5">{col}</div>
+          <div className="columns-1 gap-5 @xl:columns-2">
+            {blocks.map((block, index) => (
+              <div key={index} className="mb-5 inline-block w-full break-inside-avoid align-top">
+                {block}
+              </div>
             ))}
           </div>
         </div>
