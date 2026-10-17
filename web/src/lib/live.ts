@@ -47,6 +47,9 @@ export function useLiveEvents(enabled: boolean) {
       qc.invalidateQueries({ queryKey: ['host-alerts'] });
       qc.invalidateQueries({ queryKey: keys.alerts });
       qc.invalidateQueries({ queryKey: ['backup-jobs'] });
+      // state of the last poll of the PBS and of the secondary PBS (Paramètres › Sauvegardes)
+      qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
+      qc.invalidateQueries({ queryKey: ['settings', 'pbs-remote'] });
     });
     // sites or tags changed in the settings
     es.addEventListener('catalog', () => {
