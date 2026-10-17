@@ -417,7 +417,11 @@ func (o *offsiteModule) launch(ctx context.Context, s *OffsiteSpec, jobID string
 	if err != nil {
 		return "", err
 	}
-	upid := upidRe.FindString(raw)
+	// a JSON string: its backslashes (hlm\x2dmain…) are escaped, the UPID is the decoded value
+	var upid string
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &upid) != nil || !strings.HasPrefix(upid, "UPID:") {
+		upid = upidRe.FindString(raw)
+	}
 	if upid == "" {
 		return "", fmt.Errorf("no task in the answer: %s", strings.TrimSpace(raw))
 	}

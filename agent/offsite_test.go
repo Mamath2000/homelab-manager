@@ -167,7 +167,9 @@ func (f *fakeDebug) run(_ context.Context, args ...string) (string, error) {
 		f.started = append(f.started, id)
 		upid := fmt.Sprintf("UPID:n:1:1:1:6AD3E559:syncjob:hlm\\x2dmain:root@pam:")
 		f.tasks = append(f.tasks, apiTask{UPID: upid + id, WorkerType: "syncjob", WorkerID: "hlm-main:x:ds9:Hosts:" + id})
-		return `"` + upid + `"`, nil
+		// JSON output: the backslashes of the worker id come escaped
+		raw, _ := json.Marshal(upid + id)
+		return string(raw), nil
 	}
 	return "", fmt.Errorf("unexpected %s", cmd)
 }
@@ -204,6 +206,10 @@ func TestOffsiteStep(t *testing.T) {
 	o.step(context.Background(), night.Add(time.Hour), false)
 	if strings.Join(f.started, ",") != "hlm-aaaaaaaaaaaa" || len(o.snapshot().Queue) != 1 || len(o.snapshot().Running) != 1 {
 		t.Fatalf("first launch: %v %+v", f.started, o.snapshot())
+	}
+	// the UPID reported is the one of the PBS (the hub follows it), not its JSON form
+	if u := o.snapshot().Running[0].UPID; u != "UPID:n:1:1:1:6AD3E559:syncjob:hlm\\x2dmain:root@pam:hlm-aaaaaaaaaaaa" {
+		t.Fatalf("upid not decoded: %q", u)
 	}
 	o.step(context.Background(), night.Add(time.Hour+time.Minute), false)
 	if len(f.started) != 1 {
