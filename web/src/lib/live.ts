@@ -22,6 +22,7 @@ export function useLiveEvents(enabled: boolean) {
     es.addEventListener('host', (e) => {
       const host = JSON.parse((e as MessageEvent).data) as Host;
       upsertHost(host);
+      qc.invalidateQueries({ queryKey: keys.status });
       // its alerts of the day may have changed (timeline of the host page)
       qc.invalidateQueries({ queryKey: keys.hostAlerts(host.id) });
       // capabilities (PBS client installed...) shown by the backups window
@@ -35,6 +36,7 @@ export function useLiveEvents(enabled: boolean) {
       const job = JSON.parse((e as MessageEvent).data) as Job;
       qc.invalidateQueries({ queryKey: keys.jobs });
       qc.invalidateQueries({ queryKey: keys.hostJobs(job.hostId) });
+      if (job.status !== 'running') qc.invalidateQueries({ queryKey: keys.status });
       if (job.status === 'failed') {
         qc.invalidateQueries({ queryKey: keys.hostAlerts(job.hostId) });
         qc.invalidateQueries({ queryKey: keys.alerts });
@@ -44,6 +46,7 @@ export function useLiveEvents(enabled: boolean) {
     });
     es.addEventListener('backups', () => {
       qc.invalidateQueries({ queryKey: keys.backups });
+      qc.invalidateQueries({ queryKey: keys.status });
       qc.invalidateQueries({ queryKey: ['host-alerts'] });
       qc.invalidateQueries({ queryKey: keys.alerts });
       qc.invalidateQueries({ queryKey: ['backup-jobs'] });

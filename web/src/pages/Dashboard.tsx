@@ -131,7 +131,7 @@ export function Dashboard() {
           <Kpis hosts={hosts} groups={groups} backups={withBackups} />
           <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_400px]">
             <div className="flex min-w-0 flex-col gap-4">
-              <SiteOverview sites={sites} groups={groups} backups={withBackups} />
+              <SiteOverview sites={sites} />
               <SiteTimeline sites={sites} />
             </div>
             <div className="flex min-w-0 flex-col gap-4">

@@ -715,7 +715,7 @@ export interface BackupPve {
 
 // Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'agent' | 'apt' | 'docker' | 'backups' | 'ups';
+export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -724,10 +724,12 @@ export interface HostAlertDoc {
   _id?: ObjectId;
   hostId: ObjectId;
   day: string; // YYYY-MM-DD, time zone of the hub
-  agent?: DayAlert;
+  // one field per domain (see monitoring.ts DOMAINS)
+  system?: DayAlert;
   apt?: DayAlert;
   docker?: DayAlert;
-  backups?: DayAlert;
+  backup?: DayAlert;
+  offsite?: DayAlert;
   ups?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;

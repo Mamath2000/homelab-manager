@@ -3,8 +3,9 @@ import { ObjectId } from 'mongodb';
 import { AgentRequestError, REFRESH_SCOPES, agentRequest, disconnectAgent, isOnline, refreshAgent, type RefreshScope } from '../agents.js';
 import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
-import { hosts, jobs, parseId } from '../db.js';
+import { backups, hosts, jobs, parseId } from '../db.js';
 import { allAlertDays, hostAlertDays } from '../alerts.js';
+import { DOMAINS, evaluateAll } from '../monitoring.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { agentCommands } from '../hubUrl.js';
@@ -222,6 +223,12 @@ export function registerHostRoutes(app: FastifyInstance) {
 
   // the same for every host (timeline of the dashboard, by site)
   app.get('/api/alerts', async () => ({ days: await allAlertDays() }));
+
+  // live status of every host by domain and followed element (monitoring.ts); every role reads
+  app.get('/api/status', async () => ({
+    domains: DOMAINS,
+    hosts: evaluateAll(await hosts.find().toArray(), await backups.find({ hostId: { $ne: null } }).toArray()),
+  }));
 
   app.get<{ Params: { id: string } }>('/api/hosts/:id/jobs', async (req, reply) => {
     const _id = parseId(req.params.id);

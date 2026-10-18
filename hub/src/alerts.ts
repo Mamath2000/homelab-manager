@@ -2,96 +2,35 @@ import type { FastifyBaseLogger } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { isOnline } from './agents.js';
 import { backups, hostAlerts, hosts, jobs } from './db.js';
-import { dockerView } from './docker.js';
 import { subscribe } from './events.js';
 import { jobDto } from './jobs.js';
-import { backupState } from './pbs.js';
-import { offsiteState } from './offsite.js';
-import { upsAlert } from './ups.js';
-import { agentAlerts } from './homeassistant/alerts.js';
-import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostAlertDoc, HostDoc, JobDoc } from './types.js';
+import { DOMAINS, dayOf, evaluate } from './monitoring.js';
+import type { AlertDomain, DayAlert, HostAlertDoc, HostDoc, JobDoc } from './types.js';
 
-// Alerts of the host page over the last days, for the agent, APT, Docker, backups and UPS.
+// History of the alerts over the last days, one state per host, domain and day (see monitoring.ts).
 // Each day keeps the latest observed state in each domain, with its reasons.
 
-const STALE_LISTS_MS = 2 * 24 * 3600 * 1000;
 export const ALERT_DAYS = 30;
 const MAX_REASONS = 8;
-const day = (lvl: AlertLevel, reasons: string[]): DayAlert => ({ level: lvl, reasons });
+const day = (lvl: DayAlert['level'], reasons: string[]): DayAlert => ({ level: lvl, reasons });
 
 // Day of a date in the time zone of the hub (TZ of the container), YYYY-MM-DD.
 export function dayKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// null: not followed (no APT on the host, never reported)
-export function aptAlert(h: Pick<HostDoc, 'apt' | 'roaming'>, online: boolean, now = Date.now()): DayAlert | null {
-  const r = h.apt;
-  if (!r) return null;
-  const security = r.upgradable.filter((p) => p.security).map((p) => p.name);
-  if (security.length) return day('alert', [`Mises à jour de sécurité : ${security.join(', ')}`]);
-  const out: string[] = [];
-  if (r.rebootRequired) out.push(`Redémarrage requis${r.rebootPkgs.length ? ` (${r.rebootPkgs.join(', ')})` : ''}`);
-  if (r.upgradable.length) out.push(`${r.upgradable.length} paquet(s) à mettre à jour`);
-  // roaming host away: its lists can only be refreshed once it is back
-  if (!(h.roaming && !online) && now - r.listsUpdatedAt > STALE_LISTS_MS) out.push('Listes de paquets périmées');
-  return out.length ? day('warn', out) : day('ok', []);
-}
-
-export function dockerAlert(h: HostDoc): DayAlert | null {
-  const v = dockerView(h);
-  if (!v) return null;
-  const alerts: string[] = [];
-  const warns: string[] = [];
-  for (const st of v.stacks) {
-    if (!st.managed) continue;
-    if (st.problems.length) alerts.push(`${st.name} : ${st.problems.join(', ')}`);
-    if (st.updates > 0) warns.push(`${st.name} : ${st.updates} image(s) à mettre à jour`);
-  }
-  return alerts.length ? day('alert', alerts) : warns.length ? day('warn', warns) : day('ok', []);
-}
-
-export function backupsAlert(groups: BackupDoc[], now = Date.now()): DayAlert | null {
-  if (!groups.length) return null;
-  const alerts: string[] = [];
-  const warns: string[] = [];
-  for (const b of groups) {
-    const name = b.managed?.name ?? b.comment ?? b.backupId;
-    const s = backupState(b, now);
-    if (s === 'failed') alerts.push(`${name} : vérification en échec`);
-    else if (s === 'task_failed') alerts.push(`${name} : dernière exécution en échec`);
-    else if (s === 'stale') warns.push(`${name} : en retard`);
-    else if (s === 'gone') warns.push(`${name} : disparue du PBS`);
-    else if (s === 'disabled') warns.push(`${name} : job désactivé`);
-    else if (s === 'not_synced') warns.push(`${name} : pas encore appliquée par l'agent`);
-    // copy to the secondary PBS
-    const o = offsiteState(b, now);
-    if (o === 'failed') alerts.push(`${name} : copie déportée en échec`);
-    else if (o === 'late') warns.push(`${name} : copie déportée en retard`);
-  }
-  return alerts.length ? day('alert', alerts) : warns.length ? day('warn', warns) : day('ok', []);
-}
-
 // Domain a failed job counts in (null: none, e.g. an agent update).
 export function jobDomain(action: JobDoc['action']): AlertDomain | null {
   if (action.startsWith('apt_') || action === 'reboot') return 'apt';
   if (action.startsWith('docker_')) return 'docker';
-  if (action.startsWith('backup_') || action === 'offsite_run') return 'backups';
+  if (action.startsWith('backup_')) return 'backup';
+  if (action === 'offsite_run') return 'offsite';
   return null;
 }
 
 // A new observation replaces the previous state for this domain and day.
 export function latestDay(next: DayAlert): DayAlert {
   return { level: next.level, reasons: next.reasons.slice(0, MAX_REASONS) };
-}
-
-export function agentAlert(h: HostDoc, online: boolean): DayAlert {
-  const alerts = agentAlerts(h, online);
-  if (!alerts.length) return day('ok', []);
-  return day(
-    alerts.some((alert) => alert.level === 'critical') ? 'alert' : 'warn',
-    alerts.map((alert) => alert.message),
-  );
 }
 
 async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, DayAlert | null>>, now = new Date()) {
@@ -112,22 +51,12 @@ async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, Day
   );
 }
 
-// APT, Docker and UPS only while connected (the last report of a host off for days says nothing of
-// those days); agent connectivity and backups are always followed by the hub.
+// What cannot be read now (APT, Docker, UPS of a host off for days) is left out: the last report says
+// nothing of those days. Backups and the connection are always followed by the hub.
 export async function recordHost(h: HostDoc, now = new Date()) {
-  const online = isOnline(h._id.toHexString());
   const groups = await backups.find({ hostId: h._id }).toArray();
-  await record(
-    h._id,
-    {
-      agent: agentAlert(h, online),
-      apt: online ? aptAlert(h, online, now.getTime()) : null,
-      docker: online ? dockerAlert(h) : null,
-      backups: backupsAlert(groups, now.getTime()),
-      ups: online ? upsAlert(h) : null,
-    },
-    now,
-  );
+  const status = evaluate(h, { online: isOnline(h._id.toHexString()), groups, now: now.getTime() });
+  await record(h._id, Object.fromEntries(DOMAINS.map(({ id }) => [id, dayOf(status.domains[id])])), now);
 }
 
 export async function recordAll(now = new Date()) {
@@ -140,12 +69,14 @@ async function recordHostId(id: string) {
   if (h) await recordHost(h);
 }
 
+const dayDto = (d: HostAlertDoc) => ({ day: d.day, domains: Object.fromEntries(DOMAINS.map(({ id }) => [id, d[id] ?? null])) as Record<AlertDomain, DayAlert | null> });
+
 // Days of a host, oldest first; the missing days are left out (nothing known).
 export async function hostAlertDays(hostId: ObjectId, days = ALERT_DAYS, now = new Date()) {
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
   const list = await hostAlerts.find({ hostId, day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
-  return list.map((d: HostAlertDoc) => ({ day: d.day, agent: d.agent ?? null, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null, ups: d.ups ?? null }));
+  return list.map(dayDto);
 }
 
 // Days of every host (dashboard, one row per site), oldest first.
@@ -153,7 +84,13 @@ export async function allAlertDays(days = ALERT_DAYS, now = new Date()) {
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
   const list = await hostAlerts.find({ day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
-  return list.map((d: HostAlertDoc) => ({ hostId: d.hostId.toHexString(), day: d.day, agent: d.agent ?? null, apt: d.apt ?? null, docker: d.docker ?? null, backups: d.backups ?? null, ups: d.ups ?? null }));
+  return list.map((d) => ({ hostId: d.hostId.toHexString(), ...dayDto(d) }));
+}
+
+// Identifiers of the first versions: agent -> system, backups -> backup.
+async function migrateDomains() {
+  await hostAlerts.updateMany({ agent: { $exists: true } }, { $rename: { agent: 'system' } });
+  await hostAlerts.updateMany({ backups: { $exists: true } }, { $rename: { backups: 'backup' } });
 }
 
 // First start: the failed jobs of the last days (kept 90 days) fill the past days of the timeline;
@@ -184,7 +121,7 @@ export function startAlerts(log: FastifyBaseLogger) {
     } else if (event === 'job') recordJob(data as ReturnType<typeof jobDto>).catch(fail);
   });
   const run = () => recordAll().catch(fail);
-  backfill().catch(fail);
+  migrateDomains().then(backfill).catch(fail);
   const first = setTimeout(run, 30_000);
   const timer = setInterval(run, 10 * 60_000);
   return () => {

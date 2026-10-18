@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { Activity } from 'lucide-react';
-import { useAllAlerts } from '../lib/queries';
-import { siteDays, type SiteCell, type Site, type TimelineFilter } from '../lib/sites';
+import { hostsDomains, siteDays, type SiteCell } from '../lib/monitoring';
+import { useAllAlerts, useStatus } from '../lib/queries';
+import type { Site } from '../lib/sites';
 import { Panel, Segmented } from './ui';
 
 const DAYS = 30;
@@ -33,10 +34,12 @@ function cellText(c: SiteCell) {
   return [c.alert && `${c.alert} hôte${c.alert > 1 ? 's' : ''} en alerte`, c.warn && `${c.warn} en avertissement`].filter(Boolean).join(', ');
 }
 
-// Arrival of the alerts over 30 days, one row per site: worst level of the day over its hosts.
+// Arrival of the alerts over 30 days, one row per site: worst level of the day over its hosts and
+// domains (today: the live status). The filter lists the domains met in the hosts.
 export function SiteTimeline({ sites }: { sites: Site[] }) {
   const { data } = useAllAlerts();
-  const [filter, setFilter] = useState<TimelineFilter>('all');
+  const { data: status } = useStatus();
+  const [filter, setFilter] = useState('all');
   const dates = lastDays();
   const keys = dates.map(dayKey);
 
@@ -49,13 +52,7 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
           label="Type d'alerte"
           value={filter}
           onChange={setFilter}
-          options={[
-            { id: 'all', label: 'Toutes' },
-            { id: 'agent', label: 'Connexion' },
-            { id: 'apt', label: 'Mises à jour' },
-            { id: 'docker', label: 'Docker' },
-            { id: 'backups', label: 'Sauvegardes' },
-          ]}
+          options={[{ id: 'all', label: 'Toutes' }, ...hostsDomains(status, sites.flatMap((site) => site.hosts)).map((d) => ({ id: d.id, label: d.label }))]}
         />
       }
     >
@@ -69,7 +66,7 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
       </div>
       <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-[3px]">
         {sites.map((site) => {
-          const cells = siteDays(site.hosts, data?.days ?? [], keys, filter);
+          const cells = siteDays(site.hosts, data?.days ?? [], keys, filter, status);
           return [
             <span key={`${site.name}-l`} className="max-w-36 truncate text-xs text-muted" title={site.name}>{site.name}</span>,
             <div key={`${site.name}-d`} className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px]">

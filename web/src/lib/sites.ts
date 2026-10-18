@@ -1,4 +1,4 @@
-import type { AlertDomain, AlertLevel, BackupGroup, Host, HostAlertDay, SiteConfig, SiteKind, UpsReport } from './api';
+import type { BackupGroup, Host, SiteConfig, SiteKind } from './api';
 import { hostBackups } from './backups';
 import { connection, hasApt, type Tone } from './status';
 
@@ -32,7 +32,8 @@ export function siteName(h: Host, config: SiteConfig[] | undefined) {
   return config?.find((c) => c.id === h.siteId)?.name ?? NO_SITE;
 }
 
-// --- state of a host: system updates (upper half of its square) and backups (lower half) ----------
+// --- figures of the KPIs of the dashboard: system updates and backups (the state of the sites comes from
+// the hub, see monitoring.ts) ------------------------------------------------------------------------
 
 // na: no APT on the host (Unraid...); offline wins, the last report says nothing of now. Security comes
 // first here, it is what the dashboard is read for.
@@ -76,57 +77,6 @@ export const backupTileMeta: Record<BackupTile, { label: string; tone: Tone; cls
   none: { label: 'non suivie', tone: 'neutral', cls: 'border-[1.5px] border-dashed border-zinc-600' },
 };
 
-// none: no Docker on the host, or offline (the last report says nothing of now). Only managed stacks
-// count: an unmanaged one has neither problems nor updates to follow.
-export type DockerTile = 'problem' | 'updates' | 'ok' | 'none';
-
-export function dockerTile(h: Host): DockerTile {
-  if (!h.online || !h.docker) return 'none';
-  const stacks = h.docker.stacks.filter((s) => s.managed);
-  if (stacks.some((s) => s.problems.length > 0)) return 'problem';
-  if (stacks.some((s) => s.updates > 0)) return 'updates';
-  return 'ok';
-}
-
-export const dockerTileMeta: Record<DockerTile, { label: string; tone: Tone; cls: string }> = {
-  problem: { label: 'en problème', tone: 'bad', cls: 'bg-red-500' },
-  updates: { label: 'mise à jour disponible', tone: 'warn', cls: 'bg-amber-500' },
-  ok: { label: 'à jour', tone: 'ok', cls: 'bg-emerald-500' },
-  none: { label: 'non suivi', tone: 'neutral', cls: 'bg-zinc-600' },
-};
-
-export type UpsTile = 'ok' | 'warn' | 'bad';
-export const upsTileMeta: Record<UpsTile, { label: string; cls: string }> = {
-  ok: { label: 'à jour', cls: 'bg-emerald-500' },
-  warn: { label: 'avertissement', cls: 'bg-amber-500' },
-  bad: { label: 'alerte', cls: 'bg-red-500' },
-};
-
-export function upsTile(ups: UpsReport): UpsTile {
-  const flags = new Set(ups.status.split(/\s+/).filter(Boolean));
-  if (['RB', 'ALARM', 'FSD', 'OB', 'LB', 'OVER'].some((flag) => flags.has(flag))) return 'bad';
-  if (
-    (!flags.has('OL') && !flags.has('OB')) ||
-    (ups.charge !== undefined && ups.chargeWarning !== undefined && ups.charge < ups.chargeWarning) ||
-    (ups.runtime !== undefined && ups.runtimeLow !== undefined && ups.runtime <= ups.runtimeLow) ||
-    (!!ups.testResult && /(error|fail|warning)/i.test(ups.testResult) && !/passed/i.test(ups.testResult))
-  ) return 'warn';
-  return 'ok';
-}
-
-// Worst state of a site across its host, update, backup, Docker and UPS indicators.
-export function siteTone(hosts: Host[], groups: BackupGroup[] | undefined): Tone {
-  const apt = hosts.map(aptTile);
-  const bak = hosts.map((h) => backupTile(groups, h.id));
-  const dck = hosts.map(dockerTile);
-  const ups = hosts.flatMap((h) => h.ups ? [upsTile(h.ups)] : []);
-  const offlineCritical = hosts.some((h) => connection(h) === 'offline' && h.critical);
-  const offline = hosts.some((h) => connection(h) === 'offline' && !h.critical);
-  if (offlineCritical || apt.includes('security') || bak.includes('bad') || dck.includes('problem') || ups.includes('bad')) return 'bad';
-  if (offline || apt.includes('updates') || apt.includes('reboot') || bak.includes('warn') || dck.includes('updates') || ups.includes('warn')) return 'warn';
-  return 'ok';
-}
-
 export function count<T>(list: T[], v: T) {
   return list.filter((x) => x === v).length;
 }
@@ -135,33 +85,4 @@ export function count<T>(list: T[], v: T) {
 export function oldestBackup(hosts: Host[], groups: BackupGroup[] | undefined, now = Date.now()) {
   const lasts = hosts.map((h) => hostBackups(groups, h.id)).filter((b) => b !== null).map((b) => b.last).filter((t) => t > 0);
   return lasts.length ? now - Math.min(...lasts) : null;
-}
-
-// --- timeline of the alerts, one row per site ------------------------------------------------------
-
-export type TimelineFilter = 'all' | AlertDomain;
-export type SiteCell = { level: AlertLevel | 'none'; alert: number; warn: number };
-
-const rank = { none: -1, ok: 0, warn: 1, alert: 2 } as const;
-
-// Worst level of each day of a site over its hosts, and how many hosts were in alert / warning.
-export function siteDays(hosts: Host[], days: (HostAlertDay & { hostId: string })[], keys: string[], filter: TimelineFilter): SiteCell[] {
-  const ids = new Set(hosts.map((h) => h.id));
-  const domains: AlertDomain[] = filter === 'all' ? ['agent', 'apt', 'docker', 'backups', 'ups'] : [filter];
-  const byDay = new Map<string, (HostAlertDay & { hostId: string })[]>();
-  for (const d of days) if (ids.has(d.hostId)) byDay.set(d.day, [...(byDay.get(d.day) ?? []), d]);
-  return keys.map((k) => {
-    const cell: SiteCell = { level: 'none', alert: 0, warn: 0 };
-    for (const d of byDay.get(k) ?? []) {
-      let worst: SiteCell['level'] = 'none';
-      for (const dom of domains) {
-        const l = d[dom]?.level;
-        if (l && rank[l] > rank[worst]) worst = l;
-      }
-      if (worst === 'alert') cell.alert++;
-      if (worst === 'warn') cell.warn++;
-      if (rank[worst] > rank[cell.level]) cell.level = worst;
-    }
-    return cell;
-  });
 }

@@ -264,12 +264,42 @@ export type AlertLevel = 'ok' | 'warn' | 'alert';
 // Instant commands the UI offers on the UPS (same list as hub and agent)
 export type UpsCommand = 'beeper.enable' | 'beeper.disable' | 'beeper.mute' | 'test.battery.start.quick';
 
-export type AlertDomain = 'agent' | 'apt' | 'docker' | 'backups' | 'ups';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
 }
-export type HostAlertDay = { day: string } & Record<AlertDomain, DayAlert | null>;
+export interface HostAlertDay {
+  day: string;
+  domains: Record<string, DayAlert | null>;
+}
+
+// Live status (hub monitoring.ts): domains (connection, updates, backups...) and, in each, the followed
+// elements. Domains are given by the hub, the interface does not list them.
+// A domain missing from a host does not apply to it; unknown: it applies but cannot be read now.
+export interface DomainMeta {
+  id: string;
+  label: string;
+  icon: string;
+}
+export interface Check {
+  key: string;
+  label: string;
+  level: AlertLevel;
+  reason?: string;
+}
+export interface DomainStatus {
+  level: AlertLevel | 'unknown';
+  checks: Check[];
+  reason?: string;
+}
+export interface HostStatus {
+  level: AlertLevel;
+  domains: Record<string, DomainStatus | undefined>;
+}
+export interface StatusView {
+  domains: DomainMeta[];
+  hosts: Record<string, HostStatus | undefined>;
+}
 
 // Sites described in the settings (display order of the dashboard), one per host.
 export type SiteKind = 'main' | 'vpn' | 'external';
@@ -860,6 +890,7 @@ export const api = {
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   alerts: () => request<{ days: (HostAlertDay & { hostId: string })[] }>('GET', '/api/alerts'),
+  status: () => request<StatusView>('GET', '/api/status'),
   sites: () => request<{ sites: SiteConfig[] }>('GET', '/api/sites'),
   // a new site has no id yet
   saveSites: (sites: (Omit<SiteConfig, 'id'> & { id?: string })[]) => request<{ sites: SiteConfig[] }>('PUT', '/api/settings/sites', { sites }),

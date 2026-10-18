@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isUpsReport, upsAlert, type UpsReport } from '../src/ups.js';
+import { dayOf, upsStatus } from '../src/monitoring.js';
+import { isUpsReport, type UpsReport } from '../src/ups.js';
+
+const upsAlert = (h: { ups?: UpsReport }) => dayOf(upsStatus(h, { online: true }));
 
 const ups = (o: Partial<UpsReport> = {}): UpsReport => ({
   checkedAt: 1,

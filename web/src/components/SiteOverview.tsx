@@ -1,142 +1,73 @@
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { MapPin } from 'lucide-react';
-import type { BackupGroup, Host } from '../lib/api';
-import { hostBackups } from '../lib/backups';
-import { timeAgo } from '../lib/format';
-import {
-  aptTile,
-  aptTileMeta,
-  backupTile,
-  backupTileMeta,
-  count,
-  dockerTile,
-  dockerTileMeta,
-  oldestBackup,
-  siteKindMeta,
-  siteTone,
-  upsTile,
-  upsTileMeta,
-  type AptTile,
-  type BackupTile,
-  type DockerTile,
-  type Site,
-} from '../lib/sites';
-import { toneStroke } from '../lib/status';
+import type { DomainMeta, Host, StatusView } from '../lib/api';
+import { cellCls, cellLabel, cellOf, domainCells, domainText, hostsDomains, levelTone, worstLevel, type Cell } from '../lib/monitoring';
+import { useStatus } from '../lib/queries';
+import { count, siteKindMeta, type Site } from '../lib/sites';
+import { toneStroke, type Tone } from '../lib/status';
 import { Badge, Panel } from './ui';
 
-const dayMs = 24 * 3600 * 1000;
-const ageText = (ms: number | null) => (ms === null ? '—' : ms < dayMs ? "moins d'un jour" : `${Math.floor(ms / dayMs)} j`);
+const cellTone: Record<Cell, Tone> = { ok: 'ok', warn: 'warn', alert: 'bad', unknown: 'neutral', none: 'neutral' };
 
-// One column per host: connection, updates, backups, Docker and (when present in the site) UPS.
-function Tile({ host, groups, small, backups, showUps }: { host: Host; groups: BackupGroup[] | undefined; small?: boolean; backups: boolean; showUps: boolean }) {
-  const apt = aptTile(host);
-  const bak = backupTile(groups, host.id);
-  const dck = dockerTile(host);
-  const ups = host.ups ? upsTile(host.ups) : null;
-  const connectionState = host.online ? 'Connecté' : !host.enrolledAt ? 'En attente' : host.roaming ? 'Absent (itinérant)' : 'Hors ligne';
-  const connectionColor = host.online
-    ? 'bg-emerald-500'
-    : host.roaming && !!host.enrolledAt
-      ? 'bg-transparent'
-    : !host.enrolledAt
-      ? 'border-[1.5px] border-dashed border-zinc-600'
-      : host.critical
-        ? 'bg-red-500'
-        : 'bg-amber-500';
-  const upsLabel = ups ? `Onduleur : ${upsTileMeta[ups].label}` : 'Aucun onduleur';
-  const last = hostBackups(groups, host.id)?.last;
-  const title = [
-    host.name,
-    `connexion : ${connectionState}`,
-    `mises à jour : ${aptTileMeta[apt].label}`,
-    backups && `sauvegarde : ${bak === 'none' ? 'aucune' : `${backupTileMeta[bak].label}${last ? ` (${timeAgo(last)})` : ''}`}`,
-    `Docker : ${host.online ? (host.docker ? dockerTileMeta[dck].label : 'aucun') : 'hors ligne'}`,
-    showUps && upsLabel,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+// One column per host, one square per domain of the site (top to bottom, as the hub orders them):
+// coloured when read, grey when the domain applies but cannot be read now, nothing when the host does
+// not provide it.
+function Tile({ host, status, domains, small }: { host: Host; status: StatusView | undefined; domains: DomainMeta[]; small?: boolean }) {
+  const title = [host.name, ...domains.map((d) => `${d.label.toLowerCase()} : ${domainText(status?.hosts[host.id]?.domains[d.id])}`)].join(' · ');
   return (
     <Link
       to={`/hosts/${host.id}`}
       title={title}
       aria-label={title}
-      className={clsx('flex flex-col gap-px transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-emerald-400', small ? 'h-[26px] w-[26px]' : 'h-[30px] w-[30px]')}
+      className={clsx('flex flex-col gap-px transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-emerald-400', small ? 'w-[26px]' : 'w-[30px]')}
+      style={{ height: `${(small ? 13 : 15) * Math.max(domains.length, 1)}px` }}
     >
-      <span className={clsx('flex-1 rounded-[3px]', connectionColor)} />
-      <span className={clsx('flex-1 rounded-[3px]', aptTileMeta[apt].cls)} />
-      {backups && <span className={clsx('flex-1 rounded-[3px]', bak === 'none' ? 'bg-transparent' : backupTileMeta[bak].cls)} />}
-      <span className={clsx('flex-1 rounded-[3px]', host.online && !host.docker ? 'bg-transparent' : dockerTileMeta[dck].cls)} />
-      {showUps && <span className={clsx('flex-1 rounded-[3px]', ups ? upsTileMeta[ups].cls : 'border-[1.5px] border-dashed border-zinc-600')} />}
+      {domains.map((d) => (
+        <span key={d.id} className={clsx('flex-1 rounded-[3px]', cellCls[cellOf(status?.hosts[host.id]?.domains[d.id])])} />
+      ))}
     </Link>
   );
 }
 
-// Stacked bar of a site: one segment per state, worst first.
-function Meter<T extends string>({ label, summary, parts }: { label: string; summary: React.ReactNode; parts: { n: number; color: string; key: T }[] }) {
-  const total = parts.reduce((a, p) => a + p.n, 0) || 1;
+// Stacked bar of a domain over the hosts of a site: one segment per state, worst first.
+const barColor: Record<Cell, string> = { alert: '#ef4444', warn: '#f59e0b', unknown: '#3f3f46', ok: '#10b981', none: 'transparent' };
+const barOrder: Cell[] = ['alert', 'warn', 'ok', 'unknown'];
+
+function Meter({ domain, cells }: { domain: DomainMeta; cells: Cell[] }) {
+  const present = cells.filter((c) => c !== 'none');
+  const summary = [
+    count(present, 'alert') > 0 && <span key="a" className="text-red-400">{count(present, 'alert')} en alerte</span>,
+    count(present, 'warn') > 0 && `${count(present, 'warn')} avertissement${count(present, 'warn') > 1 ? 's' : ''}`,
+    count(present, 'ok') > 0 && `${count(present, 'ok')} OK`,
+    count(present, 'unknown') > 0 && `${count(present, 'unknown')} inconnu${count(present, 'unknown') > 1 ? 's' : ''}`,
+  ].filter(Boolean);
   return (
     <div className="min-w-0">
       <div className="mb-1 flex flex-wrap justify-between gap-x-2 text-xs text-muted">
-        <span>{label}</span>
-        <span className="text-zinc-300">{summary}</span>
+        <span>{domain.label}</span>
+        <span className="text-zinc-300">{summary.flatMap((x, i) => (i ? [' · ', x] : [x]))}</span>
       </div>
       <div className="flex h-2 gap-[2px] overflow-hidden rounded bg-line">
-        {parts.filter((p) => p.n > 0).map((p) => <span key={p.key} style={{ width: `${(p.n / total) * 100}%`, background: p.color }} />)}
+        {barOrder.filter((c) => count(present, c) > 0).map((c) => <span key={c} style={{ width: `${(count(present, c) / present.length) * 100}%`, background: barColor[c] }} />)}
       </div>
     </div>
   );
 }
 
-const aptColor: Partial<Record<AptTile, string>> = { security: '#ef4444', updates: '#f59e0b', reboot: '#0ea5e9', offline: '#52525b', unknown: '#8b5cf6', uptodate: '#10b981' };
-const bakColor: Record<BackupTile, string> = { bad: '#ef4444', warn: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
-const dckColor: Record<DockerTile, string> = { problem: '#ef4444', updates: '#f59e0b', none: '#3f3f46', ok: '#10b981' };
-
-// stacked: the two meters one under the other (narrow column)
-function Meters({ site, groups, backups, stacked }: { site: Site; groups: BackupGroup[] | undefined; backups: boolean; stacked?: boolean }) {
-  const apt = site.hosts.map(aptTile);
-  const bak = site.hosts.map((h) => backupTile(groups, h.id));
-  const n = (v: AptTile) => count(apt, v);
-  const b = (v: BackupTile) => count(bak, v);
-  const aptSummary = [
-    n('security') > 0 && <span key="s" className="text-red-400">{n('security')} sécurité</span>,
-    n('updates') + n('security') > 0 && `${n('updates') + n('security')} avec MAJ`,
-    n('reboot') > 0 && `${n('reboot')} reboot`,
-    n('offline') > 0 && `${n('offline')} hors ligne`,
-  ].filter(Boolean);
-  const bakSummary = [
-    b('bad') > 0 && <span key="b" className="text-red-400">{b('bad')} en échec</span>,
-    b('warn') > 0 && `${b('warn')} en retard`,
-    `${b('ok')} à jour`,
-    b('none') > 0 && `${b('none')} sans sauvegarde`,
-  ].filter(Boolean);
-  const dck = site.hosts.map(dockerTile);
-  const d = (v: DockerTile) => count(dck, v);
-  const dckSummary = [
-    d('problem') > 0 && <span key="d" className="text-red-400">{d('problem')} en problème</span>,
-    d('updates') > 0 && `${d('updates')} avec MAJ`,
-    `${d('ok')} à jour`,
-    d('none') > 0 && `${d('none')} non suivi${d('none') > 1 ? 's' : ''}`,
-  ].filter(Boolean);
-  const join = (l: React.ReactNode[]) => (l.length ? l.flatMap((x, i) => (i ? [' · ', x] : [x])) : 'tout est à jour');
+// stacked: the meters one under the other (narrow column)
+function Meters({ site, status, domains, stacked }: { site: Site; status: StatusView | undefined; domains: DomainMeta[]; stacked?: boolean }) {
   return (
-    <div className={clsx('grid gap-x-5 gap-y-2', !stacked && (backups ? 'sm:grid-cols-3' : 'sm:grid-cols-2'))}>
-      <Meter label="Mises à jour" summary={join(aptSummary)} parts={(Object.keys(aptColor) as AptTile[]).map((k) => ({ key: k, n: n(k), color: aptColor[k]! }))} />
-      {backups && (
-        <div>
-          <Meter label="Sauvegardes" summary={join(bakSummary)} parts={(Object.keys(bakColor) as BackupTile[]).map((k) => ({ key: k, n: b(k), color: bakColor[k] }))} />
-          <p className="mt-1 text-[11px] text-muted">plus ancienne : {ageText(oldestBackup(site.hosts, groups))}</p>
-        </div>
-      )}
-      <Meter label="Docker" summary={join(dckSummary)} parts={(Object.keys(dckColor) as DockerTile[]).map((k) => ({ key: k, n: d(k), color: dckColor[k] }))} />
+    <div className={clsx('grid gap-x-5 gap-y-2', !stacked && 'grid-cols-[repeat(auto-fit,minmax(170px,1fr))]')}>
+      {domains.map((d) => <Meter key={d.id} domain={d} cells={domainCells(status, site.hosts, d.id)} />)}
     </div>
   );
 }
 
-function SiteHeader({ site, groups }: { site: Site; groups: BackupGroup[] | undefined }) {
+function SiteHeader({ site, status }: { site: Site; status: StatusView | undefined }) {
   return (
     <header className="flex flex-wrap items-center gap-2.5">
-      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: toneStroke[siteTone(site.hosts, groups)] }} />
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: status ? toneStroke[levelTone[worstLevel(status, site.hosts)]] : toneStroke.neutral }} />
       <b className="text-[15px] font-medium text-zinc-100">{site.name}</b>
       {site.kind && <Badge tone="neutral">{siteKindMeta[site.kind].label}</Badge>}
       <span className="text-xs text-muted">{site.hosts.length} hôte{site.hosts.length > 1 ? 's' : ''}</span>
@@ -144,21 +75,21 @@ function SiteHeader({ site, groups }: { site: Site; groups: BackupGroup[] | unde
   );
 }
 
-function SiteCard({ site, groups, backups, small }: { site: Site; groups: BackupGroup[] | undefined; backups: boolean; small?: boolean }) {
-  const showUps = site.hosts.some((host) => !!host.ups);
+function SiteCard({ site, status, small }: { site: Site; status: StatusView | undefined; small?: boolean }) {
+  const domains = hostsDomains(status, site.hosts);
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <SiteHeader site={site} groups={groups} />
-      <div className="flex flex-wrap gap-x-1.5 gap-y-2">
-        {site.hosts.map((h) => <Tile key={h.id} host={h} groups={groups} small={small} backups={backups} showUps={showUps} />)}
+      <SiteHeader site={site} status={status} />
+      <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
+        {site.hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
       </div>
-      <Meters site={site} groups={groups} backups={backups} stacked={small} />
+      <Meters site={site} status={status} domains={domains} stacked={small} />
     </div>
   );
 }
 
 // External sites of a single host: one line each instead of a card.
-function ExternalSites({ sites, groups, backups }: { sites: Site[]; groups: BackupGroup[] | undefined; backups: boolean }) {
+function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | undefined }) {
   return (
     <div>
       <header className="mb-1 flex items-center gap-2.5">
@@ -167,27 +98,21 @@ function ExternalSites({ sites, groups, backups }: { sites: Site[]; groups: Back
       </header>
       {sites.map((s) => {
         const h = s.hosts[0];
-        const apt = aptTile(h);
-        const bak = backupTile(groups, h.id);
-        const dck = dockerTile(h);
-        const dockerLabel = !h.online
-          ? 'Docker · hors ligne'
-          : h.docker
-            ? `Docker · ${dck === 'updates' ? 'MAJ' : dck === 'problem' ? 'problème' : dockerTileMeta[dck].label}`
-            : 'sans Docker';
+        const domains = hostsDomains(status, s.hosts);
         return (
           <Link
             key={s.name}
             to={`/hosts/${h.id}`}
-            className={clsx('grid items-center gap-2.5 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50', backups ? 'grid-cols-[auto_minmax(0,1fr)_auto_auto_auto]' : 'grid-cols-[auto_minmax(0,1fr)_auto_auto]')}
+            className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50"
           >
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: toneStroke[siteTone(s.hosts, groups)] }} />
-            <span className="truncate">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: status ? toneStroke[levelTone[worstLevel(status, s.hosts)]] : toneStroke.neutral }} />
+            <span className="min-w-0 flex-1 truncate">
               <span className="font-medium text-zinc-200">{s.name}</span> <span className="text-muted">{h.name}</span>
             </span>
-            <Badge tone={aptTileMeta[apt].tone}>{aptTileMeta[apt].label}</Badge>
-            {backups && <Badge tone={backupTileMeta[bak].tone}>sauv. {backupTileMeta[bak].label}</Badge>}
-            <Badge tone={h.docker && h.online ? dockerTileMeta[dck].tone : 'neutral'}>{dockerLabel}</Badge>
+            {domains.map((d) => {
+              const c = cellOf(status?.hosts[h.id]?.domains[d.id]);
+              return <Badge key={d.id} tone={cellTone[c]}>{d.label} · {cellLabel[c]}</Badge>;
+            })}
           </Link>
         );
       })}
@@ -195,18 +120,17 @@ function ExternalSites({ sites, groups, backups }: { sites: Site[]; groups: Back
   );
 }
 
-function Legend({ backups, ups }: { backups: boolean; ups: boolean }) {
+function Legend({ domains }: { domains: DomainMeta[] }) {
   const items = [
-    { cls: 'bg-emerald-500', label: 'OK / connecté' },
-    { cls: 'bg-amber-500', label: 'hors ligne / mises à jour / en retard' },
-    { cls: 'bg-red-500', label: 'hôte critique hors ligne / sécurité / échec / problème / UPS' },
-    { cls: 'bg-sky-500', label: 'reboot' },
-    { cls: 'bg-zinc-600', label: 'Docker non suivi' },
+    { cls: cellCls.ok, label: 'OK' },
+    { cls: cellCls.warn, label: 'avertissement' },
+    { cls: cellCls.alert, label: 'alerte' },
+    { cls: cellCls.unknown, label: 'inconnu (hôte hors ligne…)' },
+    { cls: 'ring-1 ring-line', label: 'non fourni par l’hôte' },
   ];
-  const order = ['connexion', 'mises à jour', backups && 'sauvegarde', 'Docker', ups && 'onduleur'].filter(Boolean).join(' · ');
   return (
     <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11px] text-muted">
-      <span>haut → bas : {order}</span>
+      <span>haut → bas : {domains.map((d) => d.label.toLowerCase()).join(' · ')}</span>
       {items.map((i) => (
         <span key={i.label} className="inline-flex items-center gap-1.5">
           <i className={clsx('block h-2.5 w-2.5 rounded-[2px]', i.cls)} />
@@ -219,10 +143,10 @@ function Legend({ backups, ups }: { backups: boolean; ups: boolean }) {
 
 // Sites of the dashboard: the main ones in large, then on one row the small ones and the external
 // sites of a single host, grouped in one card.
-export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups: BackupGroup[] | undefined; backups: boolean }) {
+export function SiteOverview({ sites }: { sites: Site[] }) {
+  const { data: status } = useStatus();
   const external = sites.filter((s) => s.kind === 'external' && s.hosts.length === 1);
   const rest = sites.filter((s) => !external.includes(s));
-  const hasUps = sites.some((site) => site.hosts.some((host) => !!host.ups));
   // the biggest sites take the whole width, the small ones share a row
   const large = rest.filter((s) => s.kind === 'main' || s.hosts.length > 8);
   const small = rest.filter((s) => !large.includes(s));
@@ -230,15 +154,15 @@ export function SiteOverview({ sites, groups, backups }: { sites: Site[]; groups
   return (
     <Panel title="Sites" icon={MapPin}>
       <div className="mb-4">
-        <Legend backups={backups} ups={hasUps} />
+        <Legend domains={hostsDomains(status, sites.flatMap((s) => s.hosts))} />
       </div>
       <div className="flex flex-col gap-5">
-        {large.map((s) => <SiteCard key={s.name} site={s} groups={groups} backups={backups} />)}
+        {large.map((s) => <SiteCard key={s.name} site={s} status={status} />)}
         {/* the small sites and the external ones share a row, one column each */}
         {(small.length > 0 || external.length > 0) && (
           <div className="grid gap-x-6 gap-y-5 border-t border-line pt-4 first:border-t-0 first:pt-0 md:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]">
-            {small.map((s) => <SiteCard key={s.name} site={s} groups={groups} backups={backups} small />)}
-            {external.length > 0 && <ExternalSites sites={external} groups={groups} backups={backups} />}
+            {small.map((s) => <SiteCard key={s.name} site={s} status={status} small />)}
+            {external.length > 0 && <ExternalSites sites={external} status={status} />}
           </div>
         )}
       </div>

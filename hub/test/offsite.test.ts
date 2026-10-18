@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { backupsAlert } from '../src/alerts.js';
+import { dayOf, offsiteStatus } from '../src/monitoring.js';
 import {
   copiedGroups,
   desiredJobs,
@@ -200,10 +200,11 @@ test('report of the series: checked', () => {
 test('alerts: a failed copy is an alert, a late one a warning; the copy is set by admins only', () => {
   const now = Date.now();
   const base = { _id: 'ds0/Hosts/host/a', store: 'ds0', ns: 'Hosts', type: 'host', backupId: 'a', count: 3, lastBackup: now - H, size: null, verify: 'ok' as const, hostId: null, seenAt: new Date(), times: [{ t: now - H, verify: 'ok' as const }] };
-  const late = backupsAlert([{ ...base, lastBackup: now - 40 * H, times: [{ t: now - 40 * H, verify: 'ok' }], offsite: offsite({ lastRun: { start: now - 60 * H, end: now - 59 * H, ok: true }, lastBackup: now - 74 * H }) }], now);
+  const copy = (groups: Parameters<typeof offsiteStatus>[1]['groups']) => dayOf(offsiteStatus({}, { online: true, groups, now }));
+  const late = copy([{ ...base, lastBackup: now - 40 * H, times: [{ t: now - 40 * H, verify: 'ok' }], offsite: offsite({ lastRun: { start: now - 60 * H, end: now - 59 * H, ok: true }, lastBackup: now - 74 * H }) }]);
   assert.equal(late?.level, 'warn');
-  assert.match(late!.reasons[0], /copie déportée en retard/);
-  const failed = backupsAlert([{ ...base, offsite: offsite({ lastRun: { start: now, end: now, ok: false, error: 'x' } }) }], now);
+  assert.match(late!.reasons[0], /copie en retard/);
+  const failed = copy([{ ...base, offsite: offsite({ lastRun: { start: now, end: now, ok: false, error: 'x' } }) }]);
   assert.equal(failed?.level, 'alert');
   assert.equal(authorize('operator', 'PUT', '/api/backups/:id/offsite'), false);
   assert.equal(authorize('operator', 'POST', '/api/settings/pbs-remote/token'), false);
