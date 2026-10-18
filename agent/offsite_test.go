@@ -4,94 +4,49 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestInWindow(t *testing.T) {
-	loc, _ := time.LoadLocation("Europe/Paris")
-	at := func(hm string) time.Time {
-		tm, _ := time.ParseInLocation("2006-01-02 15:04", "2026-10-18 "+hm, loc)
-		return tm
-	}
+var paris, _ = time.LoadLocation("Europe/Paris")
+
+func at(day, hm string) time.Time {
+	t, _ := time.ParseInLocation("2006-01-02 15:04", day+" "+hm, paris)
+	return t
+}
+
+func TestSeriesDueAndNextStart(t *testing.T) {
 	cases := []struct {
-		start, end, now string
-		want            bool
+		now, lastDay string
+		due          bool
+		next         string
 	}{
-		{"04:00", "09:00", "03:59", false},
-		{"04:00", "09:00", "04:00", true},
-		{"04:00", "09:00", "08:59", true},
-		{"04:00", "09:00", "09:00", false},
-		{"22:00", "06:00", "23:30", true},
-		{"22:00", "06:00", "05:59", true},
-		{"22:00", "06:00", "12:00", false},
-		{"00:00", "00:00", "12:00", true},
+		{"2026-10-18 03:59", "2026-10-17", false, "2026-10-18 04:00"},
+		{"2026-10-18 04:00", "2026-10-17", true, "2026-10-19 04:00"},
+		{"2026-10-18 09:30", "2026-10-17", true, "2026-10-19 04:00"}, // missed (agent down): caught up the same day
+		{"2026-10-18 04:30", "2026-10-18", false, "2026-10-19 04:00"},
+		{"2026-10-18 03:00", "", false, "2026-10-18 04:00"},
 	}
 	for _, c := range cases {
-		if got := inWindow(at(c.now), loc, c.start, c.end); got != c.want {
-			t.Errorf("%s-%s at %s: %v", c.start, c.end, c.now, got)
+		now := at(c.now[:10], c.now[11:])
+		if got := seriesDue(now, paris, "04:00", c.lastDay); got != c.due {
+			t.Errorf("%s after %q: due %v", c.now, c.lastDay, got)
+		}
+		if got := nextStart(now, paris, "04:00", c.lastDay); !got.Equal(at(c.next[:10], c.next[11:])) {
+			t.Errorf("%s after %q: next %s", c.now, c.lastDay, got)
 		}
 	}
-}
-
-func TestGroupWanted(t *testing.T) {
-	now := time.Date(2026, 10, 18, 4, 0, 0, 0, time.UTC)
-	day := 24 * time.Hour
-	ago := func(d time.Duration) int64 { return now.Add(-d).UnixMilli() }
-	cases := []struct {
-		name string
-		g    groupState
-		want bool
-	}{
-		{"nothing on the main PBS", groupState{}, false},
-		{"already copied", groupState{remoteLast: 100, localLast: 100}, false},
-		{"never copied", groupState{remoteLast: 100}, true},
-		{"newer, never run", groupState{remoteLast: 200, localLast: 100}, true},
-		{"newer, run 25 h ago", groupState{remoteLast: 200, localLast: 100, lastRun: ago(25 * time.Hour)}, true},
-		{"newer, run a day ago minus a few minutes (slack)", groupState{remoteLast: 200, localLast: 100, lastRun: ago(day - 10*time.Minute)}, true},
-		{"newer, run 2 h ago", groupState{remoteLast: 200, localLast: 100, lastRun: ago(2 * time.Hour)}, false},
-	}
-	for _, c := range cases {
-		if got := c.g.wanted(now, day); got != c.want {
-			t.Errorf("%s: %v", c.name, got)
-		}
-	}
-	if !(groupState{remoteLast: 200, localLast: 100, lastRun: ago(time.Minute)}).wanted(now, 0) {
-		t.Error("no minimum delay: wanted at once")
+	// change of time (DST ends on 2026-10-25): still 04:00 wall clock
+	if got := nextStart(at("2026-10-24", "05:00"), paris, "04:00", "2026-10-24"); !got.Equal(at("2026-10-25", "04:00")) {
+		t.Errorf("DST: %s", got)
 	}
 }
 
-func TestRequeue(t *testing.T) {
-	now := time.Date(2026, 10, 18, 4, 0, 0, 0, time.UTC)
-	jobs := []OffsiteJob{{ID: "hlm-aaaaaaaaaaaa"}, {ID: "hlm-bbbbbbbbbbbb"}, {ID: "hlm-cccccccccccc"}, {ID: "hlm-dddddddddddd"}}
-	queue := []OffsiteQueued{{JobID: "hlm-cccccccccccc", Since: 1}, {JobID: "hlm-eeeeeeeeeeee", Since: 2}, {JobID: "hlm-bbbbbbbbbbbb", Since: 3}}
-	states := map[string]groupState{
-		"hlm-aaaaaaaaaaaa": {remoteLast: 2, localLast: 1}, // new: at the end
-		"hlm-bbbbbbbbbbbb": {remoteLast: 2, localLast: 2}, // copied meanwhile: leaves
-		"hlm-cccccccccccc": {remoteLast: 2, localLast: 1}, // keeps its place
-		"hlm-dddddddddddd": {remoteLast: 2, localLast: 1}, // running: not queued
-	}
-	got := requeue(queue, jobs, states, map[string]bool{"hlm-dddddddddddd": true}, now, 24*time.Hour)
-	ids := []string{}
-	for _, q := range got {
-		ids = append(ids, q.JobID)
-	}
-	if strings.Join(ids, ",") != "hlm-cccccccccccc,hlm-aaaaaaaaaaaa" || got[0].Since != 1 || got[1].Since != now.UnixMilli() {
-		t.Fatalf("queue: %+v", got)
-	}
-	// a group whose namespace could not be read keeps its place
-	got = requeue(queue[:1], jobs, map[string]groupState{}, nil, now, 0)
-	if len(got) != 1 || got[0].JobID != "hlm-cccccccccccc" {
-		t.Fatalf("unknown state: %+v", got)
-	}
-}
-
-func TestHeavyAndJobOfTask(t *testing.T) {
-	if !heavy("syncjob", false) || heavy("garbage_collection", false) || !heavy("garbage_collection", true) || !heavy("verificationjob", true) || !heavy("verify", true) || heavy("logrotate", true) {
-		t.Fatal("heavy tasks")
-	}
-	if jobOfTask("hlm-main:ds3:ds9:Hosts:hlm-80b3ff9bf2c0") != "hlm-80b3ff9bf2c0" || jobOfTask("hlm-main:ds3:ds9::other") != "" || jobOfTask("ds9") != "" {
+func TestJobOfTask(t *testing.T) {
+	if jobOfTask("hlm-main:ds0:ds9:Hosts:hlm-ds0-Hosts") != "hlm-ds0-Hosts" || jobOfTask("hlm-main:ds3:ds9::hlm-ds3") != "hlm-ds3" || jobOfTask("r:ds0:ds9::other") != "" || jobOfTask("ds9") != "" {
 		t.Fatal("job of a task")
 	}
 	if upidStartMs("UPID:8dfb8d8b5d83:00000022:00612960:00000022:6AD3E559:syncjob:x:homelab@pbs!hub:") != 0x6AD3E559*1000 || upidStartMs("nope") != 0 {
@@ -100,14 +55,7 @@ func TestHeavyAndJobOfTask(t *testing.T) {
 }
 
 func validOffsiteSpec() *OffsiteSpec {
-	return &OffsiteSpec{
-		Hash: "h1", Store: "ds9", Remote: "hlm-main", WindowStart: "04:00", WindowEnd: "09:00", TZ: "Europe/Paris", Concurrency: 1, MinDelayH: 24, CountMaintenance: true,
-		Jobs: []OffsiteJob{
-			{ID: "hlm-aaaaaaaaaaaa", RemoteStore: "ds0", NS: "Hosts", Type: "host", BackupID: "a"},
-			{ID: "hlm-bbbbbbbbbbbb", RemoteStore: "ds3", NS: "Hosts", Type: "host", BackupID: "b"},
-			{ID: "hlm-cccccccccccc", RemoteStore: "ds0", NS: "", Type: "vm", BackupID: "100"},
-		},
-	}
+	return &OffsiteSpec{Hash: "h1", Start: "04:00", TZ: "Europe/Paris", Jobs: []string{"hlm-ds0-Hosts", "hlm-ds0", "hlm-ds3-Sites.Jarsay"}}
 }
 
 func TestValidateOffsiteSpec(t *testing.T) {
@@ -118,14 +66,12 @@ func TestValidateOffsiteSpec(t *testing.T) {
 		t.Fatal("no job, nothing to check:", err)
 	}
 	for name, mut := range map[string]func(*OffsiteSpec){
-		"container":   func(s *OffsiteSpec) { s.Container = "a b" },
-		"window":      func(s *OffsiteSpec) { s.WindowEnd = "24:00" },
-		"tz":          func(s *OffsiteSpec) { s.TZ = "Nowhere/Else" },
-		"concurrency": func(s *OffsiteSpec) { s.Concurrency = 0 },
-		"job id":      func(s *OffsiteSpec) { s.Jobs[0].ID = "hlm-x; rm" },
-		"type":        func(s *OffsiteSpec) { s.Jobs[0].Type = "file" },
-		"ns":          func(s *OffsiteSpec) { s.Jobs[0].NS = "../x" },
-		"remote":      func(s *OffsiteSpec) { s.Remote = "a/b" },
+		"container": func(s *OffsiteSpec) { s.Container = "a b" },
+		"start":     func(s *OffsiteSpec) { s.Start = "24:00" },
+		"tz":        func(s *OffsiteSpec) { s.TZ = "Nowhere/Else" },
+		"job id":    func(s *OffsiteSpec) { s.Jobs[0] = "hlm-x; rm" },
+		"not ours":  func(s *OffsiteSpec) { s.Jobs[0] = "manual-sync" },
+		"twice":     func(s *OffsiteSpec) { s.Jobs[1] = s.Jobs[0] },
 	} {
 		s := validOffsiteSpec()
 		mut(s)
@@ -137,11 +83,8 @@ func TestValidateOffsiteSpec(t *testing.T) {
 
 // fakeDebug answers like proxmox-backup-debug api.
 type fakeDebug struct {
-	remote  map[string]string // path -> groups json
-	local   string
-	sync    string
 	tasks   []apiTask
-	failRun bool
+	failRun map[string]bool
 	calls   []string
 	started []string
 }
@@ -150,23 +93,17 @@ func (f *fakeDebug) run(_ context.Context, args ...string) (string, error) {
 	cmd := strings.Join(args, " ")
 	f.calls = append(f.calls, cmd)
 	switch {
-	case strings.HasPrefix(cmd, "api get /config/remote/"):
-		return f.remote[args[2]], nil
-	case strings.HasPrefix(cmd, "api get /admin/datastore/"):
-		return f.local, nil
-	case strings.HasPrefix(cmd, "api get /admin/sync"):
-		return f.sync, nil
 	case strings.HasPrefix(cmd, "api get /nodes/localhost/tasks"):
 		raw, _ := json.Marshal(f.tasks)
 		return string(raw), nil
 	case strings.HasPrefix(cmd, "api create /admin/sync/"):
-		if f.failRun {
+		id := strings.TrimSuffix(strings.TrimPrefix(args[2], "/admin/sync/"), "/run")
+		if f.failRun[id] {
 			return "", fmt.Errorf("refused")
 		}
-		id := strings.TrimSuffix(strings.TrimPrefix(args[2], "/admin/sync/"), "/run")
 		f.started = append(f.started, id)
-		upid := fmt.Sprintf("UPID:n:1:1:1:6AD3E559:syncjob:hlm\\x2dmain:root@pam:")
-		f.tasks = append(f.tasks, apiTask{UPID: upid + id, WorkerType: "syncjob", WorkerID: "hlm-main:x:ds9:Hosts:" + id})
+		upid := "UPID:n:1:1:1:6AD3E559:syncjob:hlm\\x2dmain:root@pam:"
+		f.tasks = append(f.tasks, apiTask{UPID: upid + id, WorkerType: "syncjob", WorkerID: "hlm-main:ds0:ds9:x:" + id})
 		// JSON output: the backslashes of the worker id come escaped
 		raw, _ := json.Marshal(upid + id)
 		return string(raw), nil
@@ -174,6 +111,7 @@ func (f *fakeDebug) run(_ context.Context, args ...string) (string, error) {
 	return "", fmt.Errorf("unexpected %s", cmd)
 }
 
+// newTestOffsite: a module with the spec applied, its last series yesterday.
 func newTestOffsite(t *testing.T, f *fakeDebug) *offsiteModule {
 	o := newOffsiteModule(t.TempDir())
 	o.tool = func(string) pbsRun { return f.run }
@@ -181,100 +119,123 @@ func newTestOffsite(t *testing.T, f *fakeDebug) *offsiteModule {
 		t.Fatal(err)
 	}
 	<-o.kick
+	o.state.Day = "2026-10-17"
 	return o
 }
 
-func TestOffsiteStep(t *testing.T) {
-	f := &fakeDebug{
-		remote: map[string]string{
-			"/config/remote/hlm-main/scan/ds0/groups": `[{"backup-type":"host","backup-id":"a","last-backup":200},{"backup-type":"vm","backup-id":"100","last-backup":200}]`,
-			"/config/remote/hlm-main/scan/ds3/groups": `[{"backup-type":"host","backup-id":"b","last-backup":200}]`,
-		},
-		local: `[{"backup-type":"host","backup-id":"a","last-backup":100},{"backup-type":"host","backup-id":"b","last-backup":200}]`,
-		sync:  `[]`,
-	}
+func TestOffsiteSeries(t *testing.T) {
+	f := &fakeDebug{}
 	o := newTestOffsite(t, f)
-	loc, _ := time.LoadLocation("Europe/Paris")
-	night := time.Date(2026, 10, 18, 3, 0, 0, 0, loc)
-	o.step(context.Background(), night, true)
-	r := o.snapshot()
-	// a and the vm are newer on the main PBS, b is copied; outside the window: nothing started
-	if len(r.Queue) != 2 || r.Queue[0].JobID != "hlm-aaaaaaaaaaaa" || r.Queue[1].JobID != "hlm-cccccccccccc" || len(f.started) != 0 || r.InWindow {
-		t.Fatalf("outside the window: %+v, started %v", r, f.started)
+	ctx := context.Background()
+	// before the start: nothing, not even a read of the PBS
+	o.step(ctx, at("2026-10-18", "03:59"))
+	if len(f.calls) != 0 || o.snapshot(at("2026-10-18", "03:59")).NextStart != at("2026-10-18", "04:00").UnixMilli() {
+		t.Fatalf("before the start: %v", f.calls)
 	}
-	// in the window: one at a time (N = 1)
-	o.step(context.Background(), night.Add(time.Hour), false)
-	if strings.Join(f.started, ",") != "hlm-aaaaaaaaaaaa" || len(o.snapshot().Queue) != 1 || len(o.snapshot().Running) != 1 {
-		t.Fatalf("first launch: %v %+v", f.started, o.snapshot())
+	// the start: the first job only
+	o.step(ctx, at("2026-10-18", "04:00"))
+	r := o.snapshot(at("2026-10-18", "04:00"))
+	if strings.Join(f.started, ",") != "hlm-ds0-Hosts" || strings.Join(r.Pending, ",") != "hlm-ds0,hlm-ds3-Sites.Jarsay" || r.Day != "2026-10-18" || r.Total != 3 {
+		t.Fatalf("start: %v %+v", f.started, r)
 	}
 	// the UPID reported is the one of the PBS (the hub follows it), not its JSON form
-	if u := o.snapshot().Running[0].UPID; u != "UPID:n:1:1:1:6AD3E559:syncjob:hlm\\x2dmain:root@pam:hlm-aaaaaaaaaaaa" {
-		t.Fatalf("upid not decoded: %q", u)
+	if r.Running == nil || r.Running.UPID != "UPID:n:1:1:1:6AD3E559:syncjob:hlm\\x2dmain:root@pam:hlm-ds0-Hosts" || r.Running.JobID != "hlm-ds0-Hosts" {
+		t.Fatalf("running: %+v", r.Running)
 	}
-	o.step(context.Background(), night.Add(time.Hour+time.Minute), false)
+	// still running: the next one waits
+	o.step(ctx, at("2026-10-18", "04:01"))
 	if len(f.started) != 1 {
-		t.Fatalf("concurrency not kept: %v", f.started)
+		t.Fatalf("two at a time: %v", f.started)
 	}
-	// the copy ended: the next one starts
+	// ended: the next one
 	f.tasks = nil
-	o.step(context.Background(), night.Add(time.Hour+2*time.Minute), false)
-	if strings.Join(f.started, ",") != "hlm-aaaaaaaaaaaa,hlm-cccccccccccc" || len(o.snapshot().Queue) != 0 {
-		t.Fatalf("second launch: %v %+v", f.started, o.snapshot())
+	o.step(ctx, at("2026-10-18", "04:20"))
+	if strings.Join(f.started, ",") != "hlm-ds0-Hosts,hlm-ds0" {
+		t.Fatalf("second: %v", f.started)
 	}
-	// state kept on disk
+	// another sync task of the PBS (not ours): waits for it too
+	f.tasks = []apiTask{{UPID: "UPID:other", WorkerType: "syncjob", WorkerID: "r:ds0:ds9::manual-sync"}}
+	o.step(ctx, at("2026-10-18", "04:40"))
+	if len(f.started) != 2 || o.snapshot(at("2026-10-18", "04:40")).Running.UPID != "UPID:other" {
+		t.Fatalf("other sync: %v", f.started)
+	}
+	f.tasks = nil
+	o.step(ctx, at("2026-10-18", "05:00"))
+	if strings.Join(f.started, ",") != "hlm-ds0-Hosts,hlm-ds0,hlm-ds3-Sites.Jarsay" {
+		t.Fatalf("third: %v", f.started)
+	}
+	f.tasks = nil
+	o.step(ctx, at("2026-10-18", "05:30"))
+	r = o.snapshot(at("2026-10-18", "05:30"))
+	if r.Running != nil || len(r.Pending) != 0 || r.NextStart != at("2026-10-19", "04:00").UnixMilli() {
+		t.Fatalf("series done: %+v", r)
+	}
+	// done for the day
+	n := len(f.calls)
+	o.step(ctx, at("2026-10-18", "12:00"))
+	if len(f.calls) != n {
+		t.Fatal("a second series the same day")
+	}
+}
+
+func TestOffsiteSkipsRunningAndRefused(t *testing.T) {
+	// the second job already runs (started by the hub): it leaves the series; the third is refused
+	f := &fakeDebug{failRun: map[string]bool{"hlm-ds3-Sites.Jarsay": true}}
+	o := newTestOffsite(t, f)
+	ctx := context.Background()
+	o.step(ctx, at("2026-10-18", "04:00"))
+	f.tasks = []apiTask{{UPID: "UPID:hub", WorkerType: "syncjob", WorkerID: "hlm-main:ds0:ds9::hlm-ds0"}}
+	o.step(ctx, at("2026-10-18", "04:10"))
+	if strings.Join(o.snapshot(at("2026-10-18", "04:10")).Pending, ",") != "hlm-ds3-Sites.Jarsay" {
+		t.Fatalf("running job kept in the series: %+v", o.snapshot(at("2026-10-18", "04:10")))
+	}
+	f.tasks = nil
+	o.step(ctx, at("2026-10-18", "04:30"))
+	r := o.snapshot(at("2026-10-18", "04:30"))
+	if strings.Join(f.started, ",") != "hlm-ds0-Hosts" || len(r.Pending) != 0 || !strings.Contains(r.Error, "hlm-ds3-Sites.Jarsay") {
+		t.Fatalf("refused: %v %+v", f.started, r)
+	}
+}
+
+func TestOffsiteStateKept(t *testing.T) {
+	f := &fakeDebug{}
+	o := newTestOffsite(t, f)
+	o.step(context.Background(), at("2026-10-18", "04:00"))
+	// restart of the agent: the series goes on
 	o2 := newOffsiteModule(o.dir)
-	if o2.state.Spec == nil || o2.state.Spec.Hash != "h1" {
-		t.Fatal("spec not kept")
+	if o2.state.Spec == nil || o2.state.Spec.Hash != "h1" || o2.state.Day != "2026-10-18" || strings.Join(o2.state.Pending, ",") != "hlm-ds0,hlm-ds3-Sites.Jarsay" {
+		t.Fatalf("not kept: %+v", o2.state)
+	}
+	// a new definition: the series keeps the jobs still copied
+	if err := o2.apply(&OffsiteSpec{Hash: "h2", Start: "04:00", TZ: "Europe/Paris", Jobs: []string{"hlm-ds3-Sites.Jarsay"}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(o2.state.Pending, ",") != "hlm-ds3-Sites.Jarsay" || o2.state.Day != "2026-10-18" {
+		t.Fatalf("new definition: %+v", o2.state)
 	}
 }
 
-func TestOffsiteMaintenanceCounts(t *testing.T) {
-	f := &fakeDebug{
-		remote: map[string]string{"/config/remote/hlm-main/scan/ds0/groups": `[{"backup-type":"host","backup-id":"a","last-backup":200}]`, "/config/remote/hlm-main/scan/ds3/groups": `[]`},
-		local:  `[]`, sync: `[]`,
-		tasks: []apiTask{{UPID: "UPID:gc", WorkerType: "garbage_collection", WorkerID: "ds9"}},
+func TestOffsiteOldQueueRemoved(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "offsite.json")
+	if err := os.WriteFile(old, []byte(`{"spec":{"jobs":[{"id":"hlm-aaaaaaaaaaaa"}]},"queue":[]}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	o := newTestOffsite(t, f)
-	loc, _ := time.LoadLocation("Europe/Paris")
-	o.step(context.Background(), time.Date(2026, 10, 18, 5, 0, 0, 0, loc), true)
-	if len(f.started) != 0 || len(o.snapshot().Queue) != 1 {
-		t.Fatalf("GC running: nothing may start: %v", f.started)
+	o := newOffsiteModule(dir)
+	if _, err := os.Stat(old); !os.IsNotExist(err) || o.state.Spec != nil {
+		t.Fatal("queue of before kept")
 	}
 }
 
-func TestOffsiteLaunchFailure(t *testing.T) {
-	f := &fakeDebug{
-		remote: map[string]string{"/config/remote/hlm-main/scan/ds0/groups": `[{"backup-type":"host","backup-id":"a","last-backup":200}]`, "/config/remote/hlm-main/scan/ds3/groups": `[]`},
-		local:  `[]`, sync: `[]`, failRun: true,
-	}
+func TestOffsiteEmptySpecClearsSeries(t *testing.T) {
+	f := &fakeDebug{}
 	o := newTestOffsite(t, f)
-	loc, _ := time.LoadLocation("Europe/Paris")
-	at := time.Date(2026, 10, 18, 5, 0, 0, 0, loc)
-	o.step(context.Background(), at, true)
-	if o.snapshot().Error == "" {
-		t.Fatal("launch error not reported")
-	}
-	// queued again by the next scan, not retried before an hour
-	f.failRun = false
-	o.step(context.Background(), at.Add(5*time.Minute), true)
-	if len(f.started) != 0 {
-		t.Fatal("retried too soon")
-	}
-	o.step(context.Background(), at.Add(61*time.Minute), true)
-	if len(f.started) != 1 {
-		t.Fatalf("not retried: %v", f.started)
-	}
-}
-
-func TestOffsiteEmptySpecClearsQueue(t *testing.T) {
-	f := &fakeDebug{sync: `[]`}
-	o := newTestOffsite(t, f)
-	o.state.Queue = []OffsiteQueued{{JobID: "hlm-aaaaaaaaaaaa"}}
+	o.state.Pending = []string{"hlm-ds0"}
 	if err := o.apply(&OffsiteSpec{Hash: "h2"}); err != nil {
 		t.Fatal(err)
 	}
-	o.step(context.Background(), time.Now(), true)
-	if len(o.snapshot().Queue) != 0 || len(f.calls) != 0 {
-		t.Fatalf("empty spec: %+v %v", o.snapshot(), f.calls)
+	o.step(context.Background(), at("2026-10-18", "04:00"))
+	if len(o.snapshot(time.Now()).Pending) != 0 || len(f.calls) != 0 {
+		t.Fatalf("empty spec: %+v %v", o.snapshot(time.Now()), f.calls)
 	}
 }

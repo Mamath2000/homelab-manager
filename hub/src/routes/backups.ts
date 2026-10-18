@@ -17,7 +17,7 @@ import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from
 import { validTimeZone } from '../calendar.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken } from '../pbsAgent.js';
-import { loadRemoteSettings, pollOffsite, queueView, remoteReady } from '../offsite.js';
+import { loadRemoteSettings, pollOffsite, remoteReady, seriesView } from '../offsite.js';
 import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
@@ -177,7 +177,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     return {
       // secondary PBS of the copies, for every role (its settings are admin only): where and how much room
       offsite: remoteReady(r)
-        ? { host: new URL(r.url).hostname, store: r.store, polledAt: r.polledAt ?? null, pollError: r.pollError ?? null, usage: r.usage ?? null, queue: await queueView(r) }
+        ? { host: new URL(r.url).hostname, store: r.store, polledAt: r.polledAt ?? null, pollError: r.pollError ?? null, usage: r.usage ?? null, series: await seriesView(r) }
         : null,
       enabled: s.enabled,
       polledAt: s.polledAt ?? null,

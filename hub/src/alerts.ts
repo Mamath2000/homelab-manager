@@ -65,7 +65,7 @@ export function backupsAlert(groups: BackupDoc[], now = Date.now()): DayAlert | 
     else if (s === 'disabled') warns.push(`${name} : job désactivé`);
     else if (s === 'not_synced') warns.push(`${name} : pas encore appliquée par l'agent`);
     // copy to the secondary PBS
-    const o = offsiteState(b, undefined, now);
+    const o = offsiteState(b, now);
     if (o === 'failed') alerts.push(`${name} : copie déportée en échec`);
     else if (o === 'late') warns.push(`${name} : copie déportée en retard`);
   }

@@ -167,8 +167,8 @@ func (s *session) hello(ctx context.Context) error {
 	// Proxmox Backup Server administration (pbs.go): installed here, or possibly in a container
 	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil || slices.Contains(caps, "docker") {
 		caps = append(caps, "pbs")
-		// secondary PBS: the agent runs the queue of the copy (offsite.go)
-		caps = append(caps, "offsite_queue")
+		// secondary PBS: the agent starts the daily series of the copy (offsite.go)
+		caps = append(caps, "offsite_series")
 	}
 	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
 	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)

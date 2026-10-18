@@ -1,4 +1,4 @@
-import type { BackupGroup, BackupOffsite, BackupOffsiteInput, BackupState, DatabaseDump, DatabaseKind, DumpInfo, OffsiteQueueSettings, OffsiteQueueView } from './api';
+import type { BackupGroup, BackupOffsite, BackupOffsiteInput, BackupState, DatabaseDump, DatabaseKind, DumpInfo, OffsiteSeriesView } from './api';
 import { timeAgo } from './format';
 
 export const backupStateMeta: Record<BackupState, { label: string; tone: 'ok' | 'warn' | 'bad' | 'unknown' | 'neutral' }> = {
@@ -123,55 +123,33 @@ export function offsiteLane(g: Pick<BackupGroup, 'times' | 'offsite' | 'source' 
   const miss: OffsiteDay = o.state === 'failed' ? 'failed' : 'missing';
   const last = cells.length - 1;
   const copied: Record<DayVerify, OffsiteDay> = { ok: 'copied', unverified: 'unverified', failed: 'verify_failed' };
-  // a copy running: today's cell shows it
+  // this backup being copied: today's cell shows it
   return {
     off: false,
-    cells: cells.map((c, i) => ({ day: c.day, state: (o.running && i === last ? 'running' : c.count ? copied[c.verify] : expected[i].count ? miss : 'none') as OffsiteDay })),
+    cells: cells.map((c, i) => ({ day: c.day, state: (o.running?.current && i === last ? 'running' : c.count ? copied[c.verify] : expected[i].count ? miss : 'none') as OffsiteDay })),
   };
 }
 
-// Settings of the copy in the window of a backup (when: the queue of the secondary, see queueRule)
+// Copy in the window of a backup: enabled or not (when: the daily series of the secondary, see seriesRule)
 export interface OffsiteForm {
   enabled: boolean;
-  rateIn: string;
 }
 
-export const offsiteForm = (o: BackupOffsite | null | undefined): OffsiteForm => ({
-  enabled: !!o?.enabled,
-  rateIn: o?.rateIn ?? '',
-});
+export const offsiteForm = (o: BackupOffsite | null | undefined): OffsiteForm => ({ enabled: !!o?.enabled });
 
 // What to send for the copy when the window is saved; null: nothing changed.
 export function offsiteInput(before: OffsiteForm, after: OffsiteForm): BackupOffsiteInput | null {
-  if (JSON.stringify(before) === JSON.stringify(after)) return null;
-  if (!after.enabled) return { enabled: false };
-  return { enabled: true, rateIn: after.rateIn.trim() || null };
+  return before.enabled === after.enabled ? null : { enabled: after.enabled };
 }
 
-// Rule of the queue in words: "entre 04:00 et 09:00, une copie à la fois, au plus une par 24 h"
-export function queueRule(q: Pick<OffsiteQueueSettings, 'windowStart' | 'windowEnd' | 'concurrency' | 'minDelayH'>) {
-  const when = q.windowStart === q.windowEnd ? 'à toute heure' : `entre ${q.windowStart} et ${q.windowEnd}`;
-  const n = q.concurrency === 1 ? 'une copie à la fois' : `${q.concurrency} copies à la fois`;
-  return `${when}, ${n}${q.minDelayH ? `, au plus une par ${q.minDelayH} h` : ''}`;
-}
+// Rule of the series in words: "chaque jour à 04:00, une copie à la fois"
+export const seriesRule = (s: Pick<OffsiteSeriesView, 'startTime'>) => `chaque jour à ${s.startTime}, un namespace après l’autre, une copie à la fois`;
 
-// Next opening of the window after now, in the time zone of the browser (close enough: same site), unix ms.
-export function nextWindow(q: Pick<OffsiteQueueSettings, 'windowStart' | 'windowEnd'>, now = Date.now()) {
-  const [h, m] = q.windowStart.split(':').map(Number);
-  const d = new Date(now);
-  d.setHours(h, m, 0, 0);
-  if (d.getTime() <= now) d.setDate(d.getDate() + 1);
-  return d.getTime();
-}
-
-// Where a copied group stands in the queue, in words (null: nothing to say)
-export function queueText(o: Pick<BackupOffsite, 'queued' | 'running'>, q: Pick<OffsiteQueueView, 'active' | 'inWindow' | 'windowStart' | 'windowEnd'> | null | undefined, now = Date.now()) {
-  if (o.running) return 'copie en cours';
-  if (!q?.active) return null;
-  if (!o.queued) return 'à jour ou en attente d’une nouvelle sauvegarde';
-  const pos = o.queued.position === 1 ? 'prochaine' : `n° ${o.queued.position}`;
-  const wait = q.inWindow ? '' : ` · plage à ${new Date(nextWindow(q, now)).toTimeString().slice(0, 5)}`;
-  return `en file (${pos}) ${timeAgo(o.queued.since)}${wait}`;
+// Where a copied group stands in the series, in words (null: nothing to say)
+export function seriesText(o: Pick<BackupOffsite, 'running'>, s: Pick<OffsiteSeriesView, 'active' | 'nextStart'> | null | undefined) {
+  if (o.running) return o.running.current ? 'copie en cours' : 'copie de son namespace en cours';
+  if (!s?.active) return null;
+  return s.nextStart ? `prochaine série ${timeAgo(s.nextStart)}` : null;
 }
 
 // PBS client of a host, from the capabilities of its agent (see hub backupJobs.ts clientState)

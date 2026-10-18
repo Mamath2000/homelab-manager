@@ -513,7 +513,7 @@ export interface BackupsView {
     polledAt: string | null;
     pollError: string | null;
     usage: { total: number; used: number; avail: number } | null;
-    queue: OffsiteQueueView;
+    series: OffsiteSeriesView;
   } | null;
   polledAt: string | null;
   pollError: string | null;
@@ -562,11 +562,10 @@ export interface PbsSettings {
   pollError?: string | null;
 }
 
-// Copy of a group to the secondary PBS: settings, and what the poll of the secondary found
+// Copy of a group to the secondary PBS: enabled, and what the poll of the secondary found
 export interface BackupOffsite {
   enabled: boolean;
-  rateIn: string | null;
-  jobId: string;
+  jobId: string; // sync job of its datastore and namespace
   since: number;
   error?: string | null;
   lastBackup?: number | null;
@@ -575,12 +574,13 @@ export interface BackupOffsite {
   size?: number | null;
   // last snapshots on the secondary, oldest first (timeline of the copy)
   times?: BackupSnapshot[];
+  // last run of its sync job, for this group
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
-  // in the queue of the agent of the secondary: since when, position (1: next)
-  queued?: { since: number; position: number } | null;
-  // copy running on the secondary, followed by the hub as a job (console, Activité)
-  running?: { upid: string; start: number; jobId: string } | null;
-  // ok, pending (never copied), late (the last snapshot is not there after the delay plus a day), failed; null: not copied
+  // run of its sync job on the secondary, followed by the hub as a job (console, Activité); current: this
+  // group is the one being copied
+  running?: { upid: string; start: number; jobId: string; current?: boolean } | null;
+  // ok, pending (a verified snapshot of the main PBS newer than the copy), late (missed by a daily series),
+  // failed; null: not copied
   state: 'ok' | 'pending' | 'late' | 'failed' | null;
 }
 
@@ -594,28 +594,21 @@ export interface OffsiteCheck {
 
 export interface BackupOffsiteInput {
   enabled: boolean;
-  rateIn?: string | null;
 }
 
-// Queue of the copies, run by the agent of the secondary PBS (hub offsite.ts QUEUE_DEFAULTS)
-export interface OffsiteQueueSettings {
-  windowStart: string; // HH:MM
-  windowEnd: string;
-  concurrency: number;
-  minDelayH: number;
-  countMaintenance: boolean;
-}
-
-// What the interface shows of the queue (hub offsite.ts queueView)
-export interface OffsiteQueueView extends OffsiteQueueSettings {
+// Daily series of the copies, started by the agent of the secondary PBS (hub offsite.ts seriesView)
+export interface OffsiteSeriesView {
+  startTime: string; // HH:MM
   tz: string;
-  active: boolean; // the agent runs it (else: schedule of the PBS, agent to update)
+  jobs: number; // sync jobs (datastore + namespace) copied
+  active: boolean; // the agent starts the series (else: agent to update, no copy)
   agentOnline: boolean;
   error: string | null;
-  scannedAt: number | null;
-  inWindow: boolean | null;
-  queued: number;
-  running: number;
+  day: string | null; // last series started (YYYY-MM-DD)
+  total: number; // jobs of that series
+  pending: number; // not started yet
+  running: string | null; // label of the job running, or another sync of the secondary
+  nextStart: number | null; // unix ms
 }
 
 // Secondary PBS (hub/src/routes/offsite.ts); the tokens are created by the agents of both PBS
@@ -632,8 +625,8 @@ export interface PbsRemoteSettings {
   polledAt?: string;
   pollError?: string | null;
   usage?: { store: string; total: number; used: number; avail: number } | null;
-  queue: OffsiteQueueSettings;
-  queueState: OffsiteQueueView;
+  startTime: string;
+  series: OffsiteSeriesView;
 }
 
 export interface PbsRemoteInput {
@@ -641,7 +634,7 @@ export interface PbsRemoteInput {
   url: string;
   fingerprint: string;
   agent?: PbsAgentLink;
-  queue?: OffsiteQueueSettings;
+  startTime?: string;
 }
 
 export interface PbsTestResult {

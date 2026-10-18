@@ -111,75 +111,76 @@ Paramètres › Sauvegardes › **PBS de secours (copie déportée)** :
 1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse et empreinte pré-remplies, datastores proposés.
 2. **Datastore cible**, puis **Créer le jeton** du hub sur le PBS de secours (droits sur ce datastore seulement).
 3. **Jeton lecteur sur le PBS principal**, créé par l'agent du PBS principal (qui doit donc être relié).
-4. Cocher **Copier les sauvegardes choisies vers ce PBS**, régler la **file d'attente** (plage horaire, tâches simultanées, délai minimum, voir plus bas), **Tester la connexion** (datastore visible, namespaces existants), **Enregistrer**.
+4. Cocher **Copier les sauvegardes choisies vers ce PBS**, régler l'**heure de départ** des copies quotidiennes (voir plus bas), **Tester la connexion** (datastore visible, namespaces existants), **Enregistrer**.
 5. **Namespaces du datastore cible** : ceux des sauvegardes à copier doivent exister sur le PBS de secours, avec les mêmes noms que sur le PBS principal (`Hosts`, `Vouille`, `Jarsay`…), et le jeton du hub n'a pas le droit de les créer. Inutile de les préparer d'avance : dès qu'on active la copie d'une sauvegarde, l'interface vérifie et, s'il manque, donne la commande à copier dans un shell du PBS de secours (`proxmox-backup-client namespace create <ns> --repository root@pam@localhost:<datastore>`, parents d'abord), puis **Revérifier**.
 
 Le hub déclare lui-même sur le PBS de secours l'entrée **remote `hlm-main`** (adresse et empreinte du PBS principal, jeton lecteur) ; elle est réécrite quand l'adresse, l'empreinte ou le jeton lecteur changent.
 
-### Une copie par sauvegarde
+### Un sync job par datastore et namespace
 
-Chaque sauvegarde copiée a **son propre sync job** sur le PBS de secours, nommé `hlm-<empreinte du groupe>` ; le hub ne touche jamais aux autres jobs ni à une autre entrée remote.
+Les sauvegardes copiées d'un même datastore et d'un même namespace du PBS principal partagent **un sync job** sur le PBS de secours, nommé `hlm-<datastore>[-<namespace>]` (`hlm-ds0-Hosts`, `hlm-ds1` pour la racine, `/` d'un namespace imbriqué remplacé par `.` ; une empreinte au-delà de 32 caractères). Son **filtre de groupe** liste exactement les sauvegardes choisies : activer la copie d'une sauvegarde y ajoute son groupe, la désactiver l'en retire (le job disparaît avec la dernière). Le hub ne touche jamais aux autres jobs ni à une autre entrée remote.
+
+Pourquoi pas un job par datastore entier : le filtre de groupe de PBS ne regarde que `type/id`, pas le namespace (`group:ct/105` prendrait le CT 105 de `Vouille` **et** celui de `Jarsay`), et un job récursif tente de créer côté cible chaque namespace source manquant, ce que le jeton du hub n'a pas le droit de faire (le job finirait en erreur).
 
 | Réglage du job | Valeur |
 |---|---|
-| source | remote `hlm-main`, datastore et namespace de la sauvegarde |
+| source | remote `hlm-main`, datastore et namespace |
 | cible | datastore cible, **même namespace** que la source (sans niveau par datastore : une sauvegarde déplacée d'un datastore à l'autre reste un seul groupe) |
-| filtre | **exactement un groupe** (`group:<type>/<id>`), jamais vide ; profondeur 0 |
+| filtre | les groupes choisis (`group:<type>/<id>`), jamais vide ; profondeur 0 |
+| `transfer-last` | **1** : chaque copie envoie le dernier snapshot ; le PBS de secours garde les siens selon sa propre rétention (pas de miroir du groupe) |
+| `verified-only` | **oui** : seuls les snapshots vérifiés sont copiés (le PBS principal vérifie chaque nouvelle sauvegarde, `verify-new`). Le filtre passe **avant** `transfer-last` : c'est le dernier snapshot *vérifié* qui part ; un snapshot pas encore vérifié attend la série suivante |
+| `resync-corrupt` | **oui** : une copie dont la vérification a échoué sur le PBS de secours est renvoyée |
+| `worker-threads` | **1** groupe à la fois |
 | `remove-vanished` | non : une sauvegarde purgée du principal reste sur le PBS de secours |
+| `rate-in` | aucune limite : le PBS de secours (N40L) est limité par son processeur, pas par la fibre |
 | propriétaire | le jeton du hub |
-| `transfer-last` | **1** : chaque copie envoie la dernière sauvegarde ; le PBS de secours garde les siennes selon sa propre rétention (pas de miroir du groupe) |
-| planification | **aucune** : c'est l'agent du PBS de secours qui lance les jobs (file d'attente, ci-dessous) |
-| `rate-in` | réglé par sauvegarde ; par défaut sans limite (le plafond global se règle dans le PBS de secours) |
+| planification | **aucune** : c'est l'agent du PBS de secours qui lance les jobs (ci-dessous) |
 
-- Le hub **réconcilie** les jobs à chaque changement et à chaque relevé : il crée ceux qui manquent, remet en état ceux qui diffèrent (un filtre modifié à la main est rétabli) et supprime les jobs `hlm-*` qui ne sont plus voulus. Les copies déjà faites restent : **les purges sont celles du PBS de secours** (rétention, verify et GC s'y règlent).
-- **Copiable ?** Vérifié dès qu'on active la copie (case de l'onglet, détail d'une sauvegarde non copiée), puis à l'enregistrement : « Copiable », ou le motif — sauvegarde Home Assistant (pas sur le PBS) ou jamais écrite ; PBS de secours non configuré ; namespace cible absent (commande à copier, voir ci-dessus) ; même groupe (namespace + `type/id`) déjà copié depuis un autre datastore.
-- Sauvegarde disparue du PBS principal : son job reste (sans effet) et la copie est conservée ; le job est supprimé quand la sauvegarde est oubliée.
-- Copie désactivée : son job est supprimé, la copie reste sur le PBS de secours.
-- **Lancer** une copie tout de suite : flèche ▶ du détail de la sauvegarde, action unitaire (opérateurs compris), suivie en direct (ci-dessous). Une seule à la fois par sauvegarde.
+- Le hub **réconcilie** les jobs à chaque changement et à chaque relevé : il crée ceux qui manquent, remet en état ceux qui diffèrent (un filtre ou une option modifiés à la main sont rétablis) et supprime les jobs `hlm-*` qui ne sont plus voulus. Les copies déjà faites restent : **les purges sont celles du PBS de secours** (rétention, verify et GC s'y règlent).
+- **Copiable ?** Vérifié dès qu'on active la copie (case de l'onglet, détail d'une sauvegarde non copiée), puis à l'enregistrement : « Copiable », ou le motif — sauvegarde Home Assistant (pas sur le PBS) ou jamais écrite ; PBS de secours non configuré ; namespace cible absent (commande à copier, voir ci-dessus) ; même groupe (namespace + `type/id`) déjà copié depuis un autre datastore. Les sauvegardes de guests (vzdump) se copient comme les autres.
+- Sauvegarde disparue du PBS principal : son groupe reste dans le filtre (sans effet) et la copie est conservée ; il en sort quand la sauvegarde est oubliée.
+- **Lancer** tout de suite : flèche ▶ du détail d'une sauvegarde copiée (opérateurs compris). Elle lance le job de **son namespace entier** (toutes les sauvegardes copiées de ce datastore et ce namespace), suivi en direct (ci-dessous). Refusé tant qu'une synchronisation tourne sur le PBS de secours : jamais deux copies à la fois.
+- **Migration** (avant #186 : un job `hlm-<empreinte>` par sauvegarde, file d'attente de l'agent) : au premier relevé, les anciens jobs sont supprimés et remplacés ; le hub efface les réglages de file, l'agent son fichier `offsite.json`.
 
-API : `PUT /api/backups/<id>/offsite` (`enabled`, `rateIn` ; `schedule` est ignoré), `GET /api/backups/<id>/offsite/check` (copiable, namespace à créer et commandes), `POST /api/backups/<id>/offsite/run` (rend l'UPID de la tâche et le job qui la suit) ; le DTO de chaque sauvegarde porte `offsite`, son état et la copie en cours, et `GET /api/backups` le PBS de secours (hôte, datastore, occupation, état de la file) pour tous les rôles.
+API : `PUT /api/backups/<id>/offsite` (`enabled`), `GET /api/backups/<id>/offsite/check` (copiable, namespace à créer et commandes), `POST /api/backups/<id>/offsite/run` (lance le job du namespace ; rend l'UPID de la tâche et le job qui la suit) ; le DTO de chaque sauvegarde porte `offsite`, son état et la copie en cours, et `GET /api/backups` le PBS de secours (hôte, datastore, occupation, état de la série) pour tous les rôles.
 
-### File d'attente : l'agent du PBS de secours lance les copies
+### Copies quotidiennes : l'agent du PBS de secours enchaîne les jobs
 
-PBS n'a pas de limite globale de jobs simultanés, et des jobs planifiés à la même heure partent tous ensemble : sur un PBS de secours modeste, derrière un VPN, c'est la congestion. Les sync jobs `hlm-*` n'ont donc **pas de planification** ; l'**agent du PBS de secours** (celui choisi à la mise en place) les lance depuis une file d'attente. Le hub n'est pas dans la chaîne : il pousse la définition à l'agent (à sa connexion et à chaque changement), affiche l'état et alerte.
+PBS n'a pas de limite globale de jobs simultanés, et des jobs planifiés à la même heure partent tous ensemble : sur un PBS de secours modeste, derrière un VPN, c'est la congestion. Les sync jobs `hlm-*` n'ont donc **pas de planification** ; l'**agent du PBS de secours** (celui choisi à la mise en place, capacité `offsite_series`) les lance. Le hub n'est pas dans la chaîne : il pousse la définition à l'agent (liste des jobs, heure de départ, fuseau ; à sa connexion et à chaque changement), affiche l'état et alerte.
 
-- **Détection**, toutes les 5 minutes : pour chaque sauvegarde copiée, le dernier snapshot sur le PBS principal (scan de l'entrée remote `hlm-main`) est comparé au dernier présent sur le PBS de secours. Plus récent, et le dernier passage de son job date d'au moins le **délai minimum** (à une heure près, pour que les copies quotidiennes ne dérivent pas) : la sauvegarde entre dans la file, **une seule fois** même s'il y a plusieurs snapshots.
-- **Lancement**, dans l'ordre d'arrivée, uniquement dans la **plage horaire** et tant que moins de **N tâches lourdes** tournent sur le PBS de secours : copies (y compris celles lancées à la main ou par un autre job), et, si la case est cochée, vérifications et nettoyage (GC). Le compte se fait sur les tâches réellement en cours du PBS : il résiste à un redémarrage de l'agent. Une copie en cours n'est pas interrompue à la fin de la plage. Un lancement refusé n'est retenté qu'une heure plus tard.
-- La file est gardée par l'agent (`/var/lib/homelab-agent/offsite.json`) : **les copies continuent quand le hub est arrêté**. L'agent parle à son PBS par `proxmox-backup-debug api` (API locale en root, dans le conteneur le cas échéant) : aucun jeton supplémentaire.
-- **Pas de repli** sur la planification de PBS : agent arrêté = plus de copie ; l'agent hors ligne est signalé (alerte de l'hôte, ligne de la file dans Paramètres) et les sauvegardes passent « en retard » au-delà du délai.
-- **Migration** : tant que l'agent du PBS de secours ne sait pas gérer la file (agent plus ancien), les jobs gardent leur planification de PBS (celle de la sauvegarde, sinon 06:00) ; elle est retirée dès que l'agent a appliqué sa première définition.
+- Chaque jour à l'**heure de départ** (**04:00** par défaut : les sauvegardes principales commencent à 02:30 et sont vérifiées dans la foulée), l'agent lance les jobs **l'un après l'autre** : le suivant part quand plus aucune tâche de synchronisation ne tourne sur le PBS de secours (celles lancées à la main ou par un autre job comptent). Un job déjà en cours quand vient son tour (lancé depuis le hub) est sauté ; un lancement refusé est sauté et signalé.
+- La définition et la série en cours sont gardées par l'agent (`/var/lib/homelab-agent/offsite-series.json`) : **les copies continuent quand le hub est arrêté**, et un redémarrage de l'agent reprend la série. Agent arrêté à l'heure de départ : la série part à son retour, le même jour. À la première définition reçue après l'heure de départ, la série attend le lendemain.
+- L'agent parle à son PBS par `proxmox-backup-debug api` (API locale en root, dans le conteneur le cas échéant) : aucun jeton supplémentaire.
+- **Pas de repli** sur la planification de PBS : agent arrêté ou trop ancien = plus de copie ; c'est signalé (alerte de l'hôte, ligne d'état dans Paramètres) et les sauvegardes passent « en retard ».
 
 | Réglage (Paramètres › PBS de secours) | Défaut |
 |---|---|
-| plage horaire | **04:00 – 09:00** (les sauvegardes principales commencent à 02:30) ; début = fin : à toute heure ; peut passer minuit |
-| tâches lourdes simultanées (N) | **1** |
-| délai minimum entre deux copies d'une sauvegarde | **24 h** (réglage global) |
-| vérifications et GC comptés dans N | **oui** |
-
-« Copier maintenant » (▶) passe outre la plage horaire ; la copie compte dans N pour l'agent.
+| connexion (hôte, adresse, empreinte, datastore cible, jetons) | voir Mise en place |
+| heure de départ des copies quotidiennes | **04:00** (fuseau du hub) |
 
 ### Suivi en direct
 
-Chaque copie est une tâche du PBS de secours ; le hub la suit et en fait un **job « Copie déportée »** sur l'hôte de la sauvegarde, comme une sauvegarde de l'agent :
+Chaque copie est une tâche du PBS de secours ; le hub la suit et en fait un **job « Copie déportée »** (nommé d'après le datastore et le namespace, ex. `ds0 › Hosts`) sur l'**hôte du PBS de secours** :
 
-- **lancée à la main** : le job s'ouvre dans la console de la fiche hôte (ailleurs, un message renvoie à Activité), avec le **journal de la tâche PBS en direct** ;
-- **lancée par la file** (« planifiée » dans Activité) : l'agent du PBS de secours signale chaque copie qu'il lance, et le hub regarde aussi toutes les 30 secondes les tâches de sync en cours sur le PBS de secours ; il les suit de la même façon ; une copie qu'il n'a pas vue (hub arrêté) est enregistrée dans Activité au relevé suivant, avec son journal ;
-- pendant la copie, le nuage de la pastille **détail** pulse et la case du jour de la frise clignote ; à la fin, le résultat (succès, avertissements, échec) ferme le job et le hub relit aussitôt le PBS de secours ;
-- un redémarrage du hub reprend le suivi sur le même job. Les copies de la file partent sans le hub : c'est l'agent du PBS de secours qui les déclenche.
+- **lancée à la main** : le job s'ouvre dans la console (ailleurs, un message renvoie à Activité), avec le **journal de la tâche PBS en direct** ;
+- **lancée par l'agent** (« planifiée » dans Activité) : l'agent signale chaque copie qu'il lance, et le hub regarde aussi toutes les 30 secondes les tâches de sync en cours sur le PBS de secours ; il les suit de la même façon ; une copie qu'il n'a pas vue (hub arrêté) est enregistrée dans Activité au relevé suivant, avec son journal ;
+- pendant la copie, le hub lit dans le journal la sauvegarde en cours de transfert : son nuage (pastille **détail**) pulse et la case du jour de sa frise clignote ; les autres sauvegardes du namespace indiquent « copie de son namespace en cours » ;
+- à la fin, le résultat de **chaque sauvegarde** est tiré du journal : une ligne `sync group <type>/<id> failed - …` met cette sauvegarde en échec avec le message, les autres sont réussies ; une tâche en erreur sans sauvegarde nommée (namespace absent, connexion…) met tout le job en échec. Le job se ferme et le hub relit aussitôt le PBS de secours ;
+- un redémarrage du hub reprend le suivi sur le même job.
 
 ### État d'une copie
 
-Toutes les 15 minutes, et à la fin de chaque copie, le hub relève sur le PBS de secours l'état des sync jobs (dernier passage), les groupes copiés (dates des snapshots présents, dernier, taille, vérification) et l'occupation du datastore cible.
+Toutes les 15 minutes, et à la fin de chaque copie, le hub relève sur le PBS de secours l'état des sync jobs (dernier passage), les groupes copiés (dates des snapshots présents, dernier, taille, vérification) et l'occupation du datastore cible. L'état se compare au dernier snapshot **vérifié** du PBS principal (seuls ceux-là sont copiés).
 
 | État | Signification |
 |---|---|
-| à jour | une copie existe, et le dernier snapshot du PBS principal est copié ou attend depuis moins que le délai minimum + 24 h |
-| jamais copiée | activée, aucun snapshot copié encore (et moins de délai + 24 h depuis le dernier snapshot ou l'activation) |
-| copie en cours | une tâche de copie tourne sur le PBS de secours |
-| en retard | le dernier snapshot du PBS principal (ou l'activation, si elle est plus récente) n'est pas sur le PBS de secours après le délai minimum + 24 h : la file a eu une plage entière pour le copier (agent arrêté, plage trop courte…) |
-| en échec | le dernier passage a échoué, ou le PBS de secours a refusé le job |
+| à jour | le dernier snapshot vérifié du PBS principal est sur le PBS de secours |
+| en attente | un snapshot vérifié plus récent que la copie existe sur le PBS principal (ou rien n'est encore copié), depuis moins de 30 h |
+| copie en cours | cette sauvegarde est en cours de transfert |
+| en retard | ce snapshot vérifié (ou l'activation, si elle est plus récente) n'est toujours pas copié après **30 h** : une série quotidienne l'a manqué (agent arrêté, copie trop longue…) |
+| en échec | le dernier passage a échoué pour cette sauvegarde, ou le PBS de secours a refusé son job |
 
-« En échec » est une alerte, « en retard » un avertissement : ils s'ajoutent à ceux de la sauvegarde. Le détail d'une sauvegarde copiée donne aussi sa place dans la file (« en file (prochaine) il y a 2 heures · plage à 04:00 », « à jour ou en attente d'une nouvelle sauvegarde », agent hors ligne ou à mettre à jour).
+« En échec » est une alerte, « en retard » un avertissement : ils s'ajoutent à ceux de la sauvegarde. Le détail d'une sauvegarde copiée donne aussi la prochaine série (« prochaine série dans 9 heures »), la copie en cours, ou l'agent hors ligne ou à mettre à jour.
 
 ## Lien hôte ↔ guest Proxmox
 
@@ -322,9 +323,9 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
 - **Page Sauvegardes** : compteurs, espace des datastores et, avec un PBS de secours, celui de son datastore cible ; une ligne par sauvegarde suivie : nom (celui du job pour une sauvegarde de répertoires) et sa pastille **détail**, **type**, hôte, 30 derniers jours, dernière, taille, vérification, état, seuil et, avec un PBS de secours, **copie déportée** (état et âge de la dernière copie, « non copiée », « — non copiable »). Filtres : en retard / échec, **type**, hôte, recherche.
 - **Fiche hôte**, carte **Sauvegardes** : icône du client PBS, guest Proxmox lié, alerte « non couvert », chaque sauvegarde sur une ligne de titre (nom, état, type, pastille **détail**, actions) et une ligne de détail (datastore, dernière, taille, vérification) à côté de sa frise ; boutons **+ Sauvegarde**, **Rattacher**, et sur chaque ligne d'un job de l'agent le crayon (modifier) et **Lancer**.
-- **Pastille « détail »**, sur toutes les sauvegardes : un clic ouvre le détail de la sauvegarde (type, datastore, dernière, planification ou rythme, délai avant alerte et sa source, bases d'un job de bases) et de sa **copie déportée** (état, dernier snapshot copié et sa vérification sur le PBS de secours, place dans la file, débit, erreurs, place sur le PBS de secours, flèche ▶ pour la lancer ; pour une sauvegarde non copiée, la vérification « copiable » et **Activer la copie**). Le nuage de la pastille donne l'état de la copie quand il y en a une : bleu à jour, gris jamais copiée, orange en retard, rouge en échec, pulsant en cours.
+- **Pastille « détail »**, sur toutes les sauvegardes : un clic ouvre le détail de la sauvegarde (type, datastore, dernière, planification ou rythme, délai avant alerte et sa source, bases d'un job de bases) et de sa **copie déportée** (état, dernier snapshot copié et sa vérification sur le PBS de secours, prochaine série ou copie en cours, erreurs, place sur le PBS de secours, flèche ▶ pour lancer la copie de son namespace ; pour une sauvegarde non copiée, la vérification « copiable » et **Activer la copie**). Le nuage de la pastille donne l'état de la copie quand il y en a une : bleu à jour, gris en attente, orange en retard, rouge en échec, pulsant en cours de transfert.
 - **Frise à deux voies** (avec un PBS de secours) : sous les 30 jours de la sauvegarde, une voie fine pour les copies — bleu = un snapshot de ce jour est sur le PBS de secours et vérifié (bleu pâle : non vérifié, rouge : vérification en échec), contour orange = copie manquante, rouge = manquante et dernière copie en échec, pointillés = copie non activée ; rien pour une sauvegarde non copiable. Une copie est attendue pour un snapshot antérieur au début de la dernière copie et pas plus ancien que la plus ancienne copie (le PBS de secours élague de son côté).
-- **Fenêtre d'une sauvegarde** de l'agent (format 16:9, onglets à gauche) : **Contenu**, **Destination**, **Planning** et, avec un PBS de secours, **Copie déportée** (activation, limite de débit, rappel de la règle de la file, état, place), enregistrée avec la sauvegarde ; un récapitulatif reste en pied de fenêtre.
+- **Fenêtre d'une sauvegarde** de l'agent (format 16:9, onglets à gauche) : **Contenu**, **Destination**, **Planning** et, avec un PBS de secours, **Copie déportée** (activation, rappel de l'heure des copies et du job de son namespace, état, place), enregistrée avec la sauvegarde ; un récapitulatif reste en pied de fenêtre.
 - **Snapshots** : l'icône en forme de couches, sur chaque ligne (page Sauvegardes, à côté du nom ; fiche hôte, à droite), ouvre la liste des snapshots de la sauvegarde, du plus récent au plus ancien. Elle affiche d'abord les 4 derniers, puis **Voir tout** déplie l'historique gardé par le hub (30 au plus ; la fenêtre indique quand le PBS en a davantage). Colonnes :
   - date d'exécution (relative au survol) ;
   - taille ;

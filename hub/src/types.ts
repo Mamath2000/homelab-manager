@@ -452,29 +452,25 @@ export interface BackupDoc {
   offsite?: BackupOffsite;
 }
 
-// Copy of a group to the secondary PBS: one sync job per group, pulled by the secondary. Settings by
-// the admin; the rest is the poll of the secondary.
+// Copy of a group to the secondary PBS: the sync job of its datastore and namespace, pulled by the
+// secondary. Enabled by the admin; the rest is the poll of the secondary and the runs followed.
 export interface BackupOffsite {
   enabled: boolean;
-  // calendar event of the PBS, before the queue of the agent of the secondary (#185): no longer set, used
-  // only while that agent cannot run the queue
-  schedule?: string;
-  rateIn: string | null; // "10MiB"; null: no limit (the global one of the PBS applies)
-  jobId: string; // hlm-<hash of the group>
+  jobId: string; // sync job of its datastore and namespace (offsite.ts syncJobId)
   since: number; // enabled at (ms)
   // the sync job could not be created / updated (reconciliation)
   error?: string | null;
-  // poll of the secondary: the copied group and the last run of its job
+  // poll of the secondary: the copied group
   lastBackup?: number | null; // unix ms of the last snapshot copied
   count?: number;
   verify?: 'ok' | 'failed' | null;
   size?: number | null; // of the last snapshot copied
   times?: BackupSnapshot[]; // last snapshots on the secondary, oldest first (timeline)
+  // last run of its sync job, for this group (a group can fail in a run that copies others)
   lastRun?: { start: number; end: number; ok: boolean; error?: string } | null;
-  // in the queue of the agent of the secondary: since when, position (1: next)
-  queued?: { since: number; position: number } | null;
-  // copy being run on the secondary, followed by the hub: its task and its job (Activité)
-  running?: { upid: string; start: number; jobId: string } | null;
+  // run of its sync job being followed by the hub: its task and the job of the hub (Activité); current: this
+  // group is the one being copied
+  running?: { upid: string; start: number; jobId: string; current?: boolean } | null;
   // last task recorded as a job (a run the hub did not follow is recorded at the next poll)
   recordedUpid?: string | null;
 }
@@ -493,31 +489,24 @@ export interface PbsRemoteSettings {
   readerTokenSecret: string;
   // remote entry last written on the secondary (hash of address, fingerprint, reader token)
   remoteHash?: string;
-  // queue of the copies, run by the agent of the secondary (agent offsite.go)
-  queue?: OffsiteQueueSettings;
-  queueAck?: string | null; // hash of the definition the agent applied
-  queueError?: string | null; // the agent refused the definition
-  queueReport?: (OffsiteQueueReport & { receivedAt: Date }) | null;
+  // daily series of the copies, started by the agent of the secondary (agent offsite.go): HH:MM
+  startTime?: string;
+  agentAck?: string | null; // hash of the definition the agent applied
+  agentError?: string | null; // the agent refused the definition
+  agentReport?: (OffsiteSeriesReport & { receivedAt: Date }) | null;
   polledAt?: Date;
   pollError?: string | null;
   usage?: PbsDatastoreUsage | null;
 }
 
-export interface OffsiteQueueSettings {
-  windowStart: string; // HH:MM, launches from…
-  windowEnd: string; // …to (may cross midnight; equal: all day)
-  concurrency: number; // heavy tasks at a time on the secondary
-  minDelayH: number; // a group at most once per…
-  countMaintenance: boolean; // verifications and garbage collections count in the concurrency
-}
-
-// State of the queue, as the agent of the secondary reports it (offsite_report).
-export interface OffsiteQueueReport {
+// State of the series, as the agent of the secondary reports it (offsite_report).
+export interface OffsiteSeriesReport {
   hash: string;
-  scannedAt: number; // unix ms, 0: never
-  queue: { jobId: string; since: number }[];
-  running: { jobId?: string; upid: string; type: string; start: number }[];
-  inWindow: boolean;
+  day: string; // last series started (YYYY-MM-DD), "": never
+  total: number; // jobs of that series
+  pending: string[]; // not started yet
+  running?: { jobId?: string; upid: string; start: number } | null; // sync task running (jobId: one of ours)
+  nextStart: number; // unix ms, 0: nothing to copy
   error?: string;
 }
 

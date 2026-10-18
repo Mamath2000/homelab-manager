@@ -7,26 +7,26 @@ import { backups, hosts, parseId, settings } from './db.js';
 import { publish } from './events.js';
 import { appendJobLog, finishJob, startHubJob } from './jobs.js';
 import { HISTORY, loadPbsSettings, pbsCall } from './pbs.js';
-import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, OffsiteQueueReport, OffsiteQueueSettings, PbsRemoteSettings } from './types.js';
+import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, OffsiteSeriesReport, PbsRemoteSettings } from './types.js';
 
 // Copy of chosen backups to a secondary PBS ("copie déportée"). The secondary pulls from the main PBS:
-// a remote entry (REMOTE_NAME) with a read-only token of the main PBS, and one sync job per group copied,
+// a remote entry (REMOTE_NAME) with a read-only token of the main PBS, and one sync job per datastore and
+// namespace copied (the group filter of PBS ignores the namespace: a job per namespace keeps it exact),
 // owned by the token of the hub, which can neither delete a snapshot nor create a namespace. The hub only
 // touches its own remote and the sync jobs named hlm-*; the purges stay the business of the PBS.
-// The sync jobs have no schedule: the agent of the secondary runs them from a queue (agent offsite.go,
-// #185) with the definition the hub sends it (offsite_sync); the hub configures, follows and alerts.
+// The sync jobs have no schedule: every day at the start time, the agent of the secondary starts them one
+// after the other (agent offsite.go, #186) from the definition the hub sends it (offsite_sync); the hub
+// configures, follows and alerts.
 
 export const REMOTE_NAME = 'hlm-main';
 export const JOB_PREFIX = 'hlm-';
-// one snapshot per run, the last one: the backup is on both PBS, the secondary prunes with its own retention
+// one snapshot per run, the last verified one: the backup is on both PBS, the secondary prunes with its own retention
 export const TRANSFER_LAST = 1;
-export const OFFSITE_DEFAULTS = { rateIn: null } as const;
-// the main backups start at 02:30: the copies after them, one at a time, a group at most once a day
-export const QUEUE_DEFAULTS: OffsiteQueueSettings = { windowStart: '04:00', windowEnd: '09:00', concurrency: 1, minDelayH: 24, countMaintenance: true };
-// schedule of the sync jobs as long as the agent of the secondary does not run the queue (older agent)
-export const LEGACY_SCHEDULE = '06:00';
+// the main backups start at 02:30 and are verified right after (verify-new)
+export const DEFAULT_START = '04:00';
+// a verified snapshot not copied after this: a daily series missed it
+export const LATE_HOURS = 30;
 export const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-export const RATE_RE = /^\d{1,6}(\.\d{1,3})?\s?(B|KB|MB|GB|KiB|MiB|GiB)$/;
 
 export const DEFAULT_REMOTE: PbsRemoteSettings = {
   _id: 'pbs-remote',
@@ -40,16 +40,11 @@ export const DEFAULT_REMOTE: PbsRemoteSettings = {
   readerTokenSecret: '',
 };
 
-// minimum delay of the copies, for offsiteState (kept up to date by every read of the settings)
-let currentDelayH = QUEUE_DEFAULTS.minDelayH;
-
 export async function loadRemoteSettings(): Promise<PbsRemoteSettings> {
-  const r: PbsRemoteSettings = { ...DEFAULT_REMOTE, ...((await settings.findOne({ _id: 'pbs-remote' })) as PbsRemoteSettings | null), _id: 'pbs-remote' };
-  currentDelayH = queueOf(r).minDelayH;
-  return r;
+  return { ...DEFAULT_REMOTE, ...((await settings.findOne({ _id: 'pbs-remote' })) as PbsRemoteSettings | null), _id: 'pbs-remote' };
 }
 
-export const queueOf = (r: Pick<PbsRemoteSettings, 'queue'>): OffsiteQueueSettings => ({ ...QUEUE_DEFAULTS, ...(r.queue ?? {}) });
+export const startOf = (r: Pick<PbsRemoteSettings, 'startTime'>) => (r.startTime && HHMM_RE.test(r.startTime) ? r.startTime : DEFAULT_START);
 
 // the secondary can be used: address, token of the hub, target datastore, reader token
 export const remoteReady = (r: PbsRemoteSettings) => !!(r.enabled && r.url && r.store && r.tokenId && r.tokenSecret && r.readerTokenId && r.readerTokenSecret);
@@ -66,7 +61,14 @@ export function notCopiable(b: Pick<BackupDoc, 'source' | 'placeholder'>) {
   return null;
 }
 
-export const syncJobId = (groupKey: string) => `${JOB_PREFIX}${sha256(groupKey).slice(0, 12)}`;
+// Sync job of a datastore and namespace of the main PBS: hlm-<store>[-<ns, / as .>], readable; a hash when
+// it would exceed the 32 characters of a job id of PBS.
+export function syncJobId(store: string, ns: string) {
+  const id = `${JOB_PREFIX}${store}${ns ? `-${ns.replace(/\//g, '.')}` : ''}`;
+  return id.length <= 32 ? id : `${JOB_PREFIX}${sha256(`${store}/${ns}`).slice(0, 12)}`;
+}
+
+export const jobLabel = (store: string, ns: string) => `${store} › ${ns || 'racine'}`;
 
 // The same group (namespace + type/id) copied from two datastores would land in the same target group.
 export function sameGroupElsewhere(b: Pick<BackupDoc, '_id' | 'ns' | 'type' | 'backupId'>, enabled: Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId'>[]) {
@@ -87,49 +89,81 @@ export interface SyncJobConfig {
   'group-filter': string[];
   'remove-vanished': boolean;
   owner: string;
-  schedule?: string; // only while the queue is not run by the agent
-  'transfer-last'?: number;
-  'rate-in'?: string;
+  'transfer-last': number;
+  'verified-only': boolean;
+  'resync-corrupt': boolean;
+  'worker-threads': number;
   comment: string;
+  // set before #186, cleared
+  schedule?: string;
+  'rate-in'?: string;
 }
 
-const OPTIONAL: (keyof SyncJobConfig)[] = ['ns', 'remote-ns', 'schedule', 'transfer-last', 'rate-in'];
-const COMPARED: (keyof SyncJobConfig)[] = ['store', 'ns', 'remote', 'remote-store', 'remote-ns', 'max-depth', 'group-filter', 'remove-vanished', 'owner', 'schedule', 'transfer-last', 'rate-in', 'comment'];
+const OPTIONAL: (keyof SyncJobConfig)[] = ['ns', 'remote-ns', 'schedule', 'rate-in'];
+const COMPARED: (keyof SyncJobConfig)[] = [
+  'store',
+  'ns',
+  'remote',
+  'remote-store',
+  'remote-ns',
+  'max-depth',
+  'group-filter',
+  'remove-vanished',
+  'owner',
+  'transfer-last',
+  'verified-only',
+  'resync-corrupt',
+  'worker-threads',
+  'schedule',
+  'rate-in',
+  'comment',
+];
 
-// Sync job of one group: target namespace = source namespace (no level per datastore: a backup moved from
-// a datastore to another stays one target group), never recursive, always exactly one group. No schedule
-// once the agent of the secondary runs the queue (queued); until then, the one of before.
-export function desiredJob(
-  b: Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment'>,
-  o: Pick<BackupOffsite, 'schedule' | 'rateIn'>,
-  r: Pick<PbsRemoteSettings, 'store' | 'tokenId'>,
-  queued = true,
-): SyncJobConfig {
-  if (!b.type || !b.backupId) throw new Error(`groupe incomplet : ${b._id}`);
-  return {
-    id: syncJobId(b._id),
-    store: r.store,
-    ...(b.ns ? { ns: b.ns } : {}),
-    remote: REMOTE_NAME,
-    'remote-store': b.store,
-    ...(b.ns ? { 'remote-ns': b.ns } : {}),
-    'max-depth': 0,
-    'group-filter': [`group:${b.type}/${b.backupId}`],
-    'remove-vanished': false,
-    owner: r.tokenId,
-    ...(queued ? {} : { schedule: o.schedule || LEGACY_SCHEDULE }),
-    'transfer-last': TRANSFER_LAST,
-    ...(o.rateIn ? { 'rate-in': o.rateIn } : {}),
-    comment: `Homelab Manager : ${b._id}`,
-  };
+type JobGroup = Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId'>;
+
+// Sync jobs of the groups copied: one per datastore and namespace, target namespace = source namespace (no
+// level per datastore: a backup moved from a datastore to another stays one target group), never recursive,
+// the groups by an exact filter (sorted: stable). Only verified snapshots, the last one, corrupted copies
+// pulled again, one group at a time; no schedule (the agent of the secondary), no limit of rate (the
+// secondary is limited by its CPU).
+export function desiredJobs(groups: JobGroup[], r: Pick<PbsRemoteSettings, 'store' | 'tokenId'>): SyncJobConfig[] {
+  const by = new Map<string, { store: string; ns: string; filters: Set<string> }>();
+  for (const g of groups) {
+    if (!g.type || !g.backupId) throw new Error(`groupe incomplet : ${g._id}`);
+    const id = syncJobId(g.store, g.ns);
+    const j = by.get(id) ?? { store: g.store, ns: g.ns, filters: new Set<string>() };
+    j.filters.add(`group:${g.type}/${g.backupId}`);
+    by.set(id, j);
+  }
+  return [...by.entries()]
+    .map(([id, j]) => ({
+      id,
+      store: r.store,
+      ...(j.ns ? { ns: j.ns } : {}),
+      remote: REMOTE_NAME,
+      'remote-store': j.store,
+      ...(j.ns ? { 'remote-ns': j.ns } : {}),
+      'max-depth': 0,
+      'group-filter': [...j.filters].sort(),
+      'remove-vanished': false,
+      owner: r.tokenId,
+      'transfer-last': TRANSFER_LAST,
+      'verified-only': true,
+      'resync-corrupt': true,
+      'worker-threads': 1,
+      comment: `Homelab Manager : ${jobLabel(j.store, j.ns)}`,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 const norm = (v: unknown) => JSON.stringify(v ?? null);
 
 // What to do on the secondary: create the missing jobs, update the ones that differ, remove the hlm-* jobs
-// no longer wanted. The other jobs of the PBS are never touched.
+// no longer wanted (the jobs of one group of before #186 among them). The other jobs of the PBS are never
+// touched.
 export function planSync(desired: SyncJobConfig[], existing: Partial<SyncJobConfig>[]) {
-  for (const d of desired) if (d['group-filter'].length !== 1) throw new Error(`job ${d.id} : un seul groupe par job`);
+  // an empty filter would copy the whole namespace
+  for (const d of desired) if (!d['group-filter'].length) throw new Error(`job ${d.id} : aucun groupe`);
   const mine = new Map(existing.filter((e) => e.id?.startsWith(JOB_PREFIX)).map((e) => [e.id!, e]));
   const create: SyncJobConfig[] = [];
   const update: SyncJobConfig[] = [];
@@ -184,21 +218,21 @@ async function ensureRemote(r: PbsRemoteSettings) {
 type Copied = Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment' | 'offsite' | 'hostId' | 'managed'>;
 
 async function enabledGroups(): Promise<Copied[]> {
-  return backups
+  const list = await backups
     .find(
       { 'offsite.enabled': true },
       { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1, comment: 1, offsite: 1, source: 1, placeholder: 1, hostId: 1, managed: 1 } },
     )
     .toArray();
+  return list.filter((g) => !notCopiable(g as BackupDoc));
 }
 
 // Remote entry, then the hlm-* sync jobs made to match the groups copied. An error on one job is kept on
-// its group (offsite.error), the others go on.
+// its groups (offsite.error), the others go on; the job of each group is set again (ids of before #186).
 export async function reconcile(r: PbsRemoteSettings, log?: FastifyBaseLogger) {
   await ensureRemote(r);
-  const groups = (await enabledGroups()).filter((g) => !notCopiable(g as BackupDoc));
-  const queued = await queueActive(r);
-  const desired = groups.map((g) => desiredJob(g, g.offsite!, r, queued));
+  const groups = await enabledGroups();
+  const desired = desiredJobs(groups, r);
   const existing = await call<Partial<SyncJobConfig>[]>(r, 'GET', '/config/sync');
   const plan = planSync(desired, existing);
   const errors = new Map<string, string>();
@@ -206,61 +240,38 @@ export async function reconcile(r: PbsRemoteSettings, log?: FastifyBaseLogger) {
   for (const d of plan.update) await call(r, 'PUT', `/config/sync/${d.id}`, updateBody(d)).catch((err: Error) => errors.set(d.id, err.message));
   for (const id of plan.remove) await call(r, 'DELETE', `/config/sync/${id}`).catch((err: Error) => log?.warn({ err, id }, 'sync job not removed'));
   for (const g of groups) {
-    const error = errors.get(g.offsite!.jobId) ?? null;
-    if ((g.offsite!.error ?? null) !== error) await backups.updateOne({ _id: g._id }, { $set: { 'offsite.error': error } });
+    const jobId = syncJobId(g.store, g.ns);
+    const error = errors.get(jobId) ?? null;
+    if ((g.offsite!.error ?? null) !== error || g.offsite!.jobId !== jobId) await backups.updateOne({ _id: g._id }, { $set: { 'offsite.error': error, 'offsite.jobId': jobId } });
   }
   if (plan.create.length || plan.update.length || plan.remove.length) log?.info({ create: plan.create.length, update: plan.update.length, remove: plan.remove.length }, 'offsite sync jobs reconciled');
 }
 
-// --- queue run by the agent of the secondary ----------------------------------------------
+// --- daily series started by the agent of the secondary -----------------------------------
 
-// Host of the agent of the secondary, when it can run the queue.
-async function queueHost(r: Pick<PbsRemoteSettings, 'agent'>) {
+// Host of the agent of the secondary, when it can start the series.
+async function seriesHost(r: Pick<PbsRemoteSettings, 'agent'>) {
   const _id = r.agent?.hostId ? parseId(r.agent.hostId) : null;
   if (!_id) return null;
-  const h = await hosts.findOne({ _id }, { projection: { _id: 1, capabilities: 1 } });
-  return h?.capabilities?.includes('offsite_queue') ? h : null;
-}
-
-// The agent runs the queue: able to, and it applied a definition. Until then the sync jobs keep a
-// schedule of the PBS (an agent not updated yet would otherwise stop the copies).
-export async function queueActive(r: PbsRemoteSettings) {
-  return !!r.queueAck && !!(await queueHost(r));
+  const h = await hosts.findOne({ _id }, { projection: { _id: 1, name: 1, capabilities: 1 } });
+  return h?.capabilities?.includes('offsite_series') ? h : null;
 }
 
 export interface OffsiteSpec {
   hash: string;
   container: string;
-  store: string;
-  remote: string;
-  jobs: { id: string; remoteStore: string; ns: string; type: string; backupId: string }[];
-  windowStart: string;
-  windowEnd: string;
+  jobs: string[];
+  start: string;
   tz: string;
-  concurrency: number;
-  minDelayH: number;
-  countMaintenance: boolean;
 }
 
-// Definition of the queue for the agent; no job when the copy is disabled (the agent empties its queue).
-export function offsiteSpec(r: PbsRemoteSettings, groups: Pick<BackupDoc, 'store' | 'ns' | 'type' | 'backupId' | 'offsite'>[], tz = DEFAULT_TIMEZONE): OffsiteSpec {
-  const q = queueOf(r);
+// Definition of the series for the agent; no job when the copy is disabled (the agent empties its series).
+export function offsiteSpec(r: PbsRemoteSettings, groups: JobGroup[], tz = DEFAULT_TIMEZONE): OffsiteSpec {
   const body = {
     container: r.agent?.mode === 'container' ? (r.agent.container ?? '') : '',
-    store: r.store,
-    remote: REMOTE_NAME,
-    jobs: remoteReady(r)
-      ? groups
-          .filter((g) => g.offsite?.enabled && g.type && g.backupId)
-          .map((g) => ({ id: g.offsite!.jobId, remoteStore: g.store, ns: g.ns ?? '', type: g.type!, backupId: g.backupId! }))
-          .sort((a, b) => a.id.localeCompare(b.id))
-      : [],
-    windowStart: q.windowStart,
-    windowEnd: q.windowEnd,
+    jobs: remoteReady(r) ? [...new Set(groups.filter((g) => g.type && g.backupId).map((g) => syncJobId(g.store, g.ns)))].sort() : [],
+    start: startOf(r),
     tz,
-    concurrency: q.concurrency,
-    minDelayH: q.minDelayH,
-    countMaintenance: q.countMaintenance,
   };
   return { hash: sha256(JSON.stringify(body)), ...body };
 }
@@ -269,10 +280,10 @@ export function offsiteSpec(r: PbsRemoteSettings, groups: Pick<BackupDoc, 'store
 // its connection).
 export async function syncOffsiteAgent(force = false) {
   const r = await loadRemoteSettings();
-  const host = await queueHost(r);
+  const host = await seriesHost(r);
   if (!host || !isOnline(host._id.toHexString())) return false;
-  const spec = offsiteSpec(r, (await enabledGroups()).filter((g) => !notCopiable(g as BackupDoc)));
-  if (!force && spec.hash === r.queueAck) return false;
+  const spec = offsiteSpec(r, await enabledGroups());
+  if (!force && spec.hash === r.agentAck) return false;
   return sendToAgent(host._id.toHexString(), { type: 'offsite_sync', offsite: spec });
 }
 
@@ -281,62 +292,52 @@ export async function onOffsiteHello(hostId: ObjectId) {
   if (r.agent?.hostId === hostId.toHexString()) await syncOffsiteAgent(true);
 }
 
-// The agent applied (or refused) the definition: the sync jobs lose their schedule at the next reconciliation.
+// The agent applied (or refused) the definition.
 export async function onOffsiteSynced(hostId: ObjectId, hash: string | undefined, error: string | undefined, log?: FastifyBaseLogger) {
   const r = await loadRemoteSettings();
   if (r.agent?.hostId !== hostId.toHexString()) return;
-  const first = !r.queueAck && !error;
-  await settings.updateOne({ _id: 'pbs-remote' }, { $set: error ? { queueError: error } : { queueAck: hash ?? '', queueError: null } });
-  if (error) log?.warn({ error }, 'offsite queue definition refused by the agent');
-  if (first) pollOffsite(log).catch(() => {});
+  await settings.updateOne({ _id: 'pbs-remote' }, { $set: error ? { agentError: error } : { agentAck: hash ?? '', agentError: null } });
+  if (error) log?.warn({ error }, 'offsite series definition refused by the agent');
   publish('backups', {});
 }
 
-// What the interface shows of the queue: its rules, whether the agent runs it, and its last report.
-export async function queueView(r: PbsRemoteSettings) {
-  const host = await queueHost(r);
-  const rep = r.queueReport ?? null;
+// What the interface shows of the series: start, whether the agent runs it, and its last report.
+export async function seriesView(r: PbsRemoteSettings) {
+  const host = await seriesHost(r);
+  const rep = r.agentReport ?? null;
+  const labels = new Map((await enabledGroups()).map((g) => [syncJobId(g.store, g.ns), jobLabel(g.store, g.ns)]));
+  const run = rep?.running ?? null;
   return {
-    ...queueOf(r),
+    startTime: startOf(r),
     tz: DEFAULT_TIMEZONE,
-    // the agent of the secondary runs the queue (else: schedule of the PBS, agent to update)
-    active: !!r.queueAck && !!host,
+    jobs: labels.size,
+    // the agent of the secondary starts the series (else: agent to update, no copy)
+    active: !!r.agentAck && !!host,
     agentOnline: !!host && isOnline(host._id.toHexString()),
-    error: r.queueError || rep?.error || null,
-    scannedAt: rep?.scannedAt || null,
-    inWindow: rep?.inWindow ?? null,
-    queued: rep?.queue.length ?? 0,
-    running: rep?.running.length ?? 0,
+    error: r.agentError || rep?.error || null,
+    day: rep?.day || null,
+    total: rep?.total ?? 0,
+    pending: rep?.pending.length ?? 0,
+    // running: a job of the hub (its label), or another sync task of the secondary
+    running: run ? (run.jobId ? (labels.get(run.jobId) ?? run.jobId) : 'autre synchronisation') : null,
+    nextStart: rep?.nextStart || null,
   };
 }
 
-export function isQueueReport(v: unknown): v is OffsiteQueueReport {
-  const o = v as OffsiteQueueReport;
-  return !!o && typeof o.hash === 'string' && typeof o.scannedAt === 'number' && Array.isArray(o.queue) && Array.isArray(o.running) && typeof o.inWindow === 'boolean';
+export function isSeriesReport(v: unknown): v is OffsiteSeriesReport {
+  const o = v as OffsiteSeriesReport;
+  return !!o && typeof o.hash === 'string' && typeof o.day === 'string' && Array.isArray(o.pending) && typeof o.nextStart === 'number';
 }
 
-// Position of each queued group, by its sync job (1: the next one).
-export function queuePositions(report: Pick<OffsiteQueueReport, 'queue'>) {
-  return new Map(report.queue.map((q, i) => [q.jobId, { since: q.since, position: i + 1 }]));
-}
-
-// State of the queue from the agent: kept for the settings, and on each group its place in the queue;
-// the copies it started are followed at once (watchTasks would see them within 30 s).
-export async function onOffsiteReport(hostId: ObjectId, report: OffsiteQueueReport, log?: FastifyBaseLogger) {
+// State of the series from the agent: kept for the settings; the copy it started is followed at once
+// (watchTasks would see it within 30 s).
+export async function onOffsiteReport(hostId: ObjectId, report: OffsiteSeriesReport, log?: FastifyBaseLogger) {
   const r = await loadRemoteSettings();
   if (r.agent?.hostId !== hostId.toHexString()) return;
-  await settings.updateOne({ _id: 'pbs-remote' }, { $set: { queueReport: { ...report, receivedAt: new Date() } } });
-  const pos = queuePositions(report);
-  const groups = await enabledGroups();
-  for (const g of groups) {
-    const q = pos.get(g.offsite!.jobId) ?? null;
-    if (JSON.stringify(g.offsite!.queued ?? null) !== JSON.stringify(q)) await backups.updateOne({ _id: g._id }, { $set: { 'offsite.queued': q } });
-  }
-  if (remoteReady(r)) {
-    for (const t of report.running) {
-      const g = t.jobId ? groups.find((x) => x.offsite!.jobId === t.jobId) : null;
-      if (g && !following.has(t.upid)) followTask(r, g, t.upid, 'schedule', log).catch((err) => log?.warn({ err, upid: t.upid }, 'offsite copy not followed'));
-    }
+  await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agentReport: { ...report, receivedAt: new Date() } } });
+  const t = report.running;
+  if (remoteReady(r) && t?.jobId && !following.has(t.upid)) {
+    followTask(r, t.jobId, t.upid, 'schedule', log).catch((err) => log?.warn({ err, upid: t.upid }, 'offsite copy not followed'));
   }
   publish('backups', {});
 }
@@ -346,9 +347,6 @@ export async function onOffsiteReport(hostId: ObjectId, report: OffsiteQueueRepo
 interface SyncJobStatus {
   id: string;
   'last-run-upid'?: string;
-  'last-run-state'?: string; // "OK" or the error
-  'last-run-endtime'?: number;
-  'next-run'?: number;
 }
 interface ApiGroup {
   'backup-type': string;
@@ -399,13 +397,6 @@ export function upidStart(upid: string | undefined) {
   return Number.isFinite(t) ? t * 1000 : null;
 }
 
-export function lastRunOf(s: SyncJobStatus | undefined): BackupOffsite['lastRun'] {
-  if (!s?.['last-run-endtime'] || !s['last-run-state']) return null;
-  const end = s['last-run-endtime'] * 1000;
-  const ok = s['last-run-state'] === 'OK';
-  return { start: upidStart(s['last-run-upid']) ?? end, end, ok, ...(ok ? {} : { error: s['last-run-state'] }) };
-}
-
 let running: Promise<void> | null = null;
 let queued: Promise<void> | null = null;
 
@@ -428,9 +419,18 @@ async function doPoll(log?: FastifyBaseLogger) {
   if (!remoteReady(r)) return;
   try {
     await reconcile(r, log);
-    await syncOffsiteAgent().catch((err) => log?.warn({ err }, 'offsite queue definition not sent'));
-    const status = new Map((await call<SyncJobStatus[]>(r, 'GET', '/admin/sync')).map((s) => [s.id, s]));
-    const groups = (await enabledGroups()).filter((g) => !notCopiable(g as BackupDoc));
+    await syncOffsiteAgent().catch((err) => log?.warn({ err }, 'offsite series definition not sent'));
+    const status = await call<SyncJobStatus[]>(r, 'GET', '/admin/sync');
+    const groups = await enabledGroups();
+    // a run the hub did not see (hub stopped meanwhile): recorded as a job too, with its log
+    for (const s of status) {
+      const upid = s['last-run-upid'];
+      const mine = groups.filter((g) => g.offsite!.jobId === s.id);
+      if (!upid || !mine.length || following.has(upid)) continue;
+      if (mine.some((g) => g.offsite!.recordedUpid !== upid && g.offsite!.running?.upid !== upid && (upidStart(upid) ?? 0) >= (g.offsite!.since ?? 0))) {
+        followTask(r, s.id, upid, 'schedule', log).catch(() => {});
+      }
+    }
     const e = encodeURIComponent(r.store);
     const seen = new Map<string, Copy>();
     for (const ns of new Set(groups.map((g) => g.ns))) {
@@ -445,10 +445,6 @@ async function doPoll(log?: FastifyBaseLogger) {
     // only offsite.* is written: the poll of the main PBS owns the rest of the group
     for (const g of groups) {
       const copy = seen.get(`${g.ns}/${g.type}/${g.backupId}`);
-      const st = status.get(g.offsite!.jobId);
-      // a run the hub did not see (hub stopped meanwhile): recorded as a job too, with its log
-      const upid = st?.['last-run-upid'];
-      if (upid && upid !== g.offsite!.recordedUpid && upid !== g.offsite!.running?.upid && !following.has(upid)) followTask(r, g, upid, 'schedule', log).catch(() => {});
       await backups.updateOne(
         { _id: g._id },
         {
@@ -458,9 +454,7 @@ async function doPoll(log?: FastifyBaseLogger) {
             'offsite.verify': copy?.verify ?? null,
             'offsite.size': copy?.size ?? null,
             'offsite.times': copy?.times ?? [],
-            'offsite.lastRun': lastRunOf(st),
           },
-          $unset: { 'offsite.nextRun': '' },
         },
       );
     }
@@ -479,13 +473,20 @@ async function doPoll(log?: FastifyBaseLogger) {
   publish('backups', {});
 }
 
+// Fields of before #186 (queue of the agent, one job per group), removed once.
+async function migrate() {
+  await settings.updateOne({ _id: 'pbs-remote' }, { $unset: { queue: '', queueAck: '', queueError: '', queueReport: '' } });
+  await backups.updateMany({ offsite: { $exists: true } }, { $unset: { 'offsite.queued': '', 'offsite.rateIn': '', 'offsite.schedule': '', 'offsite.nextRun': '' } });
+}
+
 export function startOffsitePoller(log: FastifyBaseLogger) {
+  migrate().catch((err) => log.warn({ err }, 'offsite settings not migrated'));
   const run = () => pollOffsite(log).catch((err) => log.error({ err }, 'secondary PBS poll failed'));
   const watch = () => watchTasks(log).catch((err) => log.warn({ err }, 'secondary PBS tasks not read'));
   // after the first poll of the main PBS (30 s)
   const first = setTimeout(run, 60_000);
   const timer = setInterval(run, 15 * 60_000);
-  // copies started by the schedule of the secondary: seen within WATCH_MS, then followed
+  // copies started on the secondary: seen within WATCH_MS, then followed
   const watcher = setInterval(watch, WATCH_MS);
   return () => {
     clearTimeout(first);
@@ -516,33 +517,58 @@ const taskPath = (upid: string) => `/nodes/${encodeURIComponent(upid.split(':')[
 // "OK" and "WARNINGS: n" end well; anything else is the error of the task
 export const taskOk = (exit: string) => exit === 'OK' || /^WARNINGS: \d+$/.test(exit);
 
-// The group a running sync task belongs to: its worker id ends with the id of the job (hlm-<hash>).
-export function taskGroup<T extends Pick<Copied, 'offsite'>>(t: ApiTask, groups: T[]) {
+// The sync job a running task belongs to: its worker id (remote:store:target:ns:job) ends with the job.
+export function taskJob(t: Pick<ApiTask, 'upid' | 'worker_id'>, jobIds: Iterable<string>) {
   const w = t.worker_id ?? t.upid;
-  return groups.find((g) => g.offsite?.jobId && (w === g.offsite.jobId || w.endsWith(`:${g.offsite.jobId}`))) ?? null;
+  for (const id of jobIds) if (w === id || w.endsWith(`:${id}`)) return id;
+  return null;
 }
 
-const copyLabel = (b: Pick<Copied, 'managed' | 'comment' | 'type' | 'backupId'>) => b.managed?.name ?? (b.comment ? `${b.comment} (${b.type}/${b.backupId})` : `${b.type}/${b.backupId}`);
+// Lines of the log of a sync task about a group (type/id), in a namespace: its snapshots
+// ("vm/100/2026-10-18T00:30:00Z: sync archive…"), the re-sync of one, its failure ("sync group vm/100
+// failed - …"). The lines may start with their time ("2026-10-18T04:00:01+02:00: ").
+const GROUP_LINE = /(?:^|: )(?:re-sync snapshot |sync group )?((?:vm|ct|host)\/[^/\s:]+)/;
+const GROUP_FAILED = /sync group ((?:vm|ct|host)\/[^/\s:]+) failed - (.*)$/;
+
+export function lineGroup(line: string) {
+  return GROUP_LINE.exec(line)?.[1] ?? null;
+}
+
+// Result of a run for each group of its job: the failure of the group when the log has one; else the end of
+// the task (a task in error with no group named: all failed, e.g. namespace missing on the secondary).
+export function groupResults(lines: string[], groups: string[], exit: string) {
+  const failed = new Map<string, string>();
+  for (const l of lines) {
+    const m = GROUP_FAILED.exec(l);
+    if (m) failed.set(m[1], m[2].trim());
+  }
+  const ok = taskOk(exit);
+  return new Map(groups.map((k) => [k, failed.has(k) ? { ok: false, error: failed.get(k)! } : ok || failed.size ? { ok: true } : { ok: false, error: exit }]));
+}
 
 const following = new Set<string>();
 const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+const groupKey = (g: Pick<BackupDoc, 'type' | 'backupId'>) => `${g.type}/${g.backupId}`;
 
-// Follows a task of the secondary until it ends: a job of the hub on the host of the group (console,
-// Activité) with the log of the task, offsite.running meanwhile, then the result and a poll. A job left
-// running by a previous hub process is taken up again. Returns the id of the job.
-export async function followTask(r: PbsRemoteSettings, b: Copied, upid: string, trigger: JobDoc['trigger'], log?: FastifyBaseLogger) {
-  if (following.has(upid)) return b.offsite?.running?.upid === upid ? b.offsite.running.jobId : null;
+// Follows a task of the secondary until it ends: a job of the hub on the host of the secondary (console,
+// Activité) with the log of the task, offsite.running on the groups of its sync job meanwhile (current: the
+// one being copied), then the result of each group and a poll. A job left running by a previous hub process
+// is taken up again. Returns the id of the job of the hub.
+export async function followTask(r: PbsRemoteSettings, syncJob: string, upid: string, trigger: JobDoc['trigger'], log?: FastifyBaseLogger) {
+  const groups = (await enabledGroups()).filter((g) => g.offsite!.jobId === syncJob);
+  const again = groups.find((g) => g.offsite!.running?.upid === upid)?.offsite!.running?.jobId;
+  if (following.has(upid)) return again ?? null;
   following.add(upid);
   try {
-    const host = b.hostId ? await hosts.findOne({ _id: b.hostId }, { projection: { _id: 1, name: 1 } }) : null;
+    const hostId = r.agent?.hostId ? parseId(r.agent.hostId) : null;
+    const host = hostId ? await hosts.findOne({ _id: hostId }, { projection: { _id: 1, name: 1 } }) : null;
     const start = upidStart(upid) ?? Date.now();
-    const again = b.offsite?.running?.upid === upid ? b.offsite.running.jobId : undefined;
-    const job = host ? await startHubJob(host, 'offsite_run', trigger, { backupJobName: copyLabel(b), createdAt: new Date(start) }, again) : null;
+    const label = groups.length ? jobLabel(groups[0].store, groups[0].ns) : syncJob;
+    const job = host ? await startHubJob(host, 'offsite_run', trigger, { backupJobName: label, createdAt: new Date(start) }, again) : null;
     const jobId = job?._id.toHexString() ?? '';
-    const hostId = host?._id.toHexString() ?? '';
-    await backups.updateOne({ _id: b._id }, { $set: { 'offsite.running': { upid, start, jobId } } });
+    await backups.updateMany({ _id: { $in: groups.map((g) => g._id) } }, { $set: { 'offsite.running': { upid, start, jobId, current: false } } });
     publish('backups', {});
-    void track(r, b, upid, start, { jobId, hostId, lines: job?.log ? job.log.split('\n').length - 1 : 0 }, log);
+    void track(r, syncJob, upid, start, { jobId, hostId: host?._id.toHexString() ?? '', lines: job?.log ? job.log.split('\n').length - 1 : 0 }, log);
     return jobId || null;
   } catch (err) {
     following.delete(upid);
@@ -550,14 +576,26 @@ export async function followTask(r: PbsRemoteSettings, b: Copied, upid: string, 
   }
 }
 
-async function track(r: PbsRemoteSettings, b: Copied, upid: string, start: number, job: { jobId: string; hostId: string; lines: number }, log?: FastifyBaseLogger) {
-  let n = job.lines;
+async function track(r: PbsRemoteSettings, syncJob: string, upid: string, start: number, job: { jobId: string; hostId: string; lines: number }, log?: FastifyBaseLogger) {
+  // the whole log is read (the results of the groups need it), only the lines not in the job yet are added
+  const lines: string[] = [];
+  let current: string | null = null;
   const read = async () => {
     for (;;) {
-      const lines = await call<ApiTaskLine[]>(r, 'GET', `${taskPath(upid)}/log?start=${n}&limit=${LOG_PAGE}`);
-      n += lines.length;
-      if (job.jobId && lines.length) appendJobLog(job.jobId, job.hostId, lines.map((l) => `${l.t}\n`).join(''));
-      if (lines.length < LOG_PAGE) return;
+      const page = await call<ApiTaskLine[]>(r, 'GET', `${taskPath(upid)}/log?start=${lines.length}&limit=${LOG_PAGE}`);
+      const from = lines.length;
+      lines.push(...page.map((l) => l.t));
+      const fresh = lines.slice(Math.max(from, job.lines));
+      if (job.jobId && fresh.length) appendJobLog(job.jobId, job.hostId, fresh.map((l) => `${l}\n`).join(''));
+      if (page.length < LOG_PAGE) break;
+    }
+    const last = lines.reduce<string | null>((cur, l) => lineGroup(l) ?? cur, current);
+    if (last !== current) {
+      current = last;
+      await backups.updateMany({ 'offsite.running.upid': upid }, { $set: { 'offsite.running.current': false } });
+      const [type, backupId] = last!.split('/');
+      await backups.updateMany({ 'offsite.running.upid': upid, type, backupId }, { $set: { 'offsite.running.current': true } });
+      publish('backups', {});
     }
   };
   let exit = '';
@@ -578,52 +616,69 @@ async function track(r: PbsRemoteSettings, b: Copied, upid: string, start: numbe
     if (!exit) await sleep(FOLLOW_MS);
   }
   const ok = taskOk(exit);
+  const end = Date.now();
   try {
     if (job.jobId) await finishJob(job.jobId, job.hostId, ok ? 0 : 1, ok ? undefined : exit);
-    await backups.updateOne(
-      { _id: b._id },
-      { $set: { 'offsite.running': null, 'offsite.recordedUpid': upid, 'offsite.lastRun': { start, end: Date.now(), ok, ...(ok ? {} : { error: exit }) } } },
-    );
+    // the groups of the job when it started (a group enabled since was not in its filter)
+    const groups = (await enabledGroups()).filter((g) => g.offsite!.jobId === syncJob && (g.offsite!.since ?? 0) <= start);
+    const results = groupResults(lines, groups.map(groupKey), exit);
+    for (const g of groups) {
+      const res = results.get(groupKey(g))!;
+      await backups.updateOne({ _id: g._id }, { $set: { 'offsite.running': null, 'offsite.recordedUpid': upid, 'offsite.lastRun': { start, end, ...res } } });
+    }
+    await backups.updateMany({ 'offsite.running.upid': upid }, { $set: { 'offsite.running': null } });
   } finally {
     following.delete(upid);
   }
-  log?.info({ group: b._id, upid, ok }, 'offsite copy ended');
+  log?.info({ syncJob, upid, ok }, 'offsite copy ended');
   // the copy is on the secondary: read it now
   await pollOffsite(log).catch(() => {});
 }
 
-// Copies running on the secondary that the hub does not follow yet: started by its schedule, or left by a
+// Sync tasks running on the secondary (any: one of another job keeps the copies waiting too).
+export async function runningSyncTasks(r: PbsRemoteSettings) {
+  return (await call<ApiTask[]>(r, 'GET', '/nodes/localhost/tasks?running=1&typefilter=syncjob&limit=100')).filter((t) => !t.endtime);
+}
+
+// Copies running on the secondary that the hub does not follow yet: started by the agent, or left by a
 // previous hub process.
 async function watchTasks(log?: FastifyBaseLogger) {
   const r = await loadRemoteSettings();
   if (!remoteReady(r)) return;
-  const groups = (await enabledGroups()).filter((g) => !notCopiable(g as BackupDoc));
+  const groups = await enabledGroups();
   if (!groups.length) return;
-  for (const g of groups) if (g.offsite?.running && !following.has(g.offsite.running.upid)) await followTask(r, g, g.offsite.running.upid, 'schedule', log);
-  const tasks = await call<ApiTask[]>(r, 'GET', '/nodes/localhost/tasks?running=1&typefilter=syncjob&limit=100');
-  for (const t of tasks) {
-    if (t.endtime || following.has(t.upid)) continue;
-    const g = taskGroup(t, groups);
-    if (g) await followTask(r, g, t.upid, 'schedule', log);
+  for (const g of groups) if (g.offsite?.running && !following.has(g.offsite.running.upid)) await followTask(r, g.offsite.jobId, g.offsite.running.upid, 'schedule', log);
+  const jobIds = new Set(groups.map((g) => g.offsite!.jobId));
+  for (const t of await runningSyncTasks(r)) {
+    if (following.has(t.upid)) continue;
+    const id = taskJob(t, jobIds);
+    if (id) await followTask(r, id, t.upid, 'schedule', log);
   }
 }
 
 // --- state --------------------------------------------------------------------------------
 
-// failed: the sync job could not be set, or the last run failed; late: the last snapshot of the main PBS
-// (or the enabling of the copy, if later) is not on the secondary after the minimum delay plus a day (the
-// queue had a whole window to copy it: agent stopped, window too short…); pending: never copied yet;
-// ok: the rest. null: not copied.
+// failed: the sync job could not be set, or the last run failed for this group; pending: the main PBS has
+// a verified snapshot more recent than the copy (only verified ones are copied), or nothing is copied yet;
+// late: that snapshot (or the enabling of the copy, if later) is older than LATE_HOURS, a daily series
+// missed it; ok: the rest. null: not copied.
 export type OffsiteState = 'ok' | 'pending' | 'late' | 'failed';
 
 const HOUR = 3600_000;
 
-export function offsiteState(b: Pick<BackupDoc, 'offsite' | 'lastBackup'>, minDelayH = currentDelayH, now = Date.now()): OffsiteState | null {
+// Last verified snapshot of the main PBS (unix ms), 0: none.
+export function lastVerified(b: Pick<BackupDoc, 'times' | 'lastBackup' | 'verify'>) {
+  const t = (b.times ?? []).filter((s) => s.verify === 'ok').reduce((m, s) => Math.max(m, s.t), 0);
+  return t || (b.verify === 'ok' ? b.lastBackup : 0);
+}
+
+export function offsiteState(b: Pick<BackupDoc, 'offsite' | 'lastBackup' | 'times' | 'verify'>, now = Date.now()): OffsiteState | null {
   const o = b.offsite;
   if (!o?.enabled) return null;
   if (o.error || o.lastRun?.ok === false) return 'failed';
+  const want = lastVerified(b);
   const copied = o.lastBackup ?? 0;
-  if (b.lastBackup && copied < b.lastBackup && now - Math.max(b.lastBackup, o.since ?? 0) > (minDelayH + 24) * HOUR) return 'late';
+  if (want > copied) return now - Math.max(want, o.since ?? 0) > LATE_HOURS * HOUR ? 'late' : 'pending';
   return copied ? 'ok' : 'pending';
 }
 

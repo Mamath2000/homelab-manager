@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plug, Save, ServerCog } from 'lucide-react';
-import { api, type OffsiteQueueSettings, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
-import { formatBytes, queueRule } from '../lib/backups';
-import { timeAgo } from '../lib/format';
+import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
+import { formatBytes, seriesRule } from '../lib/backups';
+import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
 import { PbsAgentPicker, PbsTokenButton } from './PbsAgentPicker';
@@ -13,43 +13,22 @@ import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 const DEFAULT_HUB_TOKEN = 'homelab@pbs!hub';
 const DEFAULT_READER_TOKEN = 'homelab@pbs!reader';
 
-// Rules of the queue of the copies, run by the agent of the secondary (agent offsite.go).
-function QueueFields({ value, onChange }: { value: OffsiteQueueSettings; onChange: (q: OffsiteQueueSettings) => void }) {
-  const set = (patch: Partial<OffsiteQueueSettings>) => onChange({ ...value, ...patch });
-  const int = (v: string, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number(v) || 0)));
+// Start of the daily series of the copies, run by the agent of the secondary (agent offsite.go).
+function StartField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="space-y-3 border-t border-line pt-4">
       <div>
-        <p className="font-medium text-zinc-100">File d’attente des copies</p>
+        <p className="font-medium text-zinc-100">Copies quotidiennes</p>
         <p className="text-xs text-muted">
-          L’agent du PBS de secours repère toutes les 5 minutes les sauvegardes du PBS principal plus récentes que leur copie et les copie dans l’ordre d’arrivée.
+          Chaque jour à cette heure, l’agent du PBS de secours lance les jobs de copie l’un après l’autre (un par datastore et namespace copié), jamais deux à la fois ;
+          les copies continuent quand le hub est arrêté.
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className={field}>Plage horaire : début</span>
-          <input type="time" className="input font-mono text-xs" value={value.windowStart} onChange={(e) => set({ windowStart: e.target.value })} />
-        </label>
-        <label className="block">
-          <span className={field}>Fin</span>
-          <input type="time" className="input font-mono text-xs" value={value.windowEnd} onChange={(e) => set({ windowEnd: e.target.value })} />
-        </label>
-        <label className="block">
-          <span className={field}>Tâches lourdes simultanées</span>
-          <input type="number" min={1} max={8} className="input text-xs" value={value.concurrency} onChange={(e) => set({ concurrency: int(e.target.value, 1, 8) })} />
-        </label>
-        <label className="block">
-          <span className={field}>Délai minimum entre deux copies d’une sauvegarde (h)</span>
-          <input type="number" min={0} max={720} className="input text-xs" value={value.minDelayH} onChange={(e) => set({ minDelayH: int(e.target.value, 0, 720) })} />
-        </label>
-      </div>
-      <label className="flex cursor-pointer items-center gap-2 text-xs">
-        <input type="checkbox" checked={value.countMaintenance} onChange={(e) => set({ countMaintenance: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
-        <span>Compter les vérifications et le nettoyage (GC) du PBS de secours dans les tâches lourdes</span>
+      <label className="block sm:w-1/2">
+        <span className={field}>Heure de départ</span>
+        <input type="time" className="input font-mono text-xs" value={value} onChange={(e) => onChange(e.target.value)} />
       </label>
-      <p className="text-xs text-muted">
-        Une copie en cours n’est pas interrompue à la fin de la plage ; début = fin : à toute heure. « Copier maintenant » passe outre la plage.
-      </p>
+      <p className="text-xs text-muted">Seuls les snapshots vérifiés sont copiés : laisser aux sauvegardes du PBS principal le temps de finir et d’être vérifiées.</p>
     </div>
   );
 }
@@ -58,7 +37,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
   const qc = useQueryClient();
   const toast = useToast();
   const { data: main } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
-  const [initial] = useState<PbsRemoteInput>(() => ({ enabled: data.enabled, url: data.url, fingerprint: data.fingerprint, ...(data.agent ? { agent: data.agent } : {}), queue: data.queue }));
+  const [initial] = useState<PbsRemoteInput>(() => ({ enabled: data.enabled, url: data.url, fingerprint: data.fingerprint, ...(data.agent ? { agent: data.agent } : {}), startTime: data.startTime }));
   const [form, setForm] = useState<PbsRemoteInput>(initial);
   // tokens: saved as soon as the agents created them, apart from the form
   const [saved, setSaved] = useState(data);
@@ -139,12 +118,12 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
               enabledLabel="Copier les sauvegardes choisies vers ce PBS"
             />
             <TestResult test={test} />
-            <QueueFields value={form.queue ?? data.queue} onChange={(queue) => set({ queue })} />
+            <StartField value={form.startTime ?? data.startTime} onChange={(startTime) => set({ startTime })} />
             <div className="space-y-1 border-t border-line pt-4 text-xs text-muted">
               <p>
-                Le PBS de secours <b>tire</b> les sauvegardes du PBS principal (entrée remote <code>hlm-main</code>, déclarée par le hub) : un sync job par sauvegarde copiée,
-                choisie une à une, sans planification : c’est l’agent du PBS de secours qui les lance (file d’attente). Les copies ne sont jamais supprimées par le hub ; la
-                rétention et les purges restent réglées dans le PBS de secours.
+                Le PBS de secours <b>tire</b> les sauvegardes du PBS principal (entrée remote <code>hlm-main</code>, déclarée par le hub) : un sync job par datastore et
+                namespace, dont le filtre liste les sauvegardes choisies une à une, sans planification : c’est l’agent du PBS de secours qui les lance. Les copies ne sont
+                jamais supprimées par le hub ; la rétention et les purges restent réglées dans le PBS de secours.
               </p>
               <p>
                 Les namespaces cibles (<code>Hosts</code>, <code>Vouille</code>…, mêmes noms que sur le PBS principal) sont <b>à créer à la main</b> dans le datastore cible :
@@ -221,27 +200,26 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
   );
 }
 
-// State of the queue under the server: who runs it, its rule, its last report.
-function QueueStatus({ data }: { data: PbsRemoteSettings }) {
-  const q = data.queueState;
+// State of the daily series under the server: who runs it, its rule, its last report.
+function SeriesStatus({ data }: { data: PbsRemoteSettings }) {
+  const s = data.series;
   return (
     <div className="mt-3 space-y-1 text-xs">
       <p className="text-muted">
-        File : {queueRule(q)}
-        {q.countMaintenance ? ', vérifications et GC compris' : ''}.
+        Copies : {seriesRule(s)} · {s.jobs} job{s.jobs > 1 ? 's' : ''} de copie.
       </p>
-      {!q.active ? (
-        <p className="text-amber-400">L’agent du PBS de secours ne gère pas encore la file (à mettre à jour) : les copies gardent la planification du PBS.</p>
-      ) : !q.agentOnline ? (
+      {!s.active ? (
+        <p className="text-amber-400">L’agent du PBS de secours ne sait pas lancer les copies (à mettre à jour) : aucune copie n’est lancée.</p>
+      ) : !s.agentOnline ? (
         <p className="text-amber-400">Agent du PBS de secours hors ligne : aucune copie n’est lancée.</p>
       ) : (
         <p className="text-muted">
-          {q.running ? `${q.running} tâche(s) lourde(s) en cours` : 'aucune copie en cours'} · {q.queued} en file
-          {q.inWindow === false ? ' · hors plage' : ''}
-          {q.scannedAt ? ` · relevé ${timeAgo(q.scannedAt)}` : ''}
+          {s.running ? `copie en cours : ${s.running}` : 'aucune copie en cours'}
+          {s.pending ? ` · ${s.pending} sur ${s.total} à suivre` : ''}
+          {s.nextStart ? ` · prochaine série ${dateTime(s.nextStart)}` : ''}
         </p>
       )}
-      {q.error && <p className="text-red-400">{q.error}</p>}
+      {s.error && <p className="text-red-400">{s.error}</p>}
     </div>
   );
 }
@@ -254,7 +232,7 @@ export function OffsiteSettings() {
   return (
     <Panel title="PBS de secours (copie déportée)" icon={ServerCog} actions={data && <Button size="sm" icon={Pencil} onClick={() => setEditing(true)}>{data.url ? 'Modifier' : 'Configurer'}</Button>}>
       <p className="mb-4 text-sm text-muted">
-        Un second Proxmox Backup Server, distant, qui tire du PBS principal les sauvegardes choisies une à une. Son agent lance les copies (file d’attente) ; le hub
+        Un second Proxmox Backup Server, distant, qui tire du PBS principal les sauvegardes choisies une à une. Son agent lance les copies chaque jour ; le hub
         relève leur état toutes les 15 minutes.
       </p>
       {!data ? (
@@ -274,7 +252,7 @@ export function OffsiteSettings() {
           />
         </ul>
       )}
-      {data?.url && data.enabled && <QueueStatus data={data} />}
+      {data?.url && data.enabled && <SeriesStatus data={data} />}
       {data && editing && <RemoteModal data={data} open onClose={() => setEditing(false)} />}
     </Panel>
   );

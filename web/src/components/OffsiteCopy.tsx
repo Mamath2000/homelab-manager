@@ -11,10 +11,10 @@ import {
   formatBytes,
   hoursLabel,
   offsiteNotCopiable,
-  queueRule,
-  queueText,
   rhythmLabel,
   scheduleLabel,
+  seriesRule,
+  seriesText,
   thresholdSourceLabel,
 } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
@@ -30,20 +30,21 @@ type State = NonNullable<BackupOffsite['state']> | 'running';
 
 const stateMeta: Record<State, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral'; cloud: string }> = {
   ok: { label: 'à jour', tone: 'ok', cloud: 'text-sky-400' },
-  pending: { label: 'jamais copiée', tone: 'neutral', cloud: 'text-zinc-500' },
+  pending: { label: 'en attente', tone: 'neutral', cloud: 'text-zinc-500' },
   late: { label: 'en retard', tone: 'warn', cloud: 'text-amber-400' },
   failed: { label: 'en échec', tone: 'bad', cloud: 'text-red-400' },
   running: { label: 'copie en cours', tone: 'neutral', cloud: 'animate-pulse text-sky-300' },
 };
 
-const copyState = (o: BackupOffsite): State => (o.running ? 'running' : (o.state ?? 'pending'));
+// running: this backup is the one being copied (its namespace may be copied for others meanwhile)
+const copyState = (o: BackupOffsite): State => (o.running?.current ? 'running' : (o.state ?? 'pending'));
 
-// Place of the copy in the queue of the agent of the secondary, or why there is none.
-function queueLine(o: BackupOffsite, remote: Remote) {
-  const q = remote.queue;
-  if (!q.active) return 'planification du PBS : agent du PBS de secours à mettre à jour';
-  if (!q.agentOnline && !o.running) return 'agent du PBS de secours hors ligne : aucune copie lancée';
-  return queueText(o, q) ?? '';
+// Where the copy stands in the daily series of the agent of the secondary, or why there is none.
+function seriesLine(o: BackupOffsite, remote: Remote) {
+  const s = remote.series;
+  if (!s.active) return 'agent du PBS de secours à mettre à jour : aucune copie lancée';
+  if (!s.agentOnline && !o.running) return 'agent du PBS de secours hors ligne : aucune copie lancée';
+  return seriesText(o, s) ?? '';
 }
 
 // Runs the copy now: its job opens in the console of the page (onStarted), or is announced.
@@ -118,7 +119,7 @@ function OffsiteCheckMessage({ check }: { check: ReturnType<typeof useOffsiteChe
   );
 }
 
-// Copy not enabled: enabled from here, once the secondary is ready for it (the queue does the rest).
+// Copy not enabled: enabled from here, once the secondary is ready for it (the daily series does the rest).
 function OffsiteEnable({ g }: { g: BackupGroup }) {
   const toast = useToast();
   const check = useOffsiteCheck(g, true);
@@ -158,8 +159,8 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
 
 const section = 'text-[11px] font-semibold uppercase tracking-wide text-zinc-400';
 
-// The backup (where, last, schedule, delay before an alert) and its copy (state, last copy, place in the
-// queue of the secondary, room, run it now).
+// The backup (where, last, schedule, delay before an alert) and its copy (state, last copy, next series of
+// the secondary, room, run its namespace now).
 function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
   const { canManage, canWrite } = useMe();
   const { busy, run } = useRunCopy(g, onStarted);
@@ -198,11 +199,11 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
               <Button
                 size="sm"
                 variant="ghost"
-                icon={state === 'running' ? Loader2 : Play}
-                className={clsx('ml-auto h-6 px-1.5', state === 'running' && '[&>svg]:animate-spin')}
+                icon={o?.running ? Loader2 : Play}
+                className={clsx('ml-auto h-6 px-1.5', o?.running && '[&>svg]:animate-spin')}
                 loading={busy}
-                disabled={state === 'running'}
-                title={state === 'running' ? 'Copie en cours (suivie dans Activité)' : 'Lancer la copie maintenant'}
+                disabled={!!o?.running}
+                title={o?.running ? 'Copie en cours (suivie dans Activité)' : `Lancer maintenant la copie de ${g.store} › ${g.ns || 'racine'} (toutes ses sauvegardes copiées)`}
                 onClick={run}
               />
             )}
@@ -227,7 +228,7 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
                       {o.lastBackup && o.verify === null && <span className="text-amber-400"> · non vérifiée</span>}
                     </span>,
                   ],
-                  ['File', `${queueLine(o, remote)}${o.rateIn ? ` · ≤ ${o.rateIn}/s` : ''}`],
+                  ['Série', seriesLine(o, remote)],
                 ]}
               />
               {o.error && <div className="text-red-400">Job de copie non appliqué : {o.error}</div>}
@@ -327,8 +328,8 @@ export function OffsiteCell({ g }: { g: BackupGroup }) {
   );
 }
 
-// Settings of the copy in the window of a backup, saved with the backup (offsiteInput): enabled, limit of
-// rate; when it runs is the queue of the secondary. One snapshot per run, the last one (hub TRANSFER_LAST).
+// Copy in the window of a backup, saved with the backup (offsiteInput): enabled or not; when it runs is the
+// daily series of the secondary. One snapshot per run, the last verified one (hub TRANSFER_LAST).
 export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGroup | undefined; remote: BackupsView['offsite']; value: OffsiteForm; onChange: (f: OffsiteForm) => void }) {
   const field = 'mb-1.5 block text-xs font-medium text-muted';
   if (!remote) return <p className="text-sm text-muted">PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes).</p>;
@@ -343,24 +344,20 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
           <span className="font-medium text-zinc-100">Copier vers le PBS de secours</span> <span className="text-muted">{remote.host} › {remote.store}</span>
         </span>
       </label>
-      <p className="-mt-2 text-xs text-muted">À chaque copie, la dernière sauvegarde est envoyée ; le PBS de secours garde les siennes selon sa propre rétention.</p>
+      <p className="-mt-2 text-xs text-muted">
+        À chaque copie, la dernière sauvegarde <b>vérifiée</b> est envoyée (une copie corrompue est renvoyée) ; le PBS de secours garde les siennes selon sa propre rétention.
+      </p>
       {g.offsite?.enabled && <OffsiteStateLine o={g.offsite} remote={remote} />}
       {/* enabled here, not saved yet: can it be copied (namespace on the secondary...) */}
       {value.enabled && !g.offsite?.enabled && <OffsiteTabCheck g={g} />}
       {value.enabled ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="text-xs text-muted">
-            <span className={field}>Quand</span>
-            Dès qu’une nouvelle sauvegarde est sur le PBS principal, l’agent du PBS de secours la met en file : {queueRule(remote.queue)} (Paramètres › Sauvegardes).
-          </div>
-          <label className="block">
-            <span className={field}>Limite de débit</span>
-            <input className="input font-mono text-xs" value={value.rateIn} onChange={(e) => set({ rateIn: e.target.value })} placeholder="sans limite" />
-            <span className="mt-1 block text-xs text-muted">ex. 10MiB ; vide : plafond global du PBS.</span>
-          </label>
+        <div className="text-xs text-muted">
+          <span className={field}>Quand</span>
+          L’agent du PBS de secours lance les copies {seriesRule(remote.series)} (Paramètres › Sauvegardes). Cette sauvegarde est copiée avec les autres de{' '}
+          <span className="font-mono">{g.store} › {g.ns || 'racine'}</span> (un job de copie par namespace).
         </div>
       ) : (
-        g.offsite?.enabled && <p className="text-xs text-muted">Désactivée à l’enregistrement : le job de copie est retiré du PBS de secours, les snapshots déjà copiés y restent.</p>
+        g.offsite?.enabled && <p className="text-xs text-muted">Désactivée à l’enregistrement : la sauvegarde sort du job de copie de son namespace, les snapshots déjà copiés restent sur le PBS de secours.</p>
       )}
       <div>
         <span className={field}>Place sur le PBS de secours</span>
@@ -376,14 +373,14 @@ function OffsiteTabCheck({ g }: { g: BackupGroup }) {
 
 function OffsiteStateLine({ o, remote }: { o: BackupOffsite; remote: Remote }) {
   const state = copyState(o);
-  const queue = queueLine(o, remote);
+  const series = seriesLine(o, remote);
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <Badge tone={stateMeta[state].tone}>{stateMeta[state].label}</Badge>
         <span className="text-muted">
           {o.lastBackup ? `dernier snapshot copié ${timeAgo(o.lastBackup)}` : 'aucun snapshot copié'}
-          {queue && state !== 'running' ? ` · ${queue}` : ''}
+          {series && state !== 'running' ? ` · ${series}` : ''}
         </span>
       </div>
       {o.error && <div className="text-xs text-red-400">Job de copie non appliqué : {o.error}</div>}
