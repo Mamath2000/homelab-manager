@@ -239,11 +239,12 @@ function SeriesStatus({ data }: { data: PbsRemoteSettings }) {
 // Secondary PBS: copy of chosen backups (Paramètres > Sauvegardes).
 export function OffsiteSettings() {
   const { data } = useQuery({ queryKey: ['settings', 'pbs-remote'], queryFn: api.pbsRemoteSettings });
+  const { data: main } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
   const [editing, setEditing] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const usage = data?.usage;
   return (
-    <Panel title="PBS de secours (copie déportée)" icon={ServerCog} actions={data && <Button size="sm" icon={Pencil} onClick={() => setEditing(true)}>{data.url ? 'Modifier' : 'Configurer'}</Button>}>
+    <Panel title="PBS de secours (copie déportée)" icon={ServerCog} actions={data && <Button size="sm" icon={Pencil} disabled={!main?.connected && !data.url} title={!main?.connected && !data.url ? 'Connecter d’abord le PBS principal' : undefined} onClick={() => setEditing(true)}>{data.url ? 'Modifier' : 'Configurer'}</Button>}>
       <p className="mb-4 text-sm text-muted">
         Un second Proxmox Backup Server, distant, qui tire du PBS principal les sauvegardes choisies une à une. Son agent lance les copies chaque jour ; le hub
         relève leur état toutes les 15 minutes.
