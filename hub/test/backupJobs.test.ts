@@ -149,12 +149,15 @@ test('PBS tokens created by the agent of the PBS: rights, secret, admin only', a
 });
 
 test('PBS found by an agent: address suggested, link checked', async () => {
-  const { checkLink, suggestedUrl } = await import('../src/pbsAgent.js');
+  const { checkLink, suggestedUrl, suggestedTailscaleUrl } = await import('../src/pbsAgent.js');
   // the LAN address, not a Docker bridge
   assert.equal(suggestedUrl(['172.17.0.1', '192.168.2.101', '100.71.188.9'], 8007), 'https://192.168.2.101:8007');
   assert.equal(suggestedUrl(['172.18.0.1', '100.71.188.9'], 8007), 'https://100.71.188.9:8007');
   assert.equal(suggestedUrl(['192.168.2.101'], 0), '');
   assert.equal(suggestedUrl(null, 8007), '');
+  assert.equal(suggestedTailscaleUrl(['192.168.2.101', '100.71.188.9'], 8007), 'https://100.71.188.9:8007');
+  assert.equal(suggestedTailscaleUrl(['192.168.2.101', '100.200.1.1'], 8007), '');
+  assert.equal(suggestedTailscaleUrl(['100.71.188.9/32'], 0), '');
   const id = '0123456789abcdef01234567';
   assert.equal(checkLink({ hostId: id, mode: 'native' }), null);
   assert.equal(checkLink({ hostId: id, mode: 'container', container: 'pbs' }), null);

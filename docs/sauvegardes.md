@@ -26,7 +26,7 @@ Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc *
 
 Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le PBS : **l'agent de l'hôte du PBS** les crée, que le PBS soit installé sur l'hôte ou lancé dans un conteneur Docker.
 
-1. **Relier le PBS à son agent** (fenêtre du PBS, colonne de droite) : choisir l'**hôte du PBS** parmi les agents qui savent administrer un PBS, puis **Détecter**. L'agent cherche `proxmox-backup-manager` sur l'hôte, puis dans les conteneurs lancés, et renvoie le mode (installé ou conteneur, avec son nom), la version, les datastores, le port publié et l'empreinte du certificat. L'**adresse** (première adresse privée de l'hôte) et l'**empreinte** sont pré-remplies ; le conteneur trouvé est celui qu'utilisent ensuite toutes les créations de jetons.
+1. **Relier le PBS à son agent** (fenêtre du PBS, colonne de droite) : choisir l'**hôte du PBS** parmi les agents qui savent administrer un PBS, puis **Détecter**. L'agent cherche `proxmox-backup-manager` sur l'hôte, puis dans les conteneurs lancés, et renvoie le mode (installé ou conteneur, avec son nom), la version, les datastores, le port et l'empreinte du certificat. L'**adresse** (première adresse privée de l'hôte), l'**adresse Tailscale** (son IP `100.x`, même port) et l'**empreinte** sont remplies par l'agent et ne se saisissent pas : pour les modifier, relancer **Détecter** (par exemple après un changement d'IP). Un conteneur dont le port 8007 n'est pas publié n'est pas joignable depuis le réseau : l'adresse reste vide, publier le port puis relancer **Détecter**.  le conteneur trouvé est celui qu'utilisent ensuite toutes les créations de jetons.
 2. **Créer le jeton** : l'**identifiant** (`utilisateur@pbs!nom`) est pré-rempli et modifiable. L'agent crée l'utilisateur s'il manque, puis le jeton, et donne chaque droit à l'utilisateur **et** au jeton (les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur). Le secret va de l'agent au hub par la connexion chiffrée de l'agent : **jamais affiché, jamais écrit dans un journal**. Le jeton de supervision et le lien vers l'agent sont enregistrés aussitôt.
 3. Les **jetons des hôtes** se créent ensuite depuis la fiche de chaque hôte (**Accès PBS**), par le même agent.
 
@@ -36,7 +36,7 @@ Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le 
 - L'agent du PBS doit être à jour (capacité « pbs ») et en ligne.
 
 :::note PBS en conteneur
-Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backup-server`. Si le conteneur est en `network_mode: host`, le port est celui du PBS (8007) ; sinon, le port publié pour 8007. Un conteneur renommé ou recréé sous un autre nom : refaire **Détecter**.
+Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backup-server`. Si le conteneur est en `network_mode: host`, le port est celui sur lequel le PBS écoute, lu par l'agent (`ss`, 8007 à défaut) ; sinon, le port publié pour 8007. Un conteneur renommé ou recréé sous un autre nom : refaire **Détecter**.
 :::
 
 #### Portée de chaque jeton
@@ -77,11 +77,11 @@ curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -
 | Jeton | `homelab@pbs!monitor` (créé par l'agent du PBS) |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
 
-**Adresse du PBS sur Tailscale** (optionnel, saisie à la main) : adresse que reçoivent les agents des hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale), avec la même empreinte de certificat. Elle est vide par défaut : ces hôtes ne reçoivent alors aucune définition de sauvegarde, ils ne basculent jamais sur l'adresse du LAN.
+**Adresse du PBS sur Tailscale** (détectée avec l'IP Tailscale de l'hôte du PBS ; saisie à la main seulement tant que le PBS n'est pas relié à son agent) : adresse que reçoivent les agents des hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale), avec la même empreinte de certificat. Elle est vide par défaut : ces hôtes ne reçoivent alors aucune définition de sauvegarde, ils ne basculent jamais sur l'adresse du LAN.
 
 Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : variable `TZ` du compose (défaut `Europe/Paris`).
 
-**Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les droits). Quand une adresse Tailscale est saisie, le test porte sur les deux adresses (même jeton, même empreinte) et affiche un résultat par adresse. Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite, et relit aussi le PBS de secours et, par leur agent, les sauvegardes des hôtes Home Assistant OS.
+**Tester la connexion** liste les datastores visibles (avertissement si aucun : revoir les droits). Le test porte sur l'adresse du LAN seulement : l'adresse Tailscale n'est pas essayée, le hub ne recevant que sur le tailnet (conteneur `tailscale` en entrée seulement), et le test l'indique (« non testable depuis le hub »). Les agents des hôtes Tailscale joignent le PBS par leur propre Tailscale. Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite, et relit aussi le PBS de secours et, par leur agent, les sauvegardes des hôtes Home Assistant OS.
 
 :::info Certificat épinglé
 Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que celui dont l'empreinte est enregistrée, et la vérifie avant d'envoyer le jeton. Après un renouvellement du certificat, récupérer à nouveau l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système.
@@ -108,7 +108,7 @@ Un second PBS, distant, garde une copie des sauvegardes choisies **une à une** 
 
 Paramètres › Sauvegardes › **PBS de secours (copie déportée)** :
 
-1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse et empreinte pré-remplies, datastores proposés.
+1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse et empreinte remplies par l'agent, datastores proposés.
 2. **Datastore cible**, puis **Créer le jeton** du hub sur le PBS de secours (droits sur ce datastore seulement).
 3. **Jeton lecteur sur le PBS principal**, créé par l'agent du PBS principal (qui doit donc être relié).
 4. Cocher **Copier les sauvegardes choisies vers ce PBS**, régler l'**heure de départ** des copies quotidiennes (voir plus bas), **Tester la connexion** (datastore visible, namespaces existants), **Enregistrer**.

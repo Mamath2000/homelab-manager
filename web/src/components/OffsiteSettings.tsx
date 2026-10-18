@@ -113,6 +113,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
               set={set}
               hasSecret={null}
               urlPlaceholder="https://192.168.2.101:8007"
+              urlLocked={!!form.agent}
               fingerprintHint="Lue par l'agent à la détection ; Récupérer lit celle que présente le serveur."
               fetchFingerprint={api.pbsFingerprint}
               enabledLabel="Copier les sauvegardes choisies vers ce PBS"
@@ -145,7 +146,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
                 <PbsAgentPicker
                   link={form.agent}
                   onDetected={(agent, found) => {
-                    set({ agent, ...(!form.url && found.url ? { url: found.url } : {}), ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
+                    set({ agent, url: found.url ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
                     setStores(found.datastores ?? []);
                     if (!store && found.datastores?.length === 1) setStore(found.datastores[0]);
                   }}

@@ -570,6 +570,7 @@ export interface PbsDetected {
   port?: number; // 0: the container does not publish the API
   fingerprint?: string;
   url?: string; // suggested from the addresses of the host
+  tailscaleUrl?: string; // same port on the Tailscale address of the host
 }
 
 // Token created by the agent of the PBS: rights granted, and those removed from the token
@@ -924,7 +925,7 @@ export const api = {
   forgetBackup: (id: string) => request<void>('DELETE', `/api/backups/${encodeURIComponent(id)}`),
   pbsSettings: () => request<PbsSettings>('GET', '/api/settings/pbs'),
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
-  testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult & { tailscale?: PbsTestResult }>('POST', '/api/settings/pbs/test', s),
+  testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult>('POST', '/api/settings/pbs/test', s),
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   pbsRemoteSettings: () => request<PbsRemoteSettings>('GET', '/api/settings/pbs-remote'),
   savePbsRemoteSettings: (s: PbsRemoteInput) => request<PbsRemoteSettings>('PUT', '/api/settings/pbs-remote', s),

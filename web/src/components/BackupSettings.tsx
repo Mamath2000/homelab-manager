@@ -67,10 +67,9 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     setTestTs(null);
     try {
       const r = await api.testPbsSettings(form);
-      // with a Tailscale address, each result says which address it is about
-      const both = !!r.tailscale;
-      setTest(outcome(r, both ? 'LAN' : ''));
-      if (r.tailscale) setTestTs(outcome(r.tailscale, 'Tailscale'));
+      // the hub only receives on the tailnet: the Tailscale address is not tried
+      setTest(outcome(r, form.tailscaleUrl ? 'LAN' : ''));
+      if (form.tailscaleUrl) setTestTs({ level: 'info', text: 'Tailscale : non testable depuis le hub (Tailscale en entrée seulement). Les agents des hôtes Tailscale joignent le PBS par leur propre Tailscale.' });
     } catch (err) {
       setTest({ level: 'error', text: (err as Error).message });
     } finally {
@@ -100,6 +99,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
               set={set}
               hasSecret={null}
               urlPlaceholder="https://192.168.100.8:8007"
+              urlLocked={!!form.agent}
               fingerprintHint="Certificat auto-signé : son empreinte est épinglée. À comparer avec celle du PBS (Tableau de bord › Afficher l'empreinte)."
               fetchFingerprint={api.pbsFingerprint}
               enabledLabel="Suivre les sauvegardes du PBS"
@@ -109,8 +109,8 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             <div className="space-y-4 border-t border-line pt-4">
               <label className="block">
                 <span className={field}>Adresse du PBS sur Tailscale (hôtes du réseau Tailscale)</span>
-                <input className="input font-mono text-xs" value={form.tailscaleUrl ?? ''} onChange={(e) => set({ tailscaleUrl: e.target.value.trim() })} placeholder="https://100.65.214.55:8007" spellCheck={false} />
-                <span className="mt-1 block text-xs text-zinc-500">Même certificat (empreinte ci-dessus). Vide : ces hôtes ne sauvegardent pas.</span>
+                <input className="input font-mono text-xs" value={form.tailscaleUrl ?? ''} onChange={(e) => set({ tailscaleUrl: e.target.value.trim() })} placeholder="https://100.65.214.55:8007" spellCheck={false} readOnly={!!form.agent} />
+                <span className="mt-1 block text-xs text-zinc-500">Même certificat (empreinte ci-dessus){form.agent ? ', IP Tailscale de l’hôte détectée par son agent' : ''}. Vide : ces hôtes ne sauvegardent pas.</span>
               </label>
               <label className="block">
                 <span className={field}>Image du client (hôtes sans client installé)</span>
@@ -132,7 +132,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
                 <PbsAgentPicker
                   link={form.agent}
                   onDetected={(agent, found) =>
-                    set({ agent, ...(!form.url && found.url ? { url: found.url } : {}), ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) })
+                    set({ agent, url: found.url ?? '', tailscaleUrl: found.tailscaleUrl ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) })
                   }
                 />
                 <PbsTokenButton

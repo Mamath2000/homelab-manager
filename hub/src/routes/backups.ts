@@ -110,9 +110,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
         return { ok: false, error: (err as Error).message };
       }
     };
-    // both addresses reach the same PBS (same token and certificate): each is tried when set
-    const main = await probe(next.url);
-    return next.tailscaleUrl ? { ...main, tailscale: await probe(next.tailscaleUrl) } : main;
+    // the Tailscale address is not tried: the hub only receives on the tailnet (the web UI says so)
+    return probe(next.url);
   });
 
   app.post<{ Body: { url: string } }>(

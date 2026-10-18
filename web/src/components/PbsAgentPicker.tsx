@@ -55,7 +55,7 @@ export function PbsAgentPicker({ link, onDetected }: { link?: PbsAgentLink; onDe
         found.found ? (
           <p className="text-emerald-400">
             PBS {found.version} · {found.mode === 'container' ? <>conteneur <code>{found.container}</code></> : 'installé sur l’hôte'} · datastores : {found.datastores?.join(', ') || 'aucun'}
-            {!found.port && <span className="block text-amber-400">Le conteneur ne publie pas le port 8007 : renseigner l'adresse à la main.</span>}
+            {!found.port && <span className="block text-amber-400">Le conteneur ne publie pas le port 8007 : le PBS n'est pas joignable depuis le réseau, publier le port puis relancer Détecter.</span>}
           </p>
         ) : (
           <p className="text-amber-400">Aucun PBS trouvé sur cet hôte (ni installé, ni dans un conteneur lancé).</p>

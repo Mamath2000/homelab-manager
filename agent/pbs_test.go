@@ -187,3 +187,18 @@ func TestValidatePbsToken(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePbsPort(t *testing.T) {
+	out := `LISTEN 0 4096 127.0.0.1:82 0.0.0.0:* users:(("proxmox-backup-",pid=900,fd=14))
+LISTEN 0 4096 *:8007 *:* users:(("proxmox-backup-",pid=901,fd=17))
+LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))`
+	if p := parsePbsPort(out); p != 8007 {
+		t.Fatalf("port = %d, want 8007", p)
+	}
+	if p := parsePbsPort(`LISTEN 0 4096 [::]:8443 [::]:* users:(("proxmox-backup-",pid=901,fd=17))`); p != 8443 {
+		t.Fatalf("port = %d, want 8443", p)
+	}
+	if p := parsePbsPort(`LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))`); p != 0 {
+		t.Fatalf("port = %d, want 0", p)
+	}
+}

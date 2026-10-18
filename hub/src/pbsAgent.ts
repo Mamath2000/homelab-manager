@@ -43,6 +43,7 @@ export interface PbsDetected {
   port?: number; // 0: the container does not publish the API
   fingerprint?: string;
   url?: string; // suggested from the addresses of the host
+  tailscaleUrl?: string; // same port, on the Tailscale address of the host (100.64.0.0/10)
 }
 
 interface AgentTokenResult {
@@ -77,11 +78,20 @@ export function suggestedUrl(ips: string[] | null | undefined, port: number) {
   return lan && port ? `https://${lan}:${port}` : '';
 }
 
+// Tailscale address of the host (CGNAT range 100.64.0.0/10) with the same port.
+export function suggestedTailscaleUrl(ips: string[] | null | undefined, port: number) {
+  const ts = (ips ?? []).map((ip) => ip.replace(/\/\d+$/, '')).find((ip) => {
+    const m = /^100\.(\d+)\.\d+\.\d+$/.exec(ip);
+    return !!m && Number(m[1]) >= 64 && Number(m[1]) <= 127;
+  });
+  return ts && port ? `https://${ts}:${port}` : '';
+}
+
 export async function detectPbsOn(hostId: string): Promise<PbsDetected> {
   const host = await pbsHost(hostId);
   try {
     const info = await agentRequest<PbsDetected>(hostId, 'pbs_detect', {}, 75_000);
-    return info.found ? { ...info, url: suggestedUrl(host.info?.ips, info.port ?? 0) } : { found: false };
+    return info.found ? { ...info, url: suggestedUrl(host.info?.ips, info.port ?? 0), tailscaleUrl: suggestedTailscaleUrl(host.info?.ips, info.port ?? 0) } : { found: false };
   } catch (err) {
     throw err instanceof AgentRequestError ? new PbsAgentError(err.message) : err;
   }

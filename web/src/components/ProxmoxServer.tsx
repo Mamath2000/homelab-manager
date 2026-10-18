@@ -54,11 +54,12 @@ export function ServerRow({ name, tag, url, enabled, polledAt, pollError, detail
 // Address, pinned certificate, secret of the token and polling switch of a server (the token id is set
 // next to the command that creates it, see TokenSetup). hasSecret null: no secret field (PBS, its agent
 // creates the token).
-export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerprintHint, fetchFingerprint, enabledLabel }: {
+export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, urlLocked, fingerprintHint, fetchFingerprint, enabledLabel }: {
   form: Connection;
   set: (patch: Partial<Connection>) => void;
   hasSecret: boolean | null;
   urlPlaceholder: string;
+  urlLocked?: boolean; // address given by the agent of the server (Détecter), not typed
   fingerprintHint: ReactNode;
   fetchFingerprint: (url: string) => Promise<{ fingerprint: string }>;
   enabledLabel: string;
@@ -79,7 +80,8 @@ export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerp
     <>
       <label className="block">
         <span className={field}>Adresse</span>
-        <input className="input" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder={urlPlaceholder} spellCheck={false} />
+        <input className="input" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder={urlPlaceholder} spellCheck={false} readOnly={urlLocked} />
+        {urlLocked && <span className="mt-1 block text-xs text-muted">Donnée par l'agent de l'hôte (IP et port détectés) : relancer Détecter pour la mettre à jour.</span>}
       </label>
       <div>
         <span className={field}>Empreinte du certificat (SHA-256)</span>
@@ -127,9 +129,9 @@ export function TokenAside({ title, intro, setup, manualScript, manualUi }: { ti
   );
 }
 
-export type TestState = { level: 'ok' | 'warn' | 'error'; text: string } | null;
+export type TestState = { level: 'ok' | 'info' | 'warn' | 'error'; text: string } | null;
 
 export function TestResult({ test }: { test: TestState }) {
   if (!test) return null;
-  return <p className={{ ok: 'text-xs text-emerald-400', warn: 'text-xs text-amber-400', error: 'text-xs text-red-400' }[test.level]}>{test.text}</p>;
+  return <p className={{ ok: 'text-xs text-emerald-400', info: 'text-xs text-muted', warn: 'text-xs text-amber-400', error: 'text-xs text-red-400' }[test.level]}>{test.text}</p>;
 }

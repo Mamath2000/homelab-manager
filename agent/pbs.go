@@ -99,7 +99,7 @@ var (
 func detectPbs(ctx context.Context) PbsInfo {
 	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil {
 		if info, err := describePbs(ctx, "", pbsRunner("")); err == nil {
-			info.Port = 8007
+			info.Port = listeningPort(ctx, 8007)
 			return info
 		}
 	}
@@ -169,12 +169,46 @@ func pbsDatastores(ctx context.Context, run pbsRun) ([]string, error) {
 	return names, nil
 }
 
+// pbsListenRe: one line of `ss -H -ltnp` for a socket of the PBS proxy (the process name is cut to
+// 15 characters by the kernel, hence "proxmox-backup-"); the local address is not restricted to
+// loopback by the caller, see parsePbsPort.
+var pbsListenRe = regexp.MustCompile(`^LISTEN\s+\S+\s+\S+\s+(\S+):(\d+)\s.*"proxmox-backup-`)
+
+// parsePbsPort: port the PBS proxy listens on for the network (loopback sockets, such as the private
+// API of the PBS, are ignored); 0 when none is found.
+func parsePbsPort(ssOut string) int {
+	for _, line := range strings.Split(ssOut, "\n") {
+		m := pbsListenRe.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil || m[1] == "127.0.0.1" || m[1] == "[::1]" {
+			continue
+		}
+		var p int
+		if _, err := fmt.Sscanf(m[2], "%d", &p); err == nil && p > 0 {
+			return p
+		}
+	}
+	return 0
+}
+
+// listeningPort asks the system which port the PBS answers on (a PBS running on the host, natively or
+// in a container in host network mode); def when it cannot tell.
+func listeningPort(ctx context.Context, def int) int {
+	out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").Output()
+	if err != nil {
+		return def
+	}
+	if p := parsePbsPort(string(out)); p > 0 {
+		return p
+	}
+	return def
+}
+
 // containerPort: host port the container exposes for port (0 = not reachable from the network). In
-// host network mode the port is the container's own.
+// host network mode the port is the one the PBS listens on.
 func containerPort(ctx context.Context, container string, port int) int {
 	if mode, err := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.HostConfig.NetworkMode}}", container).Output(); err == nil &&
 		strings.TrimSpace(string(mode)) == "host" {
-		return port
+		return listeningPort(ctx, port)
 	}
 	out, err := exec.CommandContext(ctx, "docker", "port", container, fmt.Sprintf("%d/tcp", port)).Output()
 	if err != nil {
