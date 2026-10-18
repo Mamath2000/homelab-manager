@@ -81,7 +81,7 @@ Le fichier est en clair, comme tout mot de passe de `upsd.users` : NUT n'en conn
 
 ## Alertes
 
-L'onduleur est un domaine d'alerte à part entière : il apparaît dans la frise des 30 jours de la fiche (ligne **Onduleur**, seulement pour les hôtes qui en ont un) et compte dans la frise par site du tableau de bord (filtre « Tout »). Comme APT et Docker, il n'est suivi que tant que l'agent est connecté.
+L'onduleur est un [domaine d'alerte](alertes.md) à part entière : ligne **Onduleur** dans la frise des 30 jours de la fiche (seulement pour les hôtes qui en ont un), carré dans la tuile de l'hôte et filtre de la frise par site du tableau de bord. Comme APT et Docker, il n'est lu que tant que l'agent est connecté : hors ligne, il est inconnu (gris) et ne colore ni l'hôte ni le site.
 
 | Niveau | Condition |
 |---|---|

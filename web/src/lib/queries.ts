@@ -10,6 +10,7 @@ export const keys = {
   backups: ['backups'] as const,
   hostAlerts: (id: string) => ['host-alerts', id] as const,
   alerts: ['alerts'] as const,
+  status: ['status'] as const,
   sites: ['sites'] as const,
   tags: ['tags'] as const,
 };
@@ -39,6 +40,11 @@ export function useHostAlerts(id: string) {
 // events that record an alert at once (failed job, backups).
 export function useAllAlerts() {
   return useQuery({ queryKey: keys.alerts, queryFn: api.alerts, refetchInterval: 5 * 60_000 });
+}
+
+// Live status by domain of every host, recomputed by the hub (late backups change with time alone).
+export function useStatus() {
+  return useQuery({ queryKey: keys.status, queryFn: api.status, refetchInterval: 60_000 });
 }
 
 export function useSites() {

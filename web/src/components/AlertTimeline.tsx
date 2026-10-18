@@ -1,19 +1,12 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Activity, BatteryCharging, Container, DatabaseBackup, Package, Radio, type LucideIcon } from 'lucide-react';
-import type { AlertDomain, AlertLevel, DayAlert } from '../lib/api';
-import { useHostAlerts } from '../lib/queries';
-import { Badge, Panel } from './ui';
+import { Activity } from 'lucide-react';
+import type { AlertLevel, DayAlert } from '../lib/api';
+import { domainIcon } from '../lib/monitoring';
+import { useHostAlerts, useStatus } from '../lib/queries';
+import { Panel } from './ui';
 
 const DAYS = 30;
-
-const allDomains: { id: AlertDomain; label: string; icon: LucideIcon }[] = [
-  { id: 'agent', label: 'Connexion', icon: Radio },
-  { id: 'apt', label: 'Mises à jour', icon: Package },
-  { id: 'docker', label: 'Docker', icon: Container },
-  { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
-  { id: 'ups', label: 'Onduleur', icon: BatteryCharging },
-];
 
 type Cell = AlertLevel | 'none';
 const cellColor: Record<Cell, string> = {
@@ -42,36 +35,46 @@ const shortDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', m
 const longDate = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const reasonText = (a: DayAlert | null) => (!a ? 'non suivi' : a.reasons.length ? a.reasons.join(' · ') : levelLabel[a.level]);
 
-// Alerts of the last 30 days of a host, one row per domain, one square per day (latest known state of the day).
+// Alerts of the last 30 days of a host, one row per domain the host provides (given by the hub), one
+// square per day (latest known state of the day; today, the live status).
 // A click on a day shows its reasons in each domain.
-// The UPS row only exists for a host with a UPS.
-export function AlertTimeline({ hostId, ups }: { hostId: string; ups?: boolean }) {
+export function AlertTimeline({ hostId }: { hostId: string }) {
   const { data } = useHostAlerts(hostId);
-  const domains = allDomains.filter((d) => d.id !== 'ups' || ups);
+  const { data: status } = useStatus();
+  const live = status?.hosts[hostId];
+  const domains = (status?.domains ?? []).filter((d) => live?.domains[d.id]);
   const days = lastDays();
   const [picked, setPicked] = useState<string | null>(null);
   const selected = days.find((d) => d.key === picked) ?? days[DAYS - 1];
   const byDay = new Map((data?.days ?? []).map((d) => [d.day, d]));
-  const at = (key: string, dom: AlertDomain): DayAlert | null => byDay.get(key)?.[dom] ?? null;
+  const today = days[DAYS - 1].key;
+  const at = (key: string, dom: string): DayAlert | null => {
+    const l = key === today ? live?.domains[dom] : undefined;
+    if (l) return l.level === 'unknown' ? null : { level: l.level, reasons: l.checks.filter((c) => c.level !== 'ok' && c.reason).map((c) => c.reason!) };
+    return byDay.get(key)?.domains[dom] ?? null;
+  };
+  // what is said of a day: its reasons, or why nothing is known (host away today)
+  const text = (key: string, dom: string) => {
+    const l = key === today ? live?.domains[dom] : undefined;
+    return l?.level === 'unknown' ? (l.reason ?? 'non suivi') : reasonText(at(key, dom));
+  };
 
   const rows = (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[9rem_minmax(0,1fr)_12rem] items-end gap-4">
+      <div className="grid grid-cols-[9rem_minmax(0,1fr)] items-end gap-4">
         <span />
         <div className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px] text-[11px] text-muted">
           {days.map((d, i) => (
             <span key={d.key} className="whitespace-nowrap">{i === DAYS - 1 ? 'auj.' : d.date.getDay() === 1 ? shortDate(d.date) : ''}</span>
           ))}
         </div>
-        <span />
       </div>
-      {domains.map(({ id, label, icon: Icon }) => {
+      {domains.map((domain) => {
+        const { id, label } = domain;
+        const Icon = domainIcon(domain);
         const levels = days.map((d) => at(d.key, id)?.level ?? 'none');
-        const alerts = levels.filter((l) => l === 'alert').length;
-        const warns = levels.filter((l) => l === 'warn').length;
-        const followed = levels.some((l) => l !== 'none');
         return (
-          <div key={id} className="grid grid-cols-[9rem_minmax(0,1fr)_12rem] items-center gap-4">
+          <div key={id} className="grid grid-cols-[9rem_minmax(0,1fr)] items-center gap-4">
             <span className="flex items-center gap-2 text-sm text-zinc-300">
               <Icon className="h-4 w-4 text-muted" />
               {label}
@@ -81,7 +84,7 @@ export function AlertTimeline({ hostId, ups }: { hostId: string; ups?: boolean }
                 <button
                   key={d.key}
                   type="button"
-                  title={`${shortDate(d.date)} · ${label} : ${reasonText(at(d.key, id))}`}
+                  title={`${shortDate(d.date)} · ${label} : ${text(d.key, id)}`}
                   aria-label={`${shortDate(d.date)}, ${label} : ${levelLabel[levels[i]]}`}
                   onClick={() => setPicked(d.key)}
                   className={clsx(
@@ -92,18 +95,6 @@ export function AlertTimeline({ hostId, ups }: { hostId: string; ups?: boolean }
                 />
               ))}
             </div>
-            <span className="flex justify-end gap-1.5">
-              {!followed ? (
-                <span className="text-xs text-muted">non suivi</span>
-              ) : alerts + warns === 0 ? (
-                <Badge tone="ok">sans alerte</Badge>
-              ) : (
-                <>
-                  {alerts > 0 && <Badge tone="bad">{alerts} j d'alerte</Badge>}
-                  {warns > 0 && <Badge tone="warn">{warns} j d'avert.</Badge>}
-                </>
-              )}
-            </span>
           </div>
         );
       })}
@@ -142,7 +133,7 @@ export function AlertTimeline({ hostId, ups }: { hostId: string; ups?: boolean }
               <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-[2px]', cellColor[a?.level ?? 'none'])} />
               <span className="min-w-0">
                 <span className="font-medium text-zinc-200">{label}</span>
-                <span className="text-zinc-400"> · {reasonText(a)}</span>
+                <span className="text-zinc-400"> · {text(selected.key, id)}</span>
               </span>
             </div>
           );

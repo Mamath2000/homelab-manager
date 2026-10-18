@@ -51,6 +51,10 @@ Exemple de réponse :
 }
 ```
 
+## `GET /api/status`
+
+Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Alertes et statuts](alertes.md)) : `domains` (identifiant, libellé, icône, dans l'ordre d'affichage) et `hosts` (par identifiant d'hôte : `level` ok / warn / alert et `domains`, chacun avec son `level` ok / warn / alert / unknown, ses `checks` et, si inconnu, la raison). Un domaine absent d'un hôte ne s'y applique pas. Tous les rôles peuvent le lire.
+
 ## Exemple : widget Homepage
 
 Voir [Homepage](../../sites/vouille/homepage/index.md#widget-homelab-manager) : widget `customapi`, clé d'un compte

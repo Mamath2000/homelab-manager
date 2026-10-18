@@ -1,4 +1,4 @@
-import type { DayAlert, HostDoc } from './types.js';
+import type { HostDoc } from './types.js';
 
 // UPS monitored through NUT on the host (agent ups_report): one UPS per host.
 // Numbers are absent when the UPS does not report them.
@@ -38,7 +38,6 @@ export function isUpsReport(r: unknown): r is UpsReport {
 
 export const upsFlags = (status: string) => new Set(status.split(/\s+/).filter(Boolean));
 
-const day = (level: DayAlert['level'], reasons: string[]): DayAlert => ({ level, reasons });
 
 // Failed self-test: NUT texts vary by driver ("Done and passed", "Done and error", "In progress"...).
 const testFailed = (t?: string) => !!t && /(error|fail|warning)/i.test(t) && !/passed/i.test(t);
@@ -65,12 +64,4 @@ export function upsProblems(r: UpsReport): UpsProblem[] {
   if (r.runtime !== undefined && r.runtimeLow !== undefined && r.runtime <= r.runtimeLow) warn(`Autonomie sous le seuil bas : ${Math.round(r.runtime / 60)} min`);
   if (testFailed(r.testResult)) warn(`Dernier auto-test : ${r.testResult}`);
   return out;
-}
-
-// null: not followed (no UPS reported)
-export function upsAlert(h: Pick<HostDoc, 'ups'>): DayAlert | null {
-  if (!h.ups) return null;
-  const problems = upsProblems(h.ups);
-  const reasons = problems.map((p) => p.message);
-  return problems.some((p) => p.level === 'alert') ? day('alert', reasons) : reasons.length ? day('warn', reasons) : day('ok', []);
 }

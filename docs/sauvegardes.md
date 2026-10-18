@@ -338,6 +338,7 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
 - Par hôte ayant des sauvegardes, un sous-appareil **Sauvegardes** : date de la dernière sauvegarde (détail des groupes en attributs), nombre en retard, alertes.
 - Alertes : en retard / jamais sauvegardée, dernière exécution en échec, job désactivé, pas encore appliquée par l'agent, vérification en échec, disparue du PBS, copie déportée en retard / en échec, guest non couvert. Elles remontent à l'hôte puis à Homelab Manager. Pas d'alerte pour les orphelines, ni de retard pour un hôte itinérant absent.
+- Statut : les sauvegardes forment le domaine **Sauvegardes** et la copie déportée le domaine **Copie externe** (ligne propre dans la frise de la fiche dès qu'une copie est activée, avertissement tant qu'aucune copie n'existe encore) : voir [Alertes et statuts](alertes.md).
 - Sur Homelab Manager : **Sauvegardes en retard** et l'occupation de chaque datastore.
 
 ## Rôles

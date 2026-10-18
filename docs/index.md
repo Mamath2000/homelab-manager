@@ -13,7 +13,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 
 ## Ce que fait la version actuelle
 
-- **Tableau de bord par site** : un carré par hôte, regroupé par site, moitié haute pour les mises à jour, moitié basse pour la sauvegarde ; chiffres clés (correctifs de sécurité, sauvegardes en échec ou en retard), jauges par site, arrivée des alertes sur 30 jours (une ligne par site), actions sur tous les hôtes concernés (correctifs de sécurité seuls, tout APT, images Docker, agents, standardisation, avec confirmation listant les cibles) et listes « à traiter ». Les sites se décrivent dans **Paramètres › Sites et tags** (nom, type Principal / VPN / Externe, ordre d'affichage ; les sites externes d'un seul hôte sont réunis dans une carte) et chaque hôte choisit le sien dans sa fiche.
+- **Tableau de bord par site** : une colonne par hôte, regroupée par site, avec un carré par domaine suivi (connexion, mises à jour, Docker, sauvegardes, copie externe, onduleur : voir [Alertes et statuts](alertes.md)) ; chiffres clés (correctifs de sécurité, sauvegardes en échec ou en retard), jauges par site, arrivée des alertes sur 30 jours (une ligne par site, pire situation de ses hôtes), actions sur tous les hôtes concernés (correctifs de sécurité seuls, tout APT, images Docker, agents, standardisation, avec confirmation listant les cibles) et listes « à traiter ». Les sites se décrivent dans **Paramètres › Sites et tags** (nom, type Principal / VPN / Externe, ordre d'affichage ; les sites externes d'un seul hôte sont réunis dans une carte) et chaque hôte choisit le sien dans sa fiche.
 - **Tags** : plusieurs par hôte, avec une couleur choisie à leur création (depuis la fiche de l'hôte) ; renommés, recolorés ou supprimés dans **Paramètres › Sites et tags**. Filtres par site et par tag sur la page Hôtes. Les groupes des versions précédentes sont devenus des tags.
 - **Inventaire** : OS, noyau, architecture, virtualisation (LXC, KVM…), IP, uptime, état de connexion en temps réel.
 - **Mises à jour APT** : paquets à mettre à jour, mises à jour de sécurité, paquets bloqués (`hold`), redémarrage requis, ancienneté des listes de paquets.
@@ -22,7 +22,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Vérification planifiée** : `apt-get update` automatique toutes les 12 h.
 - **Nettoyage** : paquets inutiles (anciens noyaux, dépendances orphelines) supprimables via `apt autoremove`.
 - **Historique** des tâches et de leurs sorties (90 jours).
-- **Fiche hôte** : bandeau système et frise des alertes des 30 derniers jours (mises à jour, Docker, sauvegardes : pire situation de chaque jour, détail au clic) en tête de page ; sur grand écran, l'historique et la console en direct restent visibles à droite, et toute tâche lancée depuis la fiche s'y affiche. **Actualiser** demande aussi à l'agent de relire son état local (système, APT, stacks Docker, sauvegardes Home Assistant, onduleur) ; l'agent annonce la capacité `refresh` (requête `refresh` avec des portées facultatives).
+- **Fiche hôte** : bandeau système et frise des alertes des 30 derniers jours (une ligne par domaine que l'hôte fournit : pire situation de chaque jour, détail au clic) en tête de page ; sur grand écran, l'historique et la console en direct restent visibles à droite, et toute tâche lancée depuis la fiche s'y affiche. **Actualiser** demande aussi à l'agent de relire son état local (système, APT, stacks Docker, sauvegardes Home Assistant, onduleur) ; l'agent annonce la capacité `refresh` (requête `refresh` avec des portées facultatives).
 - **Docker** : stacks compose des hôtes, état des conteneurs, images à mettre à jour, démarrer / arrêter / redémarrer / mettre à jour, logs et fichiers compose.
 - **Onduleur** : état, batterie, autonomie, charge et tensions de l'onduleur d'un hôte (via NUT), indicateur de batterie à remplacer et alertes.
 - **Clés d'API** : comptes sans mot de passe et clés nommées (une par service) pour interroger le hub, par exemple depuis Homepage.
@@ -41,6 +41,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
 - [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
 - [Onduleur](onduleur.md) : suivi d'un onduleur via NUT, fin de vie de la batterie, alertes.
+- [Alertes et statuts](alertes.md) : domaines, éléments suivis, agrégation hôte → site, hôte hors ligne ou itinérant.
 - [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.
 - [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe, comptes sans mot de passe, clés d'API.
 - [API](api.md) : accès par clé d'API et endpoint `/api/summary` pour les tableaux de bord.

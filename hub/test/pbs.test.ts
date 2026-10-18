@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { backupAlerts } from '../src/homeassistant/alerts.js';
+import { alertsOf } from '../src/homeassistant/alerts.js';
+import { backupStatus, evaluate } from '../src/monitoring.js';
 import { ROOT_ID, build } from '../src/homeassistant/discovery.js';
 import { backupState, effectiveThreshold, learnedInterval, mergeGroups, normalizeFingerprint, retentionInterval, retentionMap } from '../src/pbs.js';
 import { authorize } from '../src/roles.js';
@@ -108,20 +109,25 @@ test('state: late after the effective threshold, failed verification, gone', () 
 
 test('alerts: late and failed groups, none for a roaming host away', () => {
   const now = Date.UTC(2026, 9, 11, 12);
-  const list = [
-    { backupId: 'a', state: 'stale', lastBackup: now - 3 * 86_400_000 },
-    { backupId: 'b', state: 'failed', lastBackup: now },
-    { backupId: 'c', state: 'ok', lastBackup: now },
-    { backupId: 'd', state: 'gone', lastBackup: now },
+  const doc = (backupId: string, o: Partial<BackupDoc>) => ({ backupId, lastBackup: now, verify: null, staleHours: 24, ...o }) as BackupDoc;
+  const groups = [
+    doc('a', { lastBackup: now - 3 * 86_400_000 }),
+    doc('b', { verify: 'failed' }),
+    doc('c', {}),
+    doc('d', { gone: true }),
   ];
-  assert.deepEqual(backupAlerts(list, false, now).map((a) => a.message), ['a : pas de sauvegarde depuis 3 j', 'b : vérification en échec', 'd : disparue du PBS']);
-  assert.deepEqual(backupAlerts(list, true, now).map((a) => a.message), ['b : vérification en échec', 'd : disparue du PBS']);
+  const msgs = (roaming: boolean) =>
+    alertsOf(backupStatus({ roaming }, { online: false, groups, now })!, 'backup').map((a) => [a.level, a.message]);
+  assert.deepEqual(msgs(false), [['warning', 'a : en retard'], ['critical', 'b : vérification en échec'], ['warning', 'd : disparue du PBS']]);
+  assert.deepEqual(msgs(true), [['critical', 'b : vérification en échec'], ['warning', 'd : disparue du PBS']]);
 });
 
 test('Home Assistant: one backup sub-device per host, root counts and datastore space', () => {
   const host = { _id: new ObjectId(), name: 'docker', createdAt: new Date() } as HostDoc;
   const hid = host._id.toHexString();
-  const { devices } = build([{ host, online: true, busy: false }], {
+  const late = { _id: new ObjectId(), backupId: 'docker', hostId: host._id, lastBackup: Date.UTC(2026, 9, 8), verify: null, staleHours: 24 } as BackupDoc;
+  const status = evaluate(host, { online: true, groups: [late], now: Date.UTC(2026, 9, 11) });
+  const { devices } = build([{ host, online: true, busy: false, status }], {
     topic: 'hm',
     discoveryPrefix: 'homeassistant',
     version: '1',
@@ -141,7 +147,7 @@ test('Home Assistant: one backup sub-device per host, root counts and datastore 
   assert.equal(state(sub, 'last_backup'), new Date(Date.UTC(2026, 9, 8)).toISOString());
   // the host rolls up its backup alert
   const hostDev = devices.find((d) => d.id === `hm_${hid}`)!;
-  assert.match(hostDev.states.find(([t]) => t === `hm/hm_${hid}/alerts/attributes`)![1], /docker : pas de sauvegarde/);
+  assert.match(hostDev.states.find(([t]) => t === `hm/hm_${hid}/alerts/attributes`)![1], /docker : en retard/);
   const root = devices.find((d) => d.id === ROOT_ID)!;
   assert.equal(state(root, 'backups_late'), '1');
   assert.equal(state(root, 'datastore_ds3'), '25');

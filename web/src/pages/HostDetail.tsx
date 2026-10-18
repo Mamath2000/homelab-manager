@@ -464,7 +464,7 @@ function HostDetailPage({ id }: { id: string }) {
               </dl>
             </section>
             <div className={scrolled ? 'mt-2.5' : 'mt-4'}>
-              <AlertTimeline hostId={host.id} ups={!!host.ups} />
+              <AlertTimeline hostId={host.id} />
             </div>
           </div>
 

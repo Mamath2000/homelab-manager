@@ -4,6 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { agentBinary, agentOutdated } from '../agentBinaries.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { isOnline } from '../agents.js';
+import { evaluateAll } from '../monitoring.js';
 import { config } from '../config.js';
 import { isUnmanaged } from '../docker.js';
 import { backups, hosts } from '../db.js';
@@ -182,6 +183,7 @@ export class HomeAssistantBridge {
     const s = this.settings;
     if (!this.client?.connected || !s) return;
     const list = await hosts.find().sort({ name: 1 }).toArray();
+    const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray());
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
     const built = build(
       list.map((host) => {
@@ -193,6 +195,7 @@ export class HomeAssistantBridge {
           busy: hasRunningJob(id),
           agentOutdated: agentOutdated(host),
           latestAgentVersion: bin?.version ?? null,
+          status: status[id],
         };
       }),
       { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, backups: await backupsForHa() },
