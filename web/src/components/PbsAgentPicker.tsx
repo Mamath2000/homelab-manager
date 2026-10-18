@@ -15,7 +15,8 @@ function tokenOutcomeText(tokenId: string, o: PbsTokenOutcome) {
 
 // Host of the PBS: chosen among the agents able to administer one, then "Détecter" asks its agent what
 // runs there (native or in a container). The admin validates what was found (onDetected).
-export function PbsAgentPicker({ link, onDetected }: { link?: PbsAgentLink; onDetected: (link: PbsAgentLink, found: PbsDetected) => void }) {
+// primary: the next thing to do in the window (first step not done).
+export function PbsAgentPicker({ link, primary, onDetected }: { link?: PbsAgentLink; primary?: boolean; onDetected: (link: PbsAgentLink, found: PbsDetected) => void }) {
   const toast = useToast();
   const { data: hosts } = useHosts();
   const [hostId, setHostId] = useState(link?.hostId ?? '');
@@ -41,16 +42,26 @@ export function PbsAgentPicker({ link, onDetected }: { link?: PbsAgentLink; onDe
   const current = link && link.hostId === hostId ? link : null;
   return (
     <div className="space-y-2">
-      <span className={field}>Hôte</span>
-      <div className="flex gap-2">
-        <select className="input flex-1" value={hostId} onChange={(e) => (setHostId(e.target.value), setFound(null))}>
+      <label className="block">
+        <span className={field}>Hôte</span>
+        <select className="input" value={hostId} onChange={(e) => (setHostId(e.target.value), setFound(null))}>
           <option value="">— choisir l'hôte —</option>
           {candidates.map((h) => (
             <option key={h.id} value={h.id}>{h.name}{h.online ? '' : ' (hors ligne)'}</option>
           ))}
         </select>
-        <Button icon={ScanSearch} loading={busy} disabled={!host?.online} onClick={detect} title="L'agent cherche le PBS sur l'hôte : installé, ou dans un conteneur lancé">Détecter</Button>
-      </div>
+      </label>
+      <Button
+        className="w-full"
+        variant={primary ? 'primary' : 'secondary'}
+        icon={ScanSearch}
+        loading={busy}
+        disabled={!host?.online}
+        onClick={detect}
+        title="L'agent cherche le PBS sur l'hôte : installé, ou dans un conteneur lancé"
+      >
+        {current ? 'Détecter à nouveau' : 'Détecter'}
+      </Button>
       {found ? (
         found.found ? (
           <p className="text-emerald-400">
@@ -70,11 +81,12 @@ export function PbsAgentPicker({ link, onDetected }: { link?: PbsAgentLink; onDe
 }
 
 // Token id (editable: another name when that token exists on the PBS without the hub holding its
-// secret) and the button that has the agent create it.
-export function PbsTokenButton({ tokenId, onTokenIdChange, disabled, create }: {
+// secret) and the button that has the agent create it (primary: the next thing to do in the window).
+export function PbsTokenButton({ tokenId, onTokenIdChange, disabled, primary, create }: {
   tokenId: string;
   onTokenIdChange: (t: string) => void;
   disabled?: boolean;
+  primary?: boolean;
   create: () => Promise<PbsTokenOutcome>;
 }) {
   const toast = useToast();
@@ -95,7 +107,7 @@ export function PbsTokenButton({ tokenId, onTokenIdChange, disabled, create }: {
         <span className={field}>Identifiant du jeton</span>
         <input className="input h-8 py-1 font-mono text-xs" value={tokenId} onChange={(e) => onTokenIdChange(e.target.value.trim())} spellCheck={false} />
       </label>
-      <Button size="sm" icon={KeyRound} loading={busy} disabled={disabled || !tokenId} onClick={run}>Créer le jeton</Button>
+      <Button size="sm" variant={primary ? 'primary' : 'secondary'} icon={KeyRound} loading={busy} disabled={disabled || !tokenId} onClick={run}>Créer le jeton</Button>
     </div>
   );
 }
