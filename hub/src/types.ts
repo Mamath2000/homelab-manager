@@ -530,6 +530,7 @@ export interface PveCluster {
   tokenId: string; // user@realm!token
   tokenSecret: string;
   enabled: boolean;
+  agent?: { hostId: string }; // node whose agent created the token (pveAgent.ts)
   // filled by the poll
   timezone?: string; // of the nodes: the schedules are wall-clock times of it
   polledAt?: Date;

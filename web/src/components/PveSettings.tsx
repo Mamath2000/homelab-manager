@@ -1,47 +1,62 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, Plus, Save, Server } from 'lucide-react';
-import { api, type PveCluster, type PveClusterInput } from '../lib/api';
-import { withoutEmptySecret } from '../lib/forms';
-import { pveTokenScript, splitTokenId } from '../lib/tokenScripts';
+import { api, type PveCluster, type PveClusterInput, type PveDetected } from '../lib/api';
+import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
-import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
+import { AgentPicker, TokenButton } from './AgentPicker';
+import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
+import { ServerRow, field } from './ProxmoxServer';
 import { useSettingsDraft } from './settingsDraft';
-import { TokenSetup } from './TokenSetup';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pve!monitor';
-const pveSetup = (tokenId: string) => pveTokenScript({ ...splitTokenId(tokenId, 'homelab@pve', 'monitor'), path: '/', role: 'PVEAuditor' });
+const PORT = 8006;
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|-+$/g, '').slice(0, 32);
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+};
 
-// One cluster: create (id typed) or edit (id fixed); the secret is never sent back by the hub.
+// One cluster, declared from one of its nodes in four steps (PbsDialog.tsx): node and Détecter, what
+// its agent found and the interface the hub reaches the API at, token created by the agent, test.
+// The secret is never sent back by the hub.
 function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [id, setId] = useState('');
-  const [initial] = useState<PveClusterInput>(() =>
-    cluster
-      ? { name: cluster.name, url: cluster.url, fingerprint: cluster.fingerprint, tokenId: cluster.tokenId || DEFAULT_TOKEN, enabled: cluster.enabled }
-      : { name: '', url: '', fingerprint: '', tokenId: DEFAULT_TOKEN, enabled: true },
-  );
+  const toForm = (c: PveCluster | null): PveClusterInput =>
+    c ? { name: c.name, url: c.url, fingerprint: c.fingerprint, enabled: c.enabled, ...(c.agent ? { agent: c.agent } : {}) } : { name: '', url: '', fingerprint: '', enabled: true };
+  const [initial, setInitial] = useState<PveClusterInput>(() => toForm(cluster));
   const [form, setForm] = useState<PveClusterInput>(initial);
+  // the token is saved as soon as the agent created it, with the cluster (created if new)
+  const [saved, setSaved] = useState<PveCluster | null>(cluster);
+  const [tokenId, setTokenId] = useState(cluster?.tokenId || DEFAULT_TOKEN);
+  const [detected, setDetected] = useState<PveDetected | null>(null);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
-  const [test, setTest] = useState<TestState>(null);
+  const [test, setTest] = useState<CheckState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const set = (patch: Partial<PveClusterInput>) => setForm({ ...form, ...patch });
-  const clusterId = cluster?.id ?? id;
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || (!cluster && !!id);
+  const clusterId = saved?.id ?? id;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || (!saved && !!id);
   const requestClose = () => {
     if (busy) return;
     if (dirty) setConfirmDiscard(true);
     else onClose();
   };
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
+    qc.invalidateQueries({ queryKey: ['backups'] });
+  };
 
   const save = async () => {
     setBusy('save');
     try {
-      await api.savePveCluster(clusterId, withoutEmptySecret(form));
-      qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
-      qc.invalidateQueries({ queryKey: ['backups'] });
+      await api.savePveCluster(clusterId, form);
+      refresh();
       toast.success(form.enabled ? 'Enregistré : relevé du cluster en cours' : 'Enregistré');
       onClose();
       return true;
@@ -57,102 +72,161 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
     setBusy('test');
     setTest(null);
     try {
-      const r = await api.testPveCluster(clusterId, withoutEmptySecret(form));
+      const r = await api.testPveCluster(clusterId, form);
       setTest(
         r.ok
-          ? { level: 'ok', text: `Connexion réussie · ${r.cluster ? `cluster ${r.cluster}, ` : ''}nœuds : ${r.nodes?.join(', ')} · ${r.jobs} job(s) de sauvegarde` }
-          : { level: 'error', text: r.error ?? 'échec' },
+          ? { level: 'ok', title: 'Connexion réussie', detail: `${r.cluster ? `cluster ${r.cluster}, ` : ''}nœuds : ${r.nodes?.join(', ')} · ${r.jobs} job(s) de sauvegarde` }
+          : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' },
       );
     } catch (err) {
-      setTest({ level: 'error', text: (err as Error).message });
+      setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
       setBusy(null);
     }
   };
 
+  // addresses of the node, by interface: the hub reaches the API at the one chosen
+  const choices = (detected?.interfaces ?? []).flatMap((i) => i.ips.map((ip) => ({ iface: i.name, ip, def: !!i.default })));
+  const chosenIp = hostOf(form.url);
+  const [node, found, token, tested] = stepStates([!!form.agent, !!form.url, !!saved?.hasSecret, test?.level === 'ok']);
+
   return (
     <>
-    <Modal
-      open
-      onClose={requestClose}
-      wide="xl"
-      title={cluster ? `Cluster ${cluster.name}` : 'Nouveau cluster Proxmox VE'}
-      footer={
-        <>
-          <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !clusterId || !form.url || !form.tokenId} onClick={runTest}>Tester la connexion</Button>
-          <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
-          <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !clusterId} onClick={() => void save()}>Enregistrer</Button>
-        </>
-      }
-    >
-      <div className="grid gap-6 text-sm lg:grid-cols-2">
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block">
-              <span className={field}>Identifiant</span>
-              <input className="input font-mono text-xs" value={clusterId} disabled={!!cluster} onChange={(e) => setId(e.target.value.trim().toLowerCase())} placeholder="vouille" spellCheck={false} />
-            </label>
-            <label className="block">
-              <span className={field}>Nom affiché</span>
-              <input className="input" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Vouillé" />
-            </label>
-          </div>
-          <ConnectionFields
-            form={form}
-            set={set}
-            hasSecret={!!cluster?.hasSecret}
-            urlPlaceholder="https://192.168.100.241:8006"
-            fingerprintHint="Adresse d'un nœud du cluster. À comparer avec l'empreinte du nœud (Système › Certificats, pve-ssl.pem)."
-            fetchFingerprint={api.pveFingerprint}
-            enabledLabel="Relever ce cluster"
-          />
-          <TestResult test={test} />
-        </div>
-        <TokenAside
-          title="Créer le jeton sur le cluster"
-          intro={
-            <>
-              Jeton de l'utilisateur <code>homelab@pve</code>, rôle <b>PVEAuditor</b> sur <code>/</code> : lecture des guests, de leur configuration réseau, des jobs de
-              sauvegarde et des tâches. Avec la séparation des privilèges, le rôle est donné à l'utilisateur <b>et</b> au jeton.
-            </>
-          }
-          setup={
-            <>
-              <TokenSetup
-                where="d'un nœud du cluster"
-                tokenId={form.tokenId}
-                onTokenIdChange={(tokenId) => set({ tokenId })}
-                disabled={!clusterId || !form.url}
-                request={() => ({ kind: 'pve', cluster: { id: clusterId, name: form.name, url: form.url, fingerprint: form.fingerprint } })}
-                onDone={() => {
-                  qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
-                  qc.invalidateQueries({ queryKey: ['backups'] });
-                  set({ tokenSecret: undefined });
-                }}
-              />
-              {(!clusterId || !form.url) && <p>Renseigne d'abord l'identifiant et l'adresse du cluster : le jeton reçu l'enregistre et lance son relevé.</p>}
-            </>
-          }
-          manualScript={pveSetup(form.tokenId)}
-          manualUi={
-            <>
-              Ou dans l'interface, Centre de données › Permissions : <b>Utilisateurs</b> › Ajouter (realm <code>pve</code>), <b>Jetons d'API</b> › Ajouter, puis
-              <b> Permissions</b> › « Permission utilisateur » et « Permission de jeton d'API », chemin <code>/</code>, rôle <code>PVEAuditor</code>.
-            </>
-          }
-        />
-      </div>
-    </Modal>
-    <ConfirmModal
-      open={confirmDiscard}
-      onClose={() => setConfirmDiscard(false)}
-      onConfirm={onClose}
-      title="Abandonner les modifications ?"
-      confirmLabel="Abandonner"
-      danger
-    >
-      Les paramètres du cluster modifiés ne seront pas enregistrés.
-    </ConfirmModal>
+      <Modal
+        open
+        onClose={requestClose}
+        wide="screen" low
+        title={cluster ? `Cluster ${cluster.name}` : 'Nouveau cluster Proxmox VE'}
+        footer={
+          <>
+            <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <label className="flex items-center gap-2 text-xs text-muted" title="Fixé à la création du jeton">
+                <span className="shrink-0">Identifiant</span>
+                <input className="input h-8 w-36 py-1 font-mono text-xs" value={clusterId} disabled={!!saved} onChange={(e) => setId(slug(e.target.value))} placeholder="vouille" spellCheck={false} />
+              </label>
+              <label className="flex items-center gap-2 text-xs text-muted">
+                <span className="shrink-0">Nom affiché</span>
+                <input className="input h-8 w-44 py-1" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Vouillé" />
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
+                <span>Relever ce cluster</span>
+              </label>
+            </div>
+            <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !saved?.hasSecret} onClick={() => void save()}>Enregistrer</Button>
+          </>
+        }
+      >
+        <Steps>
+          <Step n={1} title="Nœud du cluster" state={node} intro="Un nœud dont l’agent est enrôlé : il décrit le cluster, ses interfaces et son certificat, puis crée le jeton.">
+            <AgentPicker<PveDetected>
+              capability="pve"
+              initialHostId={form.agent?.hostId}
+              linked={form.agent && <p>Nœud relié : son agent a créé le jeton.</p>}
+              primary={node === 'active'}
+              detect={api.detectPve}
+              onDetected={(hostId, r) => {
+                setDetected(r);
+                const ips = (r.interfaces ?? []).flatMap((i) => i.ips);
+                const keep = ips.includes(hostOf(form.url));
+                set({ agent: { hostId }, fingerprint: r.fingerprint ?? '', url: keep ? form.url : '', name: form.name || r.cluster || r.node || '' });
+                if (!saved && !id) setId(slug(r.cluster || r.node || ''));
+                setTest(null);
+              }}
+              detectTitle="L'agent décrit le nœud Proxmox VE : cluster, nœuds, interfaces, certificat"
+              foundText={(r) => <p>Proxmox VE {r.version} · {r.cluster ? <>cluster <code>{r.cluster}</code></> : 'nœud seul'} · nœud {r.node}</p>}
+              notFoundText="Pas de Proxmox VE sur cet hôte (pveum introuvable)."
+              noAgentText="Aucun agent ne sait administrer Proxmox VE : installer ou mettre à jour l'agent d'un nœud du cluster."
+            />
+          </Step>
+          <Step n={2} title="Détection" state={found} intro="Donné par l’agent, rien à saisir : choisir l’interface par laquelle le hub joint l’API du nœud.">
+            <DetectedRows
+              rows={[
+                { label: 'Cluster', value: detected ? (detected.cluster ? `${detected.cluster} · ${detected.nodes?.join(', ')}` : `nœud seul (${detected.node})`) : undefined, empty: 'relancer Détecter' },
+                { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)' },
+              ]}
+            />
+            {detected ? (
+              <label className="block">
+                <span className={field}>Interface de l’API</span>
+                <select className="input font-mono text-xs" value={choices.some((c) => c.ip === chosenIp) ? chosenIp : ''} onChange={(e) => (set({ url: e.target.value ? `https://${e.target.value}:${detected.port || PORT}` : '' }), setTest(null))}>
+                  <option value="">— choisir l'interface —</option>
+                  {choices.map((c) => (
+                    <option key={c.ip} value={c.ip}>{c.iface} · {c.ip}{c.def ? ' (route par défaut)' : ''}</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-muted">{form.url || 'Le hub doit pouvoir joindre cette adresse.'}</span>
+              </label>
+            ) : (
+              <DetectedRows rows={[{ label: 'Adresse', value: form.url, empty: 'non choisie' }]} />
+            )}
+          </Step>
+          <Step
+            n={3}
+            title="Jeton du hub"
+            state={token}
+            intro={
+              <>
+                Utilisateur <code>homelab@pve</code>, rôle <b>PVEAuditor</b> sur <code>/</code> (lecture seule), donné à l’utilisateur et au jeton. Le secret va de l’agent au
+                hub, jamais affiché.
+              </>
+            }
+            footer={
+              <p className="text-xs text-muted">
+                {saved?.hasSecret ? <span className="text-emerald-400">Jeton enregistré : <code>{saved.tokenId}</code>.</span> : 'Aucun jeton enregistré.'} Un jeton existant
+                garde son secret si le hub le connaît (sinon il est recréé) ; ses droits sont remis à ceux-ci.
+              </p>
+            }
+          >
+            <TokenButton
+              tokenId={tokenId}
+              onTokenIdChange={setTokenId}
+              disabled={!form.agent || !form.url || !clusterId}
+              primary={token === 'active'}
+              create={async () => {
+                const r = await api.createPveToken(clusterId, { hostId: form.agent!.hostId, tokenId, name: form.name, url: form.url, fingerprint: form.fingerprint });
+                setSaved(r.cluster);
+                setInitial(toForm(r.cluster));
+                setForm(toForm(r.cluster));
+                refresh();
+                return r;
+              }}
+            />
+            {!clusterId && <p className="text-xs text-amber-400">Renseigner l’identifiant du cluster (pied de la fenêtre).</p>}
+          </Step>
+          <Step
+            n={4}
+            title="Test de connexion"
+            state={tested}
+            intro="Le hub lit le cluster avec le jeton enregistré, à l’adresse choisie."
+            footer={
+              <Button
+                className="w-full"
+                variant={tested === 'active' ? 'primary' : 'secondary'}
+                icon={Plug}
+                loading={busy === 'test'}
+                disabled={busy !== null || !form.url || !saved?.hasSecret}
+                onClick={() => void runTest()}
+              >
+                {test ? 'Tester à nouveau' : 'Tester la connexion'}
+              </Button>
+            }
+          >
+            <CheckLine label="API" check={test} idle={form.url || undefined} />
+          </Step>
+        </Steps>
+      </Modal>
+      <ConfirmModal
+        open={confirmDiscard}
+        onClose={() => setConfirmDiscard(false)}
+        onConfirm={onClose}
+        title="Abandonner les modifications ?"
+        confirmLabel="Abandonner"
+        danger
+      >
+        Les paramètres du cluster modifiés ne seront pas enregistrés.
+      </ConfirmModal>
     </>
   );
 }

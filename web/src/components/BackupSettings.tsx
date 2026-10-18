@@ -6,7 +6,7 @@ import { useToast } from '../lib/toast';
 import { ServerRow } from './ProxmoxServer';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
-import { PbsAgentPicker, PbsTokenButton } from './PbsAgentPicker';
+import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
@@ -133,11 +133,11 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             footer={
               <p className="text-xs text-muted">
                 {saved.hasSecret ? <span className="text-emerald-400">Jeton enregistré : <code>{saved.tokenId}</code>.</span> : 'Aucun jeton enregistré.'} Un jeton existant garde
-                son secret ; ses droits sont remis à ceux-ci.
+                son secret si le hub le connaît (sinon il est recréé) ; ses droits sont remis à ceux-ci.
               </p>
             }
           >
-            <PbsTokenButton
+            <TokenButton
               tokenId={tokenId}
               onTokenIdChange={setTokenId}
               disabled={!form.agent}

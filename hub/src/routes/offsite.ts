@@ -16,7 +16,7 @@ import {
   targetNamespaces,
 } from '../offsite.js';
 import { FINGERPRINT_RE, PBS_URL_RE, backupDto, loadPbsSettings, normalizeFingerprint, pbsGet } from '../pbs.js';
-import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, ensurePbsToken, offsiteHubAcls } from '../pbsAgent.js';
+import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, ensurePbsToken, offsiteHubAcls, sameLink } from '../pbsAgent.js';
 import type { BackupDoc, BackupOffsite, PbsAgentLink, PbsRemoteSettings } from '../types.js';
 
 // Secondary PBS and the copy of the backups to it (offsite.ts). Settings: admin (/api/settings/*); running
@@ -205,16 +205,16 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       const agent = nativeOrContainer(req.body.agent);
       let t;
       try {
-        t = await ensurePbsToken(agent, req.body.tokenId.trim(), offsiteHubAcls(store), current);
+        t = await ensurePbsToken(agent, req.body.tokenId.trim(), offsiteHubAcls(store), sameLink(current.agent, agent) ? current : null);
       } catch (err) {
         if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
         throw err;
       }
       // the remote entry belongs to the token: written again with the next one
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agent, store, tokenId: t.tokenId, tokenSecret: t.tokenSecret }, $unset: { remoteHash: '' } }, { upsert: true });
-      req.log.info({ tokenId: t.tokenId, store, created: t.created, applied: t.applied, removed: t.removed }, 'secondary PBS token set by the agent');
+      req.log.info({ tokenId: t.tokenId, store, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'secondary PBS token set by the agent');
       if (current.enabled) pollOffsite(req.log).catch(() => {});
-      return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, applied: t.applied, removed: t.removed };
+      return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
 
@@ -234,9 +234,9 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
         throw err;
       }
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { readerTokenId: t.tokenId, readerTokenSecret: t.tokenSecret } }, { upsert: true });
-      req.log.info({ tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed }, 'reader token of the main PBS set by the agent');
+      req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'reader token of the main PBS set by the agent');
       if (current.enabled) pollOffsite(req.log).catch(() => {});
-      return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, applied: t.applied, removed: t.removed };
+      return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
 

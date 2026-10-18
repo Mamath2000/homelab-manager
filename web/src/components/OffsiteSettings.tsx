@@ -8,7 +8,7 @@ import { useToast } from '../lib/toast';
 import { ServerRow, field } from './ProxmoxServer';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
-import { PbsAgentPicker, PbsTokenButton } from './PbsAgentPicker';
+import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
@@ -141,7 +141,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
           <Step n={3} title="Jetons" state={tokens} intro="Créés par les agents des deux PBS, jamais affichés. Le PBS de secours tire les sauvegardes du PBS principal avec le jeton lecteur.">
             <div className="space-y-2">
               <p className="text-xs font-medium text-zinc-200">Hub, sur le PBS de secours</p>
-              <PbsTokenButton
+              <TokenButton
                 tokenId={hubToken}
                 onTokenIdChange={setHubToken}
                 disabled={!form.agent || !store}
@@ -160,7 +160,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
             <div className="space-y-2 border-t border-line pt-3">
               <p className="text-xs font-medium text-zinc-200">Lecteur, sur le PBS principal</p>
               {main?.agent ? (
-                <PbsTokenButton
+                <TokenButton
                   tokenId={readerToken}
                   onTokenIdChange={setReaderToken}
                   primary={tokens === 'active' && saved.hasSecret && !saved.hasReaderSecret}

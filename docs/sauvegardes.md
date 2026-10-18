@@ -20,7 +20,9 @@ Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur
 
 ## Mise en place
 
-Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition. Pour un PBS, la fenêtre (format 16:9) se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS et **Détecter**), **2. Détection** (adresses et empreinte données par l'agent, affichées en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : suivi et image du client pour le PBS principal, copie et heure de départ pour le PBS de secours.
+Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : suivi et image du client pour le PBS principal, copie et heure de départ pour le PBS de secours, identifiant, nom et relevé pour un cluster Proxmox VE.
+
+Aucun jeton ne se recopie à la main ni ne se crée par une commande à coller : **l'agent** de l'hôte du PBS, ou d'un nœud du cluster Proxmox VE, les crée. Son enrôlement est le prérequis à toute configuration.
 
 ### Jetons du PBS : créés par l'agent du PBS
 
@@ -30,7 +32,7 @@ Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le 
 2. **Créer le jeton** : l'**identifiant** (`utilisateur@pbs!nom`) est pré-rempli et modifiable. L'agent crée l'utilisateur s'il manque, puis le jeton, et donne chaque droit à l'utilisateur **et** au jeton (les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur). Le secret va de l'agent au hub par la connexion chiffrée de l'agent : **jamais affiché, jamais écrit dans un journal**. Le jeton de supervision et le lien vers l'agent sont enregistrés aussitôt.
 3. Les **jetons des hôtes** se créent ensuite depuis la fiche de chaque hôte (**Accès PBS**), par le même agent.
 
-- Jeton **déjà existant** : ses droits sont remis à ceux décidés par le hub — les droits manquants sont ajoutés, ceux **du jeton** qui ne sont plus prévus lui sont retirés (ceux de l'utilisateur restent : il peut porter d'autres jetons du hub). Son secret n'étant plus lisible, le hub garde celui qu'il détient ; s'il ne le connaît pas, choisir un autre nom, ou supprimer le jeton sur le PBS.
+- Jeton **déjà existant** : ses droits sont remis à ceux décidés par le hub — les droits manquants sont ajoutés, ceux **du jeton** qui ne sont plus prévus lui sont retirés (ceux de l'utilisateur restent : il peut porter d'autres jetons du hub). Le secret d'un jeton n'est lisible qu'à sa création : si le hub détient celui de ce jeton, il le garde ; sinon (base perdue, jeton créé à la main, autre PBS sous le même nom), l'agent **supprime et recrée le jeton** — nouveau secret, l'ancien ne fonctionne plus. Le message de fin l'indique (« recréé »). Pour le jeton de supervision et celui du PBS de secours, un secret détenu pour un autre hôte (ou un autre conteneur) ne compte pas : changer l'hôte du PBS recrée le jeton.
 - Si la création échoue après celle du jeton (droit refusé, PBS qui ne répond plus), l'agent supprime le jeton : un nouvel essai repart de zéro.
 - L'agent n'accepte que les rôles et chemins prévus (`DatastoreAudit`, `DatastoreBackup`, `DatastoreReader` sous `/datastore`, `RemoteAdmin` sous `/remote`), jamais `/`.
 - L'agent du PBS doit être à jour (capacité « pbs ») et en ligne.
@@ -50,22 +52,24 @@ Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backu
 
 Le chemin `{store}` est développé sur chaque datastore présent au moment de la création : après l'ajout d'un datastore, recréer le jeton de l'hôte (le secret est conservé) pour l'étendre.
 
-### Jetons de Proxmox VE : une commande à usage unique
+### Jeton de Proxmox VE : créé par l'agent d'un nœud
 
-Pour un cluster Proxmox VE, le jeton se crée encore par une commande à coller (son passage par l'agent est prévu). À côté de **Générer la commande**, l'**identifiant du jeton** (`utilisateur@pve!nom`) est pré-rempli et modifiable ; le bouton donne une ligne à coller dans un shell root d'un nœud du cluster :
+Rien à coller sur le cluster : **l'agent d'un nœud** (n'importe lequel, les nœuds partagent leurs utilisateurs) crée le jeton du hub.
 
-```bash
-curl -fsSLk --pinnedpubkey sha256//… https://hub:3443/token-setup.sh | sh -s -- <code>
-```
+1. **Nœud du cluster** (étape **1**) : choisir l'hôte parmi les agents qui savent administrer Proxmox VE (capacité « pve » : `pveum` présent), puis **Détecter**. L'agent renvoie la version, le nom du cluster (le nœud seul pour un Proxmox VE sans cluster), les nœuds, les interfaces du nœud avec leurs IPv4, et l'empreinte du certificat que présente `pveproxy` (`pveproxy-ssl.pem` s'il existe — certificat personnalisé ou ACME —, sinon `pve-ssl.pem`). L'identifiant et le nom du cluster sont pré-remplis avec le nom du cluster.
+2. **Détection** (étape **2**) : choisir l'**interface** par laquelle le hub joint l'API (un nœud a souvent plusieurs ponts : réseau de gestion, LAN, VLAN ; l'interface de la route par défaut est signalée, ce n'est pas forcément celle que le hub joint). L'adresse est `https://<IP de l'interface>:8006`. L'empreinte est celle du **nœud** choisi : le hub n'interroge que lui.
+3. **Créer le jeton** (étape **3**) : l'identifiant (`utilisateur@pve!nom`, défaut `homelab@pve!monitor`) est pré-rempli et modifiable. L'agent crée l'utilisateur s'il manque, puis le jeton avec **séparation des privilèges**, et donne le rôle à l'utilisateur **et** au jeton (les droits effectifs du jeton sont l'intersection des deux). Le secret va de l'agent au hub par la connexion chiffrée de l'agent : **jamais affiché, jamais écrit dans un journal**. Le cluster (créé s'il est nouveau), son jeton et le nœud sont enregistrés aussitôt, et le relevé est lancé.
+4. **Tester la connexion** (étape **4**) : lit l'état du cluster et ses jobs de sauvegarde avec le jeton enregistré.
 
-- Le script vient du port des agents du hub, dont la clé est épinglée : rien d'autre ne peut répondre.
-- Le **hub décide** de ce qui est créé ; le script crée l'utilisateur s'il manque, le jeton (séparation des privilèges), les droits de l'utilisateur **et** du jeton, puis renvoie le jeton au hub. **Le secret n'est jamais affiché.**
-- Code à usage unique, valable 1 heure. Le nœud doit joindre le port des agents du hub.
-- Repli : le bloc « Sans la commande » fait la même chose et affiche le secret à recopier dans le formulaire.
+Jeton déjà existant, rollback en cas d'échec et retrait des droits en trop **du jeton** : comme pour le PBS (voir plus haut). L'agent n'accepte que `PVEAuditor` sur `/`.
 
-| Jeton | Utilisateur | Rôle et chemin |
-|---|---|---|
-| lecture d'un cluster PVE | `homelab@pve!monitor` (séparation des privilèges) | `PVEAuditor` sur `/` |
+#### Portée du jeton
+
+| Jeton | Utilisateur (défaut) | Rôle et chemin | Permet | Ne permet pas |
+|---|---|---|---|---|
+| lecture d'un cluster PVE | `homelab@pve!monitor` (séparation des privilèges) | `PVEAuditor` sur `/` (propagé) | lire la configuration et l'état : nœuds, guests (dont leurs adresses MAC), stockages et la liste de leur contenu, jobs de sauvegarde, tâches et leurs journaux, pools, fuseau horaire | démarrer, arrêter, migrer, modifier ou supprimer un guest ; ouvrir une console ; lancer ou restaurer une sauvegarde ; lire le contenu d'un disque ou d'une sauvegarde ; modifier les utilisateurs, les droits ou la configuration du cluster |
+
+`PVEAuditor` regroupe les privilèges `*.Audit` (lecture seule). Le hub n'utilise que les lectures listées dans [Clusters Proxmox VE](#clusters-proxmox-ve) ; un rôle plus étroit (sans `Sys.Audit`, ou limité à certains chemins) n'a pas été retenu : les tâches et les jobs de sauvegarde se lisent au niveau du nœud et du cluster.
 
 ### Proxmox Backup Server
 
@@ -84,12 +88,12 @@ Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : varia
 **Tester la connexion** (étape 4) liste les datastores visibles (avertissement si aucun : revoir les droits). Le test porte sur l'adresse du LAN seulement : l'adresse Tailscale n'est pas essayée, le hub ne recevant que sur le tailnet (conteneur `tailscale` en entrée seulement), et le test l'indique sur une ligne à part (« non testable depuis le hub »), pas comme une erreur. Les agents des hôtes Tailscale joignent le PBS par leur propre Tailscale. Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite, et relit aussi le PBS de secours et, par leur agent, les sauvegardes des hôtes Home Assistant OS.
 
 :::info Certificat épinglé
-Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que celui dont l'empreinte est enregistrée, et la vérifie avant d'envoyer le jeton. Après un renouvellement du certificat, récupérer à nouveau l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système.
+Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que celui dont l'empreinte est enregistrée, et la vérifie avant d'envoyer le jeton. Après un renouvellement du certificat, relancer **Détecter** pour relire l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système.
 :::
 
 ### Clusters Proxmox VE
 
-**Ajouter** : un identifiant court (`vouille`, fixé à la création), un nom affiché, l'adresse d'un nœud (`https://192.168.100.241:8006`) et son empreinte. La commande du jeton demande l'identifiant et l'adresse : le jeton reçu enregistre le cluster et lance son relevé. Plusieurs clusters peuvent écrire sur le même PBS.
+**Ajouter** : la fenêtre en quatre étapes décrite dans [Jeton de Proxmox VE](#jeton-de-proxmox-ve--créé-par-lagent-dun-nœud) ; l'identifiant court (`vouille`, pré-rempli avec le nom du cluster) est fixé à la création du jeton. Plusieurs clusters peuvent écrire sur le même PBS.
 
 Toutes les 15 minutes, le hub lit pour chaque cluster :
 - les guests (CT et VM, hors modèles) et les adresses MAC de leurs interfaces ;

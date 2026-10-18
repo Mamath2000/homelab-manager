@@ -175,7 +175,7 @@ export function ServiceTags({ services }: { services: { name: string }[] }) {
   const shown = services.slice(0, MAX_SERVICE_TAGS);
   const hidden = services.slice(MAX_SERVICE_TAGS);
   return (
-    <div className="flex max-w-xs flex-wrap gap-1">
+    <div className="flex max-w-xs flex-nowrap gap-1 overflow-x-auto">
       {shown.map((s) => <Tag key={s.name}>{s.name}</Tag>)}
       {hidden.length > 0 && (
         <span title={hidden.map((s) => s.name).join(', ')} className="cursor-help">

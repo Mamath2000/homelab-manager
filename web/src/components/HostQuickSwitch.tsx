@@ -22,12 +22,26 @@ export function HostQuickSwitch() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 'h') {
-        event.preventDefault();
-        setQuery('');
-        setSelectedIndex(0);
-        setOpen(true);
+      const target = event.target;
+      const isEditableTarget =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest('input, textarea, select, [contenteditable="true"]'));
+
+      if (
+        event.key.toLowerCase() !== 'h' ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.repeat ||
+        isEditableTarget
+      ) {
+        return;
       }
+
+      event.preventDefault();
+      setQuery('');
+      setSelectedIndex(0);
+      setOpen(true);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

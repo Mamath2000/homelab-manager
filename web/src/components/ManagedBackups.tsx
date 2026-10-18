@@ -8,7 +8,7 @@ import { OffsiteSettingsTab } from './OffsiteCopy';
 import { useMe } from '../lib/auth';
 import { keys, useBackups } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { PbsTokenButton } from './PbsAgentPicker';
+import { TokenButton } from './AgentPicker';
 import { Badge, Button, Modal, Spinner, VerticalTabs } from './ui';
 
 const PRESETS = [
@@ -37,7 +37,7 @@ function CredentialModal({ host, view, open, onClose }: { host: Host; view: Host
           secret.
         </p>
         {view.pbsAgent ? (
-          <PbsTokenButton
+          <TokenButton
             tokenId={tokenId}
             onTokenIdChange={setTokenId}
             create={async () => {

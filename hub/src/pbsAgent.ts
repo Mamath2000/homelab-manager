@@ -1,6 +1,6 @@
 import { AgentRequestError, agentRequest, isOnline } from './agents.js';
 import { hosts, parseId } from './db.js';
-import { parseTokenId } from './tokenSetup.js';
+import { type AgentTokenResult, type HeldToken, holds, parseTokenId, tokenSecretOf as secretOf } from './apiTokens.js';
 import type { HostDoc, PbsAgentLink } from './types.js';
 
 // Proxmox Backup Server administered through the agent of the host it runs on (agent/pbs.go, rpc
@@ -46,15 +46,6 @@ export interface PbsDetected {
   tailscaleUrl?: string; // same port, on the Tailscale address of the host (100.64.0.0/10)
 }
 
-interface AgentTokenResult {
-  tokenId: string;
-  secret?: string;
-  created: boolean;
-  applied: string[] | null;
-  removed?: string[] | null;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CONTAINER_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
@@ -97,6 +88,9 @@ export async function detectPbsOn(hostId: string): Promise<PbsDetected> {
   }
 }
 
+// Same PBS: the secret the hub holds for a token of another PBS is not the one of this token.
+export const sameLink = (a: PbsAgentLink | undefined | null, b: PbsAgentLink) => !!a && a.hostId === b.hostId && a.mode === b.mode && (a.container ?? '') === (b.container ?? '');
+
 export function checkLink(l: PbsAgentLink): string | null {
   if (!parseId(l.hostId)) return 'hôte du PBS invalide';
   if (l.mode !== 'native' && l.mode !== 'container') return 'mode du PBS invalide';
@@ -105,8 +99,8 @@ export function checkLink(l: PbsAgentLink): string | null {
 }
 
 // Creates the token (or updates the rights of an existing one) through the agent of the PBS. An existing
-// token gives no secret: the hub must already hold it (held), otherwise another name is needed.
-export async function ensurePbsToken(link: PbsAgentLink, tokenId: string, acls: PbsAcl[], held?: { tokenId: string; tokenSecret: string } | null) {
+// token keeps its secret when the hub holds it (held), otherwise the agent creates it again (rotation).
+export async function ensurePbsToken(link: PbsAgentLink, tokenId: string, acls: PbsAcl[], held?: HeldToken) {
   const t = parseTokenId(tokenId, 'pbs');
   if (!t) throw new PbsAgentError('identifiant du jeton invalide : utilisateur@pbs!nom (le nom commence par une lettre)');
   const bad = checkLink(link);
@@ -114,17 +108,11 @@ export async function ensurePbsToken(link: PbsAgentLink, tokenId: string, acls: 
   await pbsHost(link.hostId);
   let r: AgentTokenResult;
   try {
-    r = await agentRequest<AgentTokenResult>(link.hostId, 'pbs_token', { pbs: { container: link.mode === 'container' ? link.container : '', user: t.user, token: t.token, acls } }, 75_000);
+    r = await agentRequest<AgentTokenResult>(link.hostId, 'pbs_token', { pbs: { container: link.mode === 'container' ? link.container : '', user: t.user, token: t.token, acls, rotate: !holds(tokenId, held) } }, 75_000);
   } catch (err) {
     throw err instanceof AgentRequestError ? new PbsAgentError(err.message) : err;
   }
-  return { tokenId, tokenSecret: tokenSecretOf(tokenId, r.secret, held), created: r.created, applied: r.applied ?? [], removed: r.removed ?? [] };
+  return { tokenId, tokenSecret: tokenSecretOf(tokenId, r.secret, held), created: r.created, rotated: !!r.rotated, applied: r.applied ?? [], removed: r.removed ?? [] };
 }
 
-// Secret of the token: the one the agent sent (new token), or the one the hub holds for this same token.
-export function tokenSecretOf(tokenId: string, secret: string | undefined, held?: { tokenId: string; tokenSecret: string } | null) {
-  if (secret !== undefined && !UUID_RE.test(secret)) throw new PbsAgentError(`secret du jeton ${tokenId} illisible : le supprimer sur le PBS et recommencer`);
-  const s = secret ?? (held?.tokenId === tokenId ? held.tokenSecret : undefined);
-  if (!s) throw new PbsAgentError(`le jeton ${tokenId} existe déjà sur le PBS et le hub ne connaît pas son secret : choisir un autre nom, ou le supprimer sur le PBS`);
-  return s;
-}
+export const tokenSecretOf = (tokenId: string, secret: string | undefined, held?: HeldToken) => secretOf(tokenId, secret, held, 'PBS', (m) => new PbsAgentError(m));

@@ -16,7 +16,8 @@ import {
 import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from '../pve.js';
 import { validTimeZone } from '../calendar.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
-import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken } from '../pbsAgent.js';
+import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
+import { PveAgentError, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView } from '../offsite.js';
 import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 
@@ -155,16 +156,16 @@ export function registerBackupRoutes(app: FastifyInstance) {
       const agent: PbsAgentLink = req.body.agent.mode === 'native' ? { hostId: req.body.agent.hostId, mode: 'native' } : req.body.agent;
       let t;
       try {
-        t = await ensurePbsToken(agent, req.body.tokenId.trim(), PBS_TOKEN_ACLS.monitor, current);
+        t = await ensurePbsToken(agent, req.body.tokenId.trim(), PBS_TOKEN_ACLS.monitor, sameLink(current.agent, agent) ? current : null);
       } catch (err) {
         if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
         throw err;
       }
       await settings.updateOne({ _id: 'pbs' }, { $set: { agent, tokenId: t.tokenId, tokenSecret: t.tokenSecret } }, { upsert: true });
-      req.log.info({ tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed }, 'PBS monitoring token set by the agent');
+      req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PBS monitoring token set by the agent');
       if (current.enabled) pollPbs(req.log).catch(() => {});
       publish('backups', {});
-      return { settings: settingsDto(await loadPbsSettings()), created: t.created, applied: t.applied, removed: t.removed };
+      return { settings: settingsDto(await loadPbsSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
 
@@ -280,18 +281,59 @@ export function registerBackupRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  // --- Proxmox VE clusters (admin: /api/settings/*); the token secrets never leave the hub
+  // --- Proxmox VE clusters (admin: /api/settings/*); the token secrets never leave the hub. A cluster is
+  // declared from one of its nodes, whose agent creates the token (POST …/token): nothing is pasted.
   app.get('/api/settings/pve', async () => {
     const s = await loadPveSettings();
     return { clusters: s.clusters.map(pveDto) };
   });
 
+  // Proxmox VE of a node, found by its agent: cluster, nodes, interfaces, certificate.
+  app.post<{ Body: { hostId: string } }>(
+    '/api/settings/pve/detect',
+    { schema: { body: { type: 'object', required: ['hostId'], additionalProperties: false, properties: { hostId: { type: 'string', maxLength: 24 } } } } },
+    async (req, reply) => {
+      try {
+        return await detectPveOn(req.body.hostId);
+      } catch (err) {
+        if (err instanceof PveAgentError) return reply.code(409).send({ error: err.message });
+        throw err;
+      }
+    },
+  );
+
+  // Token of the hub created by the agent of the node, saved at once with the cluster (created if new).
+  app.post<{ Params: { id: string }; Body: PveTokenBody }>('/api/settings/pve/clusters/:id/token', { schema: { body: pveTokenBody } }, async (req, reply) => {
+    const s = await loadPveSettings();
+    const current = s.clusters.find((c) => c.id === req.params.id);
+    const tokenId = req.body.tokenId.trim();
+    const conn = resolvePve(req.params.id, { ...req.body, enabled: current?.enabled ?? true }, current, { tokenId, tokenSecret: 'pending' });
+    if (typeof conn === 'string') return reply.code(400).send({ error: conn });
+    let t;
+    try {
+      // the nodes of a cluster share their users: any node keeps the secret the hub holds
+      t = await ensurePveToken(req.body.hostId, tokenId, current);
+    } catch (err) {
+      if (err instanceof PveAgentError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    const fresh = await loadPveSettings();
+    const next: PveCluster = { ...conn, ...fresh.clusters.find((c) => c.id === conn.id), ...pick(conn), tokenId: t.tokenId, tokenSecret: t.tokenSecret };
+    const clusters = fresh.clusters.some((c) => c.id === next.id) ? fresh.clusters.map((c) => (c.id === next.id ? next : c)) : [...fresh.clusters, next];
+    await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
+    req.log.info({ cluster: next.id, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PVE token set by the agent');
+    if (next.enabled) pollPve(req.log).catch(() => {});
+    else publish('backups', {});
+    return { cluster: pveDto(next), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
+  });
+
   app.put<{ Params: { id: string }; Body: PveBody }>('/api/settings/pve/clusters/:id', { schema: { body: pveBody } }, async (req, reply) => {
     const s = await loadPveSettings();
     const current = s.clusters.find((c) => c.id === req.params.id);
-    const next = resolvePve(req.params.id, req.body, current);
+    if (!current?.tokenSecret) return reply.code(409).send({ error: 'créer d’abord le jeton du cluster' });
+    const next = resolvePve(req.params.id, req.body, current, current);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
-    const clusters = current ? s.clusters.map((c) => (c.id === next.id ? next : c)) : [...s.clusters, next];
+    const clusters = s.clusters.map((c) => (c.id === next.id ? next : c));
     await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
     if (next.enabled) pollPve(req.log).catch(() => {});
     else publish('backups', {});
@@ -307,9 +349,11 @@ export function registerBackupRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
+  // the address and certificate of the form, with the token saved for the cluster
   app.post<{ Params: { id: string }; Body: PveBody }>('/api/settings/pve/clusters/:id/test', { schema: { body: pveBody } }, async (req, reply) => {
-    const s = await loadPveSettings();
-    const next = resolvePve(req.params.id, { ...req.body, enabled: true }, s.clusters.find((c) => c.id === req.params.id));
+    const current = (await loadPveSettings()).clusters.find((c) => c.id === req.params.id);
+    if (!current?.tokenSecret) return reply.code(409).send({ error: 'aucun jeton enregistré pour ce cluster' });
+    const next = resolvePve(req.params.id, { ...req.body, enabled: true }, current, current);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     try {
       const [status, jobs] = await Promise.all([
@@ -322,43 +366,44 @@ export function registerBackupRoutes(app: FastifyInstance) {
       return { ok: false, error: (err as Error).message };
     }
   });
-
-  app.post<{ Body: { url: string } }>(
-    '/api/settings/pve/fingerprint',
-    { schema: { body: { type: 'object', required: ['url'], additionalProperties: false, properties: { url: { type: 'string', maxLength: 256 } } } } },
-    async (req, reply) => {
-      const url = req.body.url.trim().replace(/\/+$/, '');
-      if (!PBS_URL_RE.test(url)) return reply.code(400).send({ error: 'URL invalide (https://pve:8006)' });
-      try {
-        return { fingerprint: await fetchFingerprint(url, 8006) };
-      } catch (err) {
-        return reply.code(502).send({ error: (err as Error).message });
-      }
-    },
-  );
 }
 
+// The token is not part of the form: only the agent of a node creates it (POST …/token).
 interface PveBody {
   name: string;
   url: string;
   fingerprint: string;
-  tokenId: string;
-  tokenSecret?: string; // absent: unchanged
   enabled: boolean;
+  agent?: { hostId: string };
 }
+
+const pveProps = {
+  name: { type: 'string', maxLength: 64 },
+  url: { type: 'string', maxLength: 256 },
+  fingerprint: { type: 'string', maxLength: 128 },
+} as const;
+const pveAgentSchema = { type: 'object', required: ['hostId'], additionalProperties: false, properties: { hostId: { type: 'string', maxLength: 24 } } } as const;
 
 const pveBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'url', 'fingerprint', 'tokenId', 'enabled'],
-  properties: {
-    name: { type: 'string', maxLength: 64 },
-    url: { type: 'string', maxLength: 256 },
-    fingerprint: { type: 'string', maxLength: 128 },
-    tokenId: { type: 'string', maxLength: 128 },
-    tokenSecret: { type: 'string', maxLength: 128 },
-    enabled: { type: 'boolean' },
-  },
+  required: ['name', 'url', 'fingerprint', 'enabled'],
+  properties: { ...pveProps, enabled: { type: 'boolean' }, agent: pveAgentSchema },
+} as const;
+
+interface PveTokenBody {
+  hostId: string;
+  tokenId: string;
+  name: string;
+  url: string;
+  fingerprint: string;
+}
+
+const pveTokenBody = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['hostId', 'tokenId', 'name', 'url', 'fingerprint'],
+  properties: { ...pveProps, hostId: { type: 'string', maxLength: 24 }, tokenId: { type: 'string', maxLength: 128 } },
 } as const;
 
 function pveDto(c: PveCluster) {
@@ -366,22 +411,28 @@ function pveDto(c: PveCluster) {
   return { ...rest, hasSecret: !!tokenSecret, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null };
 }
 
-function resolvePve(id: string, body: PveBody, current?: PveCluster): PveCluster | string {
+// fields of the form (the poll writes the others meanwhile)
+const pick = (c: PveCluster) => ({ id: c.id, name: c.name, url: c.url, fingerprint: c.fingerprint, enabled: c.enabled, ...(c.agent ? { agent: c.agent } : {}) });
+
+// token: the one saved for the cluster (PUT, test) or the one being created (…/token)
+function resolvePve(id: string, body: PveBody | (PveTokenBody & { enabled: boolean }), current: PveCluster | undefined, token: Pick<PveCluster, 'tokenId' | 'tokenSecret'>): PveCluster | string {
   if (!CLUSTER_ID_RE.test(id)) return 'identifiant invalide (minuscules, chiffres, - et _)';
+  const agent = 'hostId' in body ? { hostId: body.hostId } : (body.agent ?? current?.agent);
   const next: PveCluster = {
     ...current,
     id,
     name: body.name.trim() || id,
     url: body.url.trim().replace(/\/+$/, ''),
     fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
-    tokenId: body.tokenId.trim(),
-    tokenSecret: body.tokenSecret ?? current?.tokenSecret ?? '',
+    tokenId: token.tokenId,
+    tokenSecret: token.tokenSecret,
     enabled: body.enabled,
+    ...(agent ? { agent } : {}),
   };
+  if (agent && !parseId(agent.hostId)) return 'nœud invalide';
   if (!PBS_URL_RE.test(next.url)) return 'URL invalide (https://pve:8006)';
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
   if (!PVE_TOKEN_ID_RE.test(next.tokenId)) return 'identifiant du jeton invalide (utilisateur@royaume!jeton)';
-  if (!next.tokenSecret) return 'secret du jeton requis';
   if (next.timezone && !validTimeZone(next.timezone)) delete next.timezone;
   return next;
 }

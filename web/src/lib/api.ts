@@ -573,9 +573,11 @@ export interface PbsDetected {
   tailscaleUrl?: string; // same port on the Tailscale address of the host
 }
 
-// Token created by the agent of the PBS: rights granted, and those removed from the token
+// Token created by the agent of a PBS or a PVE node: rights granted, and those removed from the token.
+// rotated: it existed without the hub holding its secret, it was created again.
 export interface PbsTokenOutcome {
   created: boolean;
+  rotated?: boolean;
   applied: string[];
   removed: string[];
 }
@@ -820,11 +822,21 @@ export interface NextcloudDiscovery {
   free: number;
 }
 
-// API token created by a command pasted on a PVE node (hub/src/tokenSetup.ts); PBS tokens: its agent
-export interface TokenSetupRequest {
-  kind: 'pve';
-  tokenId?: string; // user@realm!name, default: the generic one of the hub
-  cluster?: { id: string; name: string; url: string; fingerprint: string };
+// What the agent of a Proxmox VE node found (rpc pve_detect, hub/src/pveAgent.ts)
+export interface PveIface {
+  name: string;
+  ips: string[];
+  default?: boolean; // carries the default route
+}
+export interface PveDetected {
+  found: boolean;
+  version?: string;
+  cluster?: string; // empty: standalone node
+  node?: string;
+  nodes?: string[];
+  interfaces?: PveIface[];
+  port?: number;
+  fingerprint?: string;
 }
 
 export interface PveCluster {
@@ -835,19 +847,20 @@ export interface PveCluster {
   tokenId: string;
   hasSecret: boolean;
   enabled: boolean;
+  agent?: { hostId: string }; // node whose agent created the token
   timezone?: string;
   polledAt: string | null;
   pollError: string | null;
   guests?: number;
 }
 
+// the token is created by the agent of a node (createPveToken), not part of the form
 export interface PveClusterInput {
   name: string;
   url: string;
   fingerprint: string;
-  tokenId: string;
-  tokenSecret?: string;
   enabled: boolean;
+  agent?: { hostId: string };
 }
 
 export const api = {
@@ -951,14 +964,14 @@ export const api = {
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
   createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
-  createTokenSetup: (r: TokenSetupRequest) => request<{ id: string; command: string; tokenId: string; expiresAt: string }>('POST', '/api/settings/token-setups', r),
-  tokenSetupStatus: (id: string) => request<{ status: 'pending' | 'done' | 'expired'; tokenId: string | null }>('GET', `/api/settings/token-setups/${id}`),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
   savePveCluster: (id: string, c: PveClusterInput) => request<PveCluster>('PUT', `/api/settings/pve/clusters/${encodeURIComponent(id)}`, c),
   deletePveCluster: (id: string) => request<void>('DELETE', `/api/settings/pve/clusters/${encodeURIComponent(id)}`),
   testPveCluster: (id: string, c: PveClusterInput) =>
     request<{ ok: boolean; error?: string; cluster?: string | null; nodes?: string[]; jobs?: number }>('POST', `/api/settings/pve/clusters/${encodeURIComponent(id)}/test`, c),
-  pveFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pve/fingerprint', { url }),
+  detectPve: (hostId: string) => request<PveDetected>('POST', '/api/settings/pve/detect', { hostId }),
+  createPveToken: (id: string, b: { hostId: string; tokenId: string; name: string; url: string; fingerprint: string }) =>
+    request<PbsTokenOutcome & { cluster: PveCluster }>('POST', `/api/settings/pve/clusters/${encodeURIComponent(id)}/token`, b),
   runBulk: (hostIds: string[], action: JobAction, options?: SetupOption[], securityOnly?: boolean) =>
     request<Job[]>('POST', '/api/jobs/bulk', { hostIds, action, options, securityOnly }),
 

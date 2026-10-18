@@ -39,13 +39,17 @@ type PbsTokenSpec struct {
 	User      string   `json:"user"`                // name@pbs
 	Token     string   `json:"token"`
 	ACLs      []PbsACL `json:"acls"`
+	// Rotate: an existing token is deleted and created again (the hub does not hold its secret)
+	Rotate bool `json:"rotate,omitempty"`
 }
 
-// PbsTokenResult: the secret is empty when the token already existed (its rights are updated).
+// PbsTokenResult: the secret is empty when the token already existed and was kept (its rights are
+// updated). Rotated: it existed and was created again, with a new secret.
 type PbsTokenResult struct {
 	TokenID string   `json:"tokenId"`
 	Secret  string   `json:"secret,omitempty"`
 	Created bool     `json:"created"`
+	Rotated bool     `json:"rotated,omitempty"`
 	Applied []string `json:"applied"`
 	Removed []string `json:"removed,omitempty"` // rights of the token no longer asked for
 }
@@ -288,9 +292,10 @@ func pbsTokenExists(ctx context.Context, run pbsRun, user, token string) (bool, 
 	return false, nil
 }
 
-// ensurePbsToken creates user and token when missing, grants the rights to the user AND to the token
-// (effective rights are the intersection) and removes from the token the rights no longer asked for.
-// A token created here is deleted again if a later step fails: its secret would be lost otherwise.
+// ensurePbsToken creates user and token when missing (an existing one is created again when asked to
+// rotate), grants the rights to the user AND to the token (effective rights are the intersection) and
+// removes from the token the rights no longer asked for. A token created here is deleted again if a
+// later step fails: its secret would be lost otherwise.
 func ensurePbsToken(ctx context.Context, run pbsRun, s *PbsTokenSpec) (res *PbsTokenResult, err error) {
 	if err := validatePbsToken(s); err != nil {
 		return nil, err
@@ -334,6 +339,13 @@ func ensurePbsToken(ctx context.Context, run pbsRun, s *PbsTokenSpec) (res *PbsT
 		return nil, err
 	}
 	res = &PbsTokenResult{TokenID: id}
+	if exists && s.Rotate {
+		// its secret is lost for the hub: a new one is the only way (the rights of the user stay)
+		if _, err := run(ctx, "user", "delete-token", s.User, s.Token); err != nil {
+			return nil, err
+		}
+		exists, res.Rotated = false, true
+	}
 	if !exists {
 		var gen string
 		if gen, err = run(ctx, "user", "generate-token", s.User, s.Token); err != nil {

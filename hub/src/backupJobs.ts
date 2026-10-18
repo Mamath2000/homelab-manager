@@ -17,7 +17,7 @@ import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo
 export const DEFAULT_CLIENT_IMAGE = 'mathmath350/pbs-client:latest';
 // Default time zone of the backup jobs: the one of the hub (TZ of the container), else Europe/Paris.
 export const DEFAULT_TIMEZONE = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'Europe/Paris';
-// namespace of the backups of the hosts: the only one their token may write (see tokenSetup.ts)
+// namespace of the backups of the hosts: the only one their token may write (see pbsAgent.ts)
 export const HOSTS_NS = 'Hosts';
 
 export const ARCHIVE_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;

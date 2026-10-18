@@ -102,6 +102,24 @@ func TestEnsurePbsTokenExisting(t *testing.T) {
 	}
 }
 
+func TestEnsurePbsTokenRotates(t *testing.T) {
+	f := newFakePbs()
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}
+	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
+		User: "homelab@pbs", Token: "monitor", Rotate: true, ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Created || !r.Rotated || r.Secret == "" {
+		t.Fatalf("rotated token must return a new secret: %+v", r)
+	}
+	got := strings.Join(f.calls, "\n")
+	if !strings.Contains(got, "user delete-token homelab@pbs monitor\nuser generate-token homelab@pbs monitor") {
+		t.Fatalf("token not created again:\n%s", got)
+	}
+}
+
 func TestEnsurePbsTokenPrunesTokenACLs(t *testing.T) {
 	f := newFakePbs()
 	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}

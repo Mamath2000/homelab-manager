@@ -126,9 +126,9 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       }
       // store '*': rights on the namespace Hosts of every datastore
       await hosts.updateOne({ _id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
-      req.log.info({ host: host.name, tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed }, 'PBS token of a host set by the agent');
+      req.log.info({ host: host.name, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PBS token of a host set by the agent');
       await changed(_id);
-      return { ok: true, tokenId: t.tokenId, created: t.created, applied: t.applied, removed: t.removed };
+      return { ok: true, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
 

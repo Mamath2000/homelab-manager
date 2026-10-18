@@ -1,5 +1,4 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
-import type { TokenSetupDoc } from './tokenSetup.js';
 import { config } from './config.js';
 import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
@@ -13,7 +12,6 @@ export let apiKeys: Collection<ApiKeyDoc>;
 export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
-export let tokenSetups: Collection<TokenSetupDoc>;
 export let backups: Collection<BackupDoc>;
 export let hostAlerts: Collection<HostAlertDoc>;
 
@@ -29,7 +27,6 @@ export async function connectDb() {
   backups = db.collection('backups');
   guests = db.collection('guests');
   backupJobs = db.collection('backupJobs');
-  tokenSetups = db.collection('tokenSetups');
   hostAlerts = db.collection('hostAlerts');
 
   await Promise.all([
@@ -52,8 +49,6 @@ export async function connectDb() {
     // one document per host and day, kept a little longer than the timeline of the host page shows
     hostAlerts.createIndex({ hostId: 1, day: 1 }, { unique: true }),
     hostAlerts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'host_alerts_ttl' }),
-    tokenSetups.createIndex({ codeHash: 1 }),
-    tokenSetups.createIndex({ purgeAt: 1 }, { expireAfterSeconds: 0, name: 'token_setups_ttl' }),
     // accounts created before roles existed keep full access
     users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
     // "monitor" was renamed "operator" (and lost the settings)

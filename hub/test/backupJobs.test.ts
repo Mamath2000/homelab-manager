@@ -115,17 +115,35 @@ test('running a backup job: operator; defining it: admin', () => {
   assert.equal(authorize('viewer', 'GET', '/api/hosts/:id/backup-jobs'), true);
 });
 
-test('Proxmox VE token created by a pasted command: what the hub asks for, admin only', async () => {
-  const { parseTokenId, setupPlan } = await import('../src/tokenSetup.js');
-  assert.deepEqual(setupPlan({}), { user: 'homelab@pve', token: 'monitor', path: '/', role: 'PVEAuditor' });
-  // another id when the default token already exists on the server
-  assert.equal(setupPlan({ tokenName: 'hlm2' }).token, 'hlm2');
+test('API tokens of the agents: id, rotation when the hub does not hold the secret', async () => {
+  const { parseTokenId, holds } = await import('../src/apiTokens.js');
   assert.deepEqual(parseTokenId('hlm@pve!backup2', 'pve'), { user: 'hlm@pve', token: 'backup2' });
   assert.equal(parseTokenId('hlm@pam!x', 'pve'), null);
   assert.equal(parseTokenId('hlm@pve!x', 'pbs'), null);
   assert.equal(parseTokenId('hlm@pbs!1x', 'pbs'), null);
-  assert.equal(authorize('operator', 'POST', '/api/settings/token-setups'), false);
-  assert.equal(authorize('admin', 'POST', '/api/settings/token-setups'), true);
+  // kept only when the hub holds the secret of this very token
+  assert.equal(holds('a@pbs!t', { tokenId: 'a@pbs!t', tokenSecret: 's' }), true);
+  assert.equal(holds('a@pbs!t', { tokenId: 'a@pbs!other', tokenSecret: 's' }), false);
+  assert.equal(holds('a@pbs!t', { tokenId: 'a@pbs!t', tokenSecret: '' }), false);
+  assert.equal(holds('a@pbs!t', null), false);
+});
+
+test('Proxmox VE token created by the agent of a node: rights, admin only', async () => {
+  const { PVE_TOKEN_ACLS } = await import('../src/pveAgent.js');
+  assert.deepEqual(PVE_TOKEN_ACLS, [{ path: '/', role: 'PVEAuditor' }]);
+  for (const route of ['/api/settings/pve/detect', '/api/settings/pve/clusters/:id/token']) {
+    assert.equal(authorize('operator', 'POST', route), false, route);
+    assert.equal(authorize('admin', 'POST', route), true, route);
+  }
+});
+
+test('the same PBS: host, mode and container', async () => {
+  const { sameLink } = await import('../src/pbsAgent.js');
+  const a = { hostId: '0123456789abcdef01234567', mode: 'container' as const, container: 'pbs' };
+  assert.equal(sameLink(a, { ...a }), true);
+  assert.equal(sameLink(a, { ...a, container: 'pbs2' }), false);
+  assert.equal(sameLink(a, { hostId: a.hostId, mode: 'native' }), false);
+  assert.equal(sameLink(undefined, a), false);
 });
 
 test('PBS tokens created by the agent of the PBS: rights, secret, admin only', async () => {
