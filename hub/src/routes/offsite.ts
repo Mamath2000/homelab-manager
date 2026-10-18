@@ -71,9 +71,15 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
   if (next.agent) {
     const bad = checkLink(next.agent);
     if (bad) return bad;
+    if (await isMainPbsHost(next.agent.hostId)) return 'cet hôte porte le PBS principal : choisir un autre hôte pour le PBS de secours';
   }
   if (next.url && !pbsConnected(await loadPbsSettings())) return 'PBS principal non connecté';
   return next;
+}
+
+// The secondary cannot be the main PBS: its host is the one the main PBS is linked to.
+async function isMainPbsHost(hostId: string) {
+  return (await loadPbsSettings()).agent?.hostId === hostId;
 }
 
 interface OffsiteBody {
@@ -198,6 +204,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       if (!STORE_RE.test(store)) return reply.code(400).send({ error: 'datastore cible invalide' });
       const current = await loadRemoteSettings();
       const agent = nativeOrContainer(req.body.agent);
+      if (await isMainPbsHost(agent.hostId)) return reply.code(400).send({ error: 'cet hôte porte le PBS principal : choisir un autre hôte pour le PBS de secours' });
       let t;
       try {
         t = await ensurePbsToken(agent, req.body.tokenId.trim(), offsiteHubAcls(store), sameLink(current.agent, agent) ? current : null);

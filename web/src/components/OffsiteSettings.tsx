@@ -110,6 +110,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
           <Step n={1} title="Hôte du PBS de secours" state={host} intro="Son agent trouve le PBS (installé, ou dans un conteneur lancé), crée le jeton du hub et lance les copies quotidiennes.">
             <PbsAgentPicker
               link={form.agent}
+              excludeHostId={main?.agent?.hostId}
               primary={host === 'active'}
               onDetected={(agent, found) => {
                 set({ agent, url: found.url ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });

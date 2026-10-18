@@ -85,10 +85,11 @@ export function AgentPicker<T extends { found: boolean }>({ capability, exclude,
 }
 
 // Host of a PBS: its agent finds the PBS, installed or in a running container.
-export function PbsAgentPicker({ link, primary, onDetected }: { link?: PbsAgentLink; primary?: boolean; onDetected: (link: PbsAgentLink, found: PbsDetected) => void }) {
+export function PbsAgentPicker({ link, primary, excludeHostId, onDetected }: { link?: PbsAgentLink; primary?: boolean; excludeHostId?: string; onDetected: (link: PbsAgentLink, found: PbsDetected) => void }) {
   return (
     <AgentPicker<PbsDetected>
       capability="pbs"
+      exclude={(h) => h.id === excludeHostId}
       initialHostId={link?.hostId}
       linked={link && <p>Relié : {link.mode === 'container' ? <>conteneur <code>{link.container}</code></> : 'PBS installé sur l’hôte'}.</p>}
       primary={primary}
