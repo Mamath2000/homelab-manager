@@ -20,6 +20,17 @@ export async function loadPveSettings(): Promise<PveSettings> {
   return { _id: 'pve', clusters: s?.clusters ?? [] };
 }
 
+// Corosync cluster of a node, announced by its agent in its capabilities (agent/main.go): `pve_cluster:<name>`.
+export const pveClusterOf = (caps?: string[]) => caps?.find((c) => c.startsWith('pve_cluster:'))?.slice('pve_cluster:'.length) || null;
+
+// Cluster already followed (other than `exceptId`) through a node of the same corosync cluster as `caps`.
+// `caps` of the agents of the followed clusters, by host id.
+export function followedCluster(clusters: PveCluster[], capsOf: (hostId: string) => string[] | undefined, caps: string[] | undefined, exceptId?: string) {
+  const name = pveClusterOf(caps);
+  if (!name) return null;
+  return clusters.find((c) => c.id !== exceptId && c.agent && pveClusterOf(capsOf(c.agent.hostId)) === name) ?? null;
+}
+
 type Conn = Pick<PveCluster, 'url' | 'fingerprint' | 'tokenId' | 'tokenSecret'>;
 
 export function pveGet<T>(c: Conn, path: string, timeoutMs = 20_000): Promise<T> {

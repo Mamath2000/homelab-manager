@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import { alertsOf } from '../src/homeassistant/alerts.js';
 import { backupStatus } from '../src/monitoring.js';
 import { backupState, effectiveThreshold } from '../src/pbs.js';
-import { configMacs, followedStorages, guestResult, jobCovers, matchGuests, parseVzdumpLog, type ApiJob } from '../src/pve.js';
+import { configMacs, followedCluster, followedStorages, guestResult, jobCovers, matchGuests, parseVzdumpLog, type ApiJob } from '../src/pve.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, PveJobRef } from '../src/types.js';
 
@@ -147,4 +147,18 @@ test('PVE settings are admin only', () => {
   assert.equal(authorize('operator', 'GET', '/api/settings/pve'), false);
   assert.equal(authorize('operator', 'PUT', '/api/settings/pve/clusters/:id'), false);
   assert.equal(authorize('admin', 'PUT', '/api/settings/pve/clusters/:id'), true);
+});
+
+test('a node of an already followed corosync cluster is recognised by the capability of its agent', () => {
+  const clusters = [
+    { id: 'vouille', name: 'Vouillé', agent: { hostId: 'a' } },
+    { id: 'jarsay', name: 'Jarsay', agent: { hostId: 'b' } },
+    { id: 'old' },
+  ] as never[];
+  const caps: Record<string, string[]> = { a: ['pve', 'pve_cluster:home'], b: ['pve', 'pve_cluster:jar'], c: ['pve', 'pve_cluster:home'], d: ['pve'], e: ['pve', 'pve_cluster:other'] };
+  const of = (i: string) => caps[i];
+  assert.equal(followedCluster(clusters, of, caps.c)?.id, 'vouille');
+  assert.equal(followedCluster(clusters, of, caps.c, 'vouille'), null, 'the entry being edited is not a clash');
+  assert.equal(followedCluster(clusters, of, caps.e), null);
+  assert.equal(followedCluster(clusters, of, caps.d), null, 'standalone node or agent not updated: no name, no block');
 });

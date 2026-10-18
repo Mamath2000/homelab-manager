@@ -14,7 +14,7 @@ import {
   pbsGet,
   pollPbs,
 } from '../pbs.js';
-import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from '../pve.js';
+import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollPve, pveGet } from '../pve.js';
 import { validTimeZone } from '../calendar.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
@@ -27,6 +27,16 @@ import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 function settingsDto(s: PbsSettings) {
   const { _id, tokenSecret, ...rest } = s;
   return { ...rest, hasSecret: !!tokenSecret, connected: pbsConnected(s) };
+}
+
+// A node of a cluster the hub already follows (through another entry) is refused: its guests would be listed twice
+// and their MACs ambiguous.
+async function pveAlreadyFollowed(clusters: PveCluster[], hostId: string, exceptId: string) {
+  const ids = [hostId, ...clusters.flatMap((c) => (c.agent && c.id !== exceptId ? [c.agent.hostId] : []))];
+  const docs = await hosts.find({ _id: { $in: ids.flatMap((i) => parseId(i) ?? []) } }, { projection: { capabilities: 1 } }).toArray();
+  const caps = new Map(docs.map((d) => [d._id.toHexString(), d.capabilities]));
+  const c = followedCluster(clusters, (i) => caps.get(i), caps.get(hostId), exceptId);
+  return c ? `ce cluster est déjà suivi (${c.name}) : modifier cette entrée plutôt que d’en ajouter une` : null;
 }
 
 // The token is not part of the form: only the agent of the PBS creates it (POST /api/settings/pbs/token).
@@ -343,6 +353,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const tokenId = req.body.tokenId.trim();
     const conn = resolvePve(req.params.id, req.body, current, { tokenId, tokenSecret: 'pending' });
     if (typeof conn === 'string') return reply.code(400).send({ error: conn });
+    const followed = await pveAlreadyFollowed(s.clusters, req.body.hostId, req.params.id);
+    if (followed) return reply.code(409).send({ error: followed });
     let t;
     try {
       // the nodes of a cluster share their users: any node keeps the secret the hub holds
@@ -366,6 +378,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
     if (!current?.tokenSecret) return reply.code(409).send({ error: 'créer d’abord le jeton du cluster' });
     const next = resolvePve(req.params.id, req.body, current, current);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
+    const followed = next.agent && (await pveAlreadyFollowed(s.clusters, next.agent.hostId, next.id));
+    if (followed) return reply.code(409).send({ error: followed });
     const clusters = s.clusters.map((c) => (c.id === next.id ? next : c));
     await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
     pollPve(req.log).catch(() => {});

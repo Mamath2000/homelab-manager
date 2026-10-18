@@ -91,6 +91,34 @@ func detectPve(ctx context.Context, run pveRun) PveInfo {
 	return info
 }
 
+// pveClusterStatus: name of the corosync cluster (empty: standalone node), local node and all nodes.
+func pveClusterStatus(ctx context.Context, run pveRun) (cluster, local string, nodes []string) {
+	out, err := run(ctx, "pvesh", "get", "/cluster/status", "--output-format", "json")
+	if err != nil {
+		return
+	}
+	var list []struct {
+		Type  string `json:"type"`
+		Name  string `json:"name"`
+		Local int    `json:"local"`
+	}
+	if json.Unmarshal([]byte(out), &list) != nil {
+		return
+	}
+	for _, e := range list {
+		switch e.Type {
+		case "cluster":
+			cluster = e.Name
+		case "node":
+			nodes = append(nodes, e.Name)
+			if e.Local == 1 {
+				local = e.Name
+			}
+		}
+	}
+	return
+}
+
 func describePve(ctx context.Context, run pveRun) PveInfo {
 	info := PveInfo{Found: true, Port: 8006}
 	if out, err := run(ctx, "pveversion"); err == nil {
@@ -98,26 +126,7 @@ func describePve(ctx context.Context, run pveRun) PveInfo {
 			info.Version = m[1]
 		}
 	}
-	if out, err := run(ctx, "pvesh", "get", "/cluster/status", "--output-format", "json"); err == nil {
-		var list []struct {
-			Type  string `json:"type"`
-			Name  string `json:"name"`
-			Local int    `json:"local"`
-		}
-		if json.Unmarshal([]byte(out), &list) == nil {
-			for _, e := range list {
-				switch e.Type {
-				case "cluster":
-					info.Cluster = e.Name
-				case "node":
-					info.Nodes = append(info.Nodes, e.Name)
-					if e.Local == 1 {
-						info.Node = e.Name
-					}
-				}
-			}
-		}
-	}
+	info.Cluster, info.Node, info.Nodes = pveClusterStatus(ctx, run)
 	if info.Node == "" {
 		info.Node, _ = os.Hostname()
 	}

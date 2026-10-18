@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plug, Plus, Save, Server } from 'lucide-react';
 import { api, type PveCluster, type PveClusterInput, type PveDetected } from '../lib/api';
+import { useHosts } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { AgentPicker, TokenButton } from './AgentPicker';
@@ -21,11 +22,18 @@ const hostOf = (url: string) => {
   }
 };
 
+// Corosync cluster of a node, announced by its agent (`pve_cluster:<name>`).
+const clusterOf = (caps: string[]) => caps.find((c) => c.startsWith('pve_cluster:'))?.slice('pve_cluster:'.length);
+
 // One cluster, declared from one of its nodes in four steps (PbsDialog.tsx): node and Détecter, what
 // its agent found and the interface the hub reaches the API at, token created by the agent, test.
 // The secret is never sent back by the hub.
-function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClose: () => void }) {
+function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null; others: PveCluster[]; onClose: () => void }) {
   const qc = useQueryClient();
+  const { data: hosts } = useHosts();
+  // nodes of the clusters already followed are not offered again (the hub refuses them as well)
+  const followed = new Set(others.flatMap((c) => clusterOf(hosts?.find((h) => h.id === c.agent?.hostId)?.capabilities ?? []) ?? []));
+  const followedNode = (h: { capabilities: string[] }) => followed.has(clusterOf(h.capabilities) ?? '');
   const toast = useToast();
   const [id, setId] = useState('');
   const toForm = (c: PveCluster | null): PveClusterInput =>
@@ -118,6 +126,7 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
           <Step n={1} title="Nœud du cluster" state={node} intro="Un nœud dont l’agent est enrôlé : il décrit le cluster, ses interfaces et son certificat, puis crée le jeton.">
             <AgentPicker<PveDetected>
               capability="pve"
+              exclude={followedNode}
               initialHostId={form.agent?.hostId}
               linked={form.agent && <p>Nœud relié : son agent a créé le jeton.</p>}
               primary={node === 'active'}
@@ -280,7 +289,7 @@ export function PveSettings() {
           ))}
         </ul>
       )}
-      {editing && <ClusterModal key={editing === 'new' ? 'new' : editing.id} cluster={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && <ClusterModal key={editing === 'new' ? 'new' : editing.id} cluster={editing === 'new' ? null : editing} others={(data?.clusters ?? []).filter((c) => editing === 'new' || c.id !== editing.id)} onClose={() => setEditing(null)} />}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={remove} title="Retirer le cluster" confirmLabel="Retirer" danger loading={busy}>
         Le hub ne relèvera plus <b>{removing?.name}</b> : son jeton <code>{removing?.tokenId}</code> est révoqué par l’agent du nœud relié (ainsi que l’utilisateur s’il
         n’a plus de jeton), les liens de ses guests avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés (les sauvegardes restent sur le PBS,

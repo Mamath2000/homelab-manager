@@ -173,6 +173,10 @@ func (s *session) hello(ctx context.Context) error {
 	// Proxmox VE administration (pve.go): a node of a cluster
 	if hasPve() {
 		caps = append(caps, "pve", "pve_token_delete")
+		// the hub does not offer a node of a cluster it already follows: the cluster name rides along
+		if cluster, _, _ := pveClusterStatus(ctx, pveExec); cluster != "" {
+			caps = append(caps, "pve_cluster:"+cluster)
+		}
 	}
 	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
 	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)

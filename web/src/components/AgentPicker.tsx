@@ -23,8 +23,9 @@ function tokenOutcomeText(tokenId: string, o: PbsTokenOutcome) {
 // with the capability, then "Détecter" asks its agent what runs there. The admin validates what was
 // found (onDetected). linked: what the initial host is linked to, shown until a new detection.
 // primary: the next thing to do in the window (first step not done).
-export function AgentPicker<T extends { found: boolean }>({ capability, initialHostId, linked, primary, detect, onDetected, detectTitle, foundText, notFoundText, noAgentText }: {
+export function AgentPicker<T extends { found: boolean }>({ capability, exclude, initialHostId, linked, primary, detect, onDetected, detectTitle, foundText, notFoundText, noAgentText }: {
   capability: string;
+  exclude?: (h: { id: string; capabilities: string[] }) => boolean; // hosts not offered (the initial one stays)
   initialHostId?: string;
   linked?: ReactNode;
   primary?: boolean;
@@ -40,7 +41,7 @@ export function AgentPicker<T extends { found: boolean }>({ capability, initialH
   const [hostId, setHostId] = useState(initialHostId ?? '');
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<T | null>(null);
-  const candidates = (hosts ?? []).filter((h) => h.capabilities.includes(capability) || h.id === initialHostId).sort((a, b) => a.name.localeCompare(b.name));
+  const candidates = (hosts ?? []).filter((h) => h.id === initialHostId || (h.capabilities.includes(capability) && !exclude?.(h))).sort((a, b) => a.name.localeCompare(b.name));
   const host = candidates.find((h) => h.id === hostId);
 
   const run = async () => {
