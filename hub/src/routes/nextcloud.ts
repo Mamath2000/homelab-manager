@@ -113,8 +113,11 @@ export function registerNextcloudRoutes(app: FastifyInstance) {
       const list = await backupJobs.find({ hostId: host._id }).toArray();
       const plan = planJobs(host._id, p, d, list, DEFAULT_TIMEZONE);
       // every group checked before any write
+      // groups left on the PBS by the plugin before a disconnection (settings kept in the cache) are its own
+      const c = host.backupCache?.nextcloud;
+      const cachedStores = new Set(c ? [c.database, c.config, ...c.users.map((u) => u.store)].filter((s): s is string => !!s) : []);
       for (const j of plan.create) {
-        const conflict = await groupConflict(host._id, j.store, j.ns, j.backupId);
+        const conflict = await groupConflict(host._id, j.store, j.ns, j.backupId, undefined, cachedStores.has(j.store) && j.backupId.startsWith('nextcloud-'));
         if (conflict) return reply.code(409).send({ error: `${j.name} : ${conflict}` });
       }
       for (const { job, set } of plan.update) {
