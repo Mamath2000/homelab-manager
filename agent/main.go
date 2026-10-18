@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -164,8 +163,8 @@ func (s *session) hello(ctx context.Context) error {
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
 	}
-	// Proxmox Backup Server administration (pbs.go): installed here, or possibly in a container
-	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil || slices.Contains(caps, "docker") {
+	// Proxmox Backup Server administration (pbs.go): installed here, or in a running container
+	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil || pbsContainerRunning(ctx) {
 		caps = append(caps, "pbs", "pbs_token_delete")
 		// secondary PBS: the agent starts the daily series of the copy (offsite.go)
 		caps = append(caps, "offsite_series")

@@ -134,6 +134,22 @@ func detectPbs(ctx context.Context) PbsInfo {
 	return PbsInfo{}
 }
 
+// pbsLikeRe: image or name of a container that looks like a PBS (cheap hint for the hello; the real
+// check is detectPbs, which execs into the container).
+var pbsLikeRe = regexp.MustCompile(`(?i)pbs|proxmox-backup`)
+
+// pbsContainerRunning tells whether a running container looks like a PBS, so the hello only announces
+// the "pbs" capability on hosts that may really have one.
+func pbsContainerRunning(ctx context.Context) bool {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return false
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, "docker", "ps", "--format", "{{.Names}} {{.Image}}").Output()
+	return err == nil && pbsLikeRe.Match(out)
+}
+
 func describePbs(ctx context.Context, container string, run pbsRun) (PbsInfo, error) {
 	info := PbsInfo{Found: true, Mode: "native", Container: container}
 	if container != "" {
