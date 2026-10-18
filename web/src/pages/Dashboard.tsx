@@ -98,9 +98,9 @@ export function Dashboard() {
 
   const onlineApt = hosts.filter((h) => h.online && hasApt(h));
   const sites = groupSites(hosts, siteConfig ?? []);
-  // only the backups attached to a host are followed
-  const groups = backups?.enabled ? backups.groups : undefined;
-  const withBackups = !!backups?.enabled;
+  // only the backups attached to a host are followed (without PBS: those of Home Assistant)
+  const withBackups = !!backups && (backups.connected || backups.groups.length > 0);
+  const groups = withBackups ? backups.groups : undefined;
 
   return (
     <>

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,10 @@ func (f *fakePve) run(_ context.Context, bin string, args ...string) (string, er
 			b = append(b, fmt.Sprintf(`{"userid":%q}`, u))
 		}
 		return "[" + strings.Join(b, ",") + "]", nil
+	case strings.HasPrefix(cmd, "pveum user token remove"):
+		f.tokens = slices.DeleteFunc(f.tokens, func(t string) bool { return t == args[4] })
+	case strings.HasPrefix(cmd, "pveum user delete"):
+		f.users = slices.DeleteFunc(f.users, func(u string) bool { return u == args[2] })
 	case strings.HasPrefix(cmd, "pveum user token add"):
 		return `{"full-tokenid":"homelab@pve!monitor","info":{"privsep":"1"},"value":"0B1C2D3E-1111-2222-3333-444455556666"}`, nil
 	}
@@ -120,6 +125,55 @@ func TestEnsurePveTokenPrunesTokenACLs(t *testing.T) {
 	}
 	if len(deletes) != 1 || deletes[0] != "pveum acl delete /vms --roles PVEAuditor --tokens homelab@pve!monitor" || len(r.Removed) != 1 {
 		t.Fatalf("deletes %q, removed %q", deletes, r.Removed)
+	}
+}
+
+func TestDeletePveTokenRemovesLastUser(t *testing.T) {
+	f := &fakePve{users: []string{"homelab@pve"}, tokens: []string{"monitor"}}
+	f.acls = [][4]string{
+		{"/", "PVEAuditor", "token", "homelab@pve!monitor"},
+		{"/", "PVEAuditor", "user", "homelab@pve"},
+		{"/", "PVEAuditor", "user", "other@pve"}, // someone else: left alone
+	}
+	r, err := deletePveToken(context.Background(), f.run, &PveTokenSpec{User: "homelab@pve", Token: "monitor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Deleted || !r.UserDeleted || len(r.Removed) != 2 {
+		t.Fatalf("result %+v", r)
+	}
+	got := strings.Join(f.calls, "\n")
+	for _, w := range []string{
+		"pveum acl delete / --roles PVEAuditor --tokens homelab@pve!monitor",
+		"pveum user token remove homelab@pve monitor",
+		"pveum acl delete / --roles PVEAuditor --users homelab@pve",
+		"pveum user delete homelab@pve",
+	} {
+		if !strings.Contains(got, w) {
+			t.Errorf("missing call %q in\n%s", w, got)
+		}
+	}
+	if strings.Contains(got, "other@pve") {
+		t.Fatalf("other user touched:\n%s", got)
+	}
+}
+
+func TestDeletePveTokenKeepsUserWithOtherToken(t *testing.T) {
+	f := &fakePve{users: []string{"homelab@pve"}, tokens: []string{"monitor", "other"}}
+	r, err := deletePveToken(context.Background(), f.run, &PveTokenSpec{User: "homelab@pve", Token: "monitor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Deleted || r.UserDeleted || strings.Contains(strings.Join(f.calls, "\n"), "pveum user delete") {
+		t.Fatalf("result %+v, calls %q", r, f.calls)
+	}
+}
+
+func TestDeletePveTokenAlreadyGone(t *testing.T) {
+	f := &fakePve{}
+	r, err := deletePveToken(context.Background(), f.run, &PveTokenSpec{User: "homelab@pve", Token: "monitor"})
+	if err != nil || r.Deleted || len(f.calls) != 1 {
+		t.Fatalf("result %+v, %v, calls %q", r, err, f.calls)
 	}
 }
 

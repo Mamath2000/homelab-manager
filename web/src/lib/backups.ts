@@ -75,9 +75,9 @@ export function hoursLabel(h: number) {
   return h >= 48 ? `${Math.round((h / 24) * 10) / 10} j`.replace('.', ',') : `${Math.round(h * 10) / 10} h`.replace('.', ',');
 }
 
-// Last `days` days (oldest first): the snapshots of each day and their worst verification
-// (failed, then not verified yet, then ok). Without verification (Home Assistant backups), a day with a
-// backup is ok.
+// Last `days` days (oldest first): the snapshots of each day and their verification: failed if any snapshot
+// failed, else the state of the day's latest snapshot (earlier ones are superseded). Without verification
+// (Home Assistant backups), a day with a backup is ok.
 export type DayVerify = 'ok' | 'unverified' | 'failed';
 
 export function timeline(times: BackupGroup['times'], days = 30, now = Date.now(), verified = true) {
@@ -85,13 +85,17 @@ export function timeline(times: BackupGroup['times'], days = 30, now = Date.now(
   start.setHours(0, 0, 0, 0);
   const first = start.getTime() - (days - 1) * 24 * HOUR;
   const out = Array.from({ length: days }, (_, i) => ({ day: first + i * 24 * HOUR, count: 0, verify: 'ok' as DayVerify }));
+  const latest = out.map(() => -Infinity);
   for (const s of times ?? []) {
     const i = Math.floor((s.t - first) / (24 * HOUR));
     if (i < 0 || i >= days) continue;
     const c = out[i];
     c.count++;
     if (s.verify === 'failed') c.verify = 'failed';
-    else if (verified && s.verify === null && c.verify === 'ok') c.verify = 'unverified';
+    else if (c.verify !== 'failed' && s.t > latest[i]) {
+      latest[i] = s.t;
+      c.verify = verified && s.verify === null ? 'unverified' : 'ok';
+    }
   }
   return out;
 }

@@ -413,9 +413,12 @@ export interface InstallInfo {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  // the whole answer (flags of some errors, e.g. edit: the form is to open)
+  data: Record<string, unknown>;
+  constructor(status: number, message: string, data: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -430,7 +433,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new Event('hm:unauthorized'));
-    throw new ApiError(res.status, data.error ?? data.message ?? `HTTP ${res.status}`);
+    throw new ApiError(res.status, data.error ?? data.message ?? `HTTP ${res.status}`, data);
   }
   return data as T;
 }
@@ -535,8 +538,10 @@ export interface BackupOrphan {
 }
 
 export interface BackupsView {
-  enabled: boolean;
-  // secondary PBS of the copies; null: not configured or disabled
+  // main PBS connected: its groups, datastores and the jobs of the hosts (the backups of Home Assistant and
+  // the Proxmox VE clusters are shown without it)
+  connected: boolean;
+  // secondary PBS of the copies; null: not connected
   offsite: {
     host: string;
     store: string;
@@ -583,7 +588,7 @@ export interface PbsTokenOutcome {
 }
 
 export interface PbsSettings {
-  enabled: boolean;
+  connected: boolean; // address and monitoring token
   agent?: PbsAgentLink;
   url: string;
   fingerprint: string;
@@ -646,7 +651,7 @@ export interface OffsiteSeriesView {
 
 // Secondary PBS (hub/src/routes/offsite.ts); the tokens are created by the agents of both PBS
 export interface PbsRemoteSettings {
-  enabled: boolean;
+  connected: boolean; // address, target datastore and both tokens
   agent?: PbsAgentLink;
   url: string;
   fingerprint: string;
@@ -663,7 +668,6 @@ export interface PbsRemoteSettings {
 }
 
 export interface PbsRemoteInput {
-  enabled: boolean;
   url: string;
   fingerprint: string;
   agent?: PbsAgentLink;
@@ -678,7 +682,6 @@ export interface PbsTestResult {
 
 // the token is created by the agent of the PBS (createPbsToken), not part of the form
 export interface PbsSettingsInput {
-  enabled: boolean;
   url: string;
   fingerprint: string;
   agent?: PbsAgentLink;
@@ -793,7 +796,29 @@ export interface HostBackupJobs {
   nextcloudPlugin: boolean;
   nextcloud: boolean;
   nextcloudSettings: NextcloudSettings | null;
+  // kept when the main PBS was disconnected (#190): the settings of the plugin (restored from its dialog)
+  // and the jobs entered by hand (restored or dropped one by one)
+  nextcloudPrevious: NextcloudSettings | null;
+  cache: { at: string; jobs: BackupJob[] } | null;
   jobs: BackupJob[];
+}
+
+// What a disconnection removes (hub/src/disconnect.ts), and what it did
+export interface PbsDisconnectPreview {
+  monitorToken: string | null;
+  remote: { host: string | null; tokenId: string | null; readerTokenId: string | null } | null;
+  hosts: { name: string; tokenId: string | null; jobs: number; nextcloud: boolean }[];
+  groups: number;
+}
+export interface DisconnectReport {
+  revoked: string[];
+  users: string[];
+  syncJobs: number;
+  remote: boolean;
+  hosts: number;
+  cachedJobs: number;
+  groups: number;
+  errors: string[];
 }
 
 // Nextcloud AIO plugin of a host (hub/src/nextcloud.ts): a datastore per part backed up, null: not backed up
@@ -846,7 +871,6 @@ export interface PveCluster {
   fingerprint: string;
   tokenId: string;
   hasSecret: boolean;
-  enabled: boolean;
   agent?: { hostId: string }; // node whose agent created the token
   timezone?: string;
   polledAt: string | null;
@@ -859,7 +883,6 @@ export interface PveClusterInput {
   name: string;
   url: string;
   fingerprint: string;
-  enabled: boolean;
   agent?: { hostId: string };
 }
 
@@ -939,6 +962,9 @@ export const api = {
   pbsSettings: () => request<PbsSettings>('GET', '/api/settings/pbs'),
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
   testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult>('POST', '/api/settings/pbs/test', s),
+  pbsDisconnectPreview: () => request<PbsDisconnectPreview>('GET', '/api/settings/pbs/disconnect'),
+  disconnectPbs: () => request<DisconnectReport>('POST', '/api/settings/pbs/disconnect'),
+  disconnectPbsRemote: () => request<DisconnectReport>('POST', '/api/settings/pbs-remote/disconnect'),
   pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   pbsRemoteSettings: () => request<PbsRemoteSettings>('GET', '/api/settings/pbs-remote'),
   savePbsRemoteSettings: (s: PbsRemoteInput) => request<PbsRemoteSettings>('PUT', '/api/settings/pbs-remote', s),
@@ -963,10 +989,14 @@ export const api = {
   deleteNextcloud: (hostId: string) => request<{ removed: number }>('DELETE', `/api/hosts/${hostId}/nextcloud`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
+  restoreCachedJob: (hostId: string, jobId: string, j?: BackupJobInput) =>
+    request<BackupJob>(j ? 'PUT' : 'POST', `/api/hosts/${hostId}/backup-cache/jobs/${jobId}`, j),
+  dropCachedJob: (hostId: string, jobId: string) => request<void>('DELETE', `/api/hosts/${hostId}/backup-cache/jobs/${jobId}`),
+  dropCachedNextcloud: (hostId: string) => request<void>('DELETE', `/api/hosts/${hostId}/backup-cache/nextcloud`),
   createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
   savePveCluster: (id: string, c: PveClusterInput) => request<PveCluster>('PUT', `/api/settings/pve/clusters/${encodeURIComponent(id)}`, c),
-  deletePveCluster: (id: string) => request<void>('DELETE', `/api/settings/pve/clusters/${encodeURIComponent(id)}`),
+  deletePveCluster: (id: string) => request<{ revoked: string | null; userDeleted: boolean }>('DELETE', `/api/settings/pve/clusters/${encodeURIComponent(id)}`),
   testPveCluster: (id: string, c: PveClusterInput) =>
     request<{ ok: boolean; error?: string; cluster?: string | null; nodes?: string[]; jobs?: number }>('POST', `/api/settings/pve/clusters/${encodeURIComponent(id)}/test`, c),
   detectPve: (hostId: string) => request<PveDetected>('POST', '/api/settings/pve/detect', { hostId }),

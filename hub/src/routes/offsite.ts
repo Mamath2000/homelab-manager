@@ -15,7 +15,8 @@ import {
   syncOffsiteAgent,
   targetNamespaces,
 } from '../offsite.js';
-import { FINGERPRINT_RE, PBS_URL_RE, backupDto, loadPbsSettings, normalizeFingerprint, pbsGet } from '../pbs.js';
+import { FINGERPRINT_RE, PBS_URL_RE, backupDto, loadPbsSettings, normalizeFingerprint, pbsConnected, pbsGet } from '../pbs.js';
+import { disconnectRemote, remoteConfigured } from '../disconnect.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, ensurePbsToken, offsiteHubAcls, sameLink } from '../pbsAgent.js';
 import type { BackupDoc, BackupOffsite, PbsAgentLink, PbsRemoteSettings } from '../types.js';
 
@@ -29,7 +30,7 @@ async function remoteDto(r: PbsRemoteSettings) {
   void agentAck;
   void agentError;
   void agentReport;
-  return { ...rest, startTime: startOf(r), series: await seriesView(r), hasSecret: !!tokenSecret, hasReaderSecret: !!readerTokenSecret };
+  return { ...rest, startTime: startOf(r), series: await seriesView(r), hasSecret: !!tokenSecret, hasReaderSecret: !!readerTokenSecret, connected: remoteReady(r) };
 }
 
 const agentLinkSchema = {
@@ -40,7 +41,6 @@ const agentLinkSchema = {
 } as const;
 
 interface RemoteBody {
-  enabled: boolean;
   url: string;
   fingerprint: string;
   agent?: PbsAgentLink;
@@ -50,8 +50,8 @@ interface RemoteBody {
 const remoteBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['enabled', 'url', 'fingerprint'],
-  properties: { enabled: { type: 'boolean' }, url: { type: 'string', maxLength: 256 }, fingerprint: { type: 'string', maxLength: 128 }, agent: agentLinkSchema, startTime: { type: 'string', maxLength: 5 } },
+  required: ['url', 'fingerprint'],
+  properties: { url: { type: 'string', maxLength: 256 }, fingerprint: { type: 'string', maxLength: 128 }, agent: agentLinkSchema, startTime: { type: 'string', maxLength: 5 } },
 } as const;
 
 const nativeOrContainer = (a: PbsAgentLink): PbsAgentLink => (a.mode === 'native' ? { hostId: a.hostId, mode: 'native' } : a);
@@ -60,7 +60,6 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
   const current = await loadRemoteSettings();
   const next: PbsRemoteSettings = {
     ...current,
-    enabled: body.enabled,
     url: body.url.trim().replace(/\/+$/, ''),
     fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
     ...(body.agent ? { agent: nativeOrContainer(body.agent) } : {}),
@@ -73,11 +72,7 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
     const bad = checkLink(next.agent);
     if (bad) return bad;
   }
-  if (next.enabled) {
-    if (!next.url || !next.tokenSecret || !next.store) return 'URL, datastore cible et jeton du hub requis : créer le jeton avec l’agent du PBS de secours';
-    if (!next.readerTokenSecret) return 'jeton lecteur du PBS principal requis';
-    if (!(await loadPbsSettings()).url) return 'PBS principal non configuré';
-  }
+  if (next.url && !pbsConnected(await loadPbsSettings())) return 'PBS principal non connecté';
   return next;
 }
 
@@ -115,7 +110,7 @@ export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
   const why = notCopiable(b);
   if (why) return { ok: false, error: why };
   const r = await loadRemoteSettings();
-  if (!remoteReady(r)) return { ok: false, error: 'PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes)' };
+  if (!remoteReady(r)) return { ok: false, error: 'PBS de secours non connecté (Paramètres › Sauvegardes)' };
   const others = await backups.find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1 } }).toArray();
   const twin = sameGroupElsewhere(b, others);
   if (twin) return { ok: false, error: `${b.ns || 'racine'}/${b.type}/${b.backupId} est déjà copié depuis le datastore ${twin.store} : une seule copie par groupe` };
@@ -165,8 +160,8 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     await settings.replaceOne({ _id: 'pbs-remote' }, next, { upsert: true });
-    if (next.enabled) pollOffsite(req.log).catch(() => {});
-    // disabled: the agent of the secondary empties its series
+    if (remoteReady(next)) pollOffsite(req.log).catch(() => {});
+    // not complete: the agent of the secondary has no series to start
     else syncOffsiteAgent().catch((err) => req.log.warn({ err }, 'offsite series definition not sent'));
     publish('backups', {});
     return remoteDto(next);
@@ -174,7 +169,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
 
   // datastores the token of the hub sees, and the namespaces of the target one
   app.post<{ Body: RemoteBody }>('/api/settings/pbs-remote/test', { schema: { body: remoteBody } }, async (req, reply) => {
-    const next = await resolve({ ...req.body, enabled: false });
+    const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     if (!next.url || !next.tokenSecret) return reply.code(400).send({ error: 'adresse et jeton du hub requis' });
     try {
@@ -213,7 +208,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       // the remote entry belongs to the token: written again with the next one
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agent, store, tokenId: t.tokenId, tokenSecret: t.tokenSecret }, $unset: { remoteHash: '' } }, { upsert: true });
       req.log.info({ tokenId: t.tokenId, store, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'secondary PBS token set by the agent');
-      if (current.enabled) pollOffsite(req.log).catch(() => {});
+      pollOffsite(req.log).catch(() => {});
       return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
@@ -235,10 +230,22 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       }
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { readerTokenId: t.tokenId, readerTokenSecret: t.tokenSecret } }, { upsert: true });
       req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'reader token of the main PBS set by the agent');
-      if (current.enabled) pollOffsite(req.log).catch(() => {});
+      pollOffsite(req.log).catch(() => {});
       return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
+
+  // Disconnection of the secondary (disconnect.ts): series, sync jobs hlm-*, remote hlm-main and both tokens
+  // removed; the copies stay on it.
+  app.post('/api/settings/pbs-remote/disconnect', async (req, reply) => {
+    if (!remoteConfigured(await loadRemoteSettings())) return reply.code(409).send({ error: 'aucun PBS de secours configuré' });
+    try {
+      return await disconnectRemote(req.log);
+    } catch (err) {
+      if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+  });
 
   // Copy of a group: enabled or not (admin). Disabled: its group leaves the filter of its sync job (the job is
   // removed with the last group of its namespace), the copy stays.

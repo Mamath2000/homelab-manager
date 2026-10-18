@@ -29,7 +29,7 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
   const toast = useToast();
   const [id, setId] = useState('');
   const toForm = (c: PveCluster | null): PveClusterInput =>
-    c ? { name: c.name, url: c.url, fingerprint: c.fingerprint, enabled: c.enabled, ...(c.agent ? { agent: c.agent } : {}) } : { name: '', url: '', fingerprint: '', enabled: true };
+    c ? { name: c.name, url: c.url, fingerprint: c.fingerprint, ...(c.agent ? { agent: c.agent } : {}) } : { name: '', url: '', fingerprint: '' };
   const [initial, setInitial] = useState<PveClusterInput>(() => toForm(cluster));
   const [form, setForm] = useState<PveClusterInput>(initial);
   // the token is saved as soon as the agent created it, with the cluster (created if new)
@@ -57,7 +57,7 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
     try {
       await api.savePveCluster(clusterId, form);
       refresh();
-      toast.success(form.enabled ? 'Enregistré : relevé du cluster en cours' : 'Enregistré');
+      toast.success('Enregistré : relevé du cluster en cours');
       onClose();
       return true;
     } catch (err) {
@@ -107,10 +107,6 @@ function ClusterModal({ cluster, onClose }: { cluster: PveCluster | null; onClos
               <label className="flex items-center gap-2 text-xs text-muted">
                 <span className="shrink-0">Nom affiché</span>
                 <input className="input h-8 w-44 py-1" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Vouillé" />
-              </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
-                <span>Relever ce cluster</span>
               </label>
             </div>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
@@ -244,7 +240,8 @@ export function PveSettings() {
     if (!removing) return;
     setBusy(true);
     try {
-      await api.deletePveCluster(removing.id);
+      const r = await api.deletePveCluster(removing.id);
+      toast.success(r.revoked ? `Cluster retiré, jeton ${r.revoked} révoqué${r.userDeleted ? ' (utilisateur supprimé)' : ''}` : 'Cluster retiré');
       qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
       qc.invalidateQueries({ queryKey: ['backups'] });
       setRemoving(null);
@@ -273,7 +270,7 @@ export function PveSettings() {
               name={c.name}
               tag={c.id}
               url={c.url}
-              enabled={c.enabled}
+              connected={c.hasSecret}
               polledAt={c.polledAt}
               pollError={c.pollError}
               details={[c.guests !== undefined ? `${c.guests} guests` : '', c.timezone ?? '', c.tokenId ? `jeton ${c.tokenId}` : 'aucun jeton'].filter(Boolean).join(' · ')}
@@ -285,8 +282,9 @@ export function PveSettings() {
       )}
       {editing && <ClusterModal key={editing === 'new' ? 'new' : editing.id} cluster={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={remove} title="Retirer le cluster" confirmLabel="Retirer" danger loading={busy}>
-        Le hub ne relèvera plus <b>{removing?.name}</b> : les liens de ses guests avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés
-        (les sauvegardes restent sur le PBS, orphelines).
+        Le hub ne relèvera plus <b>{removing?.name}</b> : son jeton <code>{removing?.tokenId}</code> est révoqué par l’agent du nœud relié (ainsi que l’utilisateur s’il
+        n’a plus de jeton), les liens de ses guests avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés (les sauvegardes restent sur le PBS,
+        orphelines).
       </ConfirmModal>
     </Panel>
   );

@@ -274,7 +274,6 @@ async function doPoll(log?: FastifyBaseLogger) {
   const s = await loadPveSettings();
   const pbs = await loadPbsSettings();
   for (const c of s.clusters) {
-    if (!c.enabled) continue;
     let set: Partial<PveCluster>;
     try {
       const r = await pollCluster(c, pbs, log);

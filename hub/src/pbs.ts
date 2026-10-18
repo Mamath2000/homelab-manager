@@ -11,7 +11,6 @@ import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings
 
 export const DEFAULT_PBS: PbsSettings = {
   _id: 'pbs',
-  enabled: false,
   url: '',
   fingerprint: '',
   tokenId: '',
@@ -24,6 +23,10 @@ export { ApiError as PbsError, FINGERPRINT_RE, fetchFingerprint, normalizeFinger
 export async function loadPbsSettings(): Promise<PbsSettings> {
   return { ...DEFAULT_PBS, ...((await settings.findOne({ _id: 'pbs' })) as PbsSettings | null), _id: 'pbs' };
 }
+
+// The main PBS is connected once it has an address and the monitoring token: it is then polled, the
+// agents back up to it. No PBS: no settings (a disconnection removes them, disconnect.ts).
+export const pbsConnected = (s: Pick<PbsSettings, 'url' | 'tokenId' | 'tokenSecret'>) => !!(s.url && s.tokenId && s.tokenSecret);
 
 type Conn = Pick<PbsSettings, 'url' | 'fingerprint' | 'tokenId' | 'tokenSecret'>;
 
@@ -378,7 +381,7 @@ export function pollPbs(log?: FastifyBaseLogger) {
 
 async function doPoll(log?: FastifyBaseLogger) {
   const s = await loadPbsSettings();
-  if (!s.enabled || !s.url || !s.tokenId) return;
+  if (!pbsConnected(s)) return;
   try {
     const stores = await pbsGet<ApiDatastore[]>(s, '/admin/datastore');
     const found: ReturnType<typeof mergeGroups>[number][] = [];

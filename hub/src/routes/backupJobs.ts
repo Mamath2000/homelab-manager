@@ -1,13 +1,13 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobKind, jobView, normDatabase, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobDatabase, jobKind, jobView, normDatabase, refreshManaged, syncHost, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
-import type { BackupArchive, BackupJobKind, DatabaseDump, HostDoc } from '../types.js';
+import type { BackupArchive, BackupJobDoc, BackupJobKind, CachedBackupJob, DatabaseDump, HostDoc, PbsSettings } from '../types.js';
 import { publish } from '../events.js';
 import { createJob, jobDto } from '../jobs.js';
-import { keepText, loadPbsSettings, policyFor } from '../pbs.js';
-import { PBS_TOKEN_ACLS, PbsAgentError, ensurePbsToken } from '../pbsAgent.js';
+import { keepText, loadPbsSettings, pbsConnected, policyFor } from '../pbs.js';
+import { PBS_TOKEN_ACLS, PbsAgentError, defaultHostTokenId, deletePbsToken, ensurePbsToken } from '../pbsAgent.js';
 import { describeCalendar } from '../calendar.js';
 import { config } from '../config.js';
 import { isPluginJob } from '../nextcloud.js';
@@ -67,6 +67,74 @@ function normInput(b: JobInput, kind: BackupJobKind) {
   return { ...b, connectEveryDays: connect, schedule: connect ? '' : b.schedule, kind, database: normDatabase(kind, b.database), archives: db ? [] : b.archives, excludes: db ? [] : b.excludes };
 }
 
+// A job of the form, checked for the host: the error and its status, or what to store.
+async function prepareJob(host: HostDoc, input: JobInput) {
+  if (!clientState(host.capabilities).mode) return { code: 409, error: "client PBS absent sur cet hôte : l'installer d'abord" };
+  // namespace and time zone are fixed: Hosts, and the time zone of the hub (TZ)
+  const body = { ...normInput(input, input.kind ?? 'directories'), ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE };
+  // edit: an error the form of the job can fix
+  const err = checkJob(body, true);
+  if (err) return { code: 400, error: err, edit: true };
+  const refused = databaseRefused(host, body.kind);
+  if (refused) return { code: 409, error: refused };
+  const ownCache = !!host.backupCache?.jobs.some((j) => j.store === body.store && j.ns === body.ns && j.backupId === body.backupId);
+  const conflict = await groupConflict(host._id, body.store, body.ns, body.backupId!, undefined, ownCache);
+  if (conflict) return { code: 409, error: conflict, edit: true };
+  return { body };
+}
+
+function jobDoc(hostId: ObjectId, body: ReturnType<typeof normInput> & { ns: string; timezone: string }, _id = new ObjectId(), createdAt = new Date()): BackupJobDoc {
+  return {
+    _id,
+    hostId,
+    name: body.name.trim(),
+    archives: body.archives,
+    excludes: body.excludes,
+    store: body.store,
+    ns: body.ns,
+    backupId: body.backupId!,
+    schedule: body.schedule.trim(),
+    ...(body.connectEveryDays ? { connectEveryDays: body.connectEveryDays } : {}),
+    timezone: body.timezone,
+    enabled: body.enabled,
+    kind: body.kind,
+    database: body.database,
+    createdAt,
+    updatedAt: new Date(),
+    lastRun: null,
+  };
+}
+
+// The PBS token of a host after a reconnection: created again with the id it had (the groups it wrote stay
+// its own), else the default one. Nothing to do when the host has one.
+export async function restoreCredential(host: HostDoc, pbs: PbsSettings) {
+  if (host.pbsCredential) return;
+  if (!pbs.agent) throw new PbsAgentError("agent du PBS non configuré : relier le PBS à son agent dans Paramètres › Sauvegardes");
+  const t = await ensurePbsToken(pbs.agent, host.backupCache?.tokenId ?? defaultHostTokenId(host.name), PBS_TOKEN_ACLS.host, null);
+  await hosts.updateOne({ _id: host._id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
+}
+
+// The cache of a host goes once nothing is left in it.
+export async function dropEmptyCache(hostId: ObjectId) {
+  await hosts.updateOne({ _id: hostId, 'backupCache.jobs.0': { $exists: false }, 'backupCache.nextcloud': null }, { $unset: { backupCache: '' } });
+}
+
+// The form of a job kept in the cache.
+const cachedInput = (j: CachedBackupJob): JobInput => ({
+  name: j.name,
+  archives: j.archives,
+  excludes: j.excludes,
+  store: j.store,
+  ns: j.ns,
+  backupId: j.backupId,
+  schedule: j.schedule,
+  connectEveryDays: j.connectEveryDays,
+  timezone: j.timezone,
+  enabled: j.enabled,
+  kind: jobKind(j),
+  database: jobDatabase(j),
+});
+
 async function changed(hostId: ObjectId) {
   await refreshManaged();
   await syncHost(hostId);
@@ -87,7 +155,9 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       ...clientState(host.capabilities),
       credential: host.pbsCredential ? { tokenId: host.pbsCredential.tokenId, updatedAt: host.pbsCredential.updatedAt, store: host.pbsCredential.store ?? null } : null,
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
-      pbsReady: pbs.enabled && !!pbs.url,
+      pbsReady: pbsConnected(pbs),
+      // jobs entered by hand before the main PBS was disconnected, to restore or drop (shown once it is back)
+      cache: host.backupCache?.jobs.length ? { at: host.backupCache.at, jobs: host.backupCache.jobs.map((j) => jobView({ ...j, hostId: host._id, lastRun: null, plugin: null })) } : null,
       // the agent of the PBS creates the token of the host
       pbsAgent: !!pbs.agent,
       datastores: (pbs.datastores ?? []).map((d) => d.store),
@@ -102,6 +172,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       // Nextcloud AIO plugin shown (BACKUP_NEXTCLOUD_AIO), and settings of this host
       nextcloudPlugin: config.backupNextcloudAio,
       nextcloudSettings: host.nextcloud ?? null,
+      // settings of before the disconnection of the main PBS (#190): restored from the dialog, prefilled
+      nextcloudPrevious: host.nextcloud ? null : (host.backupCache?.nextcloud ?? null),
       jobs: list.map(jobView),
     };
   });
@@ -132,11 +204,21 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     },
   );
 
-  // the hub forgets the token (it stays on the PBS)
+  // the token is revoked on the PBS by its agent (its rights, the token, the user left without token)
   app.delete<{ Params: { id: string } }>('/api/hosts/:id/pbs-credential', async (req, reply) => {
     const _id = parseId(req.params.id);
     const host = _id && (await hosts.findOne({ _id }));
     if (!host) return reply.code(404).send({ error: 'host not found' });
+    if (host.pbsCredential) {
+      const pbs = await loadPbsSettings();
+      if (!pbs.agent) return reply.code(409).send({ error: "agent du PBS non configuré : relier le PBS à son agent dans Paramètres › Sauvegardes" });
+      try {
+        await deletePbsToken(pbs.agent, host.pbsCredential.tokenId);
+      } catch (err) {
+        if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+        throw err;
+      }
+    }
     await hosts.updateOne({ _id }, { $unset: { pbsCredential: '' } });
     await changed(_id);
     return { ok: true };
@@ -149,42 +231,63 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const _id = parseId(req.params.id);
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
-      if (!clientState(host.capabilities).mode) return reply.code(409).send({ error: "client PBS absent sur cet hôte : l'installer d'abord" });
-      const pbs = await loadPbsSettings();
-      // namespace and time zone are fixed: Hosts, and the time zone of the hub (TZ)
-      const body = { ...normInput(req.body, req.body.kind ?? 'directories'), ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE };
-      const err = checkJob(body, true);
-      if (err) return reply.code(400).send({ error: err });
-      const refused = databaseRefused(host, body.kind);
-      if (refused) return reply.code(409).send({ error: refused });
-      const conflict = await groupConflict(_id, body.store, body.ns, body.backupId!);
-      if (conflict) return reply.code(409).send({ error: conflict });
-      const now = new Date();
-      const doc = {
-        _id: new ObjectId(),
-        hostId: _id,
-        name: body.name.trim(),
-        archives: body.archives,
-        excludes: body.excludes,
-        store: body.store,
-        ns: body.ns,
-        backupId: body.backupId!,
-        schedule: body.schedule.trim(),
-        ...(body.connectEveryDays ? { connectEveryDays: body.connectEveryDays } : {}),
-        timezone: body.timezone,
-        enabled: body.enabled,
-        kind: body.kind,
-        database: body.database,
-        createdAt: now,
-        updatedAt: now,
-        lastRun: null,
-      };
+      const p = await prepareJob(host, req.body);
+      if (!p.body) return reply.code(p.code).send({ error: p.error });
+      const doc = jobDoc(_id, p.body);
       await backupJobs.insertOne(doc);
       await changed(_id);
       reply.code(201);
       return jobView(doc);
     },
   );
+
+  // A job of the cache restored (#190): checked as a new one, with its id of before (its history and its
+  // group follow), the token of the host created again first. POST: as it was; PUT: changed in its form
+  // (the cached one refused: datastore gone, group taken…, answered with edit: the form is to open).
+  const restore = async (req: FastifyRequest<{ Params: { id: string; jobId: string }; Body?: JobInput }>, reply: FastifyReply) => {
+    const _id = parseId(req.params.id);
+    const host = _id && (await hosts.findOne({ _id }));
+    if (!host) return reply.code(404).send({ error: 'host not found' });
+    const cached = host.backupCache?.jobs.find((j) => j._id.toHexString() === req.params.jobId);
+    if (!cached) return reply.code(404).send({ error: 'job absent du cache' });
+    const pbs = await loadPbsSettings();
+    if (!pbsConnected(pbs)) return reply.code(409).send({ error: 'PBS principal non connecté' });
+    const input = req.body ?? cachedInput(cached);
+    if (!(pbs.datastores ?? []).some((d) => d.store === input.store)) return reply.code(409).send({ error: `datastore ${input.store} absent du PBS : en choisir un autre`, edit: true });
+    const p = await prepareJob(host, input);
+    if (!p.body) return reply.code(p.code).send({ error: p.error, ...(p.edit ? { edit: true } : {}) });
+    try {
+      await restoreCredential(host, pbs);
+    } catch (err) {
+      if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    const doc = jobDoc(_id, p.body, (await backupJobs.findOne({ _id: cached._id })) ? new ObjectId() : cached._id, cached.createdAt);
+    await backupJobs.insertOne(doc);
+    await hosts.updateOne({ _id }, { $pull: { 'backupCache.jobs': { _id: cached._id } } });
+    await dropEmptyCache(_id);
+    await changed(_id);
+    reply.code(201);
+    return jobView(doc);
+  };
+  app.post<{ Params: { id: string; jobId: string } }>('/api/hosts/:id/backup-cache/jobs/:jobId', restore);
+  app.put<{ Params: { id: string; jobId: string }; Body: JobInput }>(
+    '/api/hosts/:id/backup-cache/jobs/:jobId',
+    { schema: { body: { type: 'object', additionalProperties: false, required: [...required, 'backupId'], properties: jobProps } } },
+    restore,
+  );
+
+  // A job of the cache dropped (no confirmation: only the cache).
+  app.delete<{ Params: { id: string; jobId: string } }>('/api/hosts/:id/backup-cache/jobs/:jobId', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    const jobId = parseId(req.params.jobId);
+    if (!_id || !jobId) return reply.code(404).send({ error: 'job absent du cache' });
+    const r = await hosts.updateOne({ _id }, { $pull: { 'backupCache.jobs': { _id: jobId } } });
+    if (!r.modifiedCount) return reply.code(404).send({ error: 'job absent du cache' });
+    await dropEmptyCache(_id);
+    publish('backups', {});
+    return reply.code(204).send();
+  });
 
   // The backup id (group on the PBS) is fixed: a new one would start a new history.
   app.put<{ Params: { jobId: string }; Body: JobInput }>(

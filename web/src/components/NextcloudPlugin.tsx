@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { AlertTriangle, History, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import { api, type Host, type NextcloudDiscovery, type NextcloudSettings } from '../lib/api';
 import { formatBytes, keepText } from '../lib/backups';
 import { keys } from '../lib/queries';
@@ -23,6 +23,8 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // settings of before the disconnection of the PBS, prefilled: what could not be taken again
+  const [restoreNotes, setRestoreNotes] = useState<string[] | null>(null);
 
   const discover = async (workDir?: string) => {
     setLoading(true);
@@ -43,9 +45,31 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
     if (!open || !view) return;
     let gone = false;
     (async () => {
-      const s = view.nextcloudSettings;
+      const previous = !view.nextcloudSettings ? view.nextcloudPrevious : null;
+      const s = view.nextcloudSettings ?? previous;
       const d = await discover(s?.workDir);
       if (gone) return;
+      if (previous) {
+        // recalibrated on the instance and the datastores of now
+        const known = (st: string | null) => (st && view.datastores.includes(st) ? st : null);
+        const notes = [
+          ...previous.users.filter((x) => d && !d.users.some((u) => u.id === x.id)).map((x) => `utilisateur ${x.id} disparu de Nextcloud : retiré`),
+          ...[previous.database, previous.config, ...previous.users.map((u) => u.store)]
+            .filter((st, i, all): st is string => !!st && !view.datastores.includes(st) && all.indexOf(st) === i)
+            .map((st) => `datastore ${st} absent du PBS : à choisir à nouveau`),
+        ];
+        setRestoreNotes(notes);
+        setForm({
+          workDir: previous.workDir,
+          keep: previous.keep,
+          schedule: previous.schedule,
+          enabled: previous.enabled,
+          database: known(previous.database),
+          config: known(previous.config),
+          users: previous.users.filter((x) => (!d || d.users.some((u) => u.id === x.id)) && known(x.store)),
+        });
+        return;
+      }
       setForm({
         workDir: s?.workDir ?? (d?.composeFiles[0] ? `${d.composeFiles[0].replace(/\/[^/]+$/, '')}/backup-homelab` : ''),
         keep: s?.keep ?? 1,
@@ -67,7 +91,22 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
   const close = () => {
     setForm(null);
     setDisco(null);
+    setRestoreNotes(null);
     onClose();
+  };
+
+  // the settings of before the disconnection forgotten (only the cache: direct)
+  const forget = async () => {
+    setBusy(true);
+    try {
+      await api.dropCachedNextcloud(host.id);
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+      close();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const d = disco?.result;
@@ -131,6 +170,11 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
           {view?.nextcloudSettings && (
             <Button variant="ghost" icon={Trash2} className="mr-auto" onClick={() => setRemoving(true)}>Supprimer le plugin</Button>
           )}
+          {restoreNotes && (
+            <Button variant="ghost" icon={X} className="mr-auto" disabled={busy} onClick={() => void forget()} title="Oublier la configuration d’avant la déconnexion du PBS">
+              Oublier cette configuration
+            </Button>
+          )}
           <Button onClick={close}>Annuler</Button>
           <Button variant="primary" icon={Save} loading={busy} disabled={!form || !d || !host.online} onClick={save}>Enregistrer</Button>
         </>
@@ -149,6 +193,20 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
         </div>
       ) : d && form ? (
         <div className="space-y-5">
+          {restoreNotes && (
+            <div className="rounded-md border border-dashed border-amber-500/50 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200">
+              <p className="flex items-center gap-2 font-medium">
+                <History className="h-4 w-4 shrink-0" /> Configuration d’avant la déconnexion du PBS : vérifier puis Enregistrer pour la restaurer.
+              </p>
+              {restoreNotes.length > 0 && (
+                <ul className="mt-1 list-disc pl-6">
+                  {restoreNotes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <p className="text-xs text-muted">
             Nextcloud {d.version} · base <span className="font-mono">{d.database}</span> ({d.dbSize < 0 ? '?' : formatBytes(d.dbSize)}) · données{' '}
             <span className="font-mono">{d.dataDir}</span> · {d.dbTools}

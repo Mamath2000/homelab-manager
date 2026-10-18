@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { DatabaseBackup, Pencil, Plug, Save } from 'lucide-react';
+import { DatabaseBackup, Pencil, Plug, Save, Unplug } from 'lucide-react';
 import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
 import { useToast } from '../lib/toast';
 import { ServerRow } from './ProxmoxServer';
@@ -8,6 +8,7 @@ import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDial
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
+import { PbsDisconnectModal } from './PbsDisconnect';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pbs!monitor';
@@ -23,7 +24,6 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
   const qc = useQueryClient();
   const toast = useToast();
   const [initial] = useState<PbsSettingsInput>(() => ({
-    enabled: data.enabled,
     url: data.url,
     fingerprint: data.fingerprint,
     ...(data.agent ? { agent: data.agent } : {}),
@@ -50,7 +50,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     try {
       qc.setQueryData(['settings', 'pbs'], await api.savePbsSettings(form));
       qc.invalidateQueries({ queryKey: ['backups'] });
-      toast.success(form.enabled ? 'Enregistré : relevé du PBS en cours' : 'Enregistré');
+      toast.success(saved.hasSecret ? 'Enregistré : relevé du PBS en cours' : 'Enregistré');
       onClose();
       return true;
     } catch (err) {
@@ -86,10 +86,6 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
         footer={
           <>
             <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
-                <span>Suivre les sauvegardes du PBS</span>
-              </label>
               <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Image Docker du client PBS, pour les hôtes sans client installé">
                 <span className="shrink-0">Image du client</span>
                 <input className="input h-8 w-60 py-1 font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />
@@ -193,6 +189,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
 export function BackupSettings() {
   const { data } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
   const [editing, setEditing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   return (
     <Panel title="Proxmox Backup Server" icon={DatabaseBackup} actions={data && <Button size="sm" icon={Pencil} onClick={() => setEditing(true)}>{data.url ? 'Modifier' : 'Configurer'}</Button>}>
       <p className="mb-4 text-sm text-muted">
@@ -208,14 +205,18 @@ export function BackupSettings() {
           <ServerRow
             name="Proxmox Backup Server"
             url={data.url}
-            enabled={data.enabled}
+            connected={data.connected}
             polledAt={data.polledAt}
             pollError={data.pollError}
             details={data.tokenId ? `jeton ${data.tokenId}` : 'aucun jeton'}
+            onRemove={() => setDisconnecting(true)}
+            removeTitle="Déconnecter"
+            removeIcon={Unplug}
           />
         </ul>
       )}
       {data && editing && <PbsModal data={data} open onClose={() => setEditing(false)} />}
+      {disconnecting && <PbsDisconnectModal open onClose={() => setDisconnecting(false)} />}
     </Panel>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plug, Save, ServerCog } from 'lucide-react';
+import { Pencil, Plug, Save, ServerCog, Unplug } from 'lucide-react';
 import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
 import { formatBytes, seriesRule } from '../lib/backups';
 import { dateTime } from '../lib/format';
@@ -10,6 +10,7 @@ import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDial
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
+import { PbsDisconnectModal } from './PbsDisconnect';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
 const DEFAULT_HUB_TOKEN = 'homelab@pbs!hub';
@@ -19,7 +20,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
   const qc = useQueryClient();
   const toast = useToast();
   const { data: main } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
-  const [initial] = useState<PbsRemoteInput>(() => ({ enabled: data.enabled, url: data.url, fingerprint: data.fingerprint, ...(data.agent ? { agent: data.agent } : {}), startTime: data.startTime }));
+  const [initial] = useState<PbsRemoteInput>(() => ({ url: data.url, fingerprint: data.fingerprint, ...(data.agent ? { agent: data.agent } : {}), startTime: data.startTime }));
   const [form, setForm] = useState<PbsRemoteInput>(initial);
   // tokens: saved as soon as the agents created them, apart from the form
   const [saved, setSaved] = useState(data);
@@ -46,9 +47,10 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
   const save = async () => {
     setBusy('save');
     try {
-      qc.setQueryData(['settings', 'pbs-remote'], await api.savePbsRemoteSettings(form));
+      const next = await api.savePbsRemoteSettings(form);
+      qc.setQueryData(['settings', 'pbs-remote'], next);
       qc.invalidateQueries({ queryKey: ['backups'] });
-      toast.success(form.enabled ? 'Enregistré : relevé du PBS de secours en cours' : 'Enregistré');
+      toast.success(next.connected ? 'Enregistré : relevé du PBS de secours en cours' : 'Enregistré');
       onClose();
       return true;
     } catch (err) {
@@ -86,15 +88,11 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
       <Modal
         open={open}
         onClose={requestClose}
-        wide="screen" low tall
+        wide="screen" low
         title="PBS de secours"
         footer={
           <>
             <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
-                <span>Copier les sauvegardes choisies vers ce PBS</span>
-              </label>
               <label
                 className="flex items-center gap-2 text-xs text-muted"
                 title="Chaque jour à cette heure, l’agent du PBS de secours lance les jobs de copie l’un après l’autre (un par datastore et namespace copié) ; les copies continuent quand le hub est arrêté. Seuls les snapshots vérifiés sont copiés : laisser aux sauvegardes du PBS principal le temps de finir et d’être vérifiées."
@@ -241,6 +239,7 @@ function SeriesStatus({ data }: { data: PbsRemoteSettings }) {
 export function OffsiteSettings() {
   const { data } = useQuery({ queryKey: ['settings', 'pbs-remote'], queryFn: api.pbsRemoteSettings });
   const [editing, setEditing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const usage = data?.usage;
   return (
     <Panel title="PBS de secours (copie déportée)" icon={ServerCog} actions={data && <Button size="sm" icon={Pencil} onClick={() => setEditing(true)}>{data.url ? 'Modifier' : 'Configurer'}</Button>}>
@@ -258,15 +257,19 @@ export function OffsiteSettings() {
             name="PBS de secours"
             tag={data.store || undefined}
             url={data.url}
-            enabled={data.enabled}
+            connected={data.connected}
             polledAt={data.polledAt}
             pollError={data.pollError}
             details={usage ? `${formatBytes(usage.avail)} libres sur ${formatBytes(usage.total)}` : data.tokenId ? `jeton ${data.tokenId}` : 'aucun jeton'}
+            onRemove={() => setDisconnecting(true)}
+            removeTitle="Déconnecter"
+            removeIcon={Unplug}
           />
         </ul>
       )}
-      {data?.url && data.enabled && <SeriesStatus data={data} />}
+      {data?.connected && <SeriesStatus data={data} />}
       {data && editing && <RemoteModal data={data} open onClose={() => setEditing(false)} />}
+      {data && disconnecting && <PbsDisconnectModal open remote={data} onClose={() => setDisconnecting(false)} />}
     </Panel>
   );
 }

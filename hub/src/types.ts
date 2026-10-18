@@ -169,6 +169,8 @@ export interface HostDoc {
   backupSync?: { hash: string; at: Date; error?: string | null };
   // Nextcloud AIO plugin of this host (nextcloud.ts): what its generated backup jobs back up
   nextcloud?: NextcloudPlugin | null;
+  // backup settings kept when the main PBS was disconnected (disconnect.ts), offered again once it is back
+  backupCache?: BackupCache | null;
 }
 
 // Settings of the Nextcloud AIO plugin of a host: one datastore per part backed up (null: not backed up).
@@ -184,6 +186,18 @@ export interface NextcloudPlugin {
   dataDir: string;
   updatedAt: Date;
 }
+
+// What a host had before the main PBS was disconnected: its jobs entered by hand (each one restored or
+// dropped from the host page), the settings of the Nextcloud plugin (restored from its dialog) and the id
+// of its token, created again with the same id (the groups it wrote stay its own).
+export interface BackupCache {
+  at: Date;
+  tokenId?: string;
+  jobs: CachedBackupJob[];
+  nextcloud?: NextcloudPlugin | null;
+}
+
+export type CachedBackupJob = Omit<BackupJobDoc, 'hostId' | 'lastRun' | 'plugin'>;
 
 export interface HostPveLink {
   cluster: string;
@@ -398,7 +412,6 @@ export interface PbsAgentLink {
 
 export interface PbsSettings {
   _id: 'pbs';
-  enabled: boolean;
   // agent that creates the tokens on this PBS (all of them: monitoring, hosts)
   agent?: PbsAgentLink;
   url: string; // https://pbs:8007
@@ -478,7 +491,6 @@ export interface BackupOffsite {
 // Secondary PBS (settings._id 'pbs-remote'): pulls from the main PBS the groups chosen one by one.
 export interface PbsRemoteSettings {
   _id: 'pbs-remote';
-  enabled: boolean;
   agent?: PbsAgentLink;
   url: string;
   fingerprint: string;
@@ -529,7 +541,6 @@ export interface PveCluster {
   fingerprint: string;
   tokenId: string; // user@realm!token
   tokenSecret: string;
-  enabled: boolean;
   agent?: { hostId: string }; // node whose agent created the token (pveAgent.ts)
   // filled by the poll
   timezone?: string; // of the nodes: the schedules are wall-clock times of it

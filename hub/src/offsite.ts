@@ -30,7 +30,6 @@ export const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const DEFAULT_REMOTE: PbsRemoteSettings = {
   _id: 'pbs-remote',
-  enabled: false,
   url: '',
   fingerprint: '',
   store: '',
@@ -47,7 +46,7 @@ export async function loadRemoteSettings(): Promise<PbsRemoteSettings> {
 export const startOf = (r: Pick<PbsRemoteSettings, 'startTime'>) => (r.startTime && HHMM_RE.test(r.startTime) ? r.startTime : DEFAULT_START);
 
 // the secondary can be used: address, token of the hub, target datastore, reader token
-export const remoteReady = (r: PbsRemoteSettings) => !!(r.enabled && r.url && r.store && r.tokenId && r.tokenSecret && r.readerTokenId && r.readerTokenSecret);
+export const remoteReady = (r: PbsRemoteSettings) => !!(r.url && r.store && r.tokenId && r.tokenSecret && r.readerTokenId && r.readerTokenSecret);
 
 const ROLE = 'DatastoreBackup + DatastoreAudit sur le datastore cible et RemoteAdmin sur /remote';
 const call = <T>(r: PbsRemoteSettings, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown) => pbsCall<T>(r, method, path, body, ROLE);
@@ -285,6 +284,22 @@ export async function syncOffsiteAgent(force = false) {
   const spec = offsiteSpec(r, await enabledGroups());
   if (!force && spec.hash === r.agentAck) return false;
   return sendToAgent(host._id.toHexString(), { type: 'offsite_sync', offsite: spec });
+}
+
+// Disconnection of the secondary (disconnect.ts), r being its settings read before: the agent empties its
+// series, then the hlm-* sync jobs and the remote entry of the hub go. The copies stay on the secondary.
+export async function clearSecondary(r: PbsRemoteSettings) {
+  const host = await seriesHost(r);
+  if (host && isOnline(host._id.toHexString())) sendToAgent(host._id.toHexString(), { type: 'offsite_sync', offsite: offsiteSpec({ ...r, tokenSecret: '' }, []) });
+  if (!r.url || !r.tokenSecret) return { syncJobs: 0, remote: false };
+  const existing = await call<Partial<SyncJobConfig>[]>(r, 'GET', '/config/sync');
+  const mine = existing.map((e) => e.id).filter((id): id is string => !!id?.startsWith(JOB_PREFIX));
+  for (const id of mine) await call(r, 'DELETE', `/config/sync/${id}`);
+  const remote = await call(r, 'DELETE', `/config/remote/${REMOTE_NAME}`).then(
+    () => true,
+    (err: Error) => (/HTTP 404|HTTP 400/.test(err.message) ? false : Promise.reject(err)),
+  );
+  return { syncJobs: mine.length, remote };
 }
 
 export async function onOffsiteHello(hostId: ObjectId) {

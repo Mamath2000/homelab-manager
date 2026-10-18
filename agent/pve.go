@@ -316,8 +316,14 @@ func ensurePveToken(ctx context.Context, run pveRun, s *PveTokenSpec) (res *PveT
 	return res, nil
 }
 
-// prunePveTokenACLs removes the rights of the token whose "path role" is not in want.
+// prunePveTokenACLs removes the rights of the token whose "path role" is not in want (nil: all of them).
 func prunePveTokenACLs(ctx context.Context, run pveRun, id string, want map[string]bool) ([]string, error) {
+	return prunePveACLs(ctx, run, "token", id, want)
+}
+
+// prunePveACLs: same for a token (typ "token") or a user (typ "user").
+func prunePveACLs(ctx context.Context, run pveRun, typ, id string, want map[string]bool) ([]string, error) {
+	flag := map[string]string{"token": "--tokens", "user": "--users"}[typ]
 	out, err := run(ctx, "pveum", "acl", "list", "--output-format", "json")
 	if err != nil {
 		return nil, err
@@ -333,13 +339,67 @@ func prunePveTokenACLs(ctx context.Context, run pveRun, id string, want map[stri
 	}
 	var removed []string
 	for _, a := range list {
-		if a.Type != "token" || a.UGID != id || want[a.Path+" "+a.RoleID] {
+		if a.Type != typ || a.UGID != id || want[a.Path+" "+a.RoleID] {
 			continue
 		}
-		if _, err := run(ctx, "pveum", "acl", "delete", a.Path, "--roles", a.RoleID, "--tokens", id); err != nil {
+		if _, err := run(ctx, "pveum", "acl", "delete", a.Path, "--roles", a.RoleID, flag, id); err != nil {
 			return nil, err
 		}
 		removed = append(removed, a.RoleID+" on "+a.Path)
 	}
 	return removed, nil
+}
+
+// deletePveToken revokes the token of the hub: its rights, the token, then the user and its rights when
+// it carries no other token. A token or a user already gone is not an error.
+func deletePveToken(ctx context.Context, run pveRun, s *PveTokenSpec) (*TokenDeleteResult, error) {
+	if s == nil {
+		return nil, fmt.Errorf("missing token spec")
+	}
+	if !pveUserRe.MatchString(s.User) {
+		return nil, fmt.Errorf("invalid user %q (name@pve)", s.User)
+	}
+	if !pbsTokenRe.MatchString(s.Token) {
+		return nil, fmt.Errorf("invalid token name %q", s.Token)
+	}
+	id := s.User + "!" + s.Token
+	res := &TokenDeleteResult{TokenID: id}
+	known, err := pveListed(ctx, run, "userid", s.User, "user", "list")
+	if err != nil || !known {
+		return res, err
+	}
+	if res.Removed, err = prunePveTokenACLs(ctx, run, id, nil); err != nil {
+		return nil, err
+	}
+	exists, err := pveListed(ctx, run, "tokenid", s.Token, "user", "token", "list", s.User)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		if _, err := run(ctx, "pveum", "user", "token", "remove", s.User, s.Token); err != nil {
+			return nil, err
+		}
+		res.Deleted = true
+	}
+	out, err := run(ctx, "pveum", "user", "token", "list", s.User, "--output-format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var left []json.RawMessage
+	if err := json.Unmarshal([]byte(out), &left); err != nil {
+		return nil, err
+	}
+	if len(left) > 0 {
+		return res, nil
+	}
+	removed, err := prunePveACLs(ctx, run, "user", s.User, nil)
+	if err != nil {
+		return nil, err
+	}
+	res.Removed = append(res.Removed, removed...)
+	if _, err := run(ctx, "pveum", "user", "delete", s.User); err != nil {
+		return nil, err
+	}
+	res.UserDeleted = true
+	return res, nil
 }

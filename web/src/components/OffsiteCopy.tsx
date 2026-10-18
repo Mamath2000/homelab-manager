@@ -336,7 +336,7 @@ export function OffsiteCell({ g }: { g: BackupGroup }) {
 // daily series of the secondary. One snapshot per run, the last verified one (hub TRANSFER_LAST).
 export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGroup | undefined; remote: BackupsView['offsite']; value: OffsiteForm; onChange: (f: OffsiteForm) => void }) {
   const field = 'mb-1.5 block text-xs font-medium text-muted';
-  if (!remote) return <p className="text-sm text-muted">PBS de secours non configuré ou désactivé (Paramètres › Sauvegardes).</p>;
+  if (!remote) return <p className="text-sm text-muted">Aucun PBS de secours connecté (Paramètres › Sauvegardes).</p>;
   const why = !g ? 'sauvegarde pas encore écrite sur le PBS' : offsiteNotCopiable(g);
   if (why || !g) return <p className="text-sm text-muted">Copie impossible pour l’instant : {why}. Elle se règle une fois la première sauvegarde faite.</p>;
   const set = (patch: Partial<OffsiteForm>) => onChange({ ...value, ...patch });

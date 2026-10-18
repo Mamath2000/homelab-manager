@@ -8,7 +8,7 @@ import { evaluateAll } from '../monitoring.js';
 import { config } from '../config.js';
 import { isUnmanaged } from '../docker.js';
 import { backups, hosts } from '../db.js';
-import { backupState, loadPbsSettings } from '../pbs.js';
+import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import type { HomeAssistantSettings } from '../types.js';
@@ -280,10 +280,9 @@ export function testConnection(broker: string, username: string, password: strin
   });
 }
 
-// Backup groups and datastores for the discovery; undefined when the PBS is not followed.
+// Backup groups and datastores for the discovery: without PBS, the backups of Home Assistant only.
 async function backupsForHa() {
   const s = await loadPbsSettings();
-  if (!s.enabled) return undefined;
   const list = await backups.find().toArray();
   return {
     groups: list.map((b) => ({
@@ -295,6 +294,6 @@ async function backupsForHa() {
       state: backupState(b),
       lastBackup: b.lastBackup,
     })),
-    datastores: s.datastores ?? [],
+    datastores: pbsConnected(s) ? (s.datastores ?? []) : [],
   };
 }

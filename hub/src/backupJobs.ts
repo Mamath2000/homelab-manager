@@ -415,13 +415,14 @@ export async function refreshManaged() {
 // Group a new job would write: refused when another job writes it, or when it already holds snapshots
 // made by something else (external, orphan, PVE image): two writers on one group would mix their
 // snapshots. A group pruned from the PBS (gone) is free again.
-export async function groupConflict(hostId: ObjectId, store: string, ns: string, backupId: string, exceptJob?: ObjectId) {
+export async function groupConflict(hostId: ObjectId, store: string, ns: string, backupId: string, exceptJob?: ObjectId, ownCache = false) {
   const key = groupKey(store, ns, 'host', backupId);
   const other = await backupJobs.findOne({ store, ns, backupId, ...(exceptJob ? { _id: { $ne: exceptJob } } : {}) });
   if (other) return 'un autre job écrit déjà ce groupe';
   const g = await backups.findOne({ _id: key });
   if (g?.hostId && !g.hostId.equals(hostId)) return 'ce groupe du PBS est rattaché à un autre hôte';
-  if (g && g.source !== 'managed' && !g.gone) return 'ce groupe existe déjà sur le PBS (sauvegarde externe) : choisis un autre identifiant';
+  // a group left by a job of this host, kept in its cache (job deleted, then restored), is not an external backup
+  if (g && g.source !== 'managed' && !g.gone && !ownCache) return 'ce groupe existe déjà sur le PBS (sauvegarde externe) : choisis un autre identifiant';
   return null;
 }
 

@@ -179,6 +179,8 @@ export function Backups() {
     { label: 'Échec / disparues', value: data.groups.filter((g) => g.state === 'failed' || g.state === 'task_failed' || g.state === 'gone').length },
   ];
   const filteredHost = hostFilter && hostList.find((h) => h.id === hostFilter);
+  // without PBS, the backups of Home Assistant and the Proxmox VE clusters are still shown
+  const shown = data.connected || data.groups.length > 0 || data.clusters.length > 0;
 
   return (
     <>
@@ -186,19 +188,21 @@ export function Backups() {
         icon={DatabaseBackup}
         title="Sauvegardes"
         actions={
-          data.enabled && (
+          shown && (
             <>
-              <Button icon={Unlink} onClick={() => setOrphans(true)} title="Sauvegardes du PBS rattachées à aucun hôte">
-                Orphelines ({data.orphans.length})
-              </Button>
+              {data.connected && (
+                <Button icon={Unlink} onClick={() => setOrphans(true)} title="Sauvegardes du PBS rattachées à aucun hôte">
+                  Orphelines ({data.orphans.length})
+                </Button>
+              )}
               {canWrite && <Button icon={RefreshCw} loading={refreshing} onClick={refresh}>Relever</Button>}
             </>
           )
         }
       >
-        {data.enabled && (
+        {shown && (
           <span className="text-xs text-muted">
-            Proxmox Backup Server · relevé {timeAgo(data.polledAt)}
+            {data.connected ? <>Proxmox Backup Server · relevé {timeAgo(data.polledAt)}</> : 'Aucun PBS connecté'}
             {data.clusters.map((c) => (
               <span key={c.id}> · PVE {c.name} {c.pollError ? <span className="text-red-400">en erreur</span> : `relevé ${timeAgo(c.polledAt)}`}</span>
             ))}
@@ -206,10 +210,10 @@ export function Backups() {
         )}
       </PageHeader>
 
-      {!data.enabled ? (
+      {!shown ? (
         <div className="panel">
-          <Empty icon={DatabaseBackup} title="Suivi des sauvegardes désactivé">
-            Renseigne l'adresse de ton Proxmox Backup Server et un jeton en lecture seule
+          <Empty icon={DatabaseBackup} title="Aucune sauvegarde suivie">
+            Connecte ton Proxmox Backup Server
             {canSettings ? <> dans <Link to="/settings?tab=backups" className="text-emerald-400 hover:underline">Paramètres › Sauvegardes</Link></> : ' (Paramètres › Sauvegardes, administrateur)'}.
           </Empty>
         </div>
@@ -435,7 +439,7 @@ export function Backups() {
           )}
         </>
       )}
-      {data.enabled && <OrphansModal data={data} open={orphans} onClose={() => setOrphans(false)} canManage={canManage} />}
+      {data.connected && <OrphansModal data={data} open={orphans} onClose={() => setOrphans(false)} canManage={canManage} />}
       {shownGroup && <SnapshotsModal group={shownGroup} open onClose={() => setHistory(null)} />}
       {canManage && editing && <BackupJobEditModal key={editing.jobId} host={editing.host} jobId={editing.jobId} tab={editing.tab} onClose={() => setEditing(null)} />}
     </>

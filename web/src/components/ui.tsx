@@ -225,7 +225,7 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
 // open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, wide, scroll, low, tall }: {
+export function Modal({ open, onClose, title, children, footer, wide, scroll, low }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -238,8 +238,6 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll, lo
   scroll?: boolean;
   // lower in the screen (18vh from the top instead of 12vh)
   low?: boolean;
-  // 'screen' only: taller than 16:9 (fixed height, up to 44rem) for a window with a lot to show
-  tall?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -253,17 +251,20 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll, lo
     };
   }, [open, onClose]);
   if (!open) return null;
+  // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
+  const top = wide === 'screen' ? (low ? '10vh' : '6vh') : low ? '18vh' : '12vh';
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}
-      style={{ paddingTop: low ? '18vh' : '12vh' }}
+      style={{ paddingTop: top }}
     >
       <div
         className={clsx(
           'panel w-full bg-panel shadow-2xl shadow-black/60',
           wide === 'xl' || wide === 'screen' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
           // 12vh on top, at most 70vh high: the window stays clear of the bottom of the screen
-          wide === 'screen' ? (tall ? 'flex h-[min(44rem,calc(82vh_-_2rem))] flex-col' : 'flex aspect-video max-h-[80vh] flex-col') : scroll && 'flex max-h-[70vh] flex-col',
+          wide === 'screen' ? 'flex min-h-[20rem] flex-col' : scroll && 'flex max-h-[70vh] flex-col',
         )}
+        style={wide === 'screen' ? { maxHeight: `calc(100vh - ${top} - 2rem)` } : undefined}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">

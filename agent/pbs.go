@@ -385,7 +385,8 @@ func ensurePbsToken(ctx context.Context, run pbsRun, s *PbsTokenSpec) (res *PbsT
 	return res, nil
 }
 
-// prunePbsTokenACLs removes the rights of the token whose "path role" is not in want.
+// prunePbsTokenACLs removes the rights of the token (or user) id whose "path role" is not in want (nil:
+// all of them).
 func prunePbsTokenACLs(ctx context.Context, run pbsRun, id string, want map[string]bool) ([]string, error) {
 	out, err := run(ctx, "acl", "list", "--output-format", "json")
 	if err != nil {
@@ -410,6 +411,94 @@ func prunePbsTokenACLs(ctx context.Context, run pbsRun, id string, want map[stri
 		removed = append(removed, a.RoleID+" on "+a.Path)
 	}
 	return removed, nil
+}
+
+// TokenDeleteResult is the answer of pbs_token_delete / pve_token_delete. Deleted: the token was there
+// and is gone; UserDeleted: the user had no token left and was deleted too.
+type TokenDeleteResult struct {
+	TokenID     string   `json:"tokenId"`
+	Deleted     bool     `json:"deleted"`
+	UserDeleted bool     `json:"userDeleted,omitempty"`
+	Removed     []string `json:"removed,omitempty"` // rights removed with them
+}
+
+// validatePbsTokenRef: user, token and container of a token to delete (no rights).
+func validatePbsTokenRef(s *PbsTokenSpec) error {
+	if s == nil {
+		return fmt.Errorf("missing token spec")
+	}
+	if !pbsUserRe.MatchString(s.User) {
+		return fmt.Errorf("invalid user %q (name@pbs)", s.User)
+	}
+	if !pbsTokenRe.MatchString(s.Token) {
+		return fmt.Errorf("invalid token name %q", s.Token)
+	}
+	if s.Container != "" && !pbsContainerRe.MatchString(s.Container) {
+		return fmt.Errorf("invalid container name")
+	}
+	return nil
+}
+
+// deletePbsToken revokes a token of the hub: its rights, the token, then the user and its rights when it
+// carries no other token. Nothing else is touched (backups, groups and their owner stay). A token or a
+// user already gone is not an error.
+func deletePbsToken(ctx context.Context, run pbsRun, s *PbsTokenSpec) (*TokenDeleteResult, error) {
+	if err := validatePbsTokenRef(s); err != nil {
+		return nil, err
+	}
+	id := s.User + "!" + s.Token
+	res := &TokenDeleteResult{TokenID: id}
+	out, err := run(ctx, "user", "list", "--output-format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var users []struct {
+		UserID string `json:"userid"`
+	}
+	if err := json.Unmarshal([]byte(out), &users); err != nil {
+		return nil, err
+	}
+	known := false
+	for _, u := range users {
+		known = known || u.UserID == s.User
+	}
+	if !known {
+		return res, nil
+	}
+	if res.Removed, err = prunePbsTokenACLs(ctx, run, id, nil); err != nil {
+		return nil, err
+	}
+	exists, err := pbsTokenExists(ctx, run, s.User, s.Token)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		if _, err := run(ctx, "user", "delete-token", s.User, s.Token); err != nil {
+			return nil, err
+		}
+		res.Deleted = true
+	}
+	left, err := run(ctx, "user", "list-tokens", s.User, "--output-format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var tokens []json.RawMessage
+	if err := json.Unmarshal([]byte(left), &tokens); err != nil {
+		return nil, err
+	}
+	if len(tokens) > 0 {
+		return res, nil
+	}
+	removed, err := prunePbsTokenACLs(ctx, run, s.User, nil)
+	if err != nil {
+		return nil, err
+	}
+	res.Removed = append(res.Removed, removed...)
+	if _, err := run(ctx, "user", "remove", s.User); err != nil {
+		return nil, err
+	}
+	res.UserDeleted = true
+	return res, nil
 }
 
 func pbsContainerOf(s *PbsTokenSpec) string {

@@ -160,7 +160,6 @@ test('state of a copy: pending, ok, late, failed, from the verified snapshots of
 test('definition of the series for the agent of the secondary', () => {
   const r: PbsRemoteSettings = {
     _id: 'pbs-remote',
-    enabled: true,
     agent: { hostId: 'a'.repeat(24), mode: 'container', container: 'pbs' },
     url: 'https://192.168.2.101:8007',
     fingerprint: '',
@@ -183,8 +182,8 @@ test('definition of the series for the agent of the secondary', () => {
   assert.notEqual(t.hash, s.hash);
   assert.equal(t.start, '05:30');
   assert.equal(offsiteSpec({ ...r, startTime: 'nope' }, groups).start, '04:00');
-  // secondary disabled: no job, the agent empties its series
-  assert.deepEqual(offsiteSpec({ ...r, enabled: false }, groups).jobs, []);
+  // secondary not connected (being disconnected): no job, the agent empties its series
+  assert.deepEqual(offsiteSpec({ ...r, tokenSecret: '' }, groups).jobs, []);
   // native PBS: no container
   assert.equal(offsiteSpec({ ...r, agent: { hostId: 'a'.repeat(24), mode: 'native' } }, groups).container, '');
 });

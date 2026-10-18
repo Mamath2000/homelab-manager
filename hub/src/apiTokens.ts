@@ -26,6 +26,15 @@ export interface AgentTokenResult {
   removed?: string[] | null;
 }
 
+// What the agent answers to a revocation (pbs_token_delete / pve_token_delete): the token was there and is
+// gone, the user had no token left and went too, the rights removed with them.
+export interface AgentTokenDeleteResult {
+  tokenId: string;
+  deleted: boolean;
+  userDeleted?: boolean;
+  removed?: string[] | null;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // Secret of the token: the one the agent sent (new or rotated token), or the one the hub holds for this

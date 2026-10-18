@@ -20,7 +20,7 @@ Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur
 
 ## Mise en place
 
-Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : suivi et image du client pour le PBS principal, copie et heure de départ pour le PBS de secours, identifiant, nom et relevé pour un cluster Proxmox VE.
+Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : image du client pour le PBS principal, heure de départ des copies pour le PBS de secours, identifiant et nom pour un cluster Proxmox VE. Il n'y a pas de case « suivre » : un serveur déclaré avec son jeton est **connecté** et relevé ; pour l'arrêter, on le [déconnecte](#déconnecter-un-pbs-ou-un-cluster).
 
 Aucun jeton ne se recopie à la main ni ne se crée par une commande à coller : **l'agent** de l'hôte du PBS, ou d'un nœud du cluster Proxmox VE, les crée. Son enrôlement est le prérequis à toute configuration.
 
@@ -35,7 +35,7 @@ Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le 
 - Jeton **déjà existant** : ses droits sont remis à ceux décidés par le hub — les droits manquants sont ajoutés, ceux **du jeton** qui ne sont plus prévus lui sont retirés (ceux de l'utilisateur restent : il peut porter d'autres jetons du hub). Le secret d'un jeton n'est lisible qu'à sa création : si le hub détient celui de ce jeton, il le garde ; sinon (base perdue, jeton créé à la main, autre PBS sous le même nom), l'agent **supprime et recrée le jeton** — nouveau secret, l'ancien ne fonctionne plus. Le message de fin l'indique (« recréé »). Pour le jeton de supervision et celui du PBS de secours, un secret détenu pour un autre hôte (ou un autre conteneur) ne compte pas : changer l'hôte du PBS recrée le jeton.
 - Si la création échoue après celle du jeton (droit refusé, PBS qui ne répond plus), l'agent supprime le jeton : un nouvel essai repart de zéro.
 - L'agent n'accepte que les rôles et chemins prévus (`DatastoreAudit`, `DatastoreBackup`, `DatastoreReader` sous `/datastore`, `RemoteAdmin` sous `/remote`), jamais `/`.
-- L'agent du PBS doit être à jour (capacité « pbs ») et en ligne.
+- L'agent du PBS doit être à jour (capacité « pbs ») et en ligne ; pour révoquer un jeton (déconnexion, retrait du jeton d'un hôte), capacité « pbs_token_delete ».
 
 :::note PBS en conteneur
 Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backup-server`. Si le conteneur est en `network_mode: host`, le port est celui sur lequel le PBS écoute, lu par l'agent (`ss`, 8007 à défaut) ; sinon, le port publié pour 8007. Un conteneur renommé ou recréé sous un autre nom : refaire **Détecter**.
@@ -102,7 +102,7 @@ Toutes les 15 minutes, le hub lit pour chaque cluster :
 - les dernières tâches vzdump de chaque nœud, et le résultat de chaque guest (lu dans le journal quand une tâche sauvegarde plusieurs guests) ;
 - le fuseau horaire des nœuds : les planifications sont des heures de ce fuseau.
 
-**Retirer** un cluster supprime ses guests, leurs liens et le rattachement automatique de leurs sauvegardes (les snapshots restent sur le PBS, orphelins).
+**Retirer** un cluster (confirmation) révoque d'abord son jeton par l'agent du nœud relié, puis supprime ses guests, leurs liens et le rattachement automatique de leurs sauvegardes (les snapshots restent sur le PBS, orphelins). Voir [Déconnecter un PBS ou un cluster](#déconnecter-un-pbs-ou-un-cluster).
 
 ## Copie déportée (PBS de secours)
 
@@ -115,7 +115,7 @@ Paramètres › Sauvegardes › **PBS de secours (copie déportée)** :
 1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse et empreinte remplies par l'agent, datastores proposés.
 2. **Datastore cible**, puis **Créer le jeton** du hub sur le PBS de secours (droits sur ce datastore seulement).
 3. **Jeton lecteur sur le PBS principal**, créé par l'agent du PBS principal (qui doit donc être relié).
-4. **Tester la connexion** (datastore visible, namespaces existants), puis, en pied de fenêtre, cocher **Copier les sauvegardes choisies vers ce PBS**, régler le **départ des copies** quotidiennes (voir plus bas) et **Enregistrer**.
+4. **Tester la connexion** (datastore visible, namespaces existants), puis, en pied de fenêtre, régler le **départ des copies** quotidiennes (voir plus bas) et **Enregistrer**. Le PBS de secours est connecté dès que son adresse, son datastore cible et les deux jetons sont là.
 5. **Namespaces du datastore cible** : ceux des sauvegardes à copier doivent exister sur le PBS de secours, avec les mêmes noms que sur le PBS principal (`Hosts`, `Vouille`, `Jarsay`…), et le jeton du hub n'a pas le droit de les créer. Inutile de les préparer d'avance : dès qu'on active la copie d'une sauvegarde, l'interface vérifie et, s'il manque, donne la commande à copier dans un shell du PBS de secours (`proxmox-backup-client namespace create <ns> --repository root@pam@localhost:<datastore>`, parents d'abord), puis **Revérifier**.
 
 Le hub déclare lui-même sur le PBS de secours l'entrée **remote `hlm-main`** (adresse et empreinte du PBS principal, jeton lecteur) ; elle est réécrite quand l'adresse, l'empreinte ou le jeton lecteur changent.
@@ -184,6 +184,30 @@ Toutes les 15 minutes, et à la fin de chaque copie, le hub relève sur le PBS d
 | en échec | le dernier passage a échoué pour cette sauvegarde, ou le PBS de secours a refusé son job |
 
 « En échec » est une alerte, « en retard » un avertissement : ils s'ajoutent à ceux de la sauvegarde. Le détail d'une sauvegarde copiée donne aussi la prochaine série (« prochaine série dans 9 heures »), la copie en cours, ou l'agent hors ligne ou à mettre à jour.
+
+## Déconnecter un PBS ou un cluster
+
+Homelab Manager revient à un état **sans** ce serveur : il retire ce qu'il y a créé (ses jetons, l'utilisateur d'un jeton quand il n'en porte plus d'autre, et sur le PBS de secours ses sync jobs `hlm-*` et la remote `hlm-main`) et ses propres données. Il ne supprime **jamais** un snapshot, un groupe, un namespace ou un datastore. Chaque action passe par une confirmation qui liste ce qui part.
+
+Avant toute étape, le hub vérifie que chaque agent nécessaire est **en ligne et à jour** (capacités « pbs_token_delete », « pve_token_delete ») : sinon la déconnexion est refusée, rien n'est touché. Un jeton est révoqué par l'agent du serveur : ses droits, le jeton, puis l'utilisateur et ses droits s'il n'a plus de jeton (`homelab@pbs` porte à la fois `!monitor` et `!reader` sur le PBS principal).
+
+| Action | Où | Ce qui part |
+|---|---|---|
+| **Déconnecter le PBS principal** (icône débrancher) | Paramètres › Sauvegardes, ligne du PBS | le PBS de secours d'abord (il tire du principal, ligne suivante) ; les agents des hôtes reçoivent une définition vide et arrêtent leurs sauvegardes ; les jetons des hôtes et `homelab@pbs!monitor` sont révoqués ; les réglages du PBS et les groupes relevés sont oubliés |
+| **Déconnecter le PBS de secours** | ligne du PBS de secours | la série quotidienne de son agent, les sync jobs `hlm-*`, la remote `hlm-main`, les jetons `homelab@pbs!hub` (secours) et `homelab@pbs!reader` (principal), ses réglages ; les copies restent sur le PBS de secours, les choix de copie des sauvegardes sont gardés |
+| **Retirer un cluster Proxmox VE** | ligne du cluster | son jeton (`homelab@pve!monitor`), révoqué par l'agent du nœud relié ; ses guests, leurs liens aux hôtes et le rattachement automatique de leurs sauvegardes (orphelines) |
+| **Retirer le jeton d'un hôte** | API seulement (`DELETE /api/hosts/:id/pbs-credential`) | ce jeton, révoqué sur le PBS (plus seulement oublié par le hub) |
+
+Sans PBS, la page Sauvegardes, la carte des hôtes, le tableau de bord et Home Assistant continuent d'afficher les **sauvegardes Home Assistant** (elles ne passent pas par le PBS) et les clusters Proxmox VE (guests, couverture par un job ; sans snapshots, ceux-ci étant lus sur le PBS).
+
+### Reconnexion : ce qui a été mis de côté
+
+La déconnexion du PBS principal met de côté, par hôte, ce qui avait été saisi à la main :
+
+- les **jobs de sauvegarde** créés depuis la carte Sauvegardes (répertoires, bases) : une fois un PBS connecté, ils apparaissent sur la carte de l'hôte, en **ambre et en pointillés** (« à restaurer »), avec deux icônes : **Valider** recrée le job (même identifiant, son historique suit) et le jeton de l'hôte, **Annuler** l'oublie. Si le job n'est plus valable tel quel (datastore absent, groupe pris), Valider ouvre son formulaire pré-rempli ;
+- les réglages du **plugin Nextcloud AIO** : le bouton Nextcloud passe en ambre ; sa fenêtre s'ouvre pré-remplie, recalée sur l'instance et les datastores du moment (utilisateur disparu retiré, datastore absent à choisir, chaque écart signalé) ; **Enregistrer** restaure, **Oublier cette configuration** l'abandonne. Les jobs générés par le plugin ne sont pas gardés : il les recrée.
+
+Le jeton d'un hôte est recréé avec **le même identifiant** qu'avant : le propriétaire d'un groupe PBS étant l'identifiant du jeton qui l'a écrit, l'hôte retrouve ses anciens groupes. Un autre identifiant ne pourrait plus y écrire (« owner check failed »).
 
 ## Lien hôte ↔ guest Proxmox
 

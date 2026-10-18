@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink } from 'lucide-react';
+import { AlertTriangle, Bot, Check, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink, X } from 'lucide-react';
 import { SnapshotsModal } from './BackupSnapshots';
-import { BackupJobEditModal, type JobTab, ManagedBackupsModal } from './ManagedBackups';
+import { BackupJobEditModal, CachedJobModal, type JobTab, ManagedBackupsModal } from './ManagedBackups';
 import { NextcloudPluginModal } from './NextcloudPlugin';
-import { api, type BackupGroup, type BackupOrphan, type Host } from '../lib/api';
+import { ApiError, api, type BackupGroup, type BackupJob, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, offsiteLane, timeline } from '../lib/backups';
 import { DetailPill } from './OffsiteCopy';
@@ -206,12 +206,16 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
   const [history, setHistory] = useState<string | null>(null);
   const [removing, setRemoving] = useState<BackupGroup | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [cacheBusy, setCacheBusy] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<BackupJob | null>(null);
   // agent able to run backups of its own (not the HAOS add-on)
   const agentBackups = backupClient(host.capabilities).supported;
   // what a new job needs: the PBS client and the token of the host
-  const { data: jobs } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!data?.enabled && canManage && agentBackups });
-  if (!data?.enabled) return null;
+  const { data: jobs } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!data?.connected && canManage && agentBackups });
+  if (!data) return null;
   const mine = data.groups.filter((g) => g.hostId === host.id).sort((a, b) => a.backupId.localeCompare(b.backupId));
+  // without PBS: the card only for the backups of Home Assistant of the host
+  if (!data.connected && !mine.length) return null;
 
   // backup job of the hub writing this group, run now
   const run = async (g: BackupGroup) => {
@@ -244,8 +248,36 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
     }
   };
 
+  // jobs kept when the main PBS was disconnected: restored as they were (direct), through their form when the
+  // hub refuses them as they are (edit), or dropped (only the cache: direct too)
+  const restore = async (j: BackupJob) => {
+    setCacheBusy(j.id);
+    try {
+      await api.restoreCachedJob(host.id, j.id);
+      toast.success(`Sauvegarde ${j.name} restaurée`);
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+      qc.invalidateQueries({ queryKey: keys.backups });
+    } catch (err) {
+      toast.error((err as Error).message);
+      if (err instanceof ApiError && err.data.edit) setRestoring(j);
+    } finally {
+      setCacheBusy(null);
+    }
+  };
+  const drop = async (j: BackupJob) => {
+    setCacheBusy(j.id);
+    try {
+      await api.dropCachedJob(host.id, j.id);
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setCacheBusy(null);
+    }
+  };
+
   // Nextcloud AIO plugin: hub with BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
-  const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings);
+  const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings || !!jobs.nextcloudPrevious);
   const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? "Installer d'abord le client PBS (bouton Agent)" : !jobs.credential ? "Renseigner d'abord l'accès au PBS (bouton Agent)" : null;
 
   const detach = async (g: BackupGroup) => {
@@ -275,7 +307,14 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                 Agent
               </Button>
               {nextcloudShown && (
-                <Button size="sm" icon={Cloud} disabled={!!addBlocked} onClick={() => setNextcloud(true)} title={addBlocked ?? 'Plugin Nextcloud AIO : base, configuration et données de chaque utilisateur'}>
+                <Button
+                  size="sm"
+                  icon={Cloud}
+                  disabled={!!addBlocked}
+                  onClick={() => setNextcloud(true)}
+                  className={clsx(jobs?.nextcloudPrevious && 'border-dashed !border-amber-500/60 !text-amber-200')}
+                  title={addBlocked ?? (jobs?.nextcloudPrevious ? 'Plugin Nextcloud AIO : configuration d’avant la déconnexion du PBS, à restaurer' : 'Plugin Nextcloud AIO : base, configuration et données de chaque utilisateur')}
+                >
                   Nextcloud
                 </Button>
               )}
@@ -293,6 +332,27 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {guestLabel(host.pve)} n'est couvert par aucun job de sauvegarde actif du cluster {host.pve.cluster}.
         </p>
+      )}
+      {canManage && jobs?.cache && (
+        <ul className="mb-3 space-y-1.5" title={`Mises de côté à la déconnexion du PBS (${dateTime(jobs.cache.at)})`}>
+          {jobs.cache.jobs.map((j) => (
+            <li key={j.id} className="flex items-center gap-2 rounded-md border border-dashed border-amber-500/50 bg-amber-500/[0.06] px-3 py-2">
+              <span className="min-w-0 truncate font-medium text-amber-100">{j.name}</span>
+              <Badge tone="warn">à restaurer</Badge>
+              <span className="min-w-0 truncate text-xs text-muted">
+                {j.store} › Hosts › {j.backupId} · {j.connectEveryDays ? `à la connexion, au plus tous les ${j.connectEveryDays} j` : j.schedule}
+                {!j.enabled && ' · désactivée'}
+              </span>
+              <IconGroup
+                className="ml-auto shrink-0"
+                actions={[
+                  { icon: Check, title: jobs.mode ? 'Valider : recréer cette sauvegarde (et le jeton de l’hôte)' : "Valider : installer d'abord le client PBS (bouton Agent)", disabled: !jobs.mode, loading: cacheBusy === j.id, onClick: () => void restore(j) },
+                  { icon: X, title: 'Annuler : oublier cette sauvegarde', danger: true, disabled: cacheBusy === j.id, onClick: () => void drop(j) },
+                ]}
+              />
+            </li>
+          ))}
+        </ul>
       )}
       {mine.length === 0 ? (
         <p className="text-sm text-muted">
@@ -376,6 +436,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
       <ManagedBackupsModal host={host} open={agent} onClose={() => setAgent(false)} />
       {canManage && <BackupJobEditModal host={host} jobId={editing} tab={editTab} onClose={() => setEditing(null)} />}
+      {canManage && restoring && <CachedJobModal host={host} job={restoring} onClose={() => setRestoring(null)} />}
       {canManage && nextcloudShown && <NextcloudPluginModal host={host} open={nextcloud} onClose={() => setNextcloud(false)} />}
       {(() => {
         // looked up at each render: follows the refreshes of the list

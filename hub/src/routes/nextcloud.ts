@@ -6,7 +6,9 @@ import { config } from '../config.js';
 import { backupJobs, hosts, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { checkPlugin, isPluginJob, planJobs, type NextcloudDiscovery, type PluginInput } from '../nextcloud.js';
-import { loadPbsSettings } from '../pbs.js';
+import { loadPbsSettings, pbsConnected } from '../pbs.js';
+import { PbsAgentError } from '../pbsAgent.js';
+import { dropEmptyCache, restoreCredential } from './backupJobs.js';
 import type { HostDoc } from '../types.js';
 
 const pluginProps = {
@@ -104,7 +106,9 @@ export function registerNextcloudRoutes(app: FastifyInstance) {
         if (e instanceof AgentRequestError) return reply.code(502).send({ error: e.message });
         throw e;
       }
-      const err = checkPlugin(p, d, ((await loadPbsSettings()).datastores ?? []).map((x) => x.store));
+      const pbs = await loadPbsSettings();
+      if (!pbsConnected(pbs)) return reply.code(409).send({ error: 'PBS principal non connecté' });
+      const err = checkPlugin(p, d, (pbs.datastores ?? []).map((x) => x.store));
       if (err) return reply.code(400).send({ error: err });
       const list = await backupJobs.find({ hostId: host._id }).toArray();
       const plan = planJobs(host._id, p, d, list, DEFAULT_TIMEZONE);
@@ -119,10 +123,18 @@ export function registerNextcloudRoutes(app: FastifyInstance) {
           if (conflict) return reply.code(409).send({ error: `${set.name} : ${conflict}` });
         }
       }
+      // after a reconnection: the token of the host created again with the id it had
+      try {
+        await restoreCredential(host, pbs);
+      } catch (e) {
+        if (e instanceof PbsAgentError) return reply.code(409).send({ error: e.message });
+        throw e;
+      }
       if (plan.create.length) await backupJobs.insertMany(plan.create);
       for (const { job, set } of plan.update) await backupJobs.updateOne({ _id: job._id }, { $set: set, $unset: { prepare: '' } });
       if (plan.remove.length) await backupJobs.deleteMany({ _id: { $in: plan.remove.map((j) => j._id) } });
-      await hosts.updateOne({ _id: host._id }, { $set: { nextcloud: { ...p, dataDir: d.dataDir, updatedAt: new Date() } } });
+      await hosts.updateOne({ _id: host._id }, { $set: { nextcloud: { ...p, dataDir: d.dataDir, updatedAt: new Date() } }, $unset: { 'backupCache.nextcloud': '' } });
+      await dropEmptyCache(host._id);
       await changed(host._id);
       return { created: plan.create.length, updated: plan.update.length, removed: plan.remove.length };
     },
@@ -136,5 +148,15 @@ export function registerNextcloudRoutes(app: FastifyInstance) {
     await hosts.updateOne({ _id: host._id }, { $unset: { nextcloud: '' } });
     await changed(host._id);
     return { removed: r.deletedCount };
+  });
+
+  // Settings of before the disconnection dropped (no confirmation: only the cache).
+  app.delete<{ Params: { id: string } }>('/api/hosts/:id/backup-cache/nextcloud', async (req, reply) => {
+    const host = await pluginHost(req.params.id, reply);
+    if (!host) return;
+    await hosts.updateOne({ _id: host._id }, { $unset: { 'backupCache.nextcloud': '' } });
+    await dropEmptyCache(host._id);
+    publish('backups', {});
+    return reply.code(204).send();
   });
 }

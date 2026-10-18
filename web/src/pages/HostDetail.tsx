@@ -213,7 +213,9 @@ function HostDetailPage({ id }: { id: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  const backupsOn = !!useBackups().data?.enabled;
+  const backupsData = useBackups().data;
+  // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
+  const backupsOn = !!backupsData && (backupsData.connected || backupsData.groups.length > 0 || backupsData.clusters.length > 0);
   const [deleting, setDeleting] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { backups, hosts, parseId, settings } from '../db.js';
+import { backupJobs, backups, hosts, parseId, settings } from '../db.js';
 import { isOnline, refreshAgent } from '../agents.js';
 import { publish } from '../events.js';
 import {
@@ -10,6 +10,7 @@ import {
   fetchFingerprint,
   loadPbsSettings,
   normalizeFingerprint,
+  pbsConnected,
   pbsGet,
   pollPbs,
 } from '../pbs.js';
@@ -17,19 +18,19 @@ import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, loadPveSettings, pollPve, pveGet } from
 import { validTimeZone } from '../calendar.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
-import { PveAgentError, detectPveOn, ensurePveToken } from '../pveAgent.js';
+import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
+import { disconnectMain, remoteConfigured } from '../disconnect.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView } from '../offsite.js';
 import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
 function settingsDto(s: PbsSettings) {
   const { _id, tokenSecret, ...rest } = s;
-  return { ...rest, hasSecret: !!tokenSecret };
+  return { ...rest, hasSecret: !!tokenSecret, connected: pbsConnected(s) };
 }
 
 // The token is not part of the form: only the agent of the PBS creates it (POST /api/settings/pbs/token).
 interface SettingsBody {
-  enabled: boolean;
   url: string;
   fingerprint: string;
   agent?: PbsAgentLink;
@@ -47,9 +48,8 @@ const agentLinkSchema = {
 const settingsBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['enabled', 'url', 'fingerprint'],
+  required: ['url', 'fingerprint'],
   properties: {
-    enabled: { type: 'boolean' },
     url: { type: 'string', maxLength: 256 },
     fingerprint: { type: 'string', maxLength: 128 },
     agent: agentLinkSchema,
@@ -77,7 +77,6 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
     if (bad) return bad;
     if (next.agent.mode === 'native') delete next.agent.container;
   }
-  if (next.enabled && (!next.url || !next.tokenId || !next.tokenSecret)) return "URL et jeton requis : créer le jeton avec l'agent du PBS";
   if (next.clientImage) next.clientImage = next.clientImage.trim();
   if (next.clientImage && !IMAGE_RE.test(next.clientImage)) return 'image du client invalide (dépôt/nom:tag)';
   return next;
@@ -91,7 +90,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     await settings.replaceOne({ _id: 'pbs' }, next, { upsert: true });
-    if (next.enabled) pollPbs(req.log).catch(() => {});
+    if (pbsConnected(next)) pollPbs(req.log).catch(() => {});
     else publish('backups', {});
     // server, fingerprint and image are part of the definition the agents run
     refreshManaged()
@@ -101,8 +100,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: SettingsBody }>('/api/settings/pbs/test', { schema: { body: settingsBody } }, async (req, reply) => {
-    const next = await resolve({ ...req.body, enabled: true });
+    const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
+    if (!next.url || !next.tokenSecret) return reply.code(400).send({ error: "URL et jeton requis : créer le jeton avec l'agent du PBS" });
     const probe = async (url: string) => {
       try {
         const stores = await pbsGet<{ store: string }[]>({ ...next, url }, '/admin/datastore');
@@ -163,11 +163,45 @@ export function registerBackupRoutes(app: FastifyInstance) {
       }
       await settings.updateOne({ _id: 'pbs' }, { $set: { agent, tokenId: t.tokenId, tokenSecret: t.tokenSecret } }, { upsert: true });
       req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PBS monitoring token set by the agent');
-      if (current.enabled) pollPbs(req.log).catch(() => {});
+      pollPbs(req.log).catch(() => {});
       publish('backups', {});
       return { settings: settingsDto(await loadPbsSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
+
+  // What a disconnection of the main PBS removes (its confirmation lists it).
+  app.get('/api/settings/pbs/disconnect', async () => {
+    const [s, r] = await Promise.all([loadPbsSettings(), loadRemoteSettings()]);
+    const withJobs = await backupJobs.distinct('hostId');
+    const list = await hosts
+      .find({ $or: [{ pbsCredential: { $exists: true } }, { nextcloud: { $ne: null } }, { _id: { $in: withJobs } }] }, { projection: { name: 1, pbsCredential: 1, nextcloud: 1 } })
+      .toArray();
+    return {
+      monitorToken: s.tokenId || null,
+      remote: remoteConfigured(r) ? { host: r.url ? new URL(r.url).hostname : null, tokenId: r.tokenId || null, readerTokenId: r.readerTokenId || null } : null,
+      hosts: await Promise.all(
+        list.map(async (h) => ({
+          name: h.name,
+          tokenId: h.pbsCredential?.tokenId ?? null,
+          jobs: await backupJobs.countDocuments({ hostId: h._id, 'plugin.name': { $ne: 'nextcloud' } }),
+          nextcloud: !!h.nextcloud,
+        })),
+      ),
+      groups: await backups.countDocuments({ source: { $ne: 'haos' } }),
+    };
+  });
+
+  // Disconnection of the main PBS, and of the secondary with it (disconnect.ts).
+  app.post('/api/settings/pbs/disconnect', async (req, reply) => {
+    const s = await loadPbsSettings();
+    if (!s.url && !s.tokenId) return reply.code(409).send({ error: 'aucun PBS principal configuré' });
+    try {
+      return await disconnectMain(req.log);
+    } catch (err) {
+      if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+  });
 
   // --- groups (every role reads)
   app.get('/api/backups', async () => {
@@ -179,11 +213,13 @@ export function registerBackupRoutes(app: FastifyInstance) {
       offsite: remoteReady(r)
         ? { host: new URL(r.url).hostname, store: r.store, polledAt: r.polledAt ?? null, pollError: r.pollError ?? null, usage: r.usage ?? null, series: await seriesView(r) }
         : null,
-      enabled: s.enabled,
+      // main PBS connected: its groups, datastores and the jobs of the hosts; the backups of Home Assistant
+      // and the Proxmox VE clusters are shown without it
+      connected: pbsConnected(s),
       polledAt: s.polledAt ?? null,
       pollError: s.pollError ?? null,
       datastores: s.datastores ?? [],
-      clusters: (await loadPveSettings()).clusters.filter((c) => c.enabled).map((c) => ({ id: c.id, name: c.name, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null, guests: c.guests ?? 0 })),
+      clusters: (await loadPveSettings()).clusters.map((c) => ({ id: c.id, name: c.name, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null, guests: c.guests ?? 0 })),
       // followed: the groups attached to a host; the others are only listed, to be attached
       groups: list.filter((b) => b.hostId).map((b) => backupDto(b)),
       orphans: list.filter((b) => !b.hostId).map(orphanDto),
@@ -191,8 +227,6 @@ export function registerBackupRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/backups/refresh', async (req, reply) => {
-    const s = await loadPbsSettings();
-    if (!s.enabled) return reply.code(409).send({ error: 'suivi PBS désactivé (Paramètres > Sauvegardes)' });
     // Home Assistant backups: read again by their agents meanwhile (an agent that fails keeps its last report)
     const ha = await hosts.find({ capabilities: { $all: ['ha_backups', 'refresh'] } }, { projection: { _id: 1 } }).toArray();
     const agents = Promise.allSettled(ha.map((h) => h._id.toHexString()).filter(isOnline).map((id) => refreshAgent(id, ['ha_backups'])));
@@ -202,7 +236,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     await pollOffsite(req.log);
     await agents;
     const after = await loadPbsSettings();
-    if (after.pollError) return reply.code(502).send({ error: after.pollError });
+    if (pbsConnected(after) && after.pollError) return reply.code(502).send({ error: after.pollError });
     return { ok: true };
   });
 
@@ -307,7 +341,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const s = await loadPveSettings();
     const current = s.clusters.find((c) => c.id === req.params.id);
     const tokenId = req.body.tokenId.trim();
-    const conn = resolvePve(req.params.id, { ...req.body, enabled: current?.enabled ?? true }, current, { tokenId, tokenSecret: 'pending' });
+    const conn = resolvePve(req.params.id, req.body, current, { tokenId, tokenSecret: 'pending' });
     if (typeof conn === 'string') return reply.code(400).send({ error: conn });
     let t;
     try {
@@ -322,8 +356,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const clusters = fresh.clusters.some((c) => c.id === next.id) ? fresh.clusters.map((c) => (c.id === next.id ? next : c)) : [...fresh.clusters, next];
     await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
     req.log.info({ cluster: next.id, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PVE token set by the agent');
-    if (next.enabled) pollPve(req.log).catch(() => {});
-    else publish('backups', {});
+    pollPve(req.log).catch(() => {});
     return { cluster: pveDto(next), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
   });
 
@@ -335,25 +368,35 @@ export function registerBackupRoutes(app: FastifyInstance) {
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     const clusters = s.clusters.map((c) => (c.id === next.id ? next : c));
     await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
-    if (next.enabled) pollPve(req.log).catch(() => {});
-    else publish('backups', {});
+    pollPve(req.log).catch(() => {});
     return pveDto(next);
   });
 
+  // Removal of a cluster: its token revoked by the agent of its node first (its rights, the token, the user
+  // left without token), then the settings; its guests go, and with them the links and the groups they
+  // attached (the snapshots stay on the PBS).
   app.delete<{ Params: { id: string } }>('/api/settings/pve/clusters/:id', async (req, reply) => {
     const s = await loadPveSettings();
-    if (!s.clusters.some((c) => c.id === req.params.id)) return reply.code(404).send({ error: 'cluster introuvable' });
+    const c = s.clusters.find((x) => x.id === req.params.id);
+    if (!c) return reply.code(404).send({ error: 'cluster introuvable' });
+    let revoked;
+    try {
+      revoked = await deletePveToken(c.agent?.hostId, c.tokenId);
+    } catch (err) {
+      if (err instanceof PveAgentError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    req.log.info({ cluster: c.id, tokenId: c.tokenId, deleted: revoked?.deleted, userDeleted: revoked?.userDeleted }, 'PVE cluster removed, token revoked');
     await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters: s.clusters.filter((c) => c.id !== req.params.id) }, { upsert: true });
-    // its guests go, and with them the links and the groups they attached
     pollPve(req.log).catch(() => {});
-    return reply.code(204).send();
+    return { revoked: revoked?.deleted ? c.tokenId : null, userDeleted: !!revoked?.userDeleted };
   });
 
   // the address and certificate of the form, with the token saved for the cluster
   app.post<{ Params: { id: string }; Body: PveBody }>('/api/settings/pve/clusters/:id/test', { schema: { body: pveBody } }, async (req, reply) => {
     const current = (await loadPveSettings()).clusters.find((c) => c.id === req.params.id);
     if (!current?.tokenSecret) return reply.code(409).send({ error: 'aucun jeton enregistré pour ce cluster' });
-    const next = resolvePve(req.params.id, { ...req.body, enabled: true }, current, current);
+    const next = resolvePve(req.params.id, req.body, current, current);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     try {
       const [status, jobs] = await Promise.all([
@@ -373,7 +416,6 @@ interface PveBody {
   name: string;
   url: string;
   fingerprint: string;
-  enabled: boolean;
   agent?: { hostId: string };
 }
 
@@ -387,8 +429,8 @@ const pveAgentSchema = { type: 'object', required: ['hostId'], additionalPropert
 const pveBody = {
   type: 'object',
   additionalProperties: false,
-  required: ['name', 'url', 'fingerprint', 'enabled'],
-  properties: { ...pveProps, enabled: { type: 'boolean' }, agent: pveAgentSchema },
+  required: ['name', 'url', 'fingerprint'],
+  properties: { ...pveProps, agent: pveAgentSchema },
 } as const;
 
 interface PveTokenBody {
@@ -412,10 +454,10 @@ function pveDto(c: PveCluster) {
 }
 
 // fields of the form (the poll writes the others meanwhile)
-const pick = (c: PveCluster) => ({ id: c.id, name: c.name, url: c.url, fingerprint: c.fingerprint, enabled: c.enabled, ...(c.agent ? { agent: c.agent } : {}) });
+const pick = (c: PveCluster) => ({ id: c.id, name: c.name, url: c.url, fingerprint: c.fingerprint, ...(c.agent ? { agent: c.agent } : {}) });
 
 // token: the one saved for the cluster (PUT, test) or the one being created (…/token)
-function resolvePve(id: string, body: PveBody | (PveTokenBody & { enabled: boolean }), current: PveCluster | undefined, token: Pick<PveCluster, 'tokenId' | 'tokenSecret'>): PveCluster | string {
+function resolvePve(id: string, body: PveBody | PveTokenBody, current: PveCluster | undefined, token: Pick<PveCluster, 'tokenId' | 'tokenSecret'>): PveCluster | string {
   if (!CLUSTER_ID_RE.test(id)) return 'identifiant invalide (minuscules, chiffres, - et _)';
   const agent = 'hostId' in body ? { hostId: body.hostId } : (body.agent ?? current?.agent);
   const next: PveCluster = {
@@ -426,7 +468,6 @@ function resolvePve(id: string, body: PveBody | (PveTokenBody & { enabled: boole
     fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
     tokenId: token.tokenId,
     tokenSecret: token.tokenSecret,
-    enabled: body.enabled,
     ...(agent ? { agent } : {}),
   };
   if (agent && !parseId(agent.hostId)) return 'nœud invalide';

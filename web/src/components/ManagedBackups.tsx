@@ -368,11 +368,25 @@ const JOB_TABS: { id: JobTab; label: string }[] = [
   { id: 'offsite', label: 'Copie déportée' },
 ];
 
-function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: Host; view: HostBackupJobs; job: BackupJob | null; open: boolean; onClose: () => void; tab?: JobTab }) {
+// cached: a job kept when the main PBS was disconnected, restored with this form (its datastore may be gone)
+function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: { host: Host; view: HostBackupJobs; job: BackupJob | null; cached?: BackupJob; open: boolean; onClose: () => void; tab?: JobTab }) {
   const qc = useQueryClient();
   const toast = useToast();
   const initial: BackupJobInput = job
     ? { name: job.name, archives: job.archives, excludes: job.excludes, store: job.store, schedule: job.schedule, connectEveryDays: job.connectEveryDays, enabled: job.enabled, kind: job.kind, database: job.database }
+    : cached
+      ? {
+          name: cached.name,
+          archives: cached.archives,
+          excludes: cached.excludes,
+          store: view.datastores.includes(cached.store) ? cached.store : '',
+          backupId: cached.backupId,
+          schedule: cached.schedule,
+          connectEveryDays: cached.connectEveryDays,
+          enabled: cached.enabled,
+          kind: cached.kind,
+          database: cached.database,
+        }
     : {
         // named after the machine: the PBS identifier is deduced from it
         name: host.name,
@@ -389,11 +403,11 @@ function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: H
   const [form, setForm] = useState<BackupJobInput>(initial);
   const [tab, setTab] = useState<JobTab>(initialTab ?? 'content');
   // creation: the identifier follows the name until it is typed by hand
-  const [idAuto, setIdAuto] = useState(true);
+  const [idAuto, setIdAuto] = useState(!cached);
   // group already on the PBS, written by something else: refused by the hub (snapshots would mix)
   const { data: pbs } = useBackups();
   const groupId = `${form.store}/Hosts/host/${form.backupId ?? ''}`;
-  const taken = !job && [...(pbs?.groups ?? []), ...(pbs?.orphans ?? [])].find((g) => g.id === groupId && !g.gone && !('source' in g && g.source === 'managed'));
+  const taken = !job && !(cached && cached.store === form.store && cached.backupId === form.backupId) && [...(pbs?.groups ?? []), ...(pbs?.orphans ?? [])].find((g) => g.id === groupId && !g.gone && !('source' in g && g.source === 'managed'));
   const [excludes, setExcludes] = useState(initial.excludes.join('\n'));
   const excludeList = excludes.split('\n').map((e) => e.trim()).filter(Boolean);
   // group written by the job: size of its last snapshot (compared with the estimate), its copy
@@ -432,6 +446,7 @@ function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: H
     if (job) delete body.kind;
     try {
       if (job) await api.updateBackupJob(job.id, body);
+      else if (cached) await api.restoreCachedJob(host.id, cached.id, body);
       else await api.createBackupJob(host.id, body);
       const o = group && offsiteInput(offsiteBefore, offsite);
       if (group && o) await api.setBackupOffsite(group.id, o);
@@ -463,7 +478,7 @@ function JobModal({ host, view, job, open, onClose, tab: initialTab }: { host: H
       open={open}
       onClose={onClose}
       wide="screen"
-      title={job ? `Sauvegarde ${job.name}` : `Nouvelle sauvegarde de ${host.name}`}
+      title={job ? `Sauvegarde ${job.name}` : cached ? `Restaurer la sauvegarde ${cached.name}` : `Nouvelle sauvegarde de ${host.name}`}
       footer={
         <>
           <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken ? 'text-amber-400' : 'text-muted')} title={summary}>
@@ -666,6 +681,19 @@ export function BackupJobEditModal({ host, jobId, tab, onClose }: { host: Host; 
   return <JobModal key={jobId} host={host} view={data} job={job} open onClose={onClose} tab={tab} />;
 }
 
+// A job of the cache restored through its form (the direct restoration was refused: datastore gone, group taken…).
+export function CachedJobModal({ host, job, onClose }: { host: Host; job: BackupJob; onClose: () => void }) {
+  const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id) });
+  if (!data) {
+    return (
+      <Modal open onClose={onClose} title="Sauvegarde">
+        <div className="flex justify-center p-4"><Spinner /></div>
+      </Modal>
+    );
+  }
+  return <JobModal key={job.id} host={host} view={data} job={null} cached={job} open onClose={onClose} />;
+}
+
 // Installation of the PBS client, by the agent: Proxmox repository + package (APT), or the client image
 // (Docker); the choice when both are possible. Hosts in Docker mode may switch to APT.
 function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: HostBackupJobs['mode']; options: HostBackupJobs['install']; canManage: boolean }) {
@@ -724,9 +752,9 @@ function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: H
 export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open: boolean; onClose: () => void }) {
   const { data: backups } = useBackups();
   const { canManage } = useMe();
-  const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!backups?.enabled && open });
+  const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!backups?.connected && open });
   const [credential, setCredential] = useState(false);
-  if (!backups?.enabled || !open) return null;
+  if (!backups?.connected || !open) return null;
   const title = `Agent de sauvegarde de ${host.name}`;
   if (!data) {
     return (

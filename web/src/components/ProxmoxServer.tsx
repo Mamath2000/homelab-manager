@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, type LucideIcon } from 'lucide-react';
 import { timeAgo } from '../lib/format';
 import { Badge, Button } from './ui';
 
@@ -7,17 +7,19 @@ import { Badge, Button } from './ui';
 
 export const field = 'mb-1.5 block text-xs font-medium text-muted';
 
-// A followed server: name, address, state of the last poll.
-export function ServerRow({ name, tag, url, enabled, polledAt, pollError, details, onEdit, onRemove }: {
+// A followed server: name, address, state of the last poll (connected: its token is there, it is polled).
+export function ServerRow({ name, tag, url, connected, polledAt, pollError, details, onEdit, onRemove, removeTitle = 'Retirer', removeIcon = Trash2 }: {
   name: string;
   tag?: string;
   url: string;
-  enabled: boolean;
+  connected: boolean;
   polledAt?: string | null;
   pollError?: string | null;
   details?: string;
   onEdit?: () => void;
   onRemove?: () => void;
+  removeTitle?: string;
+  removeIcon?: LucideIcon;
 }) {
   return (
     <li className="flex items-center gap-3 px-3 py-2.5 text-sm">
@@ -25,7 +27,7 @@ export function ServerRow({ name, tag, url, enabled, polledAt, pollError, detail
         <div className="flex items-center gap-2">
           <span className="font-medium text-zinc-100">{name}</span>
           {tag && <span className="font-mono text-xs text-muted">{tag}</span>}
-          {!enabled ? <Badge tone="neutral">désactivé</Badge> : pollError ? <Badge tone="bad">en erreur</Badge> : polledAt ? <Badge tone="ok">relevé</Badge> : <Badge tone="neutral">jamais relevé</Badge>}
+          {!connected ? <Badge tone="neutral">non connecté</Badge> : pollError ? <Badge tone="bad">en erreur</Badge> : polledAt ? <Badge tone="ok">relevé</Badge> : <Badge tone="neutral">jamais relevé</Badge>}
         </div>
         <div className="truncate text-xs text-muted">
           {url || 'adresse non renseignée'}
@@ -35,7 +37,7 @@ export function ServerRow({ name, tag, url, enabled, polledAt, pollError, detail
         </div>
       </div>
       {onEdit && <Button size="sm" variant="ghost" icon={Pencil} title="Modifier" onClick={onEdit} />}
-      {onRemove && <Button size="sm" variant="ghost" icon={Trash2} title="Retirer" onClick={onRemove} />}
+      {onRemove && <Button size="sm" variant="ghost" icon={removeIcon} title={removeTitle} onClick={onRemove} />}
     </li>
   );
 }

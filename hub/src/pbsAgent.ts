@@ -1,6 +1,6 @@
 import { AgentRequestError, agentRequest, isOnline } from './agents.js';
 import { hosts, parseId } from './db.js';
-import { type AgentTokenResult, type HeldToken, holds, parseTokenId, tokenSecretOf as secretOf } from './apiTokens.js';
+import { type AgentTokenDeleteResult, type AgentTokenResult, type HeldToken, holds, parseTokenId, tokenSecretOf as secretOf } from './apiTokens.js';
 import type { HostDoc, PbsAgentLink } from './types.js';
 
 // Proxmox Backup Server administered through the agent of the host it runs on (agent/pbs.go, rpc
@@ -53,11 +53,11 @@ export const defaultMonitorTokenId = 'homelab@pbs!monitor';
 export const defaultHostTokenId = (hostName: string) => `host-${slug(hostName)}@pbs!backup`;
 
 // The host whose agent administers the PBS: known, able to (agent recent enough), connected.
-async function pbsHost(hostId: string): Promise<HostDoc> {
+export async function pbsHost(hostId: string, capability = 'pbs'): Promise<HostDoc> {
   const _id = parseId(hostId);
   const host = _id && (await hosts.findOne({ _id }));
   if (!host) throw new PbsAgentError('hôte du PBS introuvable');
-  if (!host.capabilities?.includes('pbs')) throw new PbsAgentError(`l'agent de ${host.name} ne sait pas administrer un PBS : le mettre à jour`);
+  if (!host.capabilities?.includes(capability)) throw new PbsAgentError(`l'agent de ${host.name} ne sait pas administrer un PBS : le mettre à jour`);
   if (!isOnline(hostId)) throw new PbsAgentError(`l'agent de ${host.name} est hors ligne`);
   return host;
 }
@@ -116,3 +116,25 @@ export async function ensurePbsToken(link: PbsAgentLink, tokenId: string, acls: 
 }
 
 export const tokenSecretOf = (tokenId: string, secret: string | undefined, held?: HeldToken) => secretOf(tokenId, secret, held, 'PBS', (m) => new PbsAgentError(m));
+
+// The agent of the PBS can revoke a token now (connected, recent enough): checked before any step of a
+// disconnection, so that it does not stop halfway.
+export async function checkPbsRevoker(link: PbsAgentLink | undefined, what: string) {
+  if (!link) throw new PbsAgentError(`${what} : PBS non relié à son agent`);
+  const bad = checkLink(link);
+  if (bad) throw new PbsAgentError(bad);
+  await pbsHost(link.hostId, 'pbs_token_delete');
+}
+
+// Revokes a token of the hub on the PBS (its rights, the token, the user when it has no token left).
+// Backups, groups and their owner stay. An id the hub cannot parse is not its own: left alone.
+export async function deletePbsToken(link: PbsAgentLink, tokenId: string): Promise<AgentTokenDeleteResult | null> {
+  const t = parseTokenId(tokenId, 'pbs');
+  if (!t) return null;
+  await pbsHost(link.hostId, 'pbs_token_delete');
+  try {
+    return await agentRequest<AgentTokenDeleteResult>(link.hostId, 'pbs_token_delete', { pbs: { container: link.mode === 'container' ? link.container : '', user: t.user, token: t.token, acls: [] } }, 75_000);
+  } catch (err) {
+    throw err instanceof AgentRequestError ? new PbsAgentError(`révocation de ${tokenId} : ${err.message}`) : err;
+  }
+}

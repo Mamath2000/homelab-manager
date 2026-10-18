@@ -15,9 +15,9 @@ import { Button, Modal, Panel, VerticalTabs } from '../components/ui';
 import { api } from '../lib/api';
 
 const tabs = [
+  { id: 'hub', label: 'Hub', icon: Server },
   { id: 'sites', label: 'Sites', icon: MapPin },
   { id: 'tags', label: 'Tags', icon: Tags },
-  { id: 'hub', label: 'Hub', icon: Server },
   { id: 'agents', label: 'Agents', icon: Terminal },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
@@ -29,7 +29,7 @@ type TabId = (typeof tabs)[number]['id'];
 
 export function Settings() {
   const [params, setParams] = useSearchParams();
-  const tab: TabId = tabs.find((item) => item.id === params.get('tab'))?.id ?? 'sites';
+  const tab: TabId = tabs.find((item) => item.id === params.get('tab'))?.id ?? 'hub';
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
   const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
@@ -38,7 +38,7 @@ export function Settings() {
 
   const navigateTo = useCallback((next: TabId) => {
     setPendingTab(null);
-    setParams(next === 'sites' ? {} : { tab: next }, { replace: true });
+    setParams(next === 'hub' ? {} : { tab: next }, { replace: true });
   }, [setParams]);
   const onDraftSaved = useCallback(() => {
     if (pendingTab) navigateTo(pendingTab);
