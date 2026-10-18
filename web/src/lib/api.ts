@@ -556,6 +556,8 @@ export interface BackupsView {
   clusters: { id: string; name: string; polledAt: string | null; pollError: string | null; guests: number }[];
   groups: BackupGroup[];
   orphans: BackupOrphan[];
+  // jobs set aside at the disconnection of the main PBS, to restore from the host card
+  cached: { id: string; hostId: string; name: string; store: string; ns: string; backupId: string; schedule: string; connectEveryDays: number | null; enabled: boolean; at: string }[];
 }
 
 // Agent that administers a PBS (hub/src/pbsAgent.ts): host, PBS installed on it or in a container

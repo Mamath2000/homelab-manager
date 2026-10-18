@@ -180,7 +180,7 @@ export function Backups() {
   ];
   const filteredHost = hostFilter && hostList.find((h) => h.id === hostFilter);
   // without PBS, the backups of Home Assistant and the Proxmox VE clusters are still shown
-  const shown = data.connected || data.groups.length > 0 || data.clusters.length > 0;
+  const shown = data.connected || data.groups.length > 0 || data.clusters.length > 0 || data.cached.length > 0;
 
   return (
     <>
@@ -271,6 +271,21 @@ export function Backups() {
             </div>
           )}
 
+          {data.cached.length > 0 && (
+            <ul className="mb-5 space-y-1.5">
+              {data.cached.map((j) => (
+                <li key={j.id} className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-amber-500/50 bg-amber-500/[0.06] px-3 py-2 text-sm" title={`Mise de côté à la déconnexion du PBS (${dateTime(j.at)})`}>
+                  <span className="font-medium text-amber-100">{j.name}</span>
+                  <Badge tone="warn">à restaurer</Badge>
+                  <span className="min-w-0 truncate text-xs text-muted">
+                    {j.store}{j.ns ? ` › ${j.ns}` : ''} › {j.backupId} · {j.connectEveryDays ? `à la connexion, au plus tous les ${j.connectEveryDays} j` : j.schedule}
+                    {!j.enabled && ' · désactivée'}
+                  </span>
+                  <Link to={`/hosts/${j.hostId}`} className="ml-auto text-xs text-zinc-300 hover:text-emerald-300">{hostName(j.hostId)} →</Link>
+                </li>
+              ))}
+            </ul>
+          )}
           {data.groups.length === 0 ? (
             <div className="panel">
               <Empty icon={DatabaseBackup} title="Aucune sauvegarde suivie">

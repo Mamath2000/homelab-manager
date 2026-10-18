@@ -218,6 +218,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const s = await loadPbsSettings();
     const list = await backups.find().sort({ store: 1, ns: 1, backupId: 1 }).toArray();
     const r = await loadRemoteSettings();
+    // jobs set aside when the main PBS was disconnected (to restore from the host card)
+    const cachedHosts = await hosts.find({ 'backupCache.jobs.0': { $exists: true } }, { projection: { name: 1, backupCache: 1 } }).toArray();
     return {
       // secondary PBS of the copies, for every role (its settings are admin only): where and how much room
       offsite: remoteReady(r)
@@ -233,6 +235,20 @@ export function registerBackupRoutes(app: FastifyInstance) {
       // followed: the groups attached to a host; the others are only listed, to be attached
       groups: list.filter((b) => b.hostId).map((b) => backupDto(b)),
       orphans: list.filter((b) => !b.hostId).map(orphanDto),
+      cached: cachedHosts.flatMap((h) =>
+        (h.backupCache?.jobs ?? []).map((j) => ({
+          id: j._id.toHexString(),
+          hostId: h._id.toHexString(),
+          name: j.name,
+          store: j.store,
+          ns: j.ns,
+          backupId: j.backupId,
+          schedule: j.schedule,
+          connectEveryDays: j.connectEveryDays ?? null,
+          enabled: j.enabled,
+          at: h.backupCache!.at,
+        })),
+      ),
     };
   });
 
