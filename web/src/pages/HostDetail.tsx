@@ -552,7 +552,12 @@ function HostDetailPage({ id }: { id: string }) {
             </ul>
           )}
         </Panel>
-          <Panel title="Console" icon={Terminal} className="2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col" bodyClassName="p-4 2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col">
+          <Panel
+            title="Console"
+            icon={Terminal}
+            className="2xl:relative 2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col 2xl:transition-[width,transform] 2xl:duration-200 2xl:focus-within:z-30 2xl:focus-within:w-[800px] 2xl:focus-within:-translate-x-[320px] min-[2200px]:focus-within:w-[960px]"
+            bodyClassName="p-4 2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col"
+          >
             {shownJob ? (
               <JobConsole jobId={shownJob} className="2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col" height="h-[360px] 2xl:h-auto 2xl:min-h-0 2xl:flex-1" />
             ) : (

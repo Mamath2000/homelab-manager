@@ -42,11 +42,12 @@ export function JobConsole({ jobId, height = 'h-80', className }: { jobId: strin
       </div>
       <pre
         ref={ref}
+        tabIndex={0}
         onScroll={(e) => {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
-        className={`${height} overflow-auto bg-black/60 p-3 font-mono text-[12px] leading-relaxed text-zinc-300`}
+        className={`${height} overflow-auto bg-black/60 p-3 font-mono text-[12px] leading-relaxed text-zinc-300 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-emerald-500/40`}
       >
         {job.log || (job.status === 'running' ? 'En attente de la sortie…\n' : '')}
         {job.error && <span className="text-red-400">{`\n✖ ${job.error}\n`}</span>}
