@@ -225,7 +225,7 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
 // open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, wide, scroll }: {
+export function Modal({ open, onClose, title, children, footer, wide, scroll, low, tall }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -236,6 +236,10 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll }: 
   wide?: boolean | 'xl' | 'screen';
   // long content: the body scrolls inside the window, header and footer stay visible
   scroll?: boolean;
+  // lower in the screen (18vh from the top instead of 12vh)
+  low?: boolean;
+  // 'screen' only: taller than 16:9 (fixed height, up to 44rem) for a window with a lot to show
+  tall?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -250,13 +254,15 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll }: 
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-[12vh] backdrop-blur-xs" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}
+      style={{ paddingTop: low ? '18vh' : '12vh' }}
+    >
       <div
         className={clsx(
           'panel w-full bg-panel shadow-2xl shadow-black/60',
           wide === 'xl' || wide === 'screen' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
           // 12vh on top, at most 70vh high: the window stays clear of the bottom of the screen
-          wide === 'screen' ? 'flex aspect-video max-h-[80vh] flex-col' : scroll && 'flex max-h-[70vh] flex-col',
+          wide === 'screen' ? (tall ? 'flex h-[min(44rem,calc(82vh_-_2rem))] flex-col' : 'flex aspect-video max-h-[80vh] flex-col') : scroll && 'flex max-h-[70vh] flex-col',
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >

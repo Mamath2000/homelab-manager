@@ -86,7 +86,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
       <Modal
         open={open}
         onClose={requestClose}
-        wide="screen"
+        wide="screen" low tall
         title="PBS de secours"
         footer={
           <>
