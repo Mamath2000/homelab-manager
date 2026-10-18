@@ -239,11 +239,23 @@ function BackupDetail({ g, remote }: { g: BackupGroup; remote: BackupsView['offs
 // outside, Escape, a scroll or a resize.
 function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   useLayoutEffect(() => {
     const r = anchor.getBoundingClientRect();
-    const w = ref.current?.offsetWidth ?? 360;
-    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) });
+    const popover = ref.current;
+    const w = popover?.offsetWidth ?? 360;
+    const h = popover?.scrollHeight ?? 0;
+    const gap = 6;
+    const padding = 8;
+    const below = Math.max(0, window.innerHeight - r.bottom - gap - padding);
+    const above = Math.max(0, r.top - gap - padding);
+    const openAbove = h > below && above > below;
+    const maxHeight = openAbove ? above : below;
+    setPos({
+      top: openAbove ? r.top - gap - Math.min(h, above) : r.bottom + gap,
+      left: Math.max(padding, Math.min(r.left, window.innerWidth - w - padding)),
+      maxHeight,
+    });
   }, [anchor]);
   useEffect(() => {
     const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node) && onClose();
@@ -262,8 +274,8 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
   return (
     <div
       ref={ref}
-      className="fixed z-30 w-96 max-w-[calc(100vw-16px)] rounded-md border border-line bg-panel px-3.5 py-3 shadow-2xl shadow-black/60"
-      style={pos ?? { top: -9999, left: -9999 }}
+      className="fixed z-30 w-96 max-w-[calc(100vw-16px)] overflow-y-auto rounded-md border border-line bg-panel px-3.5 py-3 shadow-2xl shadow-black/60"
+      style={pos ?? { top: -9999, left: -9999, maxHeight: 'calc(100vh - 16px)' }}
     >
       {children}
     </div>
