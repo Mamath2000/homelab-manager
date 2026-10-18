@@ -314,7 +314,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                   </span>
                   {g.managed && !g.managed.enabled && <Badge tone="neutral">désactivée</Badge>}
                   {/* detail of the backup and of its copy (schedule, delay before an alert...) */}
-                  <DetailPill g={g} remote={data.offsite} onStarted={onStarted} />
+                  <DetailPill g={g} remote={data.offsite} />
                   {/* run, edit and delete: backups of the agent only */}
                   {/* before the block: the blocks of the rows stay aligned on the right */}
                   {canManage && !g.source && (

@@ -171,7 +171,6 @@ func (o *offsiteModule) saveLocked() {
 }
 
 // apply stores a new definition sent by the hub; the series in progress keeps the jobs still copied.
-// The first definition does not start a series for a start already passed today: that waits for tomorrow.
 func (o *offsiteModule) apply(s *OffsiteSpec) error {
 	if err := validateOffsiteSpec(s); err != nil {
 		return err
@@ -188,8 +187,11 @@ func (o *offsiteModule) apply(s *OffsiteSpec) error {
 		}
 	}
 	day := o.state.Day
-	if o.state.Spec == nil && day == "" && len(s.Jobs) > 0 {
+	// First definition, or a new start time: a start already passed today waits for tomorrow, one still to
+	// come today fires today (the series of the day already done must not block it)
+	if prev := o.state.Spec; len(s.Jobs) > 0 && (prev == nil && day == "" || prev != nil && prev.Start != s.Start) {
 		loc, _ := time.LoadLocation(s.TZ)
+		day = ""
 		if now := time.Now(); !now.Before(startOf(now, loc, s.Start)) {
 			day = now.In(loc).Format(time.DateOnly)
 		}

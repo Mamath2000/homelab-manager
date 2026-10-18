@@ -239,3 +239,41 @@ func TestOffsiteEmptySpecClearsSeries(t *testing.T) {
 		t.Fatalf("empty spec: %+v %v", o.snapshot(time.Now()), f.calls)
 	}
 }
+
+func TestOffsiteNewStartRearmsToday(t *testing.T) {
+	f := &fakeDebug{}
+	o := newTestOffsite(t, f)
+	now := time.Now().In(paris)
+	today := now.Format(time.DateOnly)
+	o.state.Day = today // the series of the day is done
+	later := now.Add(2 * time.Hour)
+	if later.Day() != now.Day() {
+		t.Skip("too close to midnight")
+	}
+	// a start still to come today: fires today
+	if err := o.apply(&OffsiteSpec{Hash: "h2", Start: later.Format("15:04"), TZ: "Europe/Paris", Jobs: []string{"hlm-ds0"}}); err != nil {
+		t.Fatal(err)
+	}
+	if o.state.Day != "" {
+		t.Fatalf("not re-armed: %q", o.state.Day)
+	}
+	// a start already passed today: waits for tomorrow
+	earlier := now.Add(-2 * time.Hour)
+	if earlier.Day() != now.Day() {
+		t.Skip("too close to midnight")
+	}
+	if err := o.apply(&OffsiteSpec{Hash: "h3", Start: earlier.Format("15:04"), TZ: "Europe/Paris", Jobs: []string{"hlm-ds0"}}); err != nil {
+		t.Fatal(err)
+	}
+	if o.state.Day != today {
+		t.Fatalf("fired at once: %q", o.state.Day)
+	}
+	// same start: nothing changes
+	o.state.Day = ""
+	if err := o.apply(&OffsiteSpec{Hash: "h4", Start: earlier.Format("15:04"), TZ: "Europe/Paris", Jobs: []string{"hlm-ds0", "hlm-ds1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if o.state.Day != "" {
+		t.Fatalf("same start re-armed: %q", o.state.Day)
+	}
+}

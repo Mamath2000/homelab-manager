@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { Cloud, Loader2, Play, RefreshCw } from 'lucide-react';
+import { Cloud, CloudOff, Loader2, RefreshCw } from 'lucide-react';
 import { api, type BackupGroup, type BackupOffsite, type BackupsView } from '../lib/api';
 import { useMe } from '../lib/auth';
 import {
@@ -45,25 +45,6 @@ function seriesLine(o: BackupOffsite, remote: Remote) {
   if (!s.active) return 'agent du PBS de secours à mettre à jour : aucune copie lancée';
   if (!s.agentOnline && !o.running) return 'agent du PBS de secours hors ligne : aucune copie lancée';
   return seriesText(o, s) ?? '';
-}
-
-// Runs the copy now: its job opens in the console of the page (onStarted), or is announced.
-function useRunCopy(g: BackupGroup, onStarted?: (jobId: string) => void) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const run = async () => {
-    setBusy(true);
-    try {
-      const r = await api.runBackupOffsite(g.id);
-      if (onStarted && r.jobId) onStarted(r.jobId);
-      else toast.success('Copie déportée lancée : suivie dans Activité');
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return { busy, run };
 }
 
 function UsageBar({ remote, size }: { remote: Remote; size?: number | null }) {
@@ -144,6 +125,29 @@ function OffsiteEnable({ g }: { g: BackupGroup }) {
   );
 }
 
+// Copy enabled: leaves the group of the sync job of its namespace (admin). Reversible and the snapshots
+// already copied stay on the secondary: no confirmation.
+function OffsiteDisable({ g }: { g: BackupGroup }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const disable = async () => {
+    setBusy(true);
+    try {
+      await api.setBackupOffsite(g.id, { enabled: false });
+      toast.success('Copie retirée : les snapshots déjà copiés restent sur le PBS de secours');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button size="sm" icon={CloudOff} loading={busy} onClick={disable} title="La sauvegarde sort du job de copie de son namespace ; les snapshots déjà copiés restent sur le PBS de secours">
+      Retirer de la copie
+    </Button>
+  );
+}
+
 function Rows({ rows }: { rows: [string, ReactNode][] }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -160,10 +164,9 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
 const section = 'text-[11px] font-semibold uppercase tracking-wide text-zinc-400';
 
 // The backup (where, last, schedule, delay before an alert) and its copy (state, last copy, next series of
-// the secondary, room, run its namespace now).
-function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
-  const { canManage, canWrite } = useMe();
-  const { busy, run } = useRunCopy(g, onStarted);
+// the secondary, room, remove it).
+function BackupDetail({ g, remote }: { g: BackupGroup; remote: BackupsView['offsite'] }) {
+  const { canManage } = useMe();
   const rhythm = rhythmLabel(g.interval);
   const schedule = g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? scheduleLabel(g) : rhythm ? `rythme ${rhythm} (appris)` : 'rythme inconnu';
   const why = offsiteNotCopiable(g);
@@ -195,18 +198,6 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
           <div className="flex items-center gap-2">
             <span className={section}>Copie déportée</span>
             <span className="text-muted">{remote.host} › {remote.store}</span>
-            {state && canWrite && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={o?.running ? Loader2 : Play}
-                className={clsx('ml-auto h-6 px-1.5', o?.running && '[&>svg]:animate-spin')}
-                loading={busy}
-                disabled={!!o?.running}
-                title={o?.running ? 'Copie en cours (suivie dans Activité)' : `Lancer maintenant la copie de ${g.store} › ${g.ns || 'racine'} (toutes ses sauvegardes copiées)`}
-                onClick={run}
-              />
-            )}
           </div>
           {why ? (
             <p className="text-muted">Non copiable : {why}.</p>
@@ -235,6 +226,7 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
               {o.lastRun && !o.lastRun.ok && <div className="text-red-400" title={dateTime(o.lastRun.end)}>Dernière copie en échec {timeAgo(o.lastRun.end)} : {o.lastRun.error}</div>}
               {o.verify === 'failed' && <div className="text-red-400">Vérification de la copie en échec</div>}
               <UsageBar remote={remote} size={o.size} />
+              {canManage && <OffsiteDisable g={g} />}
             </>
           )}
         </div>
@@ -280,7 +272,7 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
 
 // "détail" pill of every backup, next to its badges: a click opens the detail of the backup and of its
 // copy; the cloud gives the state of the copy when there is one (pulsing while it runs).
-export function DetailPill({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
+export function DetailPill({ g, remote }: { g: BackupGroup; remote: BackupsView['offsite'] }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const o = g.offsite;
   const state = remote && o?.enabled && !offsiteNotCopiable(g) ? copyState(o) : null;
@@ -300,7 +292,7 @@ export function DetailPill({ g, remote, onStarted }: { g: BackupGroup; remote: B
       </button>
       {anchor && (
         <Popover anchor={anchor} onClose={() => setAnchor(null)}>
-          <BackupDetail g={g} remote={remote} onStarted={onStarted} />
+          <BackupDetail g={g} remote={remote} />
         </Popover>
       )}
     </>

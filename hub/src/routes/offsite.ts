@@ -4,13 +4,10 @@ import { backups, settings } from '../db.js';
 import { publish } from '../events.js';
 import {
   HHMM_RE,
-  followTask,
   loadRemoteSettings,
   notCopiable,
   pollOffsite,
   remoteReady,
-  runSyncJob,
-  runningSyncTasks,
   sameGroupElsewhere,
   seriesView,
   startOf,
@@ -262,26 +259,5 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     const b = await backups.findOne({ _id: req.params.id });
     if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
     return checkOffsite(b);
-  });
-
-  // Runs now (operator) the sync job of the datastore and namespace of the backup: every backup copied from
-  // there. Never two copies at a time on the secondary: refused while a sync task runs there.
-  app.post<{ Params: { id: string } }>('/api/backups/:id/offsite/run', async (req, reply) => {
-    const b = await backups.findOne({ _id: req.params.id });
-    if (!b?.offsite?.enabled) return reply.code(409).send({ error: 'copie déportée non activée pour cette sauvegarde' });
-    const r = await loadRemoteSettings();
-    if (!remoteReady(r)) return reply.code(409).send({ error: 'PBS de secours non configuré ou désactivé' });
-    if (b.offsite.running) return reply.code(409).send({ error: 'copie déjà en cours', jobId: b.offsite.running.jobId || null });
-    let upid: string;
-    try {
-      const busy = await runningSyncTasks(r);
-      if (busy.length) return reply.code(409).send({ error: `une copie tourne déjà sur le PBS de secours (${busy[0].worker_id ?? busy[0].upid}) : réessayer à sa fin` });
-      upid = await runSyncJob(r, b.offsite.jobId);
-    } catch (err) {
-      return reply.code(502).send({ error: (err as Error).message });
-    }
-    // followed as a job of the hub on the host of the secondary: console and Activité
-    const jobId = await followTask(r, b.offsite.jobId, upid, 'manual', req.log);
-    return { ok: true, upid, jobId };
   });
 }

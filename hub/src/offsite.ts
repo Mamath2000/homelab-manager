@@ -689,7 +689,3 @@ export async function targetNamespaces(r: PbsRemoteSettings) {
   const list = await call<{ ns: string }[]>(r, 'GET', `/admin/datastore/${encodeURIComponent(r.store)}/namespace`);
   return list.map((n) => n.ns);
 }
-
-export async function runSyncJob(r: PbsRemoteSettings, jobId: string) {
-  return call<string>(r, 'POST', `/admin/sync/${encodeURIComponent(jobId)}/run`);
-}
