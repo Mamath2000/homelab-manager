@@ -17,7 +17,7 @@ import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Age
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
-import { dateTime, jobTitle, timeAgo, uptime } from '../lib/format';
+import { dateTime, groupIps, jobTitle, timeAgo, uptime } from '../lib/format';
 import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
@@ -462,7 +462,15 @@ function HostDetailPage({ id }: { id: string }) {
                 <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
                 <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>
                 {showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
-                <StripItem label="IP" grow><span className="font-mono text-xs">{host.info?.ips?.join(', ') || '—'}</span></StripItem>
+                {(() => {
+                  const { lan, tailscale } = groupIps(host.info?.ips);
+                  return (
+                    <>
+                      <StripItem label="IP LAN" grow><span className="font-mono text-xs">{lan.join(', ') || '—'}</span></StripItem>
+                      {tailscale.length > 0 && <StripItem label="IP Tailscale"><span className="font-mono text-xs">{tailscale.join(', ')}</span></StripItem>}
+                    </>
+                  );
+                })()}
               </dl>
             </section>
             <div className={scrolled ? 'mt-2.5' : 'mt-4'}>

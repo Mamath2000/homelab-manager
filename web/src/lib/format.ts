@@ -58,3 +58,17 @@ export function jobTitle(j: { action: string; stack?: string | null; service?: s
   if (!j.stack) return label;
   return `${label} · ${j.stack}${j.service ? `/${j.service}` : ''}`;
 }
+
+// IPs of a host split by kind. Docker bridges are recognised by their address (172.x.0.1, the bridge gateway), as the
+// agent reports no interface names; Tailscale = CGNAT range 100.64.0.0/10 or the fd7a:115c:a1e0::/48 ULA.
+export function groupIps(ips: string[] | null | undefined): { lan: string[]; tailscale: string[] } {
+  const lan: string[] = [];
+  const tailscale: string[] = [];
+  for (const ip of ips ?? []) {
+    const m = /^(\d+)\.(\d+)\./.exec(ip);
+    if (/^172\.\d+\.0\.1$/.test(ip)) continue;
+    if ((m && Number(m[1]) === 100 && Number(m[2]) >= 64 && Number(m[2]) <= 127) || ip.toLowerCase().startsWith('fd7a:115c:a1e0:')) tailscale.push(ip);
+    else lan.push(ip);
+  }
+  return { lan, tailscale };
+}
