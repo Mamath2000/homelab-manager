@@ -153,6 +153,9 @@ export function offsiteStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'o
       switch (offsiteState(b, ctx.now)) {
         case 'failed': return check(key, name, 'alert', `${name} : copie en échec`);
         case 'late': return gone ? check(key, name, 'ok') : check(key, name, 'warn', `${name} : copie en retard`);
+        // enabled but nothing on the secondary yet: not secured. Once a copy exists, a newer snapshot
+        // waiting for the next run is normal.
+        case 'pending': return b.offsite?.lastBackup ? check(key, name, 'ok') : check(key, name, 'warn', `${name} : pas encore copiée`);
         default: return check(key, name, 'ok');
       }
     }),

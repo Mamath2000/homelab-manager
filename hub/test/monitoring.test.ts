@@ -91,6 +91,13 @@ test('offsite: only when a copy is enabled, and not counted in the backups', () 
   assert.equal(dayOf(backupStatus({}, { ...on, groups: [copied] }))?.level, 'ok');
 });
 
+test('offsite: a copy enabled but never made is a warning; a snapshot waiting after a first copy is not', () => {
+  const o = (lastBackup?: number) => ({ enabled: true, jobId: 'j', since: now - H, state: 'pending' as const, lastBackup });
+  const never = offsiteStatus({}, { ...on, groups: [group({ offsite: o() })] });
+  assert.deepEqual(dayOf(never), { level: 'warn', reasons: ['home : pas encore copiée'] });
+  assert.equal(dayOf(offsiteStatus({}, { ...on, groups: [group({ lastBackup: now - H, verify: 'ok', times: [{ t: now - H, verify: 'ok' }], offsite: o(now - 30 * H) })] }))?.level, 'ok');
+});
+
 test('host: worst of its known domains; unknown ones do not count; absent domains are missing', () => {
   const ctx = (c: Partial<Context> = {}): Context => ({ online: true, groups: [], now, ...c });
   const plain = evaluate(host(), ctx());
