@@ -1,17 +1,21 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plug, Save, ServerCog } from 'lucide-react';
 import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
 import { formatBytes, seriesRule } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
+import { ServerRow, TestResult, field, type TestState } from './ProxmoxServer';
+import { DetectedRows, NeedsHost, TabHead, TabMark } from './PbsDialog';
 import { PbsAgentPicker, PbsTokenButton } from './PbsAgentPicker';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
+import { useHosts } from '../lib/queries';
+import { Button, ConfirmModal, Modal, Panel, Spinner, VerticalTabs } from './ui';
 
 const DEFAULT_HUB_TOKEN = 'homelab@pbs!hub';
 const DEFAULT_READER_TOKEN = 'homelab@pbs!reader';
+
+type RemoteTab = 'host' | 'connection' | 'tokens' | 'copies';
 
 // Start of the daily series of the copies, run by the agent of the secondary (agent offsite.go).
 function StartField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -48,6 +52,8 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<TestState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [tab, setTab] = useState<RemoteTab>(data.agent ? 'connection' : 'host');
+  const { data: hosts } = useHosts();
   const set = (patch: Partial<PbsRemoteInput>) => setForm({ ...form, ...patch });
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const requestClose = () => {
@@ -91,108 +97,133 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
     }
   };
 
+  const go = (t: RemoteTab) => setTab(t);
+  const tabs: { id: RemoteTab; label: string; count?: ReactNode }[] = [
+    { id: 'host', label: 'Hôte', count: <TabMark done={!!form.agent} /> },
+    { id: 'connection', label: 'Connexion', count: form.agent ? <TabMark done={!!form.url && !!store} /> : undefined },
+    { id: 'tokens', label: 'Jetons', count: <TabMark done={saved.hasSecret && saved.hasReaderSecret} /> },
+    { id: 'copies', label: 'Copies' },
+  ];
+  const hostName = hosts?.find((h) => h.id === form.agent?.hostId)?.name;
+  const summary = [hostName ?? 'aucun hôte relié', form.url || 'adresse non détectée', saved.store || store || 'aucun datastore', form.enabled ? `copies à ${form.startTime ?? data.startTime}` : 'copies désactivées']
+    .join(' · ');
+
   return (
     <>
       <Modal
         open={open}
         onClose={requestClose}
-        wide="xl"
+        wide="screen"
         title="PBS de secours"
         footer={
           <>
-            <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !form.url || !saved.hasSecret} onClick={runTest}>Tester la connexion</Button>
+            <span className="mr-auto min-w-0 self-center truncate text-xs text-muted" title={summary}>{summary}</span>
+            <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !form.url || !saved.hasSecret} onClick={() => (setTab('connection'), void runTest())}>Tester la connexion</Button>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
       >
-        <div className="grid gap-6 text-sm lg:grid-cols-2">
-          <div className="space-y-4">
-            <ConnectionFields
-              form={form}
-              set={set}
-              hasSecret={null}
-              urlPlaceholder="https://192.168.2.101:8007"
-              urlLocked={!!form.agent}
-              fingerprintHint="Lue par l'agent à la détection ; Récupérer lit celle que présente le serveur."
-              fetchFingerprint={api.pbsFingerprint}
-              enabledLabel="Copier les sauvegardes choisies vers ce PBS"
-            />
-            <TestResult test={test} />
-            <StartField value={form.startTime ?? data.startTime} onChange={(startTime) => set({ startTime })} />
-            <div className="space-y-1 border-t border-line pt-4 text-xs text-muted">
-              <p>
-                Le PBS de secours <b>tire</b> les sauvegardes du PBS principal (entrée remote <code>hlm-main</code>, déclarée par le hub) : un sync job par datastore et
-                namespace, dont le filtre liste les sauvegardes choisies une à une, sans planification : c’est l’agent du PBS de secours qui les lance. Les copies ne sont
-                jamais supprimées par le hub ; la rétention et les purges restent réglées dans le PBS de secours.
-              </p>
-              <p>
-                Les namespaces cibles (<code>Hosts</code>, <code>Vouille</code>…, mêmes noms que sur le PBS principal) sont <b>à créer à la main</b> dans le datastore cible :
-                le jeton du hub n'a pas le droit de les créer.
-              </p>
-            </div>
-          </div>
-          <TokenAside
-            title="Agents et jetons"
-            intro={
-              <>
+        <VerticalTabs tabs={tabs} value={tab} onChange={setTab} bodyClassName="pt-4 md:pt-1 md:pl-6">
+          {tab === 'host' && (
+            <section className="space-y-4 text-sm">
+              <TabHead title="Hôte du PBS de secours">
+                L’agent de l’hôte trouve le PBS (installé, ou dans un conteneur lancé) et donne son adresse, son port, l’empreinte de son certificat et ses datastores :
+                rien n’est à saisir. Il crée ensuite le jeton du hub et lance les copies quotidiennes.
+              </TabHead>
+              <PbsAgentPicker
+                link={form.agent}
+                onDetected={(agent, found) => {
+                  set({ agent, url: found.url ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
+                  setStores(found.datastores ?? []);
+                  if (!store && found.datastores?.length === 1) setStore(found.datastores[0]);
+                }}
+              />
+            </section>
+          )}
+          {tab === 'connection' && (
+            <section className="space-y-4 text-sm">
+              <TabHead title="Connexion">Adresse par laquelle le hub et le PBS principal joignent le PBS de secours. Relancer Détecter après un changement d’IP.</TabHead>
+              {!form.agent && <NeedsHost onGo={() => go('host')} />}
+              <DetectedRows
+                rows={[
+                  { label: 'Adresse', value: form.url, empty: 'non détectée' },
+                  { label: 'Empreinte', value: form.fingerprint, empty: 'aucune (autorités système)' },
+                ]}
+              />
+              <label className="block sm:w-1/2">
+                <span className={field}>Datastore cible</span>
+                <select className="input" value={store} onChange={(e) => setStore(e.target.value)} disabled={!form.agent}>
+                  <option value="">— détecter d’abord —</option>
+                  {stores.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <span className="mt-1 block text-xs text-muted">Enregistré avec le jeton du hub (onglet Jetons), qui n’a de droits que sur lui.</span>
+              </label>
+              <TestResult test={test} />
+            </section>
+          )}
+          {tab === 'tokens' && (
+            <section className="space-y-5 text-sm">
+              <TabHead title="Jetons">
                 Deux jetons, créés par les agents des deux PBS et jamais affichés : celui du hub sur le PBS de secours (<b>DatastoreBackup</b> et <b>DatastoreAudit</b> sur
                 le datastore cible, <b>RemoteAdmin</b> sur <code>/remote</code> : ni suppression de snapshot ni création de namespace), et un jeton lecteur sur le PBS
                 principal (<b>DatastoreReader</b> sur <code>/datastore</code> : lecture seule), avec lequel le PBS de secours tire les sauvegardes.
-              </>
-            }
-            setup={
-              <div className="space-y-4">
-                <PbsAgentPicker
-                  link={form.agent}
-                  onDetected={(agent, found) => {
-                    set({ agent, url: found.url ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
-                    setStores(found.datastores ?? []);
-                    if (!store && found.datastores?.length === 1) setStore(found.datastores[0]);
+              </TabHead>
+              <div className="space-y-2">
+                <p className="font-medium text-zinc-100">Jeton du hub sur le PBS de secours</p>
+                {!form.agent ? <NeedsHost onGo={() => go('host')} /> : !store && <p className="text-xs text-amber-400">Choisir d’abord le datastore cible (onglet Connexion).</p>}
+                <PbsTokenButton
+                  tokenId={hubToken}
+                  onTokenIdChange={setHubToken}
+                  disabled={!form.agent || !store}
+                  create={async () => {
+                    const r = await api.createPbsRemoteToken(form.agent!, hubToken, store);
+                    keep(r.settings);
+                    return r;
                   }}
                 />
-                <label className="block">
-                  <span className={field}>Datastore cible</span>
-                  <select className="input" value={store} onChange={(e) => setStore(e.target.value)}>
-                    <option value="">— détecter d’abord —</option>
-                    {stores.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </label>
-                <div className="space-y-1">
-                  <p className="font-medium text-zinc-100">Jeton du hub sur le PBS de secours</p>
+                <p className="text-xs text-muted">{saved.hasSecret ? <>Enregistré : <code>{saved.tokenId}</code> sur <code>{saved.store}</code>.</> : 'Aucun jeton enregistré.'}</p>
+              </div>
+              <div className="space-y-2 border-t border-line pt-4">
+                <p className="font-medium text-zinc-100">Jeton lecteur sur le PBS principal</p>
+                {main?.agent ? (
                   <PbsTokenButton
-                    tokenId={hubToken}
-                    onTokenIdChange={setHubToken}
-                    disabled={!form.agent || !store}
+                    tokenId={readerToken}
+                    onTokenIdChange={setReaderToken}
                     create={async () => {
-                      const r = await api.createPbsRemoteToken(form.agent!, hubToken, store);
+                      const r = await api.createPbsReaderToken(readerToken);
                       keep(r.settings);
                       return r;
                     }}
                   />
-                  <p>{saved.hasSecret ? <>Enregistré : <code>{saved.tokenId}</code> sur <code>{saved.store}</code>.</> : 'Aucun jeton enregistré.'}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-zinc-100">Jeton lecteur sur le PBS principal</p>
-                  {main?.agent ? (
-                    <PbsTokenButton
-                      tokenId={readerToken}
-                      onTokenIdChange={setReaderToken}
-                      create={async () => {
-                        const r = await api.createPbsReaderToken(readerToken);
-                        keep(r.settings);
-                        return r;
-                      }}
-                    />
-                  ) : (
-                    <p className="text-amber-400">Le PBS principal n'est pas relié à son agent : le faire dans le bloc Proxmox Backup Server.</p>
-                  )}
-                  <p>{saved.hasReaderSecret ? <>Enregistré : <code>{saved.readerTokenId}</code>.</> : 'Aucun jeton enregistré.'}</p>
-                </div>
+                ) : (
+                  <p className="text-xs text-amber-400">Le PBS principal n’est pas relié à son agent : le faire dans la fenêtre Proxmox Backup Server, onglet Hôte.</p>
+                )}
+                <p className="text-xs text-muted">{saved.hasReaderSecret ? <>Enregistré : <code>{saved.readerTokenId}</code>.</> : 'Aucun jeton enregistré.'}</p>
               </div>
-            }
-          />
-        </div>
+            </section>
+          )}
+          {tab === 'copies' && (
+            <section className="space-y-4 text-sm">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
+                <span>Copier les sauvegardes choisies vers ce PBS</span>
+              </label>
+              <StartField value={form.startTime ?? data.startTime} onChange={(startTime) => set({ startTime })} />
+              <div className="space-y-1 border-t border-line pt-4 text-xs text-muted">
+                <p>
+                  Le PBS de secours <b>tire</b> les sauvegardes du PBS principal (entrée remote <code>hlm-main</code>, déclarée par le hub) : un sync job par datastore et
+                  namespace, dont le filtre liste les sauvegardes choisies une à une, sans planification : c’est l’agent du PBS de secours qui les lance. Les copies ne sont
+                  jamais supprimées par le hub ; la rétention et les purges restent réglées dans le PBS de secours.
+                </p>
+                <p>
+                  Les namespaces cibles (<code>Hosts</code>, <code>Vouille</code>…, mêmes noms que sur le PBS principal) sont <b>à créer à la main</b> dans le datastore cible :
+                  le jeton du hub n'a pas le droit de les créer.
+                </p>
+              </div>
+            </section>
+          )}
+        </VerticalTabs>
       </Modal>
       <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
         Les paramètres du PBS de secours modifiés ne seront pas enregistrés.

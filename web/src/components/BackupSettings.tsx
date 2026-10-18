@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { DatabaseBackup, Pencil, Plug, Save } from 'lucide-react';
 import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
 import { useToast } from '../lib/toast';
-import { ConnectionFields, ServerRow, TestResult, TokenAside, field, type TestState } from './ProxmoxServer';
+import { ServerRow, TestResult, field, type TestState } from './ProxmoxServer';
+import { DetectedRows, NeedsHost, TabHead, TabMark } from './PbsDialog';
 import { PbsAgentPicker, PbsTokenButton } from './PbsAgentPicker';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
+import { useHosts } from '../lib/queries';
+import { Button, ConfirmModal, Modal, Panel, Spinner, VerticalTabs } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pbs!monitor';
+
+type PbsTab = 'host' | 'connection' | 'token' | 'options';
 
 // the PBS filters the list by permission instead of answering 403
 function outcome(r: PbsTestResult, label: string): TestState {
@@ -37,6 +41,8 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
   const [test, setTest] = useState<TestState>(null);
   const [testTs, setTestTs] = useState<TestState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [tab, setTab] = useState<PbsTab>(data.agent ? 'connection' : 'host');
+  const { data: hosts } = useHosts();
   const set = (patch: Partial<PbsSettingsInput>) => setForm({ ...form, ...patch });
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const requestClose = () => {
@@ -69,7 +75,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
       const r = await api.testPbsSettings(form);
       // the hub only receives on the tailnet: the Tailscale address is not tried
       setTest(outcome(r, form.tailscaleUrl ? 'LAN' : ''));
-      if (form.tailscaleUrl) setTestTs({ level: 'info', text: 'Tailscale : non testable depuis le hub (Tailscale en entrée seulement). Les agents des hôtes Tailscale joignent le PBS par leur propre Tailscale.' });
+      if (form.tailscaleUrl) setTestTs({ level: 'info', text: 'Tailscale : non testable depuis le hub (Tailscale en entrée seulement) ; les agents des hôtes Tailscale joignent le PBS par leur propre Tailscale.' });
     } catch (err) {
       setTest({ level: 'error', text: (err as Error).message });
     } finally {
@@ -77,83 +83,105 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     }
   };
 
+  const go = (t: PbsTab) => setTab(t);
+  const tabs: { id: PbsTab; label: string; count?: ReactNode }[] = [
+    { id: 'host', label: 'Hôte', count: <TabMark done={!!form.agent} /> },
+    { id: 'connection', label: 'Connexion', count: form.agent ? <TabMark done={!!form.url} /> : undefined },
+    { id: 'token', label: 'Jeton', count: <TabMark done={saved.hasSecret} /> },
+    { id: 'options', label: 'Options' },
+  ];
+  const hostName = hosts?.find((h) => h.id === form.agent?.hostId)?.name;
+  const summary = [hostName ?? 'aucun hôte relié', form.url || 'adresse non détectée', saved.hasSecret ? `jeton ${saved.tokenId}` : 'aucun jeton', form.enabled ? '' : 'suivi désactivé']
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <>
       <Modal
         open={open}
         onClose={requestClose}
-        wide="xl"
+        wide="screen"
         title="Proxmox Backup Server"
         footer={
           <>
-            <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !form.url || !saved.hasSecret} onClick={runTest}>Tester la connexion</Button>
+            <span className="mr-auto min-w-0 self-center truncate text-xs text-muted" title={summary}>{summary}</span>
+            <Button icon={Plug} loading={busy === 'test'} disabled={busy !== null || !form.url || !saved.hasSecret} onClick={() => (setTab('connection'), void runTest())}>Tester la connexion</Button>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
       >
-        <div className="grid gap-6 text-sm lg:grid-cols-2">
-          <div className="space-y-4">
-            <ConnectionFields
-              form={form}
-              set={set}
-              hasSecret={null}
-              urlPlaceholder="https://192.168.100.8:8007"
-              urlLocked={!!form.agent}
-              fingerprintHint="Certificat auto-signé : son empreinte est épinglée. À comparer avec celle du PBS (Tableau de bord › Afficher l'empreinte)."
-              fetchFingerprint={api.pbsFingerprint}
-              enabledLabel="Suivre les sauvegardes du PBS"
-            />
-            <TestResult test={test} />
-            <TestResult test={testTs} />
-            <div className="space-y-4 border-t border-line pt-4">
-              <label className="block">
-                <span className={field}>Adresse du PBS sur Tailscale (hôtes du réseau Tailscale)</span>
-                <input className="input font-mono text-xs" value={form.tailscaleUrl ?? ''} onChange={(e) => set({ tailscaleUrl: e.target.value.trim() })} placeholder="https://100.65.214.55:8007" spellCheck={false} readOnly={!!form.agent} />
-                <span className="mt-1 block text-xs text-zinc-500">Même certificat (empreinte ci-dessus){form.agent ? ', IP Tailscale de l’hôte détectée par son agent' : ''}. Vide : ces hôtes ne sauvegardent pas.</span>
+        <VerticalTabs tabs={tabs} value={tab} onChange={setTab} bodyClassName="pt-4 md:pt-1 md:pl-6">
+          {tab === 'host' && (
+            <section className="space-y-4 text-sm">
+              <TabHead title="Hôte du PBS">
+                L’agent de l’hôte trouve le PBS (installé, ou dans un conteneur lancé) et donne son adresse sur le LAN et sur Tailscale, son port et l’empreinte de son
+                certificat : rien n’est à saisir. Il crée ensuite les jetons.
+              </TabHead>
+              <PbsAgentPicker
+                link={form.agent}
+                onDetected={(agent, found) =>
+                  set({ agent, url: found.url ?? '', tailscaleUrl: found.tailscaleUrl ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) })
+                }
+              />
+            </section>
+          )}
+          {tab === 'connection' && (
+            <section className="space-y-4 text-sm">
+              <TabHead title="Connexion">Adresses données aux agents des hôtes selon leur réseau d’accès, avec la même empreinte. Relancer Détecter après un changement d’IP.</TabHead>
+              {!form.agent && <NeedsHost onGo={() => go('host')} />}
+              <DetectedRows
+                rows={[
+                  { label: 'LAN', value: form.url, empty: 'non détectée' },
+                  { label: 'Tailscale', value: form.tailscaleUrl, empty: 'aucune IP Tailscale : les hôtes du réseau Tailscale ne sauvegardent pas' },
+                  { label: 'Empreinte', value: form.fingerprint, empty: 'aucune (autorités système)' },
+                ]}
+              />
+              <div className="space-y-1">
+                <TestResult test={test} />
+                <TestResult test={testTs} />
+              </div>
+            </section>
+          )}
+          {tab === 'token' && (
+            <section className="space-y-4 text-sm">
+              <TabHead title="Jeton de supervision">
+                L’agent de l’hôte du PBS crée l’utilisateur <code>homelab@pbs</code> et son jeton, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule),
+                donné à l’utilisateur <b>et</b> au jeton : les droits d’un jeton PBS sont l’intersection des siens et de ceux de son utilisateur. Le secret va de l’agent au
+                hub, jamais affiché. Le même agent crée ensuite les jetons des hôtes.
+              </TabHead>
+              {!form.agent && <NeedsHost onGo={() => go('host')} />}
+              <PbsTokenButton
+                tokenId={tokenId}
+                onTokenIdChange={setTokenId}
+                disabled={!form.agent}
+                create={async () => {
+                  const r = await api.createPbsToken(form.agent!, tokenId);
+                  qc.setQueryData(['settings', 'pbs'], r.settings);
+                  setSaved(r.settings);
+                  return r;
+                }}
+              />
+              <p className="text-xs text-muted">
+                {saved.hasSecret ? <>Jeton enregistré : <code>{saved.tokenId}</code>.</> : 'Aucun jeton enregistré.'} Un jeton existant garde son secret ; ses droits sont
+                remis à ceux ci-dessus (les autres lui sont retirés).
+              </p>
+            </section>
+          )}
+          {tab === 'options' && (
+            <section className="space-y-4 text-sm">
+              <TabHead title="Options" />
+              <label className="flex cursor-pointer items-center gap-3">
+                <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
+                <span>Suivre les sauvegardes du PBS</span>
               </label>
               <label className="block">
                 <span className={field}>Image du client (hôtes sans client installé)</span>
                 <input className="input font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />
               </label>
-            </div>
-          </div>
-          <TokenAside
-            title="Agent et jeton du PBS"
-            intro={
-              <>
-                L'agent de l'hôte du PBS crée l'utilisateur <code>homelab@pbs</code> et son jeton, rôle <b>DatastoreAudit</b> sur <code>/datastore</code> (lecture seule),
-                donné à l'utilisateur <b>et</b> au jeton : les droits d'un jeton PBS sont l'intersection des siens et de ceux de son utilisateur. Le secret va de l'agent
-                au hub, jamais affiché. Le même agent crée ensuite les jetons des hôtes.
-              </>
-            }
-            setup={
-              <div className="space-y-3">
-                <PbsAgentPicker
-                  link={form.agent}
-                  onDetected={(agent, found) =>
-                    set({ agent, url: found.url ?? '', tailscaleUrl: found.tailscaleUrl ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) })
-                  }
-                />
-                <PbsTokenButton
-                  tokenId={tokenId}
-                  onTokenIdChange={setTokenId}
-                  disabled={!form.agent}
-                  create={async () => {
-                    const r = await api.createPbsToken(form.agent!, tokenId);
-                    qc.setQueryData(['settings', 'pbs'], r.settings);
-                    setSaved(r.settings);
-                    return r;
-                  }}
-                />
-                <p>
-                  {saved.hasSecret ? <>Jeton enregistré : <code>{saved.tokenId}</code>.</> : 'Aucun jeton enregistré.'} Un jeton existant garde son secret ; ses droits sont
-                  remis à ceux ci-dessus (les autres lui sont retirés).
-                </p>
-              </div>
-            }
-          />
-        </div>
+            </section>
+          )}
+        </VerticalTabs>
       </Modal>
       <ConfirmModal
         open={confirmDiscard}

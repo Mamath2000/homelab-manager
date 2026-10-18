@@ -54,12 +54,11 @@ export function ServerRow({ name, tag, url, enabled, polledAt, pollError, detail
 // Address, pinned certificate, secret of the token and polling switch of a server (the token id is set
 // next to the command that creates it, see TokenSetup). hasSecret null: no secret field (PBS, its agent
 // creates the token).
-export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, urlLocked, fingerprintHint, fetchFingerprint, enabledLabel }: {
+export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, fingerprintHint, fetchFingerprint, enabledLabel }: {
   form: Connection;
   set: (patch: Partial<Connection>) => void;
   hasSecret: boolean | null;
   urlPlaceholder: string;
-  urlLocked?: boolean; // address given by the agent of the server (Détecter), not typed
   fingerprintHint: ReactNode;
   fetchFingerprint: (url: string) => Promise<{ fingerprint: string }>;
   enabledLabel: string;
@@ -80,8 +79,7 @@ export function ConnectionFields({ form, set, hasSecret, urlPlaceholder, urlLock
     <>
       <label className="block">
         <span className={field}>Adresse</span>
-        <input className="input" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder={urlPlaceholder} spellCheck={false} readOnly={urlLocked} />
-        {urlLocked && <span className="mt-1 block text-xs text-muted">Donnée par l'agent de l'hôte (IP et port détectés) : relancer Détecter pour la mettre à jour.</span>}
+        <input className="input" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder={urlPlaceholder} spellCheck={false} />
       </label>
       <div>
         <span className={field}>Empreinte du certificat (SHA-256)</span>

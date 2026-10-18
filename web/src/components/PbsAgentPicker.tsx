@@ -41,7 +41,7 @@ export function PbsAgentPicker({ link, onDetected }: { link?: PbsAgentLink; onDe
   const current = link && link.hostId === hostId ? link : null;
   return (
     <div className="space-y-2">
-      <span className={field}>Hôte du PBS (son agent crée les jetons)</span>
+      <span className={field}>Hôte</span>
       <div className="flex gap-2">
         <select className="input flex-1" value={hostId} onChange={(e) => (setHostId(e.target.value), setFound(null))}>
           <option value="">— choisir l'hôte —</option>
