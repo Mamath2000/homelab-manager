@@ -128,12 +128,12 @@ export function TokenButton({ tokenId, onTokenIdChange, disabled, primary, creat
     }
   };
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <label className="block min-w-0 flex-1" title="Un jeton existant dont le hub ne connaît pas le secret est recréé (nouveau secret)">
+    <div className="space-y-2">
+      <label className="block" title="Un jeton existant dont le hub ne connaît pas le secret est recréé (nouveau secret)">
         <span className={field}>Identifiant du jeton</span>
         <input className="input h-8 py-1 font-mono text-xs" value={tokenId} onChange={(e) => onTokenIdChange(e.target.value.trim())} spellCheck={false} />
       </label>
-      <Button size="sm" variant={primary ? 'primary' : 'secondary'} icon={KeyRound} loading={busy} disabled={disabled || !tokenId} onClick={run}>Créer le jeton</Button>
+      <Button className="w-full" size="sm" variant={primary ? 'primary' : 'secondary'} icon={KeyRound} loading={busy} disabled={disabled || !tokenId} onClick={run}>Créer le jeton</Button>
     </div>
   );
 }
