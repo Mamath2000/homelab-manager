@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import { HostQuickSwitch } from './HostQuickSwitch';
 import { Spinner, StatusDot } from './ui';
 
 interface NavItem {
@@ -201,6 +202,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       )}
 
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      {!me.isSuperAdmin && <HostQuickSwitch />}
 
       <main className="px-4 py-6 md:ml-60 md:px-8">
         <div>
