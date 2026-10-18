@@ -69,13 +69,16 @@ test('alerts roll up from the sub-component to the host and the root', () => {
   assert.equal(state(`${id(bad)}_apt`, 'alerts'), '2');
   assert.equal(state(id(bad), 'alerts'), '2');
   assert.equal(state(id(bad), 'problem'), 'ON');
-  assert.equal(state(id(ok), 'problem'), 'OFF');
+  // a pending package is a warning of the registry
+  assert.equal(state(id(ok), 'alerts'), '1');
+  assert.equal(state(id(ok), 'problem'), 'ON');
   assert.equal(state(id(off), 'agent'), 'OFF');
   assert.equal(state(id(off), 'problem'), 'ON');
   assert.equal(state(ROOT_ID, 'hosts_offline'), '1');
-  assert.equal(state(ROOT_ID, 'alerts'), '3');
+  assert.equal(state(ROOT_ID, 'alerts'), '4');
   const attrs = JSON.parse(state(ROOT_ID, 'alerts', 'attributes')!);
-  assert.equal(attrs.critical, 1);
+  // unreachable critical host, security update of `bad`
+  assert.equal(attrs.critical, 2);
   assert.ok(attrs.alerts.every((a: { host?: string }) => a.host));
   // no package report yet: no APT sub-component
   assert.equal(devices.some((d) => d.id === `${id(off)}_apt`), false);

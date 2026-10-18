@@ -8,7 +8,8 @@
 // Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
 import { hasApt, type HostDoc, type JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
-import { agentAlerts, aptAlerts, backupAlerts, dockerAlerts, pveAlerts, upsAlerts, type Alert } from './alerts.js';
+import { alertsOf, hostAlerts as rolledUp, type Alert } from './alerts.js';
+import { evaluate, type HostStatus } from '../monitoring.js';
 import { upsFlags } from '../ups.js';
 import { dockerView } from '../docker.js';
 
@@ -38,6 +39,7 @@ export interface HostState {
   busy: boolean; // a job is running on the host
   agentOutdated?: boolean | null;
   latestAgentVersion?: string | null;
+  status?: HostStatus; // registry status (monitoring.ts); computed without backup groups when missing
 }
 
 export interface Command {
@@ -156,13 +158,14 @@ export function build(all: HostState[], opts: BuildOptions) {
 
   const stackLabel: Record<string, string> = { running: 'En marche', partial: 'Partielle', stopped: 'Arrêtée', down: 'Down' };
 
-  for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion } of hosts) {
+  for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion, status: given } of hosts) {
     const hid = host._id.toHexString();
     const hostId = `hm_${hid}`;
     const r = host.apt;
+    const status = given ?? evaluate(host, { online: isOnline, groups: [], now: Date.now(), agentOutdated });
 
     // --- APT sub-component: the details
-    const apt = aptAlerts(host, isOnline);
+    const apt = alertsOf(status.domains.apt, 'apt');
     if (r) {
       const sec = r.upgradable.filter((p) => p.security).length;
       const rebootPending = r.upgradable.filter((p) => needsReboot(p.name)).length;
@@ -207,15 +210,13 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
 
     // --- Docker: one sub-component per compose stack
-    const docker: Alert[] = [];
-    const view = dockerView(host);
+        const view = dockerView(host);
     if (view) withDocker++;
     // unmanaged stacks (own update system) are not published at all
     for (const st of view?.stacks.filter((v) => v.managed) ?? []) {
       stacks++;
       if (st.updates) stacksToUpdate++;
-      const alerts = dockerAlerts(st);
-      docker.push(...alerts);
+      const alerts = alertsOf(status.domains.docker, 'docker', (c) => c.key === st.name);
       const id = `${hostId}_docker_${st.name}`;
       const target = { stack: st.name };
       const d = device(id, {
@@ -250,7 +251,7 @@ export function build(all: HostState[], opts: BuildOptions) {
 
     // --- backups of the host (Proxmox Backup Server, Home Assistant)
     const mine = tracked.filter((g) => g.hostId === hid);
-    const backup = [...backupAlerts(mine, !!host.roaming && !isOnline), ...pveAlerts(host)];
+    const backup = alertsOf(status.domains.backup, 'backup');
     if (mine.length) {
       const model = [
         ...(mine.some((g) => g.source !== 'haos') ? ['Proxmox Backup Server'] : []),
@@ -274,7 +275,7 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
 
     // --- UPS (NUT) of the host
-    const ups = upsAlerts(host);
+    const ups = alertsOf(status.domains.ups, 'ups');
     const u = host.ups;
     if (u) {
       const flags = upsFlags(u.status);
@@ -303,7 +304,7 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
 
     // --- host: connectivity + alerts rolled up from the sub-components
-    const hostAlerts = [...agentAlerts(host, isOnline, agentOutdated), ...apt, ...docker, ...backup, ...ups];
+    const hostAlerts = rolledUp(status);
     const selfUpdate = !!host.capabilities?.includes('agent_update');
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 

@@ -1,4 +1,5 @@
 import { isOnline } from './agents.js';
+import { agentOutdated } from './agentBinaries.js';
 import { dockerView } from './docker.js';
 import { backupState } from './pbs.js';
 import { offsiteState } from './offsite.js';
@@ -57,6 +58,7 @@ export interface Context {
   online: boolean;
   groups: BackupDoc[]; // backup groups attached to the host
   now: number;
+  agentOutdated?: boolean | null; // a newer agent binary is available (null: unknown)
 }
 
 type Provider = (h: HostDoc, ctx: Context) => DomainReport;
@@ -80,8 +82,8 @@ const STALE_LISTS_MS = 2 * 24 * 3600 * 1000;
 
 // --- providers ----------------------------------------------------------------------------------
 
-export function systemStatus(h: Pick<HostDoc, 'enrolledAt' | 'roaming' | 'critical'>, ctx: Pick<Context, 'online'>): DomainStatus {
-  if (ctx.online) return known([check('connection', 'Connexion', 'ok')]);
+export function systemStatus(h: Pick<HostDoc, 'enrolledAt' | 'roaming' | 'critical'>, ctx: Pick<Context, 'online' | 'agentOutdated'>): DomainStatus {
+  if (ctx.online) return known([check('connection', 'Connexion', 'ok'), check('agent', 'Agent', ctx.agentOutdated ? 'warn' : 'ok', 'Agent à mettre à jour')]);
   if (!h.enrolledAt) return unknown('En attente de connexion');
   if (h.roaming) return unknown('Absent (itinérant)');
   return known([check('connection', 'Connexion', h.critical ? 'alert' : 'warn', 'Agent hors ligne')]);
@@ -121,11 +123,15 @@ export function dockerStatus(h: HostDoc, ctx: Pick<Context, 'online'>): DomainRe
 
 const groupName = (b: BackupDoc) => b.managed?.name ?? b.comment ?? b.backupId;
 
-export function backupStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'online' | 'groups' | 'now'>): DomainReport {
-  if (!ctx.groups.length) return null;
+export function backupStatus(h: Pick<HostDoc, 'roaming' | 'pve'>, ctx: Pick<Context, 'online' | 'groups' | 'now'>): DomainReport {
+  // a Proxmox VE guest that no job covers is a backup problem even before any group exists
+  const uncovered = h.pve && !h.pve.covered ? h.pve : null;
+  if (!ctx.groups.length && !uncovered) return null;
   const gone = away(h, ctx);
-  return known(
-    ctx.groups.map((b) => {
+  const pve = uncovered ? [check('pve', 'Proxmox', 'warn', `${uncovered.type === 'lxc' ? 'CT' : 'VM'} ${uncovered.vmid} couvert par aucun job de sauvegarde Proxmox`)] : [];
+  return known([
+    ...pve,
+    ...ctx.groups.map((b) => {
       const name = groupName(b);
       const key = String(b._id ?? b.backupId);
       switch (backupState(b, ctx.now)) {
@@ -138,7 +144,7 @@ export function backupStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'on
         default: return check(key, name, 'ok');
       }
     }),
-  );
+  ]);
 }
 
 // Copy of the groups to the secondary PBS: only the groups whose copy is enabled.
@@ -198,7 +204,7 @@ export function evaluateAll(list: HostDoc[], groups: BackupDoc[], now = Date.now
   const out: Record<string, HostStatus> = {};
   for (const h of list) {
     const id = h._id.toHexString();
-    out[id] = evaluate(h, { online: isOnline(id), groups: byHost.get(id) ?? [], now });
+    out[id] = evaluate(h, { online: isOnline(id), groups: byHost.get(id) ?? [], now, agentOutdated: agentOutdated(h) });
   }
   return out;
 }

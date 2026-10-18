@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { backupAlerts, pveAlerts } from '../src/homeassistant/alerts.js';
+import { alertsOf } from '../src/homeassistant/alerts.js';
+import { backupStatus } from '../src/monitoring.js';
 import { backupState, effectiveThreshold } from '../src/pbs.js';
 import { configMacs, followedStorages, guestResult, jobCovers, matchGuests, parseVzdumpLog, type ApiJob } from '../src/pve.js';
 import { authorize } from '../src/roles.js';
@@ -122,19 +123,24 @@ test('state of a group written by a PVE job follows its schedule', () => {
 
 test('alerts of PVE groups and of a guest no job covers', () => {
   const now = Date.now();
-  const msgs = backupAlerts(
-    [
-      { backupId: '180', state: 'task_failed', lastBackup: now },
-      { backupId: '181', state: 'disabled', lastBackup: now },
-      { backupId: '182', state: 'stale', lastBackup: 0 },
-    ],
-    false,
-    now,
+  const pve = (jobs: PveJobRef[]) => ({ cluster: 'vouille', vmid: 180, tz: 'Europe/Paris', jobs });
+  const msgs = alertsOf(
+    backupStatus({}, {
+      online: true,
+      now,
+      groups: [
+        group({ backupId: '180', lastBackup: now, pve: { ...pve([job()]), lastTask: { upid: 'u', at: now + 1, ok: false, error: 'x' } } }),
+        group({ backupId: '181', lastBackup: now, pve: pve([job({ enabled: false })]) }),
+      ],
+    })!,
+    'backup',
   ).map((a) => a.message);
-  assert.deepEqual(msgs, ['180 : dernière sauvegarde en échec', '181 : job de sauvegarde désactivé', '182 : jamais sauvegardée']);
-  assert.equal(pveAlerts({ pve: { cluster: 'v', vmid: 171, type: 'lxc', node: 'pve1', name: 'x', covered: false } })[0].message, 'CT 171 couvert par aucun job de sauvegarde Proxmox');
-  assert.deepEqual(pveAlerts({ pve: { cluster: 'v', vmid: 171, type: 'lxc', node: 'pve1', name: 'x', covered: true } }), []);
-  assert.deepEqual(pveAlerts({}), []);
+  assert.deepEqual(msgs, ['180 : dernière exécution en échec', '181 : job désactivé']);
+  const guest = (covered: boolean) => ({ pve: { cluster: 'v', vmid: 171, type: 'lxc' as const, node: 'pve1', name: 'x', covered } });
+  const ctx = { online: true, groups: [], now };
+  assert.equal(alertsOf(backupStatus(guest(false), ctx) ?? undefined, 'backup')[0].message, 'CT 171 couvert par aucun job de sauvegarde Proxmox');
+  assert.equal(backupStatus(guest(true), ctx), null);
+  assert.equal(backupStatus({}, ctx), null);
 });
 
 test('PVE settings are admin only', () => {

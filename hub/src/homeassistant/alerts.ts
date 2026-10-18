@@ -1,79 +1,22 @@
-import type { HostDoc } from '../types.js';
-import type { StackView } from '../docker.js';
-import { upsProblems } from '../ups.js';
+import type { AlertDomain } from '../types.js';
+import type { Check, DomainStatus, HostStatus } from '../monitoring.js';
 
-// Alerts are produced by each sub-component of a host (agent, apt, later docker, backups...)
-// and roll up: sub-component -> host -> Homelab Manager.
+// Alerts of Home Assistant and of /api/summary are read from the registry of monitoring.ts:
+// warn -> warning, alert -> critical. A domain that is unknown has no checks, so no alerts.
 export interface Alert {
   level: 'critical' | 'warning';
-  source: string; // sub-component: agent, apt...
+  source: AlertDomain; // domain of the registry
   message: string;
   host?: string;
 }
 
-const STALE_MS = 2 * 24 * 3600 * 1000;
-
-export function agentAlerts(h: HostDoc, online: boolean, outdated?: boolean | null): Alert[] {
-  if (online) return outdated ? [{ level: 'warning', source: 'agent', message: 'Agent à mettre à jour' }] : [];
-  if (!h.enrolledAt) return [{ level: 'warning', source: 'agent', message: 'Agent jamais connecté' }];
-  // roaming host: being offline is its normal state
-  if (h.roaming) return [];
-  return [{ level: h.critical ? 'critical' : 'warning', source: 'agent', message: 'Agent hors ligne' }];
+// Not-ok checks of a domain, optionally only some of them (one Docker stack...).
+export function alertsOf(domain: DomainStatus | undefined, source: AlertDomain, only?: (c: Check) => boolean): Alert[] {
+  return (domain?.checks ?? [])
+    .filter((c) => c.level !== 'ok' && (!only || only(c)))
+    .map((c) => ({ level: c.level === 'alert' ? 'critical' : 'warning', source, message: c.reason ?? c.label }));
 }
 
-export function aptAlerts(h: HostDoc, online = true, now = Date.now()): Alert[] {
-  const r = h.apt;
-  if (!r) return [];
-  const out: Alert[] = [];
-  const security = r.upgradable.filter((p) => p.security).length;
-  if (security) out.push({ level: 'warning', source: 'apt', message: `${security} mise(s) à jour de sécurité` });
-  if (r.rebootRequired) out.push({ level: 'warning', source: 'apt', message: 'Redémarrage requis' });
-  // roaming host away: its lists can only be refreshed once it is back
-  if (!(h.roaming && !online) && (!r.listsUpdatedAt || now - r.listsUpdatedAt > STALE_MS)) {
-    out.push({ level: 'warning', source: 'apt', message: 'Listes de paquets non rafraîchies depuis plus de 2 jours' });
-  }
-  return out;
-}
-
-// Partial stack, unhealthy or restarting container. A stack stopped on purpose is not an alert.
-export function dockerAlerts(stack: Pick<StackView, 'name' | 'problems'>): Alert[] {
-  return stack.problems.map((p) => ({ level: 'warning', source: 'docker', message: `${stack.name} : ${p}` }));
-}
-
-// Backup groups of a host: late, failed verification, or no longer on the PBS. A roaming host away
-// cannot back up: being late is expected then.
-export interface BackupAlertInput {
-  backupId: string;
-  state: string; // see pbs.ts BackupState
-  lastBackup: number;
-}
-
-export function backupAlerts(groups: BackupAlertInput[], hostAway = false, now = Date.now()): Alert[] {
-  const out: Alert[] = [];
-  for (const g of groups) {
-    if (g.state === 'failed') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : vérification en échec` });
-    if (g.state === 'gone') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : disparue du PBS` });
-    if (g.state === 'task_failed') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : dernière sauvegarde en échec` });
-    if (g.state === 'disabled') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : job de sauvegarde désactivé` });
-    if (g.state === 'not_synced') out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : définition pas encore appliquée par l'agent` });
-    if (g.state === 'stale' && !hostAway && !g.lastBackup) out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : jamais sauvegardée` });
-    else if (g.state === 'stale' && !hostAway) {
-      const days = Math.floor((now - g.lastBackup) / 86_400_000);
-      out.push({ level: 'warning', source: 'backup', message: `${g.backupId} : pas de sauvegarde depuis ${days ? `${days} j` : 'plus d’un jour'}` });
-    }
-  }
-  return out;
-}
-
-// Proxmox VE guest of the host that no enabled backup job covers.
-export function pveAlerts(h: Pick<HostDoc, 'pve'>): Alert[] {
-  if (!h.pve || h.pve.covered) return [];
-  const what = h.pve.type === 'lxc' ? 'CT' : 'VM';
-  return [{ level: 'warning', source: 'backup', message: `${what} ${h.pve.vmid} couvert par aucun job de sauvegarde Proxmox` }];
-}
-
-// UPS of the host (NUT): battery to replace, on battery, alarm, low charge...
-export function upsAlerts(h: Pick<HostDoc, 'ups'>): Alert[] {
-  if (!h.ups) return [];
-  return upsProblems(h.ups).map((p) => ({ level: p.level === 'alert' ? 'critical' : 'warning', source: 'ups', message: p.message }));
+export function hostAlerts(status: HostStatus): Alert[] {
+  return (Object.entries(status.domains) as [AlertDomain, DomainStatus][]).flatMap(([id, d]) => alertsOf(d, id));
 }
