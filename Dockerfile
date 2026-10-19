@@ -25,7 +25,7 @@ RUN --mount=type=secret,id=release_key \
     done && \
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
       -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB" -o /out/homelab-agent-windows-amd64.exe . && \
-    if [ -n "$RELEASE_PUB" ]; then hm-sign sign -key /run/secrets/release_key /out/homelab-agent-linux-*; fi && \
+    if [ -n "$RELEASE_PUB" ]; then hm-sign sign -key /run/secrets/release_key /out/homelab-agent-*; fi && \
     echo "$version" > /out/VERSION
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web

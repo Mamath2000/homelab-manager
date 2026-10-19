@@ -172,6 +172,25 @@ export interface Host {
   setup: SetupState | null;
   // Proxmox VE guest this host is (one of its MAC addresses), null: none or not a single one
   pve: HostPveLink | null;
+  // OS of the agent (windows: presence, info and sessions only)
+  osFamily: 'linux' | 'windows';
+  // Windows: user sessions, last report of the agent (null: none yet)
+  sessions: SessionReport | null;
+  sessionSummary: { users: string[]; loggedIn: boolean; locked: boolean } | null;
+}
+
+export interface HostSession {
+  id: number;
+  user: string;
+  domain?: string;
+  station?: string; // Console, RDP-Tcp#0...
+  state: 'active' | 'locked' | 'disconnected';
+  logonAt?: number; // unix ms
+}
+
+export interface SessionReport {
+  checkedAt: number; // unix ms
+  sessions: HostSession[];
 }
 
 export interface HostPveLink {
@@ -395,7 +414,7 @@ export interface AgentSettings {
   agentPort: number; // TLS port given to the agents (published port of the hub)
   tailscaleHub: string; // hub on the tailnet (host or IP); empty: the Tailscale access network is not offered
   // signed: release signature checked by the agents (unsigned: development build)
-  binaries: { arch: string; sha256: string; version: string | null; signed: boolean }[];
+  binaries: { os: 'linux' | 'windows'; arch: string; sha256: string; version: string | null; signed: boolean }[];
   tls: {
     agentUrl: string | null; // null: invalid hub URL
     serverPin: string;

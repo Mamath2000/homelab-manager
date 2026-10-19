@@ -54,7 +54,7 @@ export function AgentAutoUpdate({ children }: { children?: (actions: ReactNode) 
         </label>
         <p className="mt-3 text-xs text-muted">
           Agent distribué par ce hub : <span className="font-mono text-zinc-300">{version ?? 'inconnu'}</span>
-          {data.binaries.length > 0 && <> ({data.binaries.map((b) => b.arch).join(', ')})</>}
+          {data.binaries.length > 0 && <> ({data.binaries.map((b) => `${b.os}/${b.arch}`).join(', ')})</>}
           {data.binaries.length > 0 &&
             (data.binaries.every((b) => b.signed) ? (
               <span className="text-emerald-400"> · signé</span>

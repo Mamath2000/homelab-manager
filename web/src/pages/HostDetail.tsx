@@ -11,6 +11,7 @@ import { RebootTag } from '../components/Reboot';
 import { CleanupButton } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
 import { UpsPanel } from '../components/UpsPanel';
+import { SessionsPanel } from '../components/SessionsPanel';
 import { SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
@@ -23,7 +24,7 @@ import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
 import { AlertTimeline } from '../components/AlertTimeline';
-import { agentRevoked, connection, hasApt, connectionMeta, isHaos, listsStale, needsReinstall, osLabel } from '../lib/status';
+import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 
@@ -323,7 +324,8 @@ function HostDetailPage({ id }: { id: string }) {
   if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
-  if (!hasApt(host) && !host.docker) {
+  if (isWindows(host)) blocks.push(<SessionsPanel key="sessions" host={host} />);
+  else if (!hasApt(host) && !host.docker) {
     blocks.push(
       <Panel key="system" title="Système" icon={Package}>
         <p className="text-sm text-muted">
@@ -334,7 +336,8 @@ function HostDetailPage({ id }: { id: string }) {
       </Panel>,
     );
   }
-  if (backupsOn) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
+  // Windows: no backup yet (homelab#206)
+  if (backupsOn && !isWindows(host)) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
 
   return (
     <>
@@ -451,16 +454,16 @@ function HostDetailPage({ id }: { id: string }) {
               <dl className="flex flex-wrap">
                 <StripItem label="Hostname">{host.info?.hostname ?? '—'}</StripItem>
                 <StripItem label="OS">{osLabel(host) ?? '—'}</StripItem>
-                <StripItem label="Noyau"><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>
+                <StripItem label={isWindows(host) ? 'Version' : 'Noyau'}><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>
                 <StripItem label="Architecture">{host.info?.arch ?? '—'}</StripItem>
-                <StripItem label="Virtualisation">{host.info?.virt ?? '—'}</StripItem>
+                {!isWindows(host) && <StripItem label="Virtualisation">{host.info?.virt ?? '—'}</StripItem>}
                 <StripItem label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</StripItem>
                 <StripItem label="Agent">{host.agentVersion ?? '—'}</StripItem>
                 <StripItem label="Certificat">
                   {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
                 </StripItem>
                 <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
-                <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>
+                {!isWindows(host) && <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>}
                 {showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
                 {(() => {
                   const { lan, tailscale } = groupIps(host.info?.ips);
