@@ -10,6 +10,8 @@ const STATE: Record<HostSession['state'], { label: string; tone: Tone }> = {
   disconnected: { label: 'Déconnectée', tone: 'neutral' },
 };
 
+const idleLabel = (sec: number) => (sec < 3600 ? `${Math.max(1, Math.round(sec / 60))} min` : `${Math.round(sec / 3600)} h`);
+
 // Windows: the user sessions the agent reports (console, fast user switching, remote desktop).
 export function SessionsPanel({ host }: { host: Host }) {
   const r = host.sessions;
@@ -34,6 +36,11 @@ export function SessionsPanel({ host }: { host: Host }) {
               </span>
               {s.station && <span className="font-mono text-xs text-muted">{s.station}</span>}
               {s.logonAt ? <span className="text-xs text-muted">ouverte le {dateTime(s.logonAt)}</span> : null}
+              {s.interactive ? (
+                <Badge tone="ok">Interactive</Badge>
+              ) : s.idleSec != null && s.state === 'active' ? (
+                <span className="text-xs text-muted">inactive depuis {idleLabel(s.idleSec)}</span>
+              ) : null}
               <Badge tone={STATE[s.state].tone}>{STATE[s.state].label}</Badge>
             </li>
           ))}

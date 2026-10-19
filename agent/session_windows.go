@@ -27,9 +27,12 @@ const (
 
 	// WTSINFOEX_LEVEL1.LogonTime: FILETIME (100 ns since 1601) of the unix epoch
 	filetimeUnixEpoch = 116444736000000000
+
+	// no input for that long: the session is no longer interactive (homelab#207)
+	idleThreshold = 5 * time.Minute
 )
 
-// WTSINFOEXW with its WTSINFOEX_LEVEL1_W, up to LogonTime (the buffer is the system's, longer).
+// WTSINFOEXW with its WTSINFOEX_LEVEL1_W, up to CurrentTime (the buffer is the system's, longer).
 type wtsInfoEx struct {
 	Level          uint32
 	_              uint32 // the union is 8-byte aligned
@@ -40,6 +43,10 @@ type wtsInfoEx struct {
 	UserName       [21]uint16
 	DomainName     [18]uint16
 	LogonTime      int64
+	ConnectTime    int64
+	DisconnectTime int64
+	LastInputTime  int64
+	CurrentTime    int64
 }
 
 // compile-time check of the layout against the C structure (offsets 8 and 168 on amd64)
@@ -121,6 +128,13 @@ func querySession(id uint32) (Session, bool) {
 		s.State = "disconnected"
 	default:
 		return Session{}, false
+	}
+	// LastInputTime/CurrentTime are service-readable for every session (GetLastInputInfo only sees its own);
+	// LastInputTime is 0 until the first input of the session
+	if buf.LastInputTime > 0 && buf.CurrentTime >= buf.LastInputTime {
+		idle := (buf.CurrentTime - buf.LastInputTime) / 10_000_000
+		s.IdleSec = &idle
+		s.Interactive = s.State == "active" && time.Duration(idle)*time.Second < idleThreshold
 	}
 	return s, true
 }

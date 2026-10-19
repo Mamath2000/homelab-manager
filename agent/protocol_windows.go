@@ -12,6 +12,10 @@ type Session struct {
 	Station string `json:"station,omitempty"` // Console, RDP-Tcp#0...
 	State   string `json:"state"`             // active | locked | disconnected
 	LogonAt int64  `json:"logonAt,omitempty"` // unix ms
+	// keyboard/mouse input within idleThreshold in an active (unlocked) session
+	Interactive bool `json:"interactive"`
+	// seconds since the last input; nil when unknown. Not part of the change detection (it moves all the time).
+	IdleSec *int64 `json:"idleSec,omitempty"`
 }
 
 type SessionReport struct {

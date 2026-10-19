@@ -7,6 +7,9 @@ export interface HostSession {
   station?: string; // Console, RDP-Tcp#0...
   state: 'active' | 'locked' | 'disconnected';
   logonAt?: number; // unix ms
+  // input (keyboard, mouse) in an unlocked session within the last 5 minutes (computed by the agent)
+  interactive?: boolean;
+  idleSec?: number; // seconds since the last input, at the time of the report
 }
 
 export interface SessionReport {
@@ -37,5 +40,7 @@ export function sessionSummary(r: SessionReport | null | undefined) {
     loggedIn: users.length > 0,
     // nobody at the keyboard: no session open, or all of them locked
     locked: open.length > 0 && open.every((s) => s.state === 'locked'),
+    // someone is using the computer: input in any session within the agent's idle threshold
+    interactive: r.sessions.some((s) => s.interactive === true),
   };
 }

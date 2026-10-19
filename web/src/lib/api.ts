@@ -176,7 +176,7 @@ export interface Host {
   osFamily: 'linux' | 'windows';
   // Windows: user sessions, last report of the agent (null: none yet)
   sessions: SessionReport | null;
-  sessionSummary: { users: string[]; loggedIn: boolean; locked: boolean } | null;
+  sessionSummary: { users: string[]; loggedIn: boolean; locked: boolean; interactive: boolean } | null;
 }
 
 export interface HostSession {
@@ -186,6 +186,8 @@ export interface HostSession {
   station?: string; // Console, RDP-Tcp#0...
   state: 'active' | 'locked' | 'disconnected';
   logonAt?: number; // unix ms
+  interactive?: boolean; // input within the last 5 minutes
+  idleSec?: number; // seconds since the last input, at the time of the report
 }
 
 export interface SessionReport {

@@ -325,6 +325,7 @@ export function build(all: HostState[], opts: BuildOptions) {
         availability_mode: 'all',
       };
       d.binary('users_logged_in', 'Utilisateur connecté', sessions.loggedIn, { device_class: 'occupancy', ...whileOnline });
+      d.binary('interactive', 'Activité clavier/souris', sessions.interactive, { icon: 'mdi:mouse', ...whileOnline });
       d.binary('session_locked', 'Session verrouillée', sessions.locked, { icon: 'mdi:monitor-lock', ...whileOnline });
       d.sensor('users', 'Utilisateurs', sessions.users.length, {
         icon: 'mdi:account-multiple', json_attributes_topic: `${topic}/${hostId}/users/attributes`, ...whileOnline,

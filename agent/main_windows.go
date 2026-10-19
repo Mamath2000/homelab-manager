@@ -186,7 +186,13 @@ func (s *session) sessions(ctx context.Context, force bool) {
 		log.Printf("sessions: %v", err)
 		return
 	}
-	cur, _ := json.Marshal(r.Sessions)
+	// idleSec changes at every read: only the transitions (state, interactive) are worth a report
+	stable := make([]Session, len(r.Sessions))
+	for i, x := range r.Sessions {
+		x.IdleSec = nil
+		stable[i] = x
+	}
+	cur, _ := json.Marshal(stable)
 	s.mu.Lock()
 	same := string(cur) == string(s.last)
 	s.last = cur
@@ -205,7 +211,7 @@ func (s *session) loop(ctx context.Context) error {
 	go func() {
 		helloT := time.NewTicker(30 * time.Minute)
 		// safety net behind the notifications of the service (and the only source in a console)
-		pollT := time.NewTicker(time.Minute)
+		pollT := time.NewTicker(15 * time.Second)
 		defer helloT.Stop()
 		defer pollT.Stop()
 		for {
