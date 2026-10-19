@@ -40,6 +40,11 @@ func kickSessions() {
 var restartKick = make(chan struct{}, 1)
 
 func main() {
+	// the helper of the service in a user session (idle_windows.go): nothing else to do as that user
+	if len(os.Args) == 2 && os.Args[1] == "idle-probe" {
+		runIdleProbe()
+		return
+	}
 	cleanOldBinary()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -65,6 +70,7 @@ func main() {
 	cfg, _ := loadConfig(os.Args[1:])
 	if isService, err := svc.IsWindowsService(); err == nil && isService {
 		logToFile(cfg.Dir)
+		probes.helpers = true
 		if err := svc.Run(serviceName, &service{cfg: cfg}); err != nil {
 			log.Fatalf("service: %v", err)
 		}
@@ -115,6 +121,11 @@ func (s *service) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<
 		case <-restartKick:
 			// a failure exit code: the recovery actions (installed with the service) restart it
 			cancel()
+			// the helpers end with the agent: they hold the old binary
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+			}
 			return false, 1
 		case c := <-req:
 			switch c.Cmd {
@@ -146,6 +157,7 @@ func (s *service) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<
 
 func runAgent(ctx context.Context, cfg config) {
 	log.Printf("homelab-agent %s (windows)", version)
+	defer probes.stop()
 	roots, cert, err := identity(cfg.Dir)
 	if err != nil {
 		log.Printf("identity: %v", err)

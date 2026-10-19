@@ -32,7 +32,8 @@ const (
 	idleThreshold = 5 * time.Minute
 )
 
-// WTSINFOEXW with its WTSINFOEX_LEVEL1_W, up to CurrentTime (the buffer is the system's, longer).
+// WTSINFOEXW with its WTSINFOEX_LEVEL1_W, up to LogonTime (the buffer is the system's, longer).
+// Its LastInputTime is not maintained for the console session: see idle_windows.go.
 type wtsInfoEx struct {
 	Level          uint32
 	_              uint32 // the union is 8-byte aligned
@@ -43,10 +44,6 @@ type wtsInfoEx struct {
 	UserName       [21]uint16
 	DomainName     [18]uint16
 	LogonTime      int64
-	ConnectTime    int64
-	DisconnectTime int64
-	LastInputTime  int64
-	CurrentTime    int64
 }
 
 // compile-time check of the layout against the C structure (offsets 8 and 168 on amd64)
@@ -74,10 +71,20 @@ func collectSessions() (*SessionReport, error) {
 	}
 	defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(list)))
 	out := []Session{}
+	ids := []uint32{}
 	for _, si := range unsafe.Slice(list, n) {
 		s, ok := querySession(si.SessionID)
 		if ok {
 			out = append(out, s)
+			ids = append(ids, s.ID)
+		}
+	}
+	probes.ensure(ids)
+	for i := range out {
+		if d, ok := probes.idle(out[i].ID); ok {
+			sec := int64(d / time.Second)
+			out[i].IdleSec = &sec
+			out[i].Interactive = out[i].State == "active" && d < idleThreshold
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -128,13 +135,6 @@ func querySession(id uint32) (Session, bool) {
 		s.State = "disconnected"
 	default:
 		return Session{}, false
-	}
-	// LastInputTime/CurrentTime are service-readable for every session (GetLastInputInfo only sees its own);
-	// LastInputTime is 0 until the first input of the session
-	if buf.LastInputTime > 0 && buf.CurrentTime >= buf.LastInputTime {
-		idle := (buf.CurrentTime - buf.LastInputTime) / 10_000_000
-		s.IdleSec = &idle
-		s.Interactive = s.State == "active" && time.Duration(idle)*time.Second < idleThreshold
 	}
 	return s, true
 }
