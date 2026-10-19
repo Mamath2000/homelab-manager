@@ -330,6 +330,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       d.sensor('session_changed', 'Dernier changement de session', sessions.changedAt ? new Date(sessions.changedAt).toISOString() : null, {
         icon: 'mdi:clock-outline', device_class: 'timestamp', ...whileOnline,
       });
+      d.sensor('logged_users', 'Utilisateurs connectés', sessions.users.join(', ') || null, { icon: 'mdi:account-details', ...whileOnline });
       d.sensor('users', 'Utilisateurs', sessions.users.length, {
         icon: 'mdi:account-multiple', json_attributes_topic: `${topic}/${hostId}/users/attributes`, ...whileOnline,
       });
