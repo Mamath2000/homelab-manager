@@ -41,6 +41,15 @@ for cmd in docker git npm; do
     command -v $cmd >/dev/null 2>&1 || { echo "❌ $cmd est requis mais non installé."; exit 1; }
 done
 
+# agent/VERSION est incrémenté par `make check` (agent/build.sh) quand les sources de l'agent ont changé :
+# s'il est le seul fichier modifié, il est commité à part avant le contrôle de propreté.
+commit_agent_version() {
+    [ "$(git status --porcelain)" = " M agent/VERSION" ] || return 0
+    git add agent/VERSION
+    git commit -q -m "🔖 Agent $(cat agent/VERSION)"
+    echo "📌 agent/VERSION commité ($(cat agent/VERSION))"
+}
+
 VERSION=$(cat VERSION)
 RELEASE_KEY=${RELEASE_KEY:-"$HOME/.config/homelab-manager/release.key"}
 
@@ -76,6 +85,7 @@ if [ "$action" = "direct" ]; then
     }
     command -v go >/dev/null 2>&1 || { echo "❌ go est requis (vérification de la clé de release)."; exit 1; }
     signing_args || { echo "❌ Clé de release absente ($RELEASE_KEY) : les agents de production doivent être signés."; exit 1; }
+    commit_agent_version
     if [ -n "$(git status --porcelain)" ]; then
         echo "❌ Working directory non propre, commitez d'abord (l'image doit correspondre à un commit) :"
         git status --short
@@ -136,6 +146,7 @@ signing_args || {
 }
 docker buildx version >/dev/null 2>&1 || { echo "❌ docker buildx est requis."; exit 1; }
 docker info 2>/dev/null | grep -q Username || { echo "❌ Non connecté à Docker Hub (docker login)."; exit 1; }
+commit_agent_version
 if [ -n "$(git status --porcelain)" ]; then
     echo "❌ Working directory non propre, commitez d'abord :"
     git status --short
