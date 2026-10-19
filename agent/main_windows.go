@@ -2,9 +2,10 @@
 
 package main
 
-// Windows agent (homelab#183): presence, host info, sessions and self-update (homelab#207). Every other file of the
-// package is Linux code (//go:build !windows) except the shared core: config.go, connect.go,
-// enroll.go, tls.go, info.go.
+// Windows agent (homelab#183): presence, host info, sessions, self-update (homelab#207) and backups of
+// directories to the PBS (homelab#208). Every other file of the package is Linux code (//go:build !windows)
+// except the shared core: config.go, connect.go, enroll.go, tls.go, info.go, backup.go, calendar.go,
+// stream.go.
 
 import (
 	"context"
@@ -164,6 +165,9 @@ func runAgent(ctx context.Context, cfg config) {
 		return
 	}
 	client := httpClient(tlsConfig(roots, cert))
+	// scheduled backups run whether the hub is reachable or not
+	backups = newBackupModule(cfg.Dir)
+	go backups.loop(ctx)
 	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
 		return (&session{conn: conn, http: client, hub: cfg.Hub}).loop(ctx)
 	})
@@ -175,6 +179,8 @@ type session struct {
 	hub  string
 	mu   sync.Mutex // serialises writes
 	last []byte     // last session report sent (JSON of the sessions)
+	// backup client present in the last hello: a definition that changes it calls for a new hello
+	client bool
 }
 
 func (s *session) send(ctx context.Context, m Outbound) error {
@@ -187,8 +193,36 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 }
 
 func (s *session) hello(ctx context.Context) error {
-	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(),
-		Capabilities: []string{"refresh", "session", "agent_update"}, BinaryHash: binaryHash})
+	// backups: backup_setup (the hub may send definitions), backup_connect (jobs run on connection),
+	// "backup" and backup:cli once the CLI named by the definition is there
+	caps := []string{"refresh", "session", "agent_update", "backup_setup", "backup_connect"}
+	client := backups.clientPresent()
+	if client {
+		caps = append(caps, "backup", "backup:cli")
+	}
+	s.mu.Lock()
+	s.client = client
+	s.mu.Unlock()
+	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
+}
+
+// backupSync applies a definition of the hub; a new client path that changes what the hello says sends it again.
+func (s *session) backupSync(ctx context.Context, in Inbound) {
+	o := Outbound{Type: "backup_synced"}
+	if in.Backup == nil {
+		o.Error = "missing definition"
+	} else if err := backups.apply(in.Backup); err != nil {
+		o.Error = err.Error()
+	} else {
+		o.Data = in.Backup.Hash
+	}
+	_ = s.send(ctx, o)
+	s.mu.Lock()
+	changed := s.client != backups.clientPresent()
+	s.mu.Unlock()
+	if changed {
+		_ = s.hello(ctx)
+	}
 }
 
 // sessions reports the sessions; unchanged ones are only sent when forced.
@@ -219,6 +253,9 @@ func (s *session) loop(ctx context.Context) error {
 	if err := s.hello(ctx); err != nil {
 		return err
 	}
+	// pending backup results go to this connection
+	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
+	defer backups.detach()
 	s.sessions(ctx, true)
 	go func() {
 		helloT := time.NewTicker(30 * time.Minute)
@@ -267,19 +304,36 @@ func (s *session) loop(ctx context.Context) error {
 			_ = s.send(ctx, out)
 		case "run":
 			s.run(ctx, in)
+		case "backup_sync":
+			go s.backupSync(ctx, in)
+		case "backup_result_ack":
+			backups.ack(in.ReqID)
 		}
 	}
 }
 
-// run executes a job of the hub. Only agent_update exists on Windows; any other action must not
-// stay pending on the hub.
+// run executes a job of the hub. Only agent_update and backup_run exist on Windows; any other action
+// must not stay pending on the hub.
 func (s *session) run(ctx context.Context, in Inbound) {
+	emit := func(d string) { _ = s.send(ctx, Outbound{Type: "job_log", JobID: in.JobID, Data: d}) }
+	if in.Action == "backup_run" {
+		// a backup can take hours: it has its own lock (runJob)
+		go func() {
+			o := Outbound{Type: "job_done", JobID: in.JobID}
+			code, err := backups.runJob(ctx, in.BackupJob, "manual", in.JobID, emit)
+			o.ExitCode = code
+			if err != nil {
+				o.Error = err.Error()
+			}
+			_ = s.send(ctx, o)
+		}()
+		return
+	}
 	if in.Action != "agent_update" {
 		_ = s.send(ctx, Outbound{Type: "job_done", JobID: in.JobID, ExitCode: -1,
 			Error: fmt.Sprintf("action %q not supported on Windows", in.Action)})
 		return
 	}
-	emit := func(d string) { _ = s.send(ctx, Outbound{Type: "job_log", JobID: in.JobID, Data: d}) }
 	go func() {
 		if err := selfUpdate(ctx, s.http, s.hub, in.Sha256, emit); err != nil {
 			_ = s.send(ctx, Outbound{Type: "job_done", JobID: in.JobID, ExitCode: -1, Error: err.Error()})

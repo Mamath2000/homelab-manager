@@ -158,7 +158,7 @@ export function seriesText(o: Pick<BackupOffsite, 'running'>, s: Pick<OffsiteSer
 
 // PBS client of a host, from the capabilities of its agent (see hub backupJobs.ts clientState)
 export function backupClient(caps: string[]) {
-  const mode = caps.includes('backup:native') ? 'native' : caps.includes('backup:docker') ? 'docker' : null;
+  const mode = caps.includes('backup:native') ? 'native' : caps.includes('backup:docker') ? 'docker' : caps.includes('backup:cli') ? 'cli' : null;
   const supported = caps.includes('backup_setup') || caps.includes('backup');
   return { mode, supported } as const;
 }

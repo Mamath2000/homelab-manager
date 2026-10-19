@@ -177,7 +177,9 @@ function ClientIcon({ host }: { host: Host }) {
       ? [Package, 'text-emerald-400', 'Client PBS installé (APT)']
       : c.mode === 'docker'
         ? [Container, 'text-sky-400', 'Client PBS en conteneur (image Docker)']
-        : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (bouton Agent pour l’installer)'];
+        : c.mode === 'cli'
+          ? [Package, 'text-emerald-400', 'Client PBS Windows (proxmoxbackup-directory)']
+          : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (bouton Agent pour l’installer)'];
   return (
     <span title={title} className="ml-2 inline-flex align-middle">
       <Icon className={`h-4 w-4 ${tone}`} aria-label={title} />
@@ -278,7 +280,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
 
   // Nextcloud AIO plugin: hub with BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
   const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings || !!jobs.nextcloudPrevious);
-  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? "Installer d'abord le client PBS (bouton Agent)" : !jobs.credential ? "Renseigner d'abord l'accès au PBS (bouton Agent)" : null;
+  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? (jobs.windows ? "Renseigner d'abord le chemin du client PBS (bouton Agent)" : "Installer d'abord le client PBS (bouton Agent)") : !jobs.credential ? "Renseigner d'abord l'accès au PBS (bouton Agent)" : null;
 
   const detach = async (g: BackupGroup) => {
     try {

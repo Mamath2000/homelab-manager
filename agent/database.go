@@ -32,14 +32,6 @@ func isDatabaseKind(kind string) bool {
 	return kind == "postgres" || kind == "mongodb" || kind == "nextcloud"
 }
 
-type DatabaseDump struct {
-	Mode      string   `json:"mode,omitempty"`      // postgres: databases (pg_dump of each) | cluster (pg_basebackup); nextcloud: database | config
-	Databases []string `json:"databases,omitempty"` // postgres databases mode, mongodb
-	Container string   `json:"container,omitempty"` // mongodb: container running mongod
-	WorkDir   string   `json:"workDir"`
-	Keep      int      `json:"keep"` // dumps kept on the host after the backup (0: removed once sent)
-}
-
 // most dumps kept on the host
 const maxKeep = 30
 
@@ -361,14 +353,6 @@ type DatabaseCheck struct {
 	Databases []DatabaseInfo `json:"databases"` // on the server
 	Missing   []string       `json:"missing"`   // chosen but not on the server
 	Free      int64          `json:"free"`      // free space for the work directory (-1: unknown)
-}
-
-// DumpInfo: size of a dump of a run and of its database, reported with its result.
-type DumpInfo struct {
-	Archive  string `json:"archive"`
-	Database string `json:"database,omitempty"` // empty: globals, or the whole cluster
-	DBSize   int64  `json:"dbSize"`             // -1: unknown
-	DumpSize int64  `json:"dumpSize"`
 }
 
 // listDatabases: the databases of the server, with their size.

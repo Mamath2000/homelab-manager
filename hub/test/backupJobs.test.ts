@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, normDatabase, pbsServer, runError, validPath, type JobInput } from '../src/backupJobs.js';
+import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, normDatabase, pbsServer, runError, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/roles.js';
 import type { BackupDoc, BackupJobDoc, DatabaseDump, PbsSettings } from '../src/types.js';
@@ -82,6 +82,29 @@ test('Tailscale hosts reach the PBS at its own address', () => {
   const none = buildSpec({ pbsCredential: cred, accessNetwork: 'tailscale' }, [job], pbs);
   assert.equal(none.server, '');
   assert.deepEqual(none.jobs, []);
+});
+
+test('Windows hosts: one directory on a drive, no exclusion, no database (backup_windows.go)', () => {
+  for (const p of ['C:\\', 'C:\\Users\\moi\\Documents', 'd:\\Photos 2024']) assert.ok(validWindowsPath(p), p);
+  for (const p of ['C:', 'C:\\Users\\', 'C:\\a\\..\\b', 'C:\\a\\\\b', 'C:/Users', '\\\\nas\\share', '/home', 'Users\\moi']) assert.ok(!validWindowsPath(p), p);
+  const win = input({ archives: [{ name: 'docs', path: 'C:\\Users\\moi\\Documents' }], excludes: [] });
+  assert.equal(checkJob(win, true, true), null);
+  // a Windows path on Linux, a Linux path on Windows
+  assert.match(checkJob(win, true)!, /chemin invalide/);
+  assert.match(checkJob(input({ excludes: [] }), true, true)!, /chemin invalide/);
+  assert.match(checkJob({ ...win, archives: [...win.archives, { name: 'b', path: 'D:\\b' }] }, true, true)!, /un seul répertoire/);
+  assert.match(checkJob({ ...win, excludes: ['*.tmp'] }, true, true)!, /exclusion/);
+  assert.match(checkJob({ ...win, kind: 'postgres' }, true, true)!, /répertoires uniquement/);
+});
+
+test('Windows client path: in the definition only when set', () => {
+  const linux = buildSpec({ pbsCredential: cred }, [job], pbs);
+  assert.equal('clientPath' in linux, false);
+  const win = buildSpec({ pbsCredential: cred, backupClientPath: 'C:\\pbs\\proxmoxbackup-directory.exe' }, [job], pbs);
+  assert.equal(win.clientPath, 'C:\\pbs\\proxmoxbackup-directory.exe');
+  // another path is another definition: the agent applies it and says whether the client is there
+  assert.notEqual(win.hash, linux.hash);
+  assert.equal(clientState(['backup_setup', 'backup', 'backup:cli']).mode, 'cli');
 });
 
 const H = 3600_000;

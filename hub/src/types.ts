@@ -170,6 +170,8 @@ export interface HostDoc {
   // store: datastore the token was given rights on (token created by the command of the UI); unknown otherwise
   pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date; store?: string };
   backupSync?: { hash: string; at: Date; error?: string | null };
+  // Windows: path of the directory CLI of proxmoxbackupclient_go, installed by hand (sent with the definition)
+  backupClientPath?: string;
   // Nextcloud AIO plugin of this host (nextcloud.ts): what its generated backup jobs back up
   nextcloud?: NextcloudPlugin | null;
   // backup settings kept when the main PBS was disconnected (disconnect.ts), offered again once it is back

@@ -28,7 +28,7 @@ type SessionReport struct {
 
 // agent -> hub
 type Outbound struct {
-	Type         string         `json:"type"` // hello | session_report | rpc_result | job_log | job_done
+	Type         string         `json:"type"` // hello | session_report | rpc_result | job_log | job_done | backup_synced | backup_result
 	Version      string         `json:"version,omitempty"`
 	Info         *HostInfo      `json:"info,omitempty"`
 	Capabilities []string       `json:"capabilities,omitempty"`
@@ -44,11 +44,15 @@ type Outbound struct {
 
 // hub -> agent
 type Inbound struct {
-	Type   string   `json:"type"` // run | rpc (anything else is ignored)
+	Type   string   `json:"type"` // run | rpc | backup_sync | backup_result_ack (anything else is ignored)
 	JobID  string   `json:"jobId"`
 	Action string   `json:"action"`
 	ReqID  string   `json:"reqId,omitempty"`
 	Op     string   `json:"op,omitempty"`
 	Scopes []string `json:"scopes,omitempty"`
 	Sha256 string   `json:"sha256,omitempty"` // agent_update: expected hash of the new binary
+	// backup_sync: the whole definition of the backups of this host (backup.go)
+	Backup *BackupSpec `json:"backup,omitempty"`
+	// backup_run: the backup job to run now
+	BackupJob string `json:"backupJob,omitempty"`
 }

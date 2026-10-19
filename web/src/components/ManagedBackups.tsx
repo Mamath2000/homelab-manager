@@ -318,17 +318,29 @@ function AgentHeader({ host, view, sync, actions }: { host: Host; view: HostBack
         </dd>
         <dt className="text-muted">Client PBS</dt>
         <dd className={view.mode ? 'text-zinc-300' : 'text-amber-400'}>
-          {view.mode === 'native' ? 'proxmox-backup-client installé (APT)' : view.mode === 'docker' ? 'en conteneur (image Docker)' : view.supported ? 'absent : à installer' : 'agent à mettre à jour'}
+          {view.mode === 'native'
+            ? 'proxmox-backup-client installé (APT)'
+            : view.mode === 'docker'
+              ? 'en conteneur (image Docker)'
+              : view.mode === 'cli'
+                ? <span className="font-mono">{view.clientPath}</span>
+                : view.windows
+                  ? view.clientPath ? `introuvable : ${view.clientPath}` : 'chemin à renseigner'
+                  : view.supported ? 'absent : à installer' : 'agent à mettre à jour'}
         </dd>
         <dt className="text-muted">Jeton PBS</dt>
         <dd className={view.credential ? 'font-mono text-zinc-300' : 'text-amber-400'}>
           {view.credential ? view.credential.tokenId : 'aucun : renseigner l’accès PBS'}
           {view.credential?.store && <span className="font-sans text-muted"> · droits sur {view.credential.store === '*' ? 'tous les datastores' : view.credential.store} › Hosts</span>}
         </dd>
-        <dt className="text-muted">Bases</dt>
-        <dd className="text-zinc-300">
-          {!view.databases ? <span className="text-amber-400">agent à mettre à jour</span> : view.databases.length ? view.databases.map((k) => databaseKindLabel[k]).join(', ') : 'aucun moteur détecté (PostgreSQL, MongoDB)'}
-        </dd>
+        {!view.windows && (
+          <>
+            <dt className="text-muted">Bases</dt>
+            <dd className="text-zinc-300">
+              {!view.databases ? <span className="text-amber-400">agent à mettre à jour</span> : view.databases.length ? view.databases.map((k) => databaseKindLabel[k]).join(', ') : 'aucun moteur détecté (PostgreSQL, MongoDB)'}
+            </dd>
+          </>
+        )}
         {sync && view.jobs.length > 0 && (
           <>
             <dt className="text-muted">Définition</dt>
@@ -347,7 +359,7 @@ function AgentHeader({ host, view, sync, actions }: { host: Host; view: HostBack
 function AgentLine({ host, view }: { host: Host; view: HostBackupJobs }) {
   const [open, setOpen] = useState(false);
   if (open) return <AgentHeader host={host} view={view} actions={<Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Réduire</Button>} />;
-  const client = view.mode === 'native' ? 'client PBS (APT)' : view.mode === 'docker' ? 'client PBS (Docker)' : null;
+  const client = view.mode === 'native' ? 'client PBS (APT)' : view.mode === 'docker' ? 'client PBS (Docker)' : view.mode === 'cli' ? 'client PBS (Windows)' : null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-line bg-raised/40 px-3 py-2 text-xs text-muted">
       <span className="font-medium text-zinc-100">Agent</span>
@@ -390,7 +402,8 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
     : {
         // named after the machine: the PBS identifier is deduced from it
         name: host.name,
-        archives: [{ name: 'home', path: '/home' }],
+        // Windows: the CLI names its archive backup.pxar whatever the name
+        archives: [view.windows ? { name: 'backup', path: '' } : { name: 'home', path: '/home' }],
         excludes: [],
         // the datastore the token of the host has rights on
         store: view.credential?.store && view.credential.store !== '*' ? view.credential.store : (view.datastores[0] ?? ''),
@@ -503,7 +516,7 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
                 ) : (
                   <select className="input" value={kind} onChange={(e) => setKind(e.target.value as FormKind)}>
                     {(Object.keys(KIND_LABEL) as FormKind[]).map((k) => (
-                      <option key={k} value={k} disabled={k !== 'directories' && !view.databases}>{KIND_LABEL[k]}</option>
+                      <option key={k} value={k} disabled={k !== 'directories' && (!view.databases || view.windows)}>{KIND_LABEL[k]}</option>
                     ))}
                   </select>
                 )}
@@ -518,6 +531,13 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
               </label>
               {db && form.database ? (
                 <DatabaseFields host={host} view={view} kind={kind as DatabaseKind} value={form.database} onChange={(database) => set({ database })} />
+              ) : view.windows ? (
+                // the directory CLI of Windows: one directory, read through a VSS snapshot, no exclusion
+                <label className="block">
+                  <span className={field}>Répertoire</span>
+                  <input className="input font-mono text-xs" value={form.archives[0]?.path ?? ''} onChange={(e) => set({ archives: [{ name: 'backup', path: e.target.value.trim() }] })} placeholder="C:\Users\moi\Documents" />
+                  <span className="mt-1 block text-xs text-muted">Un répertoire par sauvegarde, lu dans un instantané VSS (fichiers ouverts compris), sans exclusion.</span>
+                </label>
               ) : (
                 <>
                   <div>
@@ -747,6 +767,39 @@ function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: H
   );
 }
 
+// Windows: path of the directory CLI of proxmoxbackupclient_go, installed by hand; the agent says in its next
+// hello whether it is there (mode cli).
+function ClientPath({ host, view }: { host: Host; view: HostBackupJobs }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [path, setPath] = useState(view.clientPath ?? '');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.setBackupClientPath(host.id, path);
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={clsx('rounded-md border px-3 py-2.5 text-sm', view.mode ? 'border-line' : 'border-amber-500/40 bg-amber-500/10 text-amber-100')}>
+      <p className="mb-2 text-xs">
+        Client installé à la main sur le poste :{' '}
+        <a className="text-emerald-400 hover:underline" href="https://github.com/tizbac/proxmoxbackupclient_go/releases" target="_blank" rel="noreferrer">proxmoxbackupclient_go</a>{' '}
+        (zip Windows), exécutable <code>proxmoxbackup-directory.exe</code>.
+      </p>
+      <div className="flex gap-2">
+        <input className="input flex-1 font-mono text-xs" value={path} onChange={(e) => setPath(e.target.value)} placeholder="C:\Program Files\PBS\proxmoxbackup-directory.exe" />
+        <Button size="sm" icon={Save} loading={busy} disabled={path.trim() === (view.clientPath ?? '')} onClick={save}>Enregistrer</Button>
+      </div>
+    </div>
+  );
+}
+
 // Agent that runs the backups of the host: its PBS client and its token (window opened from the
 // Sauvegardes card of the host page; the jobs are in the card).
 export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open: boolean; onClose: () => void }) {
@@ -772,8 +825,12 @@ export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open:
           sync
           actions={canManage && <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>}
         />
-        {data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
-          <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
+        {data.windows ? (
+          canManage && <ClientPath key={data.clientPath ?? ''} host={host} view={data} />
+        ) : (
+          data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
+            <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
+          )
         )}
       </div>
       {canManage && <CredentialModal key={String(credential)} host={host} view={data} open={credential} onClose={() => setCredential(false)} />}

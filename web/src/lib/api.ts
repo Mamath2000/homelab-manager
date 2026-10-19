@@ -802,9 +802,14 @@ export interface BackupJobInput {
 }
 
 export interface HostBackupJobs {
-  // PBS client: installed (native), image present (docker), none; how it can be installed
-  mode: 'native' | 'docker' | null;
+  // PBS client: installed (native), image present (docker), directory CLI of a Windows host (cli), none;
+  // how it can be installed
+  mode: 'native' | 'docker' | 'cli' | null;
   install: ('apt' | 'docker')[];
+  // Windows: the directory CLI of proxmoxbackupclient_go, installed by hand at clientPath (one directory per
+  // job, no exclusion, no database)
+  windows: boolean;
+  clientPath: string | null;
   // database jobs: kinds the agent found usable on the host (null: agent to update)
   databases: DatabaseKind[] | null;
   estimate: boolean;
@@ -1015,6 +1020,7 @@ export const api = {
   saveNextcloud: (hostId: string, s: NextcloudSettings) => request<{ created: number; updated: number; removed: number }>('PUT', `/api/hosts/${hostId}/nextcloud`, s),
   deleteNextcloud: (hostId: string) => request<{ removed: number }>('DELETE', `/api/hosts/${hostId}/nextcloud`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),
+  setBackupClientPath: (hostId: string, path: string) => request<{ ok: true; clientPath: string | null }>('PUT', `/api/hosts/${hostId}/backup-client-path`, { path }),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
   restoreCachedJob: (hostId: string, jobId: string, j?: BackupJobInput) =>
     request<BackupJob>(j ? 'PUT' : 'POST', `/api/hosts/${hostId}/backup-cache/jobs/${jobId}`, j),

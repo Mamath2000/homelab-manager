@@ -1,5 +1,3 @@
-//go:build !windows
-
 package main
 
 import (
@@ -9,25 +7,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Backups of directories to the Proxmox Backup Server, defined by the hub and run by the agent
-// with proxmox-backup-client: natively when the client is installed, otherwise in a container
-// (Unraid). The hub sends the whole definition (backup_sync); the agent keeps it on disk and runs
-// the jobs on their schedule by itself, so backups go on while the hub is down. A run missed while
-// the agent was stopped is caught up at start. Results are kept until the hub acknowledges them.
+// Backups of directories to the Proxmox Backup Server, defined by the hub and run by the agent: with
+// proxmox-backup-client on Linux (backup_unix.go), with the directory CLI of proxmoxbackupclient_go on
+// Windows (backup_windows.go). The hub sends the whole definition (backup_sync); the agent keeps it on
+// disk and runs the jobs on their schedule by itself, so backups go on while the hub is down. A run
+// missed while the agent was stopped is caught up at start. Results are kept until the hub
+// acknowledges them.
+//
+// Each side provides runBackup, validDirectory, checkPlatformJob and the database jobs (isDatabaseKind,
+// jobArchives, validateDatabase, dumpDatabases, dumpSizes, finishDumps).
 
 type BackupArchive struct {
 	Name string `json:"name"` // <name>.pxar
@@ -52,14 +50,32 @@ type BackupJob struct {
 	Database         *DatabaseDump `json:"database,omitempty"` // postgres, mongodb: what to dump
 }
 
+type DatabaseDump struct {
+	Mode      string   `json:"mode,omitempty"`      // postgres: databases (pg_dump of each) | cluster (pg_basebackup); nextcloud: database | config
+	Databases []string `json:"databases,omitempty"` // postgres databases mode, mongodb
+	Container string   `json:"container,omitempty"` // mongodb: container running mongod
+	WorkDir   string   `json:"workDir"`
+	Keep      int      `json:"keep"` // dumps kept on the host after the backup (0: removed once sent)
+}
+
+// DumpInfo: size of a dump of a run and of its database, reported with its result.
+type DumpInfo struct {
+	Archive  string `json:"archive"`
+	Database string `json:"database,omitempty"` // empty: globals, or the whole cluster
+	DBSize   int64  `json:"dbSize"`             // -1: unknown
+	DumpSize int64  `json:"dumpSize"`
+}
+
 type BackupSpec struct {
-	Hash        string      `json:"hash"`
-	Server      string      `json:"server"` // host:port of the PBS
-	Fingerprint string      `json:"fingerprint"`
-	TokenID     string      `json:"tokenId"`
-	TokenSecret string      `json:"tokenSecret"`
-	Image       string      `json:"image"` // client image, when the client is not installed
-	Jobs        []BackupJob `json:"jobs"`
+	Hash        string `json:"hash"`
+	Server      string `json:"server"` // host:port of the PBS
+	Fingerprint string `json:"fingerprint"`
+	TokenID     string `json:"tokenId"`
+	TokenSecret string `json:"tokenSecret"`
+	Image       string `json:"image"` // client image, when the client is not installed
+	// Windows: path of the directory CLI (proxmoxbackup-directory.exe), installed by hand
+	ClientPath string      `json:"clientPath,omitempty"`
+	Jobs       []BackupJob `json:"jobs"`
 }
 
 type BackupResult struct {
@@ -90,6 +106,9 @@ var (
 func validateBackupSpec(s *BackupSpec) error {
 	if s.Image != "" && !imageRe.MatchString(s.Image) {
 		return fmt.Errorf("invalid client image %q", s.Image)
+	}
+	if s.ClientPath != "" && (!filepath.IsAbs(s.ClientPath) || len(s.ClientPath) > 260 || strings.ContainsAny(s.ClientPath, "\n\x00")) {
+		return fmt.Errorf("invalid client path %q", s.ClientPath)
 	}
 	if len(s.Jobs) == 0 {
 		return nil // nothing to run: credentials may be absent
@@ -128,6 +147,9 @@ func validateBackupSpec(s *BackupSpec) error {
 		default:
 			return fmt.Errorf("job %s: unknown kind %q", j.ID, j.Kind)
 		}
+		if err := checkPlatformJob(j); err != nil {
+			return fmt.Errorf("job %s: %w", j.ID, err)
+		}
 		if len(jobArchives(j)) == 0 {
 			return fmt.Errorf("job %s: no directory", j.ID)
 		}
@@ -146,8 +168,7 @@ func validateDirectories(archives []BackupArchive, excludes []string) error {
 			return fmt.Errorf("archive %q twice", a.Name)
 		}
 		names[a.Name] = true
-		// ':' separates the archive spec and the docker volume: refused in paths
-		if !archiveNameRe.MatchString(a.Name) || !filepath.IsAbs(a.Path) || filepath.Clean(a.Path) != a.Path || strings.ContainsAny(a.Path, ":\n") {
+		if !archiveNameRe.MatchString(a.Name) || !validDirectory(a.Path) {
 			return fmt.Errorf("invalid directory %q", a.Path)
 		}
 	}
@@ -182,8 +203,6 @@ type backupModule struct {
 	kick   chan struct{}
 }
 
-var backups = newBackupModule(stateDir())
-
 func newBackupModule(dir string) *backupModule {
 	b := &backupModule{dir: dir, kick: make(chan struct{}, 1), state: backupState{FirstSeen: map[string]int64{}, LastRun: map[string]int64{}, LastOK: map[string]int64{}}}
 	if raw, err := os.ReadFile(b.statePath()); err == nil {
@@ -217,139 +236,6 @@ func (b *backupModule) saveLocked() {
 	if err := writeFileAtomic(b.statePath(), raw, 0o600); err != nil {
 		log.Printf("backup state: %v", err)
 	}
-}
-
-// Client image when the definition does not name one (the hub sends its setting with every definition).
-const defaultClientImage = "mathmath350/pbs-client:latest"
-
-func (b *backupModule) image() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.state.Spec != nil && b.state.Spec.Image != "" {
-		return b.state.Spec.Image
-	}
-	return defaultClientImage
-}
-
-// The client image is published for amd64 only.
-func dockerBackupPossible(ctx context.Context) bool {
-	if onWSL || runtime.GOARCH != "amd64" || !dock.available(ctx) {
-		return false
-	}
-	_, err := exec.LookPath("docker")
-	return err == nil
-}
-
-func imagePresent(ctx context.Context, image string) bool {
-	return exec.CommandContext(ctx, "docker", "image", "inspect", image).Run() == nil
-}
-
-// Debian release the client repository of Proxmox serves (amd64 only); "" when not available here.
-func aptBackupCodename() string {
-	if runtime.GOARCH != "amd64" || !hasApt() {
-		return ""
-	}
-	rel := osRelease()
-	if rel["ID"] != "debian" {
-		return ""
-	}
-	switch c := rel["VERSION_CODENAME"]; c {
-	case "bookworm", "trixie":
-		return c
-	}
-	return ""
-}
-
-func osRelease() map[string]string {
-	out := map[string]string{}
-	raw, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return out
-	}
-	for _, l := range strings.Split(string(raw), "\n") {
-		if k, v, ok := strings.Cut(l, "="); ok {
-			out[k] = strings.Trim(v, `"`)
-		}
-	}
-	return out
-}
-
-// backupMode: how this host runs proxmox-backup-client: "native" (installed), "docker" (client
-// image present), "" (neither: to install).
-func backupMode(ctx context.Context) string {
-	if _, err := exec.LookPath("proxmox-backup-client"); err == nil {
-		return "native"
-	}
-	if dockerBackupPossible(ctx) && imagePresent(ctx, backups.image()) {
-		return "docker"
-	}
-	return ""
-}
-
-// backupInstallOptions: how the client can be installed here, given the current mode.
-func backupInstallOptions(ctx context.Context, mode string) []string {
-	var out []string
-	if mode != "native" && aptBackupCodename() != "" {
-		out = append(out, "apt")
-	}
-	if mode == "" && dockerBackupPossible(ctx) {
-		out = append(out, "docker")
-	}
-	return out
-}
-
-// installBackupClient installs the client: the client-only repository of Proxmox and its package,
-// or the client image.
-func installBackupClient(ctx context.Context, method string, emit func(string)) (int, error) {
-	switch method {
-	case "apt":
-		codename := aptBackupCodename()
-		if codename == "" {
-			return -1, errors.New("APT install: Debian bookworm or trixie on amd64 only")
-		}
-		keyring := "/usr/share/keyrings/proxmox-release-" + codename + ".gpg"
-		keyURL := "https://enterprise.proxmox.com/debian/proxmox-release-" + codename + ".gpg"
-		emit("downloading the Proxmox release key " + keyURL + "\n")
-		key, err := httpGetBytes(ctx, keyURL, 64*1024)
-		if err != nil {
-			return -1, fmt.Errorf("release key: %w", err)
-		}
-		if err := os.WriteFile(keyring, key, 0o644); err != nil {
-			return -1, err
-		}
-		list := "deb [signed-by=" + keyring + "] http://download.proxmox.com/debian/pbs-client " + codename + " main\n"
-		if err := os.WriteFile("/etc/apt/sources.list.d/pbs-client.list", []byte(list), 0o644); err != nil {
-			return -1, err
-		}
-		emit("/etc/apt/sources.list.d/pbs-client.list: " + list)
-		if code, err := runStreaming(ctx, aptEnv(), emit, "apt-get", "update"); err != nil || code != 0 {
-			return code, err
-		}
-		return runStreaming(ctx, aptEnv(), emit, "apt-get", "install", "-y", "proxmox-backup-client")
-	case "docker":
-		if !dockerBackupPossible(ctx) {
-			return -1, errors.New("Docker install: Docker on amd64 only (the client image is published for amd64)")
-		}
-		return runStreaming(ctx, os.Environ(), emit, "docker", "pull", backups.image())
-	default:
-		return -1, fmt.Errorf("unknown install method %q", method)
-	}
-}
-
-func httpGetBytes(ctx context.Context, url string, max int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	res, err := (&http.Client{Timeout: time.Minute}).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", res.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(res.Body, max))
 }
 
 // apply stores a new definition sent by the hub.
@@ -524,125 +410,6 @@ func (b *backupModule) runJob(ctx context.Context, jobID, trigger, runID string,
 		err = errors.New(res.Error)
 	}
 	return code, err
-}
-
-func backupArgs(j BackupJob) []string {
-	args := []string{"backup"}
-	for _, a := range jobArchives(j) {
-		args = append(args, a.Name+".pxar:"+a.Path)
-	}
-	args = append(args, "--backup-type", "host", "--backup-id", j.BackupID)
-	if j.NS != "" {
-		args = append(args, "--ns", j.NS)
-	}
-	for _, e := range j.Excludes {
-		args = append(args, "--exclude", e)
-	}
-	return args
-}
-
-// The secret goes through the environment only, never the command line (visible in ps).
-func backupEnv(spec *BackupSpec, j BackupJob) []string {
-	return append(os.Environ(),
-		"LC_ALL=C",
-		"PBS_REPOSITORY="+spec.TokenID+"@"+spec.Server+":"+j.Store,
-		"PBS_PASSWORD="+spec.TokenSecret,
-		"PBS_FINGERPRINT="+spec.Fingerprint,
-	)
-}
-
-func runBackup(ctx context.Context, spec *BackupSpec, j BackupJob, emit func(string)) (int, error) {
-	env := backupEnv(spec, j)
-	switch waitBackupMode(ctx, emit) {
-	case "native":
-		emit(fmt.Sprintf("proxmox-backup-client %s\n", strings.Join(backupArgs(j), " ")))
-		return runStreaming(ctx, env, emit, "proxmox-backup-client", backupArgs(j)...)
-	case "docker":
-		if spec.Image == "" {
-			return -1, errors.New("no proxmox-backup-client and no client image")
-		}
-		if err := exec.CommandContext(ctx, "docker", "image", "inspect", spec.Image).Run(); err != nil {
-			emit("pulling " + spec.Image + "\n")
-			if code, err := runStreaming(ctx, os.Environ(), emit, "docker", "pull", spec.Image); err != nil || code != 0 {
-				return code, fmt.Errorf("docker pull %s failed", spec.Image)
-			}
-		}
-		args := []string{"run", "--rm", "--network", "host", "-e", "PBS_REPOSITORY", "-e", "PBS_PASSWORD", "-e", "PBS_FINGERPRINT", "-e", "LC_ALL"}
-		for _, a := range jobArchives(j) {
-			args = append(args, "-v", a.Path+":"+a.Path+":ro")
-		}
-		args = append(args, spec.Image)
-		args = append(args, backupArgs(j)...)
-		emit(fmt.Sprintf("docker run … %s %s\n", spec.Image, strings.Join(backupArgs(j), " ")))
-		return runStreaming(ctx, env, emit, "docker", args...)
-	default:
-		if _, err := exec.LookPath("docker"); err == nil {
-			return -1, errors.New("proxmox-backup-client not installed and Docker daemon unreachable or client image missing")
-		}
-		return -1, errors.New("proxmox-backup-client unavailable (neither installed nor Docker)")
-	}
-}
-
-// Docker engine start-up grace: at boot the agent can run a catch-up job before the daemon is up
-// (Unraid starts the agent from the go file, well before the array and Docker).
-const (
-	dockerWaitMax  = 3 * time.Minute
-	dockerWaitStep = 10 * time.Second
-)
-
-// ensureClientImage runs once at start: on a host that has backup jobs but no native client, waits for
-// the Docker daemon and pulls the client image when it is missing, so that the first run does not have to.
-func (b *backupModule) ensureClientImage(ctx context.Context) {
-	b.mu.Lock()
-	hasJobs := b.state.Spec != nil && len(b.state.Spec.Jobs) > 0
-	b.mu.Unlock()
-	if !hasJobs {
-		return
-	}
-	if _, err := exec.LookPath("proxmox-backup-client"); err == nil {
-		return
-	}
-	deadline := time.Now().Add(dockerWaitMax)
-	for !dockerBackupPossible(ctx) {
-		if time.Now().After(deadline) {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(dockerWaitStep):
-		}
-	}
-	img := b.image()
-	if imagePresent(ctx, img) {
-		return
-	}
-	log.Printf("backup: pulling client image %s", img)
-	if code, err := runStreaming(ctx, os.Environ(), func(string) {}, "docker", "pull", img); err != nil || code != 0 {
-		log.Printf("backup: pull %s failed (code %d): %v", img, code, err)
-	}
-}
-
-// waitBackupMode is backupMode, retried for a while when only the Docker daemon is missing.
-func waitBackupMode(ctx context.Context, emit func(string)) string {
-	mode := backupMode(ctx)
-	if mode != "" || onWSL || runtime.GOARCH != "amd64" {
-		return mode
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		return mode
-	}
-	emit("waiting for the Docker daemon…\n")
-	deadline := time.Now().Add(dockerWaitMax)
-	for mode == "" && time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return ""
-		case <-time.After(dockerWaitStep):
-		}
-		mode = backupMode(ctx)
-	}
-	return mode
 }
 
 // --- results -------------------------------------------------------------------------------

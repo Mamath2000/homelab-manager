@@ -53,6 +53,14 @@ export function validPath(p: string) {
   return true;
 }
 
+// Windows (backup_windows.go): absolute path on a drive letter, normalised (VSS works on local volumes only).
+export function validWindowsPath(p: string) {
+  if (!/^[A-Za-z]:\\/.test(p) || /[\n\0/]/.test(p)) return false;
+  const parts = p.slice(3).split('\\');
+  if (p.length > 3 && parts.some((x) => x === '' || x === '.' || x === '..')) return false;
+  return true;
+}
+
 // longest delay between two runs on connection
 export const MAX_CONNECT_DAYS = 365;
 
@@ -130,10 +138,16 @@ export function jobArchives(j: Pick<JobInput, 'archives' | 'kind' | 'database'>)
   return isDatabaseKind(j.kind) && j.database ? dumpArchives(j.kind, j.database) : j.archives;
 }
 
-// Error message, or null. Same rules as validateBackupSpec in agent/backup.go.
-export function checkJob(j: JobInput, creating: boolean): string | null {
+// Error message, or null. Same rules as validateBackupSpec in agent/backup.go; windows: the host runs the
+// directory CLI of proxmoxbackupclient_go (backup_windows.go): one directory, no exclusion, no database.
+export function checkJob(j: JobInput, creating: boolean, windows = false): string | null {
   if (!j.name.trim()) return 'nom requis';
   const kind = j.kind ?? 'directories';
+  if (windows) {
+    if (kind !== 'directories') return 'Windows : sauvegarde de répertoires uniquement';
+    if (j.archives.length !== 1) return 'Windows : un seul répertoire par sauvegarde';
+    if (j.excludes.length) return "Windows : pas d'exclusion";
+  }
   if (isDatabaseKind(kind)) {
     if (!j.database) return 'réglages de la base requis';
     // a database job holds its dumps only
@@ -151,7 +165,9 @@ export function checkJob(j: JobInput, creating: boolean): string | null {
     if (!ARCHIVE_NAME_RE.test(a.name)) return `nom d'archive invalide : ${a.name} (lettres, chiffres, - et _)`;
     if (names.has(a.name)) return `nom d'archive en double : ${a.name}`;
     names.add(a.name);
-    if (!validPath(a.path)) return `chemin invalide : ${a.path} (absolu, sans « : », « .. » ni / final)`;
+    if (windows ? !validWindowsPath(a.path) : !validPath(a.path)) {
+      return windows ? `chemin invalide : ${a.path} (absolu sur un lecteur, ex. C:\\Users\\moi\\Documents, sans « .. » ni \\ final)` : `chemin invalide : ${a.path} (absolu, sans « : », « .. » ni / final)`;
+    }
   }
   for (const e of j.excludes) if (!e || e.length > 256 || /[\n\0]/.test(e)) return 'exclusion invalide';
   if (!STORE_RE.test(j.store)) return 'datastore invalide';
@@ -185,7 +201,7 @@ export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobD
 }
 
 // Definition sent to the agent: empty (no job) when there is nothing to run, so that it stops.
-export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' | 'accessNetwork'>, list: BackupJobDoc[], pbs: PbsSettings) {
+export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' | 'accessNetwork' | 'backupClientPath'>, list: BackupJobDoc[], pbs: PbsSettings) {
   // the hosts of the Tailscale access network reach the PBS at its own address
   const url = host.accessNetwork === 'tailscale' ? pbs.tailscaleUrl ?? '' : pbs.url;
   const usable = !!host.pbsCredential && !!url;
@@ -195,6 +211,8 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
     tokenId: usable ? host.pbsCredential!.tokenId : '',
     tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',
     image: pbs.clientImage || DEFAULT_CLIENT_IMAGE,
+    // Windows: the CLI installed by hand; only when set, so that the hashes of the other hosts do not change
+    ...(host.backupClientPath ? { clientPath: host.backupClientPath } : {}),
     jobs: usable
       ? list.filter((j) => !heldBack(host, j)).map((j) => {
           const kind = jobKind(j);
@@ -239,7 +257,8 @@ export async function syncAll() {
 // State of the PBS client of a host, from the capabilities of its agent.
 export function clientState(caps: string[] = []) {
   return {
-    mode: caps.includes('backup:native') ? ('native' as const) : caps.includes('backup:docker') ? ('docker' as const) : null,
+    // cli: the directory CLI of a Windows host, at the path set on the host
+    mode: caps.includes('backup:native') ? ('native' as const) : caps.includes('backup:docker') ? ('docker' as const) : caps.includes('backup:cli') ? ('cli' as const) : null,
     install: (['apt', 'docker'] as const).filter((m) => caps.includes(`backup_install:${m}`)),
     // database jobs: kinds the agent found usable here (null: agent to update)
     databases: caps.includes('backup_database') ? (['postgres', 'mongodb'] as const).filter((t) => caps.includes(`backup_database:${t}`)) : null,
