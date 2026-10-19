@@ -1,3 +1,5 @@
+//go:build !windows
+
 package main
 
 // Messages exchanged with the hub over the WebSocket (JSON text frames).
@@ -19,18 +21,6 @@ type AptReport struct {
 	RebootPkgs     []string  `json:"rebootPkgs"`
 	// packages "apt-get autoremove" would remove (no longer needed dependencies, old kernels)
 	Autoremovable []string `json:"autoremovable"`
-}
-
-type HostInfo struct {
-	Hostname string   `json:"hostname"`
-	OSID     string   `json:"osId"`
-	OSName   string   `json:"osName"`
-	Kernel   string   `json:"kernel"`
-	Arch     string   `json:"arch"`
-	Uptime   int64    `json:"uptime"` // seconds
-	IPs      []string `json:"ips"`
-	Virt     string   `json:"virt"` // lxc, kvm, none...
-	MACs     []string `json:"macs"` // hardware addresses of the interfaces, link with a Proxmox VE guest
 }
 
 // Docker compose stacks, discovered from the labels compose puts on its containers.

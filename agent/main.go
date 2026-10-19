@@ -1,14 +1,13 @@
+//go:build !windows
+
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
-	"math/rand/v2"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,71 +20,7 @@ import (
 	"github.com/coder/websocket"
 )
 
-var version = "dev"
-
-type config struct {
-	Hub string // https://host:port of the agent TLS server
-	Dir string // CA, key and certificate of the agent
-}
-
 const defaultDir = "/etc/homelab-agent"
-
-func env(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// usage:
-//
-//	homelab-agent [-hub URL] [-dir DIR]          run (HUB_URL / AGENT_DIR in the environment)
-//	homelab-agent enroll -hub URL -code CODE      exchange an install code for a certificate
-//	homelab-agent -version
-func loadConfig(args []string) (config, string) {
-	fs := flag.NewFlagSet("homelab-agent", flag.ExitOnError)
-	hub := fs.String("hub", os.Getenv("HUB_URL"), "agent URL of the hub, e.g. https://hub:3443")
-	dir := fs.String("dir", env("AGENT_DIR", defaultDir), "directory of the agent identity")
-	code := fs.String("code", "", "enroll: single-use code of the install command")
-	ver := fs.Bool("version", false, "print version")
-	_ = fs.Parse(args)
-	if *ver {
-		fmt.Println(version)
-		os.Exit(0)
-	}
-	cfg := config{Hub: strings.TrimRight(*hub, "/"), Dir: *dir}
-	upsPassPath = filepath.Join(cfg.Dir, upsPassFile)
-	if !strings.HasPrefix(cfg.Hub, "https://") {
-		log.Fatal("HUB_URL must be the https:// agent address of the hub (flag -hub or environment)")
-	}
-	return cfg, *code
-}
-
-func wsURL(hub string) string {
-	u, err := url.Parse(hub)
-	if err != nil {
-		log.Fatalf("invalid hub url: %v", err)
-	}
-	if u.Scheme == "https" {
-		u.Scheme = "wss"
-	} else {
-		u.Scheme = "ws"
-	}
-	u.Path = "/agent/ws"
-	return u.String()
-}
-
-func runEnroll(ctx context.Context, args []string) {
-	cfg, code := loadConfig(args)
-	if code == "" {
-		log.Fatal("usage: homelab-agent enroll -hub https://hub:3443 -code CODE")
-	}
-	id, err := enroll(ctx, cfg.Hub, code, cfg.Dir)
-	if err != nil {
-		log.Fatalf("enrollment failed: %v", err)
-	}
-	fmt.Printf("enrolled as host %s\n", id)
-}
 
 type session struct {
 	hub  string
@@ -584,15 +519,6 @@ func (s *session) loop(ctx context.Context) error {
 	}
 }
 
-// Reconnection: slow exponential growth so a hub restart is caught within a few
-// seconds, with jitter so agents do not all reconnect at the same instant.
-const (
-	backoffMin    = time.Second
-	backoffMax    = 30 * time.Second
-	backoffFactor = 1.2
-	backoffJitter = 0.2 // ±20 %
-)
-
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -601,6 +527,7 @@ func main() {
 		return
 	}
 	cfg, _ := loadConfig(os.Args[1:])
+	upsPassPath = filepath.Join(cfg.Dir, upsPassFile)
 	if releasePubKey == "" {
 		log.Printf("development build: agent updates are not signature-checked")
 	}
@@ -616,32 +543,8 @@ func main() {
 	// and so do the copies to this secondary PBS
 	go offsite.loop(ctx)
 
-	endpoint := wsURL(cfg.Hub)
-	backoff := backoffMin
-	for ctx.Err() == nil {
-		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		// mutual TLS: the hub knows the agent by its certificate, no secret is sent
-		conn, _, err := websocket.Dial(dctx, endpoint, &websocket.DialOptions{HTTPClient: client})
-		cancel()
-		// jitter on the wait only, so the backoff progression itself does not drift
-		wait := time.Duration(float64(backoff) * (1 - backoffJitter + 2*backoffJitter*rand.Float64()))
-		if err != nil {
-			log.Printf("connect failed: %v (retry in %s)", err, wait.Round(100*time.Millisecond))
-		} else {
-			conn.SetReadLimit(1 << 20)
-			log.Printf("connected to %s", endpoint)
-			backoff = backoffMin
-			s := &session{hub: cfg.Hub, http: client, conn: conn}
-			sctx, scancel := context.WithCancel(ctx)
-			err = s.loop(sctx)
-			scancel()
-			conn.CloseNow()
-			log.Printf("disconnected: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-		case <-time.After(wait):
-		}
-		backoff = min(time.Duration(float64(backoff)*backoffFactor), backoffMax)
-	}
+	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
+		s := &session{hub: cfg.Hub, http: client, conn: conn}
+		return s.loop(ctx)
+	})
 }
