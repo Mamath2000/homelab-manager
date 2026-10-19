@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Cpu, KeyRound, Network, Power, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Archive, Cpu, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
-import { agentRevoked, hasApt, needsReinstall, osLabel } from '../lib/status';
+import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib/status';
+import { backupClient } from '../lib/backups';
+import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
 import { HaExcludedField } from './HaExcludedField';
 import { SiteSelect, TagPicker } from './HostTags';
@@ -19,13 +21,15 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'settings' | 'host' | 'agent' | 'danger';
+type SectionId = 'settings' | 'host' | 'agent' | 'backup' | 'danger';
 
-// Identity and behavior are saved together; agent and danger actions apply immediately.
+// Identity and behavior are saved together; agent, backup and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Identité et comportement', icon: Tag },
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
   { id: 'agent', label: 'Agent', icon: Cpu },
+  // agents able to back up (the HAOS add-on is not): client, PBS token; Windows: path of the CLI
+  { id: 'backup', label: 'Sauvegarde', icon: Archive },
   { id: 'danger', label: 'Danger', icon: ShieldAlert },
 ];
 
@@ -40,6 +44,60 @@ function Capability({ label, enabled, detail }: { label: string; enabled: boolea
         <p className="mt-0.5 text-xs text-muted">{detail}</p>
       </div>
       <Badge tone={enabled ? 'ok' : 'neutral'}>{enabled ? 'Oui' : 'Non'}</Badge>
+    </div>
+  );
+}
+
+// Windows: path of the backup CLI (Nimbus Backup, installed by hand). The agent checks it once saved and reports it
+// in its capabilities (backup:cli): only then does the host page show its backups.
+function BackupClientSection({ host }: { host: Host }) {
+  const upsert = useUpdateHostCache();
+  const toast = useToast();
+  const [path, setPath] = useState(host.backupClientPath ?? '');
+  const [busy, setBusy] = useState(false);
+  const saved = host.backupClientPath;
+  const found = host.capabilities.includes('backup:cli');
+  const save = async () => {
+    setBusy(true);
+    try {
+      upsert(await api.setBackupClientPath(host.id, path.trim()));
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const [tone, state] = !host.capabilities.includes('backup_setup')
+    ? (['warn', 'agent à mettre à jour'] as const)
+    : !saved
+      ? (['neutral', 'non renseigné'] as const)
+      : found
+        ? (['ok', 'trouvé par l’agent'] as const)
+        : host.online
+          ? (['warn', 'introuvable à ce chemin'] as const)
+          : (['neutral', 'à vérifier : hôte hors ligne'] as const);
+  return (
+    <div className="space-y-4">
+      <div className="border-t border-line pt-4">
+        <h4 className="text-sm font-semibold text-zinc-100">Client de sauvegarde</h4>
+        <p className="mt-1 text-xs text-muted">
+          CLI{' '}
+          <a className="text-emerald-400 hover:underline" href="https://github.com/rdemsystems/NimbusBackupClient/releases" target="_blank" rel="noreferrer">Nimbus Backup</a>{' '}
+          v0.4.2 ou plus récente, installée à la main (zip <code>nimbus-backup-cli-…-windows.zip</code>). L’agent vérifie l’exécutable ; les sauvegardes de l’hôte
+          apparaissent une fois le client trouvé.
+        </p>
+      </div>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Chemin de proxmoxbackup-directory.exe</span>
+        <div className="flex gap-2">
+          <input className="input flex-1 font-mono text-xs" value={path} onChange={(e) => setPath(e.target.value)} placeholder="C:\Program Files\NimbusCLI\proxmoxbackup-directory.exe" />
+          <Button icon={Save} loading={busy} disabled={path.trim() === (saved ?? '')} onClick={save}>Enregistrer</Button>
+        </div>
+      </label>
+      <dl className="flex justify-between gap-3 border-t border-line pt-4 text-sm">
+        <dt className="text-muted">État</dt>
+        <dd><Badge tone={tone}>{state}</Badge></dd>
+      </dl>
     </div>
   );
 }
@@ -85,7 +143,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
     }
   };
 
-  const sections = SECTIONS.filter((x) => x.id !== 'danger' || danger);
+  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
   const isForm = section === 'settings';
 
   if (install) {
@@ -204,6 +262,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
               </div>
             </div>
           )}
+
+          {section === 'backup' && <BackupAgentSection host={host} windowsClient={<BackupClientSection host={host} />} />}
 
           {section === 'host' && (
             <div className="space-y-5">

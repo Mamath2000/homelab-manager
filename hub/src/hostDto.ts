@@ -54,6 +54,8 @@ export function hostDto(h: HostDoc) {
     latestAgentVersion: hostBinary(h)?.version ?? null,
     info: h.info ?? null,
     osFamily: hostOs(h),
+    // Windows: path of the backup CLI set in the options (checked by the agent: capability backup:cli)
+    backupClientPath: h.backupClientPath ?? null,
     // Windows: user sessions, and what they mean (someone logged on, all locked)
     sessions: h.sessions ?? null,
     sessionSummary: sessionSummary(h.sessions),

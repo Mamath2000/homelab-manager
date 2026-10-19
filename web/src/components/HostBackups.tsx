@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, Check, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink, X } from 'lucide-react';
+import { AlertTriangle, Check, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink, X } from 'lucide-react';
 import { SnapshotsModal } from './BackupSnapshots';
-import { BackupJobEditModal, CachedJobModal, type JobTab, ManagedBackupsModal } from './ManagedBackups';
+import { BackupJobEditModal, CachedJobModal, type JobTab } from './ManagedBackups';
 import { NextcloudPluginModal } from './NextcloudPlugin';
 import { ApiError, api, type BackupGroup, type BackupJob, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -179,7 +179,7 @@ function ClientIcon({ host }: { host: Host }) {
         ? [Container, 'text-sky-400', 'Client PBS en conteneur (image Docker)']
         : c.mode === 'cli'
           ? [Package, 'text-emerald-400', 'Client PBS Windows (proxmoxbackup-directory)']
-          : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (bouton Agent pour l’installer)'];
+          : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (options de l’hôte › Sauvegarde pour l’installer)'];
   return (
     <span title={title} className="ml-2 inline-flex align-middle">
       <Icon className={`h-4 w-4 ${tone}`} aria-label={title} />
@@ -195,7 +195,6 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
   const toast = useToast();
   const qc = useQueryClient();
   const [attaching, setAttaching] = useState(false);
-  const [agent, setAgent] = useState(false);
   const [nextcloud, setNextcloud] = useState(false);
   // job id, or 'new'
   const [editing, setEditing] = useState<string | null>(null);
@@ -280,7 +279,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
 
   // Nextcloud AIO plugin: hub with BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
   const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings || !!jobs.nextcloudPrevious);
-  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? (jobs.windows ? "Renseigner d'abord le chemin du client PBS (bouton Agent)" : "Installer d'abord le client PBS (bouton Agent)") : !jobs.credential ? "Renseigner d'abord l'accès au PBS (bouton Agent)" : null;
+  // the client and the token are set in the options of the host (Sauvegarde)
+  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? (jobs.windows ? "Renseigner d'abord le chemin du client PBS (options de l’hôte › Sauvegarde)" : "Installer d'abord le client PBS (options de l’hôte › Sauvegarde)") : !jobs.credential ? "Renseigner d'abord l'accès au PBS (options de l’hôte › Sauvegarde)" : null;
 
   const detach = async (g: BackupGroup) => {
     try {
@@ -305,9 +305,6 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
           {/* agent unable to run backups of its own (HAOS add-on): neither Agent nor Ajouter */}
           {canManage && agentBackups && (
             <>
-              <Button size="sm" icon={Bot} onClick={() => setAgent(true)} title="Agent de sauvegarde : client PBS et accès au PBS (jeton)">
-                Agent
-              </Button>
               {nextcloudShown && (
                 <Button
                   size="sm"
@@ -348,7 +345,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
               <IconGroup
                 className="ml-auto shrink-0"
                 actions={[
-                  { icon: Check, title: jobs.mode ? 'Valider : recréer cette sauvegarde (et le jeton de l’hôte)' : "Valider : installer d'abord le client PBS (bouton Agent)", disabled: !jobs.mode, loading: cacheBusy === j.id, onClick: () => void restore(j) },
+                  { icon: Check, title: jobs.mode ? 'Valider : recréer cette sauvegarde (et le jeton de l’hôte)' : "Valider : installer d'abord le client PBS (options de l’hôte › Sauvegarde)", disabled: !jobs.mode, loading: cacheBusy === j.id, onClick: () => void restore(j) },
                   { icon: X, title: 'Annuler : oublier cette sauvegarde', danger: true, disabled: cacheBusy === j.id, onClick: () => void drop(j) },
                 ]}
               />
@@ -436,7 +433,6 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
         <Link to={`/backups?host=${host.id}`} className="text-emerald-400 hover:underline">Voir dans la page Sauvegardes</Link>
       </p>
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
-      <ManagedBackupsModal host={host} open={agent} onClose={() => setAgent(false)} />
       {canManage && <BackupJobEditModal host={host} jobId={editing} tab={editTab} onClose={() => setEditing(null)} />}
       {canManage && restoring && <CachedJobModal host={host} job={restoring} onClose={() => setRestoring(null)} />}
       {canManage && nextcloudShown && <NextcloudPluginModal host={host} open={nextcloud} onClose={() => setNextcloud(false)} />}

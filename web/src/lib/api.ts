@@ -174,6 +174,8 @@ export interface Host {
   pve: HostPveLink | null;
   // OS of the agent (windows: presence, info and sessions only)
   osFamily: 'linux' | 'windows';
+  // Windows: path of the backup CLI set in the options (checked by the agent: capability backup:cli)
+  backupClientPath: string | null;
   // Windows: user sessions, last report of the agent (null: none yet)
   sessions: SessionReport | null;
   sessionSummary: { users: string[]; loggedIn: boolean; locked: boolean; interactive: boolean; changedAt: number | null } | null;
@@ -1020,7 +1022,7 @@ export const api = {
   saveNextcloud: (hostId: string, s: NextcloudSettings) => request<{ created: number; updated: number; removed: number }>('PUT', `/api/hosts/${hostId}/nextcloud`, s),
   deleteNextcloud: (hostId: string) => request<{ removed: number }>('DELETE', `/api/hosts/${hostId}/nextcloud`),
   installBackupClient: (hostId: string, method: 'apt' | 'docker') => request<Job>('POST', `/api/hosts/${hostId}/backup-client`, { method }),
-  setBackupClientPath: (hostId: string, path: string) => request<{ ok: true; clientPath: string | null }>('PUT', `/api/hosts/${hostId}/backup-client-path`, { path }),
+  setBackupClientPath: (hostId: string, path: string) => request<Host>('PUT', `/api/hosts/${hostId}/backup-client-path`, { path }),
   runBackupJob: (id: string) => request<Job>('POST', `/api/backup-jobs/${id}/run`),
   restoreCachedJob: (hostId: string, jobId: string, j?: BackupJobInput) =>
     request<BackupJob>(j ? 'PUT' : 'POST', `/api/hosts/${hostId}/backup-cache/jobs/${jobId}`, j),

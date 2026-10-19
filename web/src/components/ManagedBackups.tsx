@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Calculator, Container, KeyRound, ListChecks, Package, Plus, Save, X } from 'lucide-react';
+import { Calculator, Container, ListChecks, Package, Plus, Save, X } from 'lucide-react';
 import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
 import { databaseKindLabel, dumpArchives, formatBytes, offsiteForm, offsiteInput, offsiteNotCopiable } from '../lib/backups';
 import { OffsiteSettingsTab } from './OffsiteCopy';
@@ -21,37 +21,36 @@ const PRESETS = [
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
 // PBS token of the host: the agent writes its backups with it. The agent of the PBS creates it.
-function CredentialModal({ host, view, open, onClose }: { host: Host; view: HostBackupJobs; open: boolean; onClose: () => void }) {
+function CredentialPanel({ host, view }: { host: Host; view: HostBackupJobs }) {
   const qc = useQueryClient();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
   return (
-    <Modal open={open} onClose={onClose} wide="xl" title={`Accès au PBS de ${host.name}`} footer={<Button onClick={onClose}>Fermer</Button>}>
-      <div className="space-y-4 text-sm">
-        <p className="text-muted">
-          L'agent écrit les sauvegardes de cet hôte avec ce jeton. L'agent du PBS le crée et l'envoie au hub, qui le transmet à cet hôte par la connexion chiffrée de
-          l'agent ; il est gardé sur l'hôte dans un fichier lisible par root seulement, et jamais affiché.
-        </p>
-        <p className="text-xs text-muted">
-          Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace <code>Hosts</code> de chaque datastore : un hôte compromis ne peut ni lire ni modifier
-          les sauvegardes des autres, ni écrire dans les namespaces de Proxmox VE. Recréer un jeton existant met ses droits à jour (nouveau datastore) en gardant son
-          secret.
-        </p>
-        {view.pbsAgent ? (
-          <TokenButton
-            tokenId={tokenId}
-            onTokenIdChange={setTokenId}
-            create={async () => {
-              const r = await api.createPbsCredential(host.id, tokenId);
-              qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
-              return r;
-            }}
-          />
-        ) : (
-          <p className="text-amber-400">Le PBS n'est pas relié à son agent : le faire dans Paramètres › Sauvegardes, puis revenir créer le jeton.</p>
-        )}
-        {view.credential && <p className="text-xs text-muted">Jeton enregistré : <code>{view.credential.tokenId}</code>.</p>}
-      </div>
-    </Modal>
+    <div className="space-y-3 text-sm">
+      <h4 className="text-sm font-semibold text-zinc-100">Accès au PBS</h4>
+      <p className="text-xs text-muted">
+        L'agent écrit les sauvegardes de cet hôte avec ce jeton. L'agent du PBS le crée et l'envoie au hub, qui le transmet à cet hôte par la connexion chiffrée de
+        l'agent ; il est gardé sur l'hôte dans un fichier lisible par root seulement, et jamais affiché.
+      </p>
+      <p className="text-xs text-muted">
+        Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace <code>Hosts</code> de chaque datastore : un hôte compromis ne peut ni lire ni modifier
+        les sauvegardes des autres, ni écrire dans les namespaces de Proxmox VE. Recréer un jeton existant met ses droits à jour (nouveau datastore) en gardant son
+        secret.
+      </p>
+      {view.pbsAgent ? (
+        <TokenButton
+          tokenId={tokenId}
+          onTokenIdChange={setTokenId}
+          create={async () => {
+            const r = await api.createPbsCredential(host.id, tokenId);
+            qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+            return r;
+          }}
+        />
+      ) : (
+        <p className="text-amber-400">Le PBS n'est pas relié à son agent : le faire dans Paramètres › Sauvegardes, puis revenir créer le jeton.</p>
+      )}
+      {view.credential && <p className="text-xs text-muted">Jeton enregistré : <code>{view.credential.tokenId}</code>.</p>}
+    </div>
   );
 }
 
@@ -767,73 +766,28 @@ function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: H
   );
 }
 
-// Windows: path of the directory CLI of Nimbus Backup, installed by hand; the agent says in its next
-// hello whether it is there (mode cli).
-function ClientPath({ host, view }: { host: Host; view: HostBackupJobs }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [path, setPath] = useState(view.clientPath ?? '');
-  const [busy, setBusy] = useState(false);
-  const save = async () => {
-    setBusy(true);
-    try {
-      await api.setBackupClientPath(host.id, path);
-      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className={clsx('rounded-md border px-3 py-2.5 text-sm', view.mode ? 'border-line' : 'border-amber-500/40 bg-amber-500/10 text-amber-100')}>
-      <p className="mb-2 text-xs">
-        Client installé à la main sur le poste :{' '}
-        <a className="text-emerald-400 hover:underline" href="https://github.com/rdemsystems/NimbusBackupClient/releases" target="_blank" rel="noreferrer">CLI Nimbus Backup</a>{' '}
-        v0.4.2 ou plus récente (zip <code>nimbus-backup-cli-…-windows.zip</code>), exécutable <code>proxmoxbackup-directory.exe</code>.
-      </p>
-      <div className="flex gap-2">
-        <input className="input flex-1 font-mono text-xs" value={path} onChange={(e) => setPath(e.target.value)} placeholder="C:\Program Files\PBS\proxmoxbackup-directory.exe" />
-        <Button size="sm" icon={Save} loading={busy} disabled={path.trim() === (view.clientPath ?? '')} onClick={save}>Enregistrer</Button>
-      </div>
-    </div>
-  );
-}
-
-// Agent that runs the backups of the host: its PBS client and its token (window opened from the
-// Sauvegardes card of the host page; the jobs are in the card).
-export function ManagedBackupsModal({ host, open, onClose }: { host: Host; open: boolean; onClose: () => void }) {
+// Backup settings of the host (options of the host › Sauvegarde): the agent, its PBS client (installed by the
+// agent on Linux, its path on Windows: windowsClient) and its token. The jobs are in the Sauvegardes card.
+export function BackupAgentSection({ host, windowsClient }: { host: Host; windowsClient?: ReactNode }) {
   const { data: backups } = useBackups();
   const { canManage } = useMe();
-  const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!backups?.connected && open });
-  const [credential, setCredential] = useState(false);
-  if (!backups?.connected || !open) return null;
-  const title = `Agent de sauvegarde de ${host.name}`;
-  if (!data) {
-    return (
-      <Modal open onClose={onClose} wide="xl" title={title}>
-        <div className="flex justify-center p-4"><Spinner /></div>
-      </Modal>
-    );
-  }
+  const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!backups?.connected });
+  if (!backups) return <div className="flex justify-center p-4"><Spinner /></div>;
+  if (!backups.connected) return <p className="text-sm text-muted">PBS principal non connecté : le relier dans Paramètres › Sauvegardes.</p>;
+  if (!data) return <div className="flex justify-center p-4"><Spinner /></div>;
   return (
-    <Modal open onClose={onClose} wide="xl" title={title}>
-      <div className="space-y-3">
-        <AgentHeader
-          host={host}
-          view={data}
-          sync
-          actions={canManage && <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => setCredential(true)} title="Jeton du PBS de cet hôte">Accès PBS</Button>}
-        />
-        {data.windows ? (
-          canManage && <ClientPath key={data.clientPath ?? ''} host={host} view={data} />
-        ) : (
-          data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
+    <div className="space-y-5">
+      <AgentHeader host={host} view={data} sync />
+      {data.windows
+        ? windowsClient
+        : data.supported && (!data.mode || (data.mode === 'docker' && data.install.includes('apt'))) && (
             <ClientInstall host={host} mode={data.mode} options={data.install} canManage={canManage} />
-          )
-        )}
-      </div>
-      {canManage && <CredentialModal key={String(credential)} host={host} view={data} open={credential} onClose={() => setCredential(false)} />}
-    </Modal>
+          )}
+      {canManage && (
+        <div className="border-t border-line pt-4">
+          <CredentialPanel host={host} view={data} />
+        </div>
+      )}
+    </div>
   );
 }

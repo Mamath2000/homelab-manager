@@ -336,8 +336,8 @@ function HostDetailPage({ id }: { id: string }) {
       </Panel>,
     );
   }
-  // Windows: no backup yet (homelab#206)
-  if (backupsOn && !isWindows(host)) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
+  // Windows: only once the agent found the backup CLI set in the options of the host (homelab#208)
+  if (backupsOn && (!isWindows(host) || host.capabilities.includes('backup:cli'))) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
 
   return (
     <>
