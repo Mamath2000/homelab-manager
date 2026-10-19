@@ -16,6 +16,7 @@ import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js
 import { isHaBackupReport, refreshHaBackups } from './haBackups.js';
 import { isSeriesReport, onOffsiteHello, onOffsiteReport, onOffsiteSynced } from './offsite.js';
 import { isUpsReport } from './ups.js';
+import { isSessionReport } from './sessions.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
@@ -134,6 +135,7 @@ interface AgentMessage {
   haBackups?: unknown;
   offsite?: unknown;
   ups?: unknown;
+  sessions?: unknown;
   reqId?: string;
   result?: unknown;
   jobId?: string;
@@ -185,7 +187,9 @@ export function registerAgentSocket(app: FastifyInstance) {
         try {
           switch (msg.type) {
             case 'hello': {
-              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1 } });
+              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1, 'info.osId': 1 } });
+              // first hello of a Windows workstation: switched off at night, it is roaming (can be unset)
+              const roaming = msg.info?.osId === 'windows' && !before?.info ? { roaming: true } : {};
               await hosts.updateOne(
                 { _id: host._id },
                 {
@@ -195,6 +199,7 @@ export function registerAgentSocket(app: FastifyInstance) {
                     capabilities: Array.isArray(msg.capabilities) ? msg.capabilities.filter((c) => typeof c === 'string') : [],
                     agentHash: typeof msg.binaryHash === 'string' ? msg.binaryHash : '',
                     lastSeenAt: new Date(),
+                    ...roaming,
                   },
                 },
               );
@@ -252,6 +257,11 @@ export function registerAgentSocket(app: FastifyInstance) {
             case 'ha_backups':
               if (!isHaBackupReport(msg.haBackups)) return;
               await refreshHaBackups(host._id, msg.haBackups);
+              await emitHost(host._id);
+              break;
+            case 'session_report':
+              if (!isSessionReport(msg.sessions)) return;
+              await hosts.updateOne({ _id: host._id }, { $set: { sessions: msg.sessions, lastSeenAt: new Date() } });
               await emitHost(host._id);
               break;
             case 'ups_report':

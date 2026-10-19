@@ -1,5 +1,5 @@
 import type { ObjectId } from 'mongodb';
-import { agentBinary, agentOutdated } from './agentBinaries.js';
+import { agentOutdated, hostBinary } from './agentBinaries.js';
 import { isOnline } from './agents.js';
 import { config } from './config.js';
 import { hosts, settings } from './db.js';
@@ -26,7 +26,7 @@ export async function maybeAutoUpdate(id: ObjectId) {
   if (!h || !canSelfUpdate(h) || agentOutdated(h) !== true) return false;
   const hid = h._id.toHexString();
   if (!isOnline(hid) || hasRunningJob(hid)) return false;
-  const target = agentBinary(h.info?.arch)?.sha256;
+  const target = hostBinary(h)?.sha256;
   if (h.lastAgentUpdateAt && h.lastAgentUpdateHash === target && Date.now() - h.lastAgentUpdateAt.getTime() < RETRY_MS) return false;
   await hosts.updateOne({ _id: h._id }, { $set: { lastAgentUpdateAt: new Date(), lastAgentUpdateHash: target } });
   await createJob(h, 'agent_update', [], 'schedule');

@@ -2,8 +2,9 @@ import { SETUP_OPTIONS, type AptReport, type AptSummary, type HostDoc } from './
 import { isOnline } from './agents.js';
 import { needsReboot } from './reboot.js';
 import { INSTALLED_TTL_MS } from './installed.js';
-import { agentBinary, agentOutdated } from './agentBinaries.js';
+import { agentOutdated, hostBinary, hostOs } from './agentBinaries.js';
 import { dockerSummary, dockerView } from './docker.js';
+import { sessionSummary } from './sessions.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -50,8 +51,12 @@ export function hostDto(h: HostDoc) {
       // still waiting for the reboot that makes it effective
       .map((p) => ({ ...p, rebootRequired: !!h.apt?.rebootRequired && needsReboot(p.name) })),
     agentOutdated: agentOutdated(h),
-    latestAgentVersion: agentBinary(h.info?.arch)?.version ?? null,
+    latestAgentVersion: hostBinary(h)?.version ?? null,
     info: h.info ?? null,
+    osFamily: hostOs(h),
+    // Windows: user sessions, and what they mean (someone logged on, all locked)
+    sessions: h.sessions ?? null,
+    sessionSummary: sessionSummary(h.sessions),
     // computed on read so that reports stored by older hub versions are covered too
     apt: h.apt ? { ...h.apt, upgradable: h.apt.upgradable.map((p) => ({ ...p, reboot: needsReboot(p.name) })) } : null,
     aptSummary: h.apt ? summarize(h.apt) : null,

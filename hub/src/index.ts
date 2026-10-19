@@ -25,6 +25,7 @@ import { startPvePoller } from './pve.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
 import { loadHomeAssistantSettings, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
+import { registerAgentDownloadRoute } from './routes/install.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
 import { startAlerts } from './alerts.js';
@@ -62,6 +63,7 @@ registerSummaryRoutes(app);
 const bridge = new HomeAssistantBridge(app.log);
 registerSettingsRoutes(app, bridge);
 registerAgentSettingsRoutes(app, bridge);
+registerAgentDownloadRoute(app);
 app.get('/api/health', async () => ({ ok: true, version: config.version }));
 // The agents moved to the TLS port: an old install / upgrade command fails with an explanation
 // instead of piping the UI page into sh.

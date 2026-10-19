@@ -1,4 +1,5 @@
 import type { ObjectId } from 'mongodb';
+import type { SessionReport } from './sessions.js';
 import type { UpsReport } from './ups.js';
 
 export interface Package {
@@ -144,6 +145,8 @@ export interface HostDoc {
   aptSummary?: AptSummary;
   docker?: DockerReport;
   ups?: UpsReport;
+  // Windows: user sessions (agent session_report)
+  sessions?: SessionReport;
   dockerUpdates?: DockerUpdates;
   lastDockerAutoCheckAt?: Date;
   // local images changed since the last registry check: a docker_check is due as soon as the host is free

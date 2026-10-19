@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { FastifyBaseLogger } from 'fastify';
-import { agentBinary, agentOutdated } from '../agentBinaries.js';
+import { agentOutdated, hostBinary } from '../agentBinaries.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { isOnline } from '../agents.js';
 import { evaluateAll } from '../monitoring.js';
@@ -188,7 +188,7 @@ export class HomeAssistantBridge {
     const built = build(
       list.map((host) => {
         const id = host._id.toHexString();
-        const bin = agentBinary(host.info?.arch);
+        const bin = hostBinary(host);
         return {
           host,
           online: isOnline(id),

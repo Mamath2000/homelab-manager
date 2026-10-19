@@ -11,6 +11,7 @@ import { needsReboot } from '../reboot.js';
 import { alertsOf, hostAlerts as rolledUp, type Alert } from './alerts.js';
 import { evaluate, type HostStatus } from '../monitoring.js';
 import { upsFlags } from '../ups.js';
+import { sessionSummary } from '../sessions.js';
 import { dockerView } from '../docker.js';
 
 export const PRESS = 'PRESS';
@@ -316,6 +317,20 @@ export function build(all: HostState[], opts: BuildOptions) {
       ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
     });
     d.binary('agent', 'Agent', isOnline, { device_class: 'connectivity' });
+    // Windows: the sessions, unavailable while the agent is offline (the computer is off: nobody on it)
+    const sessions = host.capabilities?.includes('session') ? sessionSummary(host.sessions) : null;
+    if (sessions) {
+      const whileOnline = {
+        availability: [...availability, { topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
+        availability_mode: 'all',
+      };
+      d.binary('users_logged_in', 'Utilisateur connecté', sessions.loggedIn, { device_class: 'occupancy', ...whileOnline });
+      d.binary('session_locked', 'Session verrouillée', sessions.locked, { icon: 'mdi:monitor-lock', ...whileOnline });
+      d.sensor('users', 'Utilisateurs', sessions.users.length, {
+        icon: 'mdi:account-multiple', json_attributes_topic: `${topic}/${hostId}/users/attributes`, ...whileOnline,
+      });
+      d.attributes('users', { users: sessions.users, sessions: host.sessions?.sessions ?? [] });
+    }
     if (selfUpdate) {
       const installed = host.agentVersion || 'inconnue';
       let latest = installed;
@@ -339,7 +354,7 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
     if (view) d.button('docker_check', 'Vérifier les images Docker', { action: 'docker_check', hostIds: [hid] }, { icon: 'mdi:docker' });
     d.alerts(hostAlerts);
-    d.sensor('os', 'Système', host.info?.osName ?? null, { icon: 'mdi:linux', ...diag });
+    d.sensor('os', 'Système', host.info?.osName ?? null, { icon: host.info?.osId === 'windows' ? 'mdi:microsoft-windows' : 'mdi:linux', ...diag });
     d.sensor('kernel', 'Noyau', host.info?.kernel ?? null, { icon: 'mdi:chip', ...diag });
     d.sensor('ip', 'Adresse IP', host.info?.ips?.[0] ?? null, { icon: 'mdi:ip-network', ...diag });
     d.sensor('last_seen', 'Vu', host.lastSeenAt ? host.lastSeenAt.toISOString() : null, { device_class: 'timestamp', ...diag });

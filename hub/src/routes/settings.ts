@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { settings } from '../db.js';
 import { testConnection, type HomeAssistantBridge } from '../homeassistant/bridge.js';
-import { AGENT_ARCHES, agentBinary } from '../agentBinaries.js';
+import { AGENT_TARGETS, agentBinary } from '../agentBinaries.js';
 import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
 import { hosts } from '../db.js';
 import { SAFE_URL, TAILSCALE_HOST, agentCommands } from '../hubUrl.js';
@@ -120,7 +120,7 @@ export function registerAgentSettingsRoutes(app: FastifyInstance, bridge: HomeAs
     const cmd = await agentCommands(req);
     return {
       ...s,
-      binaries: AGENT_ARCHES.map((a) => agentBinary(a)).filter((b) => b !== null),
+      binaries: AGENT_TARGETS.map((t) => agentBinary(t.arch, t.os)).filter((b) => b !== null),
       // what an admin needs to check the pinned certificates by hand
       tls: {
         agentUrl: cmd?.url ?? null,

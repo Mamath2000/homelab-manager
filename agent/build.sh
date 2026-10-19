@@ -9,7 +9,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ARCHES="amd64 arm64"
+# os/arch -> dist/homelab-agent-<os>-<arch>[.exe]
+TARGETS="linux/amd64 linux/arm64 windows/amd64"
 bump=${1:-build}
 
 version=$(cat VERSION)
@@ -27,18 +28,20 @@ case $bump in
     *) echo "Usage : $0 [minor|major]"; exit 2 ;;
 esac
 
+out() { echo "dist/homelab-agent-${1%/*}-${1#*/}$([ "${1%/*}" = windows ] && echo .exe)"; }
+
 uptodate=$([ "$last" = "$src" ] && [ "$version" = "$(cat dist/VERSION 2>/dev/null)" ] && echo 1 || true)
-for arch in $ARCHES; do [ -f "dist/homelab-agent-linux-$arch" ] || uptodate=; done
+for t in $TARGETS; do [ -f "$(out "$t")" ] || uptodate=; done
 if [ -n "$uptodate" ]; then
     echo "agent $version à jour (sources inchangées)"
     exit 0
 fi
 
 # -buildvcs=false: the git revision must not change the binary (its hash marks the agent outdated)
-for arch in $ARCHES; do
-    echo "agent $version linux/$arch"
-    CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
-        -ldflags "-s -w -X main.version=$version" -o "dist/homelab-agent-linux-$arch" .
+for t in $TARGETS; do
+    echo "agent $version $t"
+    CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -buildvcs=false \
+        -ldflags "-s -w -X main.version=$version" -o "$(out "$t")" .
 done
 echo "$version" > VERSION
 echo "$version" > dist/VERSION

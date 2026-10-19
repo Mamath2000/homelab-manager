@@ -65,7 +65,7 @@ stop: ## Arrête le hub et l'interface lancés par make dev / make start (proces
 	[ -z "$$forced" ] || echo "Tué de force (SIGTERM ignoré pendant 6 s) :" $$forced; \
 	left=$$(alive); [ -z "$$left" ] || { echo "Toujours actif :" $$left; exit 1; }
 
-agent: ## Compile l'agent (amd64 + arm64, agent/dist) ; version agent/VERSION, build +1 si les sources ont changé
+agent: ## Compile l'agent (Linux amd64 + arm64, Windows amd64, agent/dist) ; version agent/VERSION, build +1 si les sources ont changé
 	@./agent/build.sh
 
 agent-minor: ## Version mineure de l'agent +1 (X.Y+1.0), puis compile
@@ -92,6 +92,7 @@ fmt: ## Formate le code Go
 lint: ## Vérifications statiques : gofmt, go vet, typage du hub, eslint de l'interface
 	@unformatted="$$(gofmt -l agent)"; [ -z "$$unformatted" ] || { echo "gofmt à appliquer (make fmt) :"; echo "$$unformatted"; exit 1; }
 	cd agent && go vet ./...
+	cd agent && GOOS=windows go vet ./...
 	cd hub && npm run typecheck
 	cd web && npm run lint
 
@@ -99,7 +100,7 @@ test: ## Tests unitaires (agent + hub)
 	cd agent && go test ./...
 	cd hub && npm test
 
-build: agent ## Build complet : agent (amd64 + arm64), hub, interface
+build: agent ## Build complet : agent (Linux amd64 + arm64, Windows amd64), hub, interface
 	cd hub && npm run build
 	cd web && npm run build
 
