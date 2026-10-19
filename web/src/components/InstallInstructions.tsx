@@ -7,6 +7,8 @@ import { CopyField, Tabs } from './ui';
 // Add-on repository of the agent for Home Assistant OS (Settings > Add-ons > Add-on store > Repositories)
 export const HAOS_ADDON_REPO = 'https://github.com/Mamath2000/homelab-manager-haos';
 
+export const WINDOWS_UNINSTALL = '& "C:\\Program Files\\homelab-agent\\homelab-agent.exe" uninstall';
+
 // Same rule as install.sh: absolute path, no space or shell character.
 const DIR_RE = /^\/[A-Za-z0-9._/-]*[A-Za-z0-9._-]$/;
 
@@ -143,7 +145,7 @@ function WindowsInstall({ install }: { install: InstallInfo }) {
           certificat dans ProgramData (accès SYSTEM et administrateurs) et tourne en service.
         </li>
         <li>Remontées : présence, système et sessions (utilisateurs connectés, session verrouillée). L'hôte est itinérant par défaut : éteint, il ne lève pas d'alerte.</li>
-        <li>Désinstallation : <code className="text-zinc-300">{'"C:\\Program Files\\homelab-agent\\homelab-agent.exe" uninstall'}</code>, puis supprime l'hôte ici.</li>
+        <li>Désinstallation : <code className="text-zinc-300">{WINDOWS_UNINSTALL}</code>, puis supprime l'hôte ici.</li>
       </ul>
     </div>
   );

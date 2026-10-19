@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
 import { HostOptionsModal } from '../components/HostOptionsModal';
 import { HostTagList, SiteChip } from '../components/HostTags';
-import { InstallInstructions } from '../components/InstallInstructions';
+import { InstallInstructions, WINDOWS_UNINSTALL } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
 import { CleanupButton } from '../components/CleanupPanel';
@@ -625,8 +625,15 @@ function HostDetailPage({ id }: { id: string }) {
         }}
       >
         L'hôte et son historique seront supprimés et l'agent déconnecté.{' '}
-        {isHaos(host) ? "Pour désinstaller l'agent, supprime l'application Homelab Manager Agent dans Home Assistant." : "Pour désinstaller l'agent, en root sur l'hôte :"}
-        {!isHaos(host) && tls?.uninstallCommand && (
+        {isHaos(host)
+          ? "Pour désinstaller l'agent, supprime l'application Homelab Manager Agent dans Home Assistant."
+          : isWindows(host)
+            ? "Pour désinstaller l'agent, dans PowerShell en administrateur sur le poste :"
+            : "Pour désinstaller l'agent, en root sur l'hôte :"}
+        {isWindows(host) && (
+          <pre className="mt-2 overflow-x-auto rounded-sm border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">{WINDOWS_UNINSTALL}</pre>
+        )}
+        {!isHaos(host) && !isWindows(host) && tls?.uninstallCommand && (
           <pre className="mt-2 overflow-x-auto rounded-sm border border-line bg-black/40 p-2 font-mono text-xs text-zinc-300">{tls.uninstallCommand}</pre>
         )}
       </ConfirmModal>
