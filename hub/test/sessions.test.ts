@@ -13,12 +13,12 @@ test('isSessionReport accepts a report of the agent and refuses an unknown state
 
 test('sessionSummary: nobody, someone at the keyboard, all locked', () => {
   assert.equal(sessionSummary(undefined), null);
-  assert.deepEqual(sessionSummary(report([])), { users: [], loggedIn: false, locked: false, interactive: false });
-  assert.deepEqual(sessionSummary(report([{ id: 1, user: 'math', state: 'active' }])), { users: ['math'], loggedIn: true, locked: false, interactive: false });
+  assert.deepEqual(sessionSummary(report([])), { users: [], loggedIn: false, locked: false, interactive: false, changedAt: null });
+  assert.deepEqual(sessionSummary(report([{ id: 1, user: 'math', state: 'active' }])), { users: ['math'], loggedIn: true, locked: false, interactive: false, changedAt: null });
   // fast user switching: the other user is disconnected, the console one is locked
   assert.deepEqual(
     sessionSummary(report([{ id: 1, user: 'math', state: 'locked' }, { id: 2, user: 'zoe', state: 'disconnected' }])),
-    { users: ['math', 'zoe'], loggedIn: true, locked: true, interactive: false },
+    { users: ['math', 'zoe'], loggedIn: true, locked: true, interactive: false, changedAt: null },
   );
 });
 

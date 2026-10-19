@@ -7,7 +7,8 @@ export interface HostSession {
   station?: string; // Console, RDP-Tcp#0...
   state: 'active' | 'locked' | 'disconnected';
   logonAt?: number; // unix ms
-  // input (keyboard, mouse) in an unlocked session within the last 5 minutes (computed by the agent)
+  stateAt?: number; // unix ms, last change of state (logon, lock, unlock, disconnection)
+  // input (keyboard, mouse) in an unlocked session within the last minute (threshold of the agent)
   interactive?: boolean;
   idleSec?: number; // seconds since the last input, at the time of the report
 }
@@ -42,5 +43,7 @@ export function sessionSummary(r: SessionReport | null | undefined) {
     locked: open.length > 0 && open.every((s) => s.state === 'locked'),
     // someone is using the computer: input in any session within the agent's idle threshold
     interactive: r.sessions.some((s) => s.interactive === true),
+    // last change of state of any session (lock, unlock, logon...), unix ms
+    changedAt: Math.max(0, ...r.sessions.map((s) => s.stateAt ?? 0)) || null,
   };
 }

@@ -12,6 +12,9 @@ type Session struct {
 	Station string `json:"station,omitempty"` // Console, RDP-Tcp#0...
 	State   string `json:"state"`             // active | locked | disconnected
 	LogonAt int64  `json:"logonAt,omitempty"` // unix ms
+	// unix ms of the last change of State (logon, lock, unlock, disconnection); first sight of the session when
+	// the agent started after it (the date is kept in memory only)
+	StateAt int64 `json:"stateAt,omitempty"`
 	// keyboard/mouse input within idleThreshold in an active (unlocked) session
 	Interactive bool `json:"interactive"`
 	// seconds since the last input; nil when unknown. Not part of the change detection (it moves all the time).

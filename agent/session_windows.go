@@ -29,7 +29,7 @@ const (
 	filetimeUnixEpoch = 116444736000000000
 
 	// no input for that long: the session is no longer interactive (homelab#207)
-	idleThreshold = 5 * time.Minute
+	idleThreshold = time.Minute
 )
 
 // WTSINFOEXW with its WTSINFOEX_LEVEL1_W, up to LogonTime (the buffer is the system's, longer).
@@ -54,12 +54,59 @@ var _ = [1]struct{}{}[unsafe.Offsetof(wtsInfoEx{}.SessionID)-8+unsafe.Offsetof(w
 var lockEvents = struct {
 	sync.Mutex
 	locked map[uint32]bool
-}{locked: map[uint32]bool{}}
+	at     map[uint32]int64 // unix ms of the notification
+}{locked: map[uint32]bool{}, at: map[uint32]int64{}}
 
 func noteLock(session uint32, locked bool) {
 	lockEvents.Lock()
 	lockEvents.locked[session] = locked
+	lockEvents.at[session] = time.Now().UnixMilli()
 	lockEvents.Unlock()
+}
+
+// State of each session as last reported, with its date: Windows does not tell when a session was locked.
+var stateDates = struct {
+	sync.Mutex
+	m map[uint32]stateDate
+}{m: map[uint32]stateDate{}}
+
+type stateDate struct {
+	state string
+	at    int64
+}
+
+// stampStates sets StateAt: unchanged state keeps its date; a change takes the date of the lock/unlock
+// notification when there is a recent one, else now (a new session: its logon).
+func stampStates(out []Session) {
+	now := time.Now().UnixMilli()
+	stateDates.Lock()
+	defer stateDates.Unlock()
+	seen := map[uint32]bool{}
+	for i := range out {
+		s := &out[i]
+		seen[s.ID] = true
+		prev, known := stateDates.m[s.ID]
+		if known && prev.state == s.State {
+			s.StateAt = prev.at
+			continue
+		}
+		at := now
+		if !known && s.LogonAt > 0 && s.State == "active" {
+			at = s.LogonAt
+		}
+		lockEvents.Lock()
+		if ev := lockEvents.at[s.ID]; ev > 0 && now-ev < 10_000 {
+			at = ev
+		}
+		lockEvents.Unlock()
+		s.StateAt = at
+		stateDates.m[s.ID] = stateDate{s.State, at}
+	}
+	for id := range stateDates.m {
+		if !seen[id] {
+			delete(stateDates.m, id)
+		}
+	}
 }
 
 // collectSessions lists the sessions with a user: session 0 (services) and the listeners have none.
@@ -87,6 +134,7 @@ func collectSessions() (*SessionReport, error) {
 			out[i].Interactive = out[i].State == "active" && d < idleThreshold
 		}
 	}
+	stampStates(out)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return &SessionReport{CheckedAt: time.Now().UnixMilli(), Sessions: out}, nil
 }
