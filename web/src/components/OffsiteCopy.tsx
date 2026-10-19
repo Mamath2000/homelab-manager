@@ -142,9 +142,14 @@ function OffsiteDisable({ g }: { g: BackupGroup }) {
     }
   };
   return (
-    <Button size="sm" icon={CloudOff} loading={busy} onClick={disable} title="La sauvegarde sort du job de copie de son namespace ; les snapshots déjà copiés restent sur le PBS de secours">
-      Retirer de la copie
-    </Button>
+    <Button
+      size="sm"
+      icon={CloudOff}
+      loading={busy}
+      onClick={disable}
+      title="La sauvegarde sort du job de copie de son namespace ; les snapshots déjà copiés restent sur le PBS de secours"
+      aria-label="Retirer de la copie"
+    />
   );
 }
 
@@ -176,9 +181,8 @@ function OffsiteRunNow({ g, onStarted }: { g: BackupGroup; onStarted?: (jobId: s
       disabled={!!blocked}
       onClick={run}
       title={blocked ?? 'Copie tout de suite le dernier snapshot vérifié, sans attendre la série quotidienne'}
-    >
-      Copier maintenant
-    </Button>
+      aria-label="Copier maintenant"
+    />
   );
 }
 
@@ -232,6 +236,12 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
           <div className="flex items-center gap-2">
             <span className={section}>Copie déportée</span>
             <span className="text-muted">{remote.host} › {remote.store}</span>
+            {!why && o?.enabled && (
+              <div className="ml-auto flex gap-1.5">
+                {canWrite && <OffsiteRunNow g={g} onStarted={onStarted} />}
+                {canManage && <OffsiteDisable g={g} />}
+              </div>
+            )}
           </div>
           {why ? (
             <p className="text-muted">Non copiable : {why}.</p>
@@ -260,10 +270,6 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
               {o.lastRun && !o.lastRun.ok && <div className="text-red-400" title={dateTime(o.lastRun.end)}>Dernière copie en échec {timeAgo(o.lastRun.end)} : {o.lastRun.error}</div>}
               {o.verify === 'failed' && <div className="text-red-400">Vérification de la copie en échec</div>}
               <UsageBar remote={remote} size={o.size} />
-              <div className="flex flex-wrap gap-2">
-                {canWrite && <OffsiteRunNow g={g} onStarted={onStarted} />}
-                {canManage && <OffsiteDisable g={g} />}
-              </div>
             </>
           )}
         </div>
