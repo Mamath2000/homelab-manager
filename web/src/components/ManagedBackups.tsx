@@ -767,7 +767,7 @@ function ClientInstall({ host, mode, options, canManage }: { host: Host; mode: H
   );
 }
 
-// Windows: path of the directory CLI of proxmoxbackupclient_go, installed by hand; the agent says in its next
+// Windows: path of the directory CLI of Nimbus Backup, installed by hand; the agent says in its next
 // hello whether it is there (mode cli).
 function ClientPath({ host, view }: { host: Host; view: HostBackupJobs }) {
   const qc = useQueryClient();
@@ -789,8 +789,8 @@ function ClientPath({ host, view }: { host: Host; view: HostBackupJobs }) {
     <div className={clsx('rounded-md border px-3 py-2.5 text-sm', view.mode ? 'border-line' : 'border-amber-500/40 bg-amber-500/10 text-amber-100')}>
       <p className="mb-2 text-xs">
         Client installé à la main sur le poste :{' '}
-        <a className="text-emerald-400 hover:underline" href="https://github.com/tizbac/proxmoxbackupclient_go/releases" target="_blank" rel="noreferrer">proxmoxbackupclient_go</a>{' '}
-        (zip Windows), exécutable <code>proxmoxbackup-directory.exe</code>.
+        <a className="text-emerald-400 hover:underline" href="https://github.com/rdemsystems/NimbusBackupClient/releases" target="_blank" rel="noreferrer">CLI Nimbus Backup</a>{' '}
+        v0.4.2 ou plus récente (zip <code>nimbus-backup-cli-…-windows.zip</code>), exécutable <code>proxmoxbackup-directory.exe</code>.
       </p>
       <div className="flex gap-2">
         <input className="input flex-1 font-mono text-xs" value={path} onChange={(e) => setPath(e.target.value)} placeholder="C:\Program Files\PBS\proxmoxbackup-directory.exe" />

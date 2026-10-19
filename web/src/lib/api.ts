@@ -806,7 +806,7 @@ export interface HostBackupJobs {
   // how it can be installed
   mode: 'native' | 'docker' | 'cli' | null;
   install: ('apt' | 'docker')[];
-  // Windows: the directory CLI of proxmoxbackupclient_go, installed by hand at clientPath (one directory per
+  // Windows: the directory CLI of Nimbus Backup, installed by hand at clientPath (one directory per
   // job, no exclusion, no database)
   windows: boolean;
   clientPath: string | null;

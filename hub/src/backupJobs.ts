@@ -139,7 +139,7 @@ export function jobArchives(j: Pick<JobInput, 'archives' | 'kind' | 'database'>)
 }
 
 // Error message, or null. Same rules as validateBackupSpec in agent/backup.go; windows: the host runs the
-// directory CLI of proxmoxbackupclient_go (backup_windows.go): one directory, no exclusion, no database.
+// directory CLI of Nimbus Backup (backup_windows.go): one directory, no exclusion, no database.
 export function checkJob(j: JobInput, creating: boolean, windows = false): string | null {
   if (!j.name.trim()) return 'nom requis';
   const kind = j.kind ?? 'directories';

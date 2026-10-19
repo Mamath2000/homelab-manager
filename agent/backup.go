@@ -18,7 +18,7 @@ import (
 )
 
 // Backups of directories to the Proxmox Backup Server, defined by the hub and run by the agent: with
-// proxmox-backup-client on Linux (backup_unix.go), with the directory CLI of proxmoxbackupclient_go on
+// proxmox-backup-client on Linux (backup_unix.go), with the directory CLI of Nimbus Backup on
 // Windows (backup_windows.go). The hub sends the whole definition (backup_sync); the agent keeps it on
 // disk and runs the jobs on their schedule by itself, so backups go on while the hub is down. A run
 // missed while the agent was stopped is caught up at start. Results are kept until the hub

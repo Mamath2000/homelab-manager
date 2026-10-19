@@ -13,9 +13,10 @@ import (
 	"time"
 )
 
-// Windows side of the backups (backup.go, homelab#208): the directory CLI of proxmoxbackupclient_go
-// (proxmoxbackup-directory.exe, GPL-3.0), installed by hand and run as an external program; its path
-// comes with the definition (ClientPath). VSS is on by default (the service runs as SYSTEM). One
+// Windows side of the backups (backup.go, homelab#208): the directory CLI of Nimbus Backup (fork of
+// proxmoxbackupclient_go, GPL-3.0), proxmoxbackup-directory.exe v0.4.2 or later (earlier builds exit 0 on a
+// failed backup), installed by hand and run as an external program; its path comes with the definition
+// (ClientPath). VSS is on by default (the service runs as SYSTEM). One
 // directory per job (each extra directory would be a group of its own) and no exclusion (the CLI has
 // none); no database jobs.
 
