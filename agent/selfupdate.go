@@ -14,25 +14,6 @@ import (
 	"runtime"
 )
 
-// selfHash is the sha256 of the running binary, reported to the hub so that it can
-// tell whether this agent matches the binary it distributes.
-func selfHash() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	f, err := os.Open(exe)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // selfUpdate downloads the agent binary from the hub, checks it and atomically replaces the running
 // executable. The caller exits afterwards: systemd (Restart=always) starts the new binary.
 func selfUpdate(ctx context.Context, client *http.Client, hub, expected string, emit func(string)) error {
