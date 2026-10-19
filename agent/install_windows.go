@@ -158,15 +158,19 @@ func runUninstall() error {
 	if err := os.RemoveAll(defaultDir); err != nil {
 		return err
 	}
-	// the running binary cannot delete itself: removed at the next reboot
+	// the running binary cannot delete itself, but it can be moved: out of the installation directory
+	// (a reinstallation before the next reboot must not lose its binary), removed at the next reboot
 	dir := installDir()
-	if err := os.RemoveAll(dir); err != nil {
-		for _, p := range []string{filepath.Join(dir, "homelab-agent.exe"), dir} {
-			if from, err := windows.UTF16PtrFromString(p); err == nil {
-				_ = windows.MoveFileEx(from, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+	if self, err := os.Executable(); err == nil && strings.EqualFold(filepath.Dir(filepath.Clean(self)), dir) {
+		moved := filepath.Join(os.TempDir(), fmt.Sprintf("homelab-agent-uninstalled-%d.exe", os.Getpid()))
+		if os.Rename(self, moved) == nil {
+			if p, err := windows.UTF16PtrFromString(moved); err == nil {
+				_ = windows.MoveFileEx(p, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
 			}
 		}
-		fmt.Printf("%s will be removed at the next reboot\n", dir)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("%s: %w", dir, err)
 	}
 	fmt.Println("uninstalled; delete the host in the hub to revoke its certificate")
 	return nil

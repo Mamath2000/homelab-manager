@@ -76,6 +76,18 @@ Un hôte peut être **exclu de Home Assistant** (case à l'ajout ou sur sa fiche
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
 | Système, Noyau, Adresse IP, Vu | diagnostic |
 
+### Postes Windows
+
+Un [poste Windows](installation.md#postes-windows) a en plus, sur son appareil, les entités de ses sessions. Elles sont **indisponibles quand l'agent est hors ligne** (poste éteint).
+
+| Entité | Type |
+|---|---|
+| Utilisateur connecté | capteur binaire (`occupancy`) : au moins une session ouverte |
+| Session verrouillée | capteur binaire : toutes les sessions ouvertes sont verrouillées |
+| Utilisateurs | capteur : nombre d'utilisateurs connectés ; attributs `users` (noms) et `sessions` (détail : poste, état, ouverture) |
+
+Ni APT, ni Docker, ni bouton Redémarrer, ni entité de mise à jour de l'agent. Ces entités remplacent celles du script `ha-agent` (identifiants différents : automatisations à reprendre).
+
 ### Sous-composant APT
 
 | Entité | Type |

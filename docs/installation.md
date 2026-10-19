@@ -82,7 +82,7 @@ Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, �
 
 ### Prérequis
 
-- Debian ou Ubuntu (APT) avec systemd, y compris sous **WSL2**, **Unraid** ou **Home Assistant OS** (voir plus bas) ;
+- Debian ou Ubuntu (APT) avec systemd, y compris sous **WSL2**, **Unraid** ou **Home Assistant OS** (voir plus bas) ; postes **Windows 10 / 11** : voir [Postes Windows](#postes-windows) ;
 - `curl` (`apt install curl`) : il vérifie la clé du hub pendant l'installation, ce que wget ne sait pas faire ;
 - accès root ;
 - accès réseau de l'hôte vers le hub sur le port des agents (`3443` par défaut). Rien n'est à ouvrir sur l'hôte.
@@ -191,6 +191,33 @@ Particularités :
 - **Pas de Docker** : l'agent ignore Docker sous WSL (même si Docker Desktop y expose son socket). L'hôte remonte son état système, ses mises à jour APT et la standardisation ;
 - le système affiché porte la mention « (WSL) », et l'hôte remonte l'IP interne de WSL (le réseau NAT n'empêche rien : c'est l'agent qui se connecte au hub sur le port des agents) ;
 - **l'hôte n'est en ligne que quand WSL tourne.** WSL ne démarre pas avec Windows et peut s'arrêter quand plus aucun terminal n'est ouvert. Pour le garder actif pendant la session Windows, créer une tâche planifiée « À l'ouverture de session » qui lance `wsl.exe -d Debian -u root --exec sleep infinity` (nom exact de la distribution : `wsl -l -v`).
+
+### Postes Windows
+
+Un poste Windows 10 / 11 (64 bits) remonte sa **présence**, son **système** (nom, version de Windows, IP, MAC, uptime) et ses **sessions** (utilisateurs connectés, session active, verrouillée ou déconnectée). Rien d'autre : ni mises à jour, ni Docker, ni standardisation, ni sauvegardes. Il remplace le script `ha-agent`.
+
+1. **Ajouter un hôte**, puis onglet **Windows** de la fenêtre d'installation : télécharger `homelab-agent.exe`.
+2. Dans le dossier du fichier, ouvrir **PowerShell en administrateur** et coller la commande affichée :
+
+```powershell
+.\homelab-agent.exe install JETON
+```
+
+Le jeton est celui de l'add-on Home Assistant OS : adresse du hub, clé épinglée et code à usage unique (24 h). L'agent vérifie la clé du hub, s'enrôle, puis :
+
+| Élément | Emplacement |
+|---|---|
+| Binaire | `C:\Program Files\homelab-agent\homelab-agent.exe` |
+| CA du hub, clé privée et certificat (accès SYSTEM et administrateurs seulement) | `C:\ProgramData\homelab-agent\` |
+| Journal (repart de zéro au-delà de 1 Mo) | `C:\ProgramData\homelab-agent\agent.log` |
+| Service Windows (démarrage automatique, relancé en cas d'échec) | `homelab-agent` |
+
+Particularités :
+
+- **itinérant par défaut** (à la première connexion) : un poste éteint ne lève pas d'alerte ;
+- les **sessions** remontent dès qu'elles changent (ouverture, verrouillage, déverrouillage, fermeture), avec un relevé de secours chaque minute ; elles s'affichent dans le panneau **Sessions** de la fiche et dans [Home Assistant](home-assistant.md#postes-windows) ;
+- **pas de mise à jour automatique** : quand le poste est signalé « Agent à mettre à jour », relancer `install` avec le nouveau `.exe` et une nouvelle commande d'installation (**Options** › **Agent**). L'installation existante est remplacée, l'hôte garde sa fiche et son historique ;
+- **désinstallation**, en administrateur : `& "C:\Program Files\homelab-agent\homelab-agent.exe" uninstall`, puis supprimer l'hôte dans Homelab Manager (ce qui révoque son certificat).
 
 ### Mise à jour des agents
 
