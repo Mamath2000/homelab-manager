@@ -21,7 +21,7 @@ type SessionReport struct {
 
 // agent -> hub
 type Outbound struct {
-	Type         string         `json:"type"` // hello | session_report | rpc_result | job_done
+	Type         string         `json:"type"` // hello | session_report | rpc_result | job_log | job_done
 	Version      string         `json:"version,omitempty"`
 	Info         *HostInfo      `json:"info,omitempty"`
 	Capabilities []string       `json:"capabilities,omitempty"`
@@ -30,6 +30,7 @@ type Outbound struct {
 	ReqID        string         `json:"reqId,omitempty"`
 	Result       any            `json:"result,omitempty"`
 	JobID        string         `json:"jobId,omitempty"`
+	Data         string         `json:"data,omitempty"`
 	ExitCode     int            `json:"exitCode,omitempty"`
 	Error        string         `json:"error,omitempty"`
 }
@@ -42,4 +43,5 @@ type Inbound struct {
 	ReqID  string   `json:"reqId,omitempty"`
 	Op     string   `json:"op,omitempty"`
 	Scopes []string `json:"scopes,omitempty"`
+	Sha256 string   `json:"sha256,omitempty"` // agent_update: expected hash of the new binary
 }

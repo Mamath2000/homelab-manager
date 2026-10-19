@@ -2,7 +2,7 @@
 
 package main
 
-// Windows agent (homelab#183): presence, host info and sessions only. Every other file of the
+// Windows agent (homelab#183): presence, host info, sessions and self-update (homelab#207). Every other file of the
 // package is Linux code (//go:build !windows) except the shared core: config.go, connect.go,
 // enroll.go, tls.go, info.go.
 
@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -35,7 +36,11 @@ func kickSessions() {
 	}
 }
 
+// restartKick: the binary was replaced, the service must exit so that its recovery actions start the new one.
+var restartKick = make(chan struct{}, 1)
+
 func main() {
+	cleanOldBinary()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "install":
@@ -68,6 +73,13 @@ func main() {
 	// console: for a test by hand, with the identity of the installation
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	go func() {
+		select {
+		case <-restartKick:
+			stop() // no service manager to restart it: an updated console run just ends
+		case <-ctx.Done():
+		}
+	}()
 	runAgent(ctx, cfg)
 }
 
@@ -99,6 +111,10 @@ func (s *service) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<
 		select {
 		case <-done:
 			// the agent gave up (identity missing...): a failure, so that the recovery actions restart it
+			return false, 1
+		case <-restartKick:
+			// a failure exit code: the recovery actions (installed with the service) restart it
+			cancel()
 			return false, 1
 		case c := <-req:
 			switch c.Cmd {
@@ -137,12 +153,14 @@ func runAgent(ctx context.Context, cfg config) {
 	}
 	client := httpClient(tlsConfig(roots, cert))
 	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
-		return (&session{conn: conn}).loop(ctx)
+		return (&session{conn: conn, http: client, hub: cfg.Hub}).loop(ctx)
 	})
 }
 
 type session struct {
 	conn *websocket.Conn
+	http *http.Client
+	hub  string
 	mu   sync.Mutex // serialises writes
 	last []byte     // last session report sent (JSON of the sessions)
 }
@@ -158,7 +176,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 
 func (s *session) hello(ctx context.Context) error {
 	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(),
-		Capabilities: []string{"refresh", "session"}, BinaryHash: binaryHash})
+		Capabilities: []string{"refresh", "session", "agent_update"}, BinaryHash: binaryHash})
 }
 
 // sessions reports the sessions; unchanged ones are only sent when forced.
@@ -230,9 +248,31 @@ func (s *session) loop(ctx context.Context) error {
 			}
 			_ = s.send(ctx, out)
 		case "run":
-			// no action on Windows yet: the job must not stay pending on the hub
-			_ = s.send(ctx, Outbound{Type: "job_done", JobID: in.JobID, ExitCode: -1,
-				Error: fmt.Sprintf("action %q not supported on Windows", in.Action)})
+			s.run(ctx, in)
 		}
 	}
+}
+
+// run executes a job of the hub. Only agent_update exists on Windows; any other action must not
+// stay pending on the hub.
+func (s *session) run(ctx context.Context, in Inbound) {
+	if in.Action != "agent_update" {
+		_ = s.send(ctx, Outbound{Type: "job_done", JobID: in.JobID, ExitCode: -1,
+			Error: fmt.Sprintf("action %q not supported on Windows", in.Action)})
+		return
+	}
+	emit := func(d string) { _ = s.send(ctx, Outbound{Type: "job_log", JobID: in.JobID, Data: d}) }
+	go func() {
+		if err := selfUpdate(ctx, s.http, s.hub, in.Sha256, emit); err != nil {
+			_ = s.send(ctx, Outbound{Type: "job_done", JobID: in.JobID, ExitCode: -1, Error: err.Error()})
+			return
+		}
+		_ = s.send(ctx, Outbound{Type: "job_done", JobID: in.JobID})
+		time.Sleep(time.Second) // let job_done reach the hub
+		log.Printf("agent updated, exiting so that the service manager starts the new binary")
+		select {
+		case restartKick <- struct{}{}:
+		default:
+		}
+	}()
 }
