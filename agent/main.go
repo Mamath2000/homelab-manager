@@ -481,6 +481,29 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 	done(code, err)
 }
 
+// helloWhenBackupReady: at boot the connection can come up before Docker (Unraid), so the first hello
+// has no backup capability; sends another one as soon as the client becomes usable.
+func (s *session) helloWhenBackupReady(ctx context.Context) {
+	if backupMode(ctx) != "" {
+		return
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return
+	}
+	deadline := time.Now().Add(15 * time.Minute) // Docker start-up + possible pull of the client image
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(dockerWaitStep):
+		}
+		if backupMode(ctx) != "" {
+			_ = s.hello(ctx)
+			return
+		}
+	}
+}
+
 func (s *session) loop(ctx context.Context) error {
 	if err := s.hello(ctx); err != nil {
 		return err
@@ -491,6 +514,7 @@ func (s *session) loop(ctx context.Context) error {
 	offsite.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer offsite.detach()
 	go s.report(ctx)
+	go s.helloWhenBackupReady(ctx)
 	if !onWSL && !onHAOS { // WSL, HAOS: Docker is not managed
 		go s.dockerReport(ctx)
 		go s.dockerLoop(ctx)
@@ -588,6 +612,7 @@ func main() {
 
 	// scheduled backups run whether the hub is reachable or not
 	go backups.loop(ctx)
+	go backups.ensureClientImage(ctx)
 	// and so do the copies to this secondary PBS
 	go offsite.loop(ctx)
 

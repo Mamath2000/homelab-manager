@@ -551,7 +551,7 @@ func backupEnv(spec *BackupSpec, j BackupJob) []string {
 
 func runBackup(ctx context.Context, spec *BackupSpec, j BackupJob, emit func(string)) (int, error) {
 	env := backupEnv(spec, j)
-	switch backupMode(ctx) {
+	switch waitBackupMode(ctx, emit) {
 	case "native":
 		emit(fmt.Sprintf("proxmox-backup-client %s\n", strings.Join(backupArgs(j), " ")))
 		return runStreaming(ctx, env, emit, "proxmox-backup-client", backupArgs(j)...)
@@ -574,8 +574,73 @@ func runBackup(ctx context.Context, spec *BackupSpec, j BackupJob, emit func(str
 		emit(fmt.Sprintf("docker run … %s %s\n", spec.Image, strings.Join(backupArgs(j), " ")))
 		return runStreaming(ctx, env, emit, "docker", args...)
 	default:
+		if _, err := exec.LookPath("docker"); err == nil {
+			return -1, errors.New("proxmox-backup-client not installed and Docker daemon unreachable or client image missing")
+		}
 		return -1, errors.New("proxmox-backup-client unavailable (neither installed nor Docker)")
 	}
+}
+
+// Docker engine start-up grace: at boot the agent can run a catch-up job before the daemon is up
+// (Unraid starts the agent from the go file, well before the array and Docker).
+const (
+	dockerWaitMax  = 3 * time.Minute
+	dockerWaitStep = 10 * time.Second
+)
+
+// ensureClientImage runs once at start: on a host that has backup jobs but no native client, waits for
+// the Docker daemon and pulls the client image when it is missing, so that the first run does not have to.
+func (b *backupModule) ensureClientImage(ctx context.Context) {
+	b.mu.Lock()
+	hasJobs := b.state.Spec != nil && len(b.state.Spec.Jobs) > 0
+	b.mu.Unlock()
+	if !hasJobs {
+		return
+	}
+	if _, err := exec.LookPath("proxmox-backup-client"); err == nil {
+		return
+	}
+	deadline := time.Now().Add(dockerWaitMax)
+	for !dockerBackupPossible(ctx) {
+		if time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(dockerWaitStep):
+		}
+	}
+	img := b.image()
+	if imagePresent(ctx, img) {
+		return
+	}
+	log.Printf("backup: pulling client image %s", img)
+	if code, err := runStreaming(ctx, os.Environ(), func(string) {}, "docker", "pull", img); err != nil || code != 0 {
+		log.Printf("backup: pull %s failed (code %d): %v", img, code, err)
+	}
+}
+
+// waitBackupMode is backupMode, retried for a while when only the Docker daemon is missing.
+func waitBackupMode(ctx context.Context, emit func(string)) string {
+	mode := backupMode(ctx)
+	if mode != "" || onWSL || runtime.GOARCH != "amd64" {
+		return mode
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return mode
+	}
+	emit("waiting for the Docker daemon…\n")
+	deadline := time.Now().Add(dockerWaitMax)
+	for mode == "" && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(dockerWaitStep):
+		}
+		mode = backupMode(ctx)
+	}
+	return mode
 }
 
 // --- results -------------------------------------------------------------------------------
