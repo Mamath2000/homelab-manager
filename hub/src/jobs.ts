@@ -169,7 +169,12 @@ export async function finishJob(jobId: string, hostId: string, exitCode: number,
 
 export async function failRunningJobs(hostId: string, reason: string) {
   for (const [jobId, r] of running) {
-    if (r.hostId === hostId && !r.hub) await finishJob(jobId, hostId, -1, reason);
+    if (r.hostId !== hostId || r.hub) continue;
+    // a registry check cut short (agent restarted by its own update...) is still due: the flag
+    // was cleared when it started, so it is raised again for the next docker report
+    const job = await jobs.findOne({ _id: new ObjectId(jobId) }, { projection: { action: 1 } });
+    if (job?.action === 'docker_check') await hosts.updateOne({ _id: new ObjectId(hostId) }, { $set: { dockerRecheck: true } });
+    await finishJob(jobId, hostId, -1, reason);
   }
 }
 
