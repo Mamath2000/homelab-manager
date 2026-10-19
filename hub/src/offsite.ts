@@ -69,6 +69,18 @@ export function syncJobId(store: string, ns: string) {
 
 export const jobLabel = (store: string, ns: string) => `${store} › ${ns || 'racine'}`;
 
+// Immediate copy of one group (#187): a temporary sync job, same options as the job of its datastore but
+// limited to the group. Named after the group (one at a time per group), 22 characters.
+export const ADHOC_RE = /^hlm-adhoc-[0-9a-f]{12}$/;
+export function adhocJobId(g: Pick<BackupDoc, 'store' | 'ns' | 'type' | 'backupId'>) {
+  return `${JOB_PREFIX}adhoc-${sha256(`${g.store}/${g.ns}/${g.type}/${g.backupId}`).slice(0, 12)}`;
+}
+
+// Sync jobs of the groups: the one of their datastore and namespace, or their immediate copy.
+export function groupsOf<T extends Pick<BackupDoc, 'store' | 'ns' | 'type' | 'backupId' | 'offsite'>>(syncJob: string, groups: T[]) {
+  return ADHOC_RE.test(syncJob) ? groups.filter((g) => adhocJobId(g) === syncJob) : groups.filter((g) => g.offsite?.jobId === syncJob);
+}
+
 // The same group (namespace + type/id) copied from two datastores would land in the same target group.
 export function sameGroupElsewhere(b: Pick<BackupDoc, '_id' | 'ns' | 'type' | 'backupId'>, enabled: Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId'>[]) {
   return enabled.find((o) => o._id !== b._id && o.ns === b.ns && o.type === b.type && o.backupId === b.backupId) ?? null;
@@ -159,11 +171,11 @@ const norm = (v: unknown) => JSON.stringify(v ?? null);
 
 // What to do on the secondary: create the missing jobs, update the ones that differ, remove the hlm-* jobs
 // no longer wanted (the jobs of one group of before #186 among them). The other jobs of the PBS are never
-// touched.
+// touched, nor the immediate copies (adhoc), which have their own life.
 export function planSync(desired: SyncJobConfig[], existing: Partial<SyncJobConfig>[]) {
   // an empty filter would copy the whole namespace
   for (const d of desired) if (!d['group-filter'].length) throw new Error(`job ${d.id} : aucun groupe`);
-  const mine = new Map(existing.filter((e) => e.id?.startsWith(JOB_PREFIX)).map((e) => [e.id!, e]));
+  const mine = new Map(existing.filter((e) => e.id?.startsWith(JOB_PREFIX) && !ADHOC_RE.test(e.id)).map((e) => [e.id!, e]));
   const create: SyncJobConfig[] = [];
   const update: SyncJobConfig[] = [];
   for (const d of desired) {
@@ -320,7 +332,9 @@ export async function onOffsiteSynced(hostId: ObjectId, hash: string | undefined
 export async function seriesView(r: PbsRemoteSettings) {
   const host = await seriesHost(r);
   const rep = r.agentReport ?? null;
-  const labels = new Map((await enabledGroups()).map((g) => [syncJobId(g.store, g.ns), jobLabel(g.store, g.ns)]));
+  const groups = await enabledGroups();
+  const labels = new Map(groups.map((g) => [syncJobId(g.store, g.ns), jobLabel(g.store, g.ns)]));
+  for (const g of groups) labels.set(adhocJobId(g), `copie immédiate ${jobLabel(g.store, g.ns)} › ${g.type}/${g.backupId}`);
   const run = rep?.running ?? null;
   return {
     startTime: startOf(r),
@@ -437,15 +451,18 @@ async function doPoll(log?: FastifyBaseLogger) {
     await syncOffsiteAgent().catch((err) => log?.warn({ err }, 'offsite series definition not sent'));
     const status = await call<SyncJobStatus[]>(r, 'GET', '/admin/sync');
     const groups = await enabledGroups();
+    const followed = new Set<string>();
     // a run the hub did not see (hub stopped meanwhile): recorded as a job too, with its log
     for (const s of status) {
       const upid = s['last-run-upid'];
-      const mine = groups.filter((g) => g.offsite!.jobId === s.id);
+      const mine = groupsOf(s.id, groups);
       if (!upid || !mine.length || following.has(upid)) continue;
       if (mine.some((g) => g.offsite!.recordedUpid !== upid && g.offsite!.running?.upid !== upid && (upidStart(upid) ?? 0) >= (g.offsite!.since ?? 0))) {
+        followed.add(s.id);
         followTask(r, s.id, upid, 'schedule', log).catch(() => {});
       }
     }
+    await cleanAdhoc(r, status, followed, log);
     const e = encodeURIComponent(r.store);
     const seen = new Map<string, Copy>();
     for (const ns of new Set(groups.map((g) => g.ns))) {
@@ -570,7 +587,9 @@ const groupKey = (g: Pick<BackupDoc, 'type' | 'backupId'>) => `${g.type}/${g.bac
 // one being copied), then the result of each group and a poll. A job left running by a previous hub process
 // is taken up again. Returns the id of the job of the hub.
 export async function followTask(r: PbsRemoteSettings, syncJob: string, upid: string, trigger: JobDoc['trigger'], log?: FastifyBaseLogger) {
-  const groups = (await enabledGroups()).filter((g) => g.offsite!.jobId === syncJob);
+  // an immediate copy is not cleaned up as an orphan while it is followed (track removes it at the end)
+  if (ADHOC_RE.test(syncJob)) adhocActive.add(syncJob);
+  const groups = groupsOf(syncJob, await enabledGroups());
   const again = groups.find((g) => g.offsite!.running?.upid === upid)?.offsite!.running?.jobId;
   if (following.has(upid)) return again ?? null;
   following.add(upid);
@@ -578,7 +597,7 @@ export async function followTask(r: PbsRemoteSettings, syncJob: string, upid: st
     const hostId = r.agent?.hostId ? parseId(r.agent.hostId) : null;
     const host = hostId ? await hosts.findOne({ _id: hostId }, { projection: { _id: 1, name: 1 } }) : null;
     const start = upidStart(upid) ?? Date.now();
-    const label = groups.length ? jobLabel(groups[0].store, groups[0].ns) : syncJob;
+    const label = !groups.length ? syncJob : ADHOC_RE.test(syncJob) ? `copie immédiate ${jobLabel(groups[0].store, groups[0].ns)} › ${groupKey(groups[0])}` : jobLabel(groups[0].store, groups[0].ns);
     const job = host ? await startHubJob(host, 'offsite_run', trigger, { backupJobName: label, createdAt: new Date(start) }, again) : null;
     const jobId = job?._id.toHexString() ?? '';
     await backups.updateMany({ _id: { $in: groups.map((g) => g._id) } }, { $set: { 'offsite.running': { upid, start, jobId, current: false } } });
@@ -587,6 +606,7 @@ export async function followTask(r: PbsRemoteSettings, syncJob: string, upid: st
     return jobId || null;
   } catch (err) {
     following.delete(upid);
+    adhocActive.delete(syncJob);
     throw err;
   }
 }
@@ -635,7 +655,7 @@ async function track(r: PbsRemoteSettings, syncJob: string, upid: string, start:
   try {
     if (job.jobId) await finishJob(job.jobId, job.hostId, ok ? 0 : 1, ok ? undefined : exit);
     // the groups of the job when it started (a group enabled since was not in its filter)
-    const groups = (await enabledGroups()).filter((g) => g.offsite!.jobId === syncJob && (g.offsite!.since ?? 0) <= start);
+    const groups = groupsOf(syncJob, await enabledGroups()).filter((g) => (g.offsite!.since ?? 0) <= start);
     const results = groupResults(lines, groups.map(groupKey), exit);
     for (const g of groups) {
       const res = results.get(groupKey(g))!;
@@ -643,6 +663,8 @@ async function track(r: PbsRemoteSettings, syncJob: string, upid: string, start:
     }
     await backups.updateMany({ 'offsite.running.upid': upid }, { $set: { 'offsite.running': null } });
   } finally {
+    // immediate copy: its temporary job goes, whatever the outcome
+    if (ADHOC_RE.test(syncJob)) await removeAdhoc(r, syncJob, log);
     following.delete(upid);
   }
   log?.info({ syncJob, upid, ok }, 'offsite copy ended');
@@ -663,12 +685,80 @@ async function watchTasks(log?: FastifyBaseLogger) {
   const groups = await enabledGroups();
   if (!groups.length) return;
   for (const g of groups) if (g.offsite?.running && !following.has(g.offsite.running.upid)) await followTask(r, g.offsite.jobId, g.offsite.running.upid, 'schedule', log);
-  const jobIds = new Set(groups.map((g) => g.offsite!.jobId));
+  const jobIds = new Set([...groups.map((g) => g.offsite!.jobId), ...groups.map(adhocJobId)]);
   for (const t of await runningSyncTasks(r)) {
     if (following.has(t.upid)) continue;
     const id = taskJob(t, jobIds);
     if (id) await followTask(r, id, t.upid, 'schedule', log);
   }
+}
+
+// --- immediate copy of one group (#187) -----------------------------------------------------
+
+// Temporary sync jobs in use (created here, or followed): never cleaned up as orphans meanwhile. Lost with
+// the process: the leftovers of a previous one are removed by the poll.
+const adhocActive = new Set<string>();
+
+export class AdhocError extends Error {}
+
+async function removeAdhoc(r: PbsRemoteSettings, id: string, log?: FastifyBaseLogger) {
+  try {
+    await call(r, 'DELETE', `/config/sync/${id}`);
+  } catch (err) {
+    // already gone: nothing to do; else the poll will retry
+    if (!/HTTP 404|HTTP 400/.test((err as Error).message)) log?.warn({ err, id }, 'immediate copy job not removed');
+  } finally {
+    adhocActive.delete(id);
+  }
+}
+
+// Why the group cannot be copied now, else null: copy not enabled, already running, nothing verified to
+// copy (verified-only), or up to date. state: offsiteState of the group.
+export function adhocBlocker(b: Pick<BackupDoc, 'offsite' | 'lastBackup' | 'times' | 'verify'>, state: OffsiteState | null) {
+  if (!b.offsite?.enabled) return 'copie déportée non activée pour cette sauvegarde';
+  if (b.offsite.running) return 'copie déjà en cours';
+  if (!lastVerified(b)) return 'aucun snapshot vérifié à copier';
+  if (state === 'ok') return 'déjà à jour';
+  return null;
+}
+
+// Copies now the last verified snapshot of a group: a temporary sync job (options of the job of its datastore,
+// filter on the group), run, followed as a job of the hub, removed when it ends. May run beside the daily
+// series (another group); the same group is refused while it is copied. Returns the task and its job.
+export async function runAdhoc(r: PbsRemoteSettings, b: BackupDoc, log?: FastifyBaseLogger) {
+  const id = adhocJobId(b);
+  if (adhocActive.has(id)) throw new AdhocError('copie déjà en cours');
+  adhocActive.add(id);
+  try {
+    await ensureRemote(r);
+    const [base] = desiredJobs([b], r);
+    // a leftover of a previous process (not running: the route checked) goes first
+    await removeAdhoc(r, id, log);
+    adhocActive.add(id);
+    await call(r, 'POST', '/config/sync', { ...base, id, comment: `Homelab Manager : copie immédiate ${jobLabel(b.store, b.ns)} › ${groupKey(b)}` });
+    let upid: string;
+    try {
+      upid = await call<string>(r, 'POST', `/admin/sync/${encodeURIComponent(id)}/run`);
+    } catch (err) {
+      await removeAdhoc(r, id, log);
+      throw err;
+    }
+    const jobId = await followTask(r, id, upid, 'manual', log);
+    return { upid, jobId };
+  } catch (err) {
+    adhocActive.delete(id);
+    throw err;
+  }
+}
+
+// Immediate copy jobs of the secondary that nobody follows: left by a previous hub process, or by a failed
+// removal. One with a task running is left to the watch (followed, removed at its end); one whose last run
+// the poll is about to record (followed) as well.
+async function cleanAdhoc(r: PbsRemoteSettings, status: { id: string }[], followed: Set<string>, log?: FastifyBaseLogger) {
+  const left = status.map((s) => s.id).filter((id) => ADHOC_RE.test(id) && !adhocActive.has(id) && !followed.has(id));
+  if (!left.length) return;
+  const busy = await runningSyncTasks(r);
+  for (const id of left) if (!busy.some((t) => taskJob(t, [id]))) await removeAdhoc(r, id, log);
 }
 
 // --- state --------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
-import { Cloud, CloudOff, Loader2, RefreshCw } from 'lucide-react';
+import { Cloud, CloudOff, Loader2, Play, RefreshCw } from 'lucide-react';
 import { api, type BackupGroup, type BackupOffsite, type BackupsView } from '../lib/api';
 import { useMe } from '../lib/auth';
 import {
@@ -148,6 +148,40 @@ function OffsiteDisable({ g }: { g: BackupGroup }) {
   );
 }
 
+// Copies now the last verified snapshot of the group (operator): followed as a job of the hub (console of
+// the page when there is one, else Activité). Disabled with the reason when there is nothing to copy.
+function OffsiteRunNow({ g, onStarted }: { g: BackupGroup; onStarted?: (jobId: string) => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const o = g.offsite!;
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await api.runBackupOffsite(g.id);
+      if (onStarted && r.jobId) onStarted(r.jobId);
+      else toast.success('Copie lancée : suivie dans Activité');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const blocked = o.adhocBlocked ?? null;
+  return (
+    <Button
+      size="sm"
+      icon={o.running ? Loader2 : Play}
+      className={clsx(o.running && '[&>svg]:animate-spin')}
+      loading={busy}
+      disabled={!!blocked}
+      onClick={run}
+      title={blocked ?? 'Copie tout de suite le dernier snapshot vérifié, sans attendre la série quotidienne'}
+    >
+      Copier maintenant
+    </Button>
+  );
+}
+
 function Rows({ rows }: { rows: [string, ReactNode][] }) {
   return (
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
@@ -164,9 +198,9 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
 const section = 'text-[11px] font-semibold uppercase tracking-wide text-zinc-400';
 
 // The backup (where, last, schedule, delay before an alert) and its copy (state, last copy, next series of
-// the secondary, room, remove it).
-function BackupDetail({ g, remote }: { g: BackupGroup; remote: BackupsView['offsite'] }) {
-  const { canManage } = useMe();
+// the secondary, room, copy it now, remove it).
+function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
+  const { canManage, canWrite } = useMe();
   const rhythm = rhythmLabel(g.interval);
   const schedule = g.pve ? `Proxmox ${g.pve.cluster} · ${scheduleLabel(g)}` : g.managed || g.ha ? scheduleLabel(g) : rhythm ? `rythme ${rhythm} (appris)` : 'rythme inconnu';
   const why = offsiteNotCopiable(g);
@@ -226,7 +260,10 @@ function BackupDetail({ g, remote }: { g: BackupGroup; remote: BackupsView['offs
               {o.lastRun && !o.lastRun.ok && <div className="text-red-400" title={dateTime(o.lastRun.end)}>Dernière copie en échec {timeAgo(o.lastRun.end)} : {o.lastRun.error}</div>}
               {o.verify === 'failed' && <div className="text-red-400">Vérification de la copie en échec</div>}
               <UsageBar remote={remote} size={o.size} />
-              {canManage && <OffsiteDisable g={g} />}
+              <div className="flex flex-wrap gap-2">
+                {canWrite && <OffsiteRunNow g={g} onStarted={onStarted} />}
+                {canManage && <OffsiteDisable g={g} />}
+              </div>
             </>
           )}
         </div>
@@ -284,7 +321,7 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
 
 // "détail" pill of every backup, next to its badges: a click opens the detail of the backup and of its
 // copy; the cloud gives the state of the copy when there is one (pulsing while it runs).
-export function DetailPill({ g, remote }: { g: BackupGroup; remote: BackupsView['offsite'] }) {
+export function DetailPill({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const o = g.offsite;
   const state = remote && o?.enabled && !offsiteNotCopiable(g) ? copyState(o) : null;
@@ -304,7 +341,7 @@ export function DetailPill({ g, remote }: { g: BackupGroup; remote: BackupsView[
       </button>
       {anchor && (
         <Popover anchor={anchor} onClose={() => setAnchor(null)}>
-          <BackupDetail g={g} remote={remote} />
+          <BackupDetail g={g} remote={remote} onStarted={onStarted} />
         </Popover>
       )}
     </>

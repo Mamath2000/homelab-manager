@@ -3,11 +3,15 @@ import { STORE_RE } from '../backupJobs.js';
 import { backups, settings } from '../db.js';
 import { publish } from '../events.js';
 import {
+  AdhocError,
   HHMM_RE,
+  adhocBlocker,
   loadRemoteSettings,
   notCopiable,
+  offsiteState,
   pollOffsite,
   remoteReady,
+  runAdhoc,
   sameGroupElsewhere,
   seriesView,
   startOf,
@@ -273,5 +277,23 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     const b = await backups.findOne({ _id: req.params.id });
     if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
     return checkOffsite(b);
+  });
+
+  // Copies now the last verified snapshot of the group (operator): a temporary sync job, followed as a job of
+  // the hub (console, Activité) and removed at its end. May run beside the daily series; refused for a group
+  // already being copied, up to date, or with nothing verified to copy.
+  app.post<{ Params: { id: string } }>('/api/backups/:id/offsite/run', async (req, reply) => {
+    const b = await backups.findOne({ _id: req.params.id });
+    if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
+    const r = await loadRemoteSettings();
+    if (!remoteReady(r)) return reply.code(409).send({ error: 'PBS de secours non configuré ou désactivé' });
+    const why = notCopiable(b) ?? adhocBlocker(b, offsiteState(b));
+    if (why) return reply.code(409).send({ error: why, jobId: b.offsite?.running?.jobId || null });
+    try {
+      return { ok: true, ...(await runAdhoc(r, b, req.log)) };
+    } catch (err) {
+      if (err instanceof AdhocError) return reply.code(409).send({ error: err.message });
+      return reply.code(502).send({ error: (err as Error).message });
+    }
   });
 }

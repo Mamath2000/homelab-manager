@@ -2,9 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { dayOf, offsiteStatus } from '../src/monitoring.js';
 import {
+  ADHOC_RE,
+  adhocBlocker,
+  adhocJobId,
   copiedGroups,
   desiredJobs,
   groupResults,
+  groupsOf,
   isSeriesReport,
   lastVerified,
   lineGroup,
@@ -265,4 +269,40 @@ test('log of a sync task: the group being copied, the result of each group', () 
   const all = groupResults([`${ts}Cannot sync ds0/Hosts into ds9/Hosts - Creating Hosts not allowed`], ['host/a'], 'sync failed with some errors.');
   assert.deepEqual(all.get('host/a'), { ok: false, error: 'sync failed with some errors.' });
   assert.deepEqual(groupResults([], ['host/a'], 'OK').get('host/a'), { ok: true });
+});
+
+test('immediate copy: job id of a group, in the id format of the agent, apart from the jobs of the datastores', () => {
+  const g = group('100', 'ds0', 'Vouille', 'vm');
+  const id = adhocJobId(g);
+  assert.match(id, ADHOC_RE);
+  assert.ok(id.length <= 32);
+  assert.equal(adhocJobId(g), id);
+  assert.notEqual(adhocJobId(group('101', 'ds0', 'Vouille', 'vm')), id);
+  assert.equal(ADHOC_RE.test(syncJobId('ds0', 'Vouille')), false);
+  // reconciliation leaves it alone
+  const plan = planSync(desiredJobs([g], remote), [{ id }, { id: syncJobId('ds0', 'Vouille') }]);
+  assert.deepEqual(plan.remove, []);
+});
+
+test('groups of a sync job: the datastore job, or the immediate copy of one group', () => {
+  const a = { ...group('100', 'ds0', 'Vouille', 'vm'), offsite: { enabled: true, jobId: 'hlm-ds0-Vouille', since: 0 } };
+  const b = { ...group('101', 'ds0', 'Vouille', 'vm'), offsite: { enabled: true, jobId: 'hlm-ds0-Vouille', since: 0 } };
+  assert.equal(groupsOf('hlm-ds0-Vouille', [a, b]).length, 2);
+  assert.deepEqual(groupsOf(adhocJobId(b), [a, b]), [b]);
+});
+
+test('immediate copy: refused when not enabled, running, nothing verified or up to date', () => {
+  const verified = { lastBackup: 2000, verify: 'ok' as const, times: [{ t: 2000, verify: 'ok' as const, size: 1 }] };
+  const on = { enabled: true, jobId: 'hlm-ds0', since: 0 };
+  assert.match(adhocBlocker({ ...verified, offsite: undefined }, null)!, /non activée/);
+  assert.match(adhocBlocker({ ...verified, offsite: { ...on, running: { upid: 'u', start: 1, jobId: '' } } }, 'pending')!, /en cours/);
+  assert.match(adhocBlocker({ lastBackup: 2000, verify: null, times: [], offsite: on }, 'pending')!, /vérifié/);
+  assert.match(adhocBlocker({ ...verified, offsite: on }, 'ok')!, /à jour/);
+  assert.equal(adhocBlocker({ ...verified, offsite: on }, 'pending'), null);
+  assert.equal(adhocBlocker({ ...verified, offsite: on }, 'late'), null);
+});
+
+test('immediate copy: allowed to operators, not to viewers', () => {
+  assert.equal(authorize('operator', 'POST', '/api/backups/:id/offsite/run'), true);
+  assert.equal(authorize('viewer', 'POST', '/api/backups/:id/offsite/run'), false);
 });

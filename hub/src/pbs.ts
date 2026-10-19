@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { backups, settings } from './db.js';
 import { publish } from './events.js';
 import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
-import { offsiteState } from './offsite.js';
+import { adhocBlocker, offsiteState } from './offsite.js';
 import { ApiError, apiGet, apiRequest, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
@@ -294,7 +294,7 @@ export function backupDto(b: BackupDoc, now = Date.now()) {
     managed: b.managed ? { ...b.managed, scheduleText: b.managed.connectEveryDays ? connectText(b.managed.connectEveryDays) : describeCalendar(b.managed.schedule) } : null,
     ha: b.ha ? { ...b.ha, scheduleText: haScheduleText(b.ha) } : null,
     // copy to the secondary PBS, with its state (offsite.ts)
-    offsite: b.offsite ? { ...b.offsite, state: offsiteState(b, now) } : null,
+    offsite: b.offsite ? offsiteDto(b, b.offsite, now) : null,
   };
 }
 
@@ -444,4 +444,10 @@ export function startPbsPoller(log: FastifyBaseLogger) {
     clearTimeout(first);
     clearInterval(timer);
   };
+}
+
+// The copy of a group with its state, and why it cannot be run now (null: it can)
+function offsiteDto(b: BackupDoc, offsite: NonNullable<BackupDoc['offsite']>, now: number) {
+  const state = offsiteState(b, now);
+  return { ...offsite, state, adhocBlocked: adhocBlocker(b, state) };
 }

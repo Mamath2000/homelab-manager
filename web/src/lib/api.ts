@@ -622,6 +622,8 @@ export interface BackupOffsite {
   // ok, pending (a verified snapshot of the main PBS newer than the copy), late (missed by a daily series),
   // failed; null: not copied
   state: 'ok' | 'pending' | 'late' | 'failed' | null;
+  // why the last verified snapshot cannot be copied now (immediate copy), null: it can
+  adhocBlocked?: string | null;
 }
 
 // Whether a group can be copied now (hub routes/offsite.ts checkOffsite)
@@ -975,6 +977,7 @@ export const api = {
     request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/token', { agent, tokenId, store }),
   createPbsReaderToken: (tokenId: string) => request<PbsTokenOutcome & { settings: PbsRemoteSettings }>('POST', '/api/settings/pbs-remote/reader-token', { tokenId }),
   setBackupOffsite: (id: string, o: BackupOffsiteInput) => request<BackupGroup>('PUT', `/api/backups/${encodeURIComponent(id)}/offsite`, o),
+  runBackupOffsite: (id: string) => request<{ ok: boolean; upid: string; jobId: string | null }>('POST', `/api/backups/${encodeURIComponent(id)}/offsite/run`),
   checkBackupOffsite: (id: string) => request<OffsiteCheck>('GET', `/api/backups/${encodeURIComponent(id)}/offsite/check`),
   detectPbs: (hostId: string) => request<PbsDetected>('POST', '/api/settings/pbs/detect', { hostId }),
   createPbsToken: (agent: PbsAgentLink, tokenId: string) => request<PbsTokenOutcome & { settings: PbsSettings }>('POST', '/api/settings/pbs/token', { agent, tokenId }),
