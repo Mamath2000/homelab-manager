@@ -216,7 +216,7 @@ Particularités :
 
 - **itinérant par défaut** (à la première connexion) : un poste éteint ne lève pas d'alerte ;
 - les **sessions** remontent dès qu'elles changent (ouverture, verrouillage, déverrouillage, fermeture), avec un relevé de secours chaque minute ; elles s'affichent dans le panneau **Sessions** de la fiche et dans [Home Assistant](home-assistant.md#postes-windows) ;
-- **pas de mise à jour automatique** : quand le poste est signalé « Agent à mettre à jour », relancer `install` avec le nouveau `.exe` et une nouvelle commande d'installation (**Options** › **Agent**). L'installation existante est remplacée, l'hôte garde sa fiche et son historique ;
+- **mise à jour automatique** : comme pour les autres hôtes (voir [Mise à jour des agents](#mise-à-jour-des-agents)), le hub envoie le nouveau binaire, vérifié par sa signature. L'agent range l'ancien `.exe` en `.exe.old` (supprimé au démarrage suivant), le service redémarre sur le nouveau. Si cela échoue, relancer `install` avec le nouveau `.exe` et une nouvelle commande d'installation (**Options** › **Agent**) : l'hôte garde sa fiche et son historique ;
 - **désinstallation**, en administrateur : `& "C:\Program Files\homelab-agent\homelab-agent.exe" uninstall`, puis supprimer l'hôte dans Homelab Manager (ce qui révoque son certificat).
 
 ### Mise à jour des agents
