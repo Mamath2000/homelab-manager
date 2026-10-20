@@ -54,6 +54,15 @@
   @apply w-full rounded-md border border-line bg-raised px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-hidden transition focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/20;
 }
 
+@media (max-width: 767px) {
+  .input,
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 @utility th {
   @apply px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted;
 }

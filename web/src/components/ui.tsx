@@ -32,7 +32,7 @@ export function Button({
       disabled={rest.disabled || loading}
       className={clsx(
         'inline-flex items-center justify-center gap-2 rounded-md border font-medium transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-9 px-3.5 text-sm',
+        size === 'sm' ? 'h-10 px-2.5 text-xs md:h-7' : 'h-10 px-3.5 text-sm md:h-9',
         variants[variant],
         className,
       )}
@@ -58,7 +58,7 @@ export function IconGroup({ actions, className }: { actions: IconAction[]; class
           disabled={disabled || loading}
           onClick={onClick}
           className={clsx(
-            'inline-flex h-7 w-8 items-center justify-center text-emerald-300 transition disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent',
+            'inline-flex h-10 w-10 items-center justify-center text-emerald-300 transition disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent md:h-7 md:w-8',
             danger ? 'hover:bg-red-500/20 hover:text-red-300' : 'hover:bg-emerald-500/20 hover:text-emerald-100',
           )}
         >
@@ -103,12 +103,12 @@ export function Tag({ children }: { children: ReactNode }) {
 export function PageHeader({ icon: Icon, title, actions, children, titleOverflow = false }: { icon: LucideIcon; title: ReactNode; actions?: ReactNode; children?: ReactNode; titleOverflow?: boolean }) {
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <div className="panel flex min-w-0 items-center gap-3 px-4 py-2.5">
-          <Icon className="h-5 w-5 text-zinc-300" />
-          <h1 className={clsx('min-w-0 text-xl font-medium text-zinc-100', titleOverflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
+          <Icon className="h-5 w-5 shrink-0 text-zinc-300" />
+          <h1 className={clsx('min-w-0 max-w-full text-xl font-medium text-zinc-100', titleOverflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
         </div>
-        {children}
+        {children && <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -267,22 +267,22 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll, lo
     >
       <div
         className={clsx(
-          'panel w-full bg-panel shadow-2xl shadow-black/60',
-          wide === 'xl' || wide === 'screen' ? 'max-w-5xl' : wide ? 'max-w-2xl' : 'max-w-md',
+          'panel w-full min-w-0 bg-panel shadow-2xl shadow-black/60',
+          wide === 'xl' || wide === 'screen' ? 'max-w-[calc(100vw-2rem)] sm:max-w-5xl' : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
           // 12vh on top, at most 70vh high: the window stays clear of the bottom of the screen
           wide === 'screen' ? 'flex min-h-[20rem] flex-col' : scroll && 'flex max-h-[70vh] flex-col',
         )}
         style={wide === 'screen' ? { maxHeight: `calc(100vh - ${top} - 2rem)` } : undefined}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <header className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
-          <h3 className="text-base font-medium text-zinc-100">{title}</h3>
-          <button onClick={onClose} className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-200">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+          <h3 className="min-w-0 flex-1 text-base font-medium text-zinc-100 break-words">{title}</h3>
+          <button onClick={onClose} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-zinc-200 md:h-6 md:w-6 md:p-1">
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className={clsx('px-5 py-4', (scroll || wide === 'screen') && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
-        {footer && <footer className="flex shrink-0 justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
+        <div className={clsx('min-w-0 px-5 py-4', (scroll || wide === 'screen') && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
+        {footer && <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </div>
     </div>
   );
@@ -346,17 +346,29 @@ export function CopyField({ value, multiline }: { value: string; multiline?: boo
 
 export function Checkbox({ checked, indeterminate, onChange, label }: { checked: boolean; indeterminate?: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
-    <input
-      type="checkbox"
-      aria-label={label}
-      checked={checked}
-      ref={(el) => {
-        if (el) el.indeterminate = !!indeterminate && !checked;
-      }}
-      onChange={(e) => onChange(e.target.checked)}
-      onClick={(e) => e.stopPropagation()}
-      className="h-4 w-4 cursor-pointer rounded-sm border-line bg-raised accent-emerald-500"
-    />
+    <span className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center md:h-4 md:w-4">
+      <input
+        type="checkbox"
+        aria-label={label}
+        checked={checked}
+        ref={(el) => {
+          if (el) el.indeterminate = !!indeterminate && !checked;
+        }}
+        onChange={(e) => onChange(e.target.checked)}
+        onClick={(e) => e.stopPropagation()}
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+      />
+      <span
+        aria-hidden="true"
+        className={clsx(
+          'pointer-events-none flex h-4 w-4 items-center justify-center rounded-sm border border-line bg-raised text-white peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-500/60',
+          checked && 'border-emerald-500 bg-emerald-500',
+          indeterminate && !checked && 'border-emerald-500 bg-emerald-500',
+        )}
+      >
+        {checked ? <Check className="h-3 w-3" /> : indeterminate ? <span className="h-0.5 w-2 rounded bg-white" /> : null}
+      </span>
+    </span>
   );
 }
 
@@ -378,21 +390,23 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
   label: string;
 }) {
   return (
-    <span role="group" aria-label={label} className="inline-flex divide-x divide-line overflow-hidden rounded-md border border-line">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          aria-pressed={o.id === value}
-          onClick={() => onChange(o.id)}
-          className={clsx(
-            'h-7 whitespace-nowrap px-2.5 text-xs font-medium transition',
-            o.id === value ? 'bg-emerald-500/15 text-emerald-300' : 'bg-raised text-muted hover:text-zinc-200',
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </span>
+    <div className="max-w-full overflow-x-auto">
+      <span role="group" aria-label={label} className="inline-flex min-w-max divide-x divide-line rounded-md border border-line">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            aria-pressed={o.id === value}
+            onClick={() => onChange(o.id)}
+            className={clsx(
+              'h-10 whitespace-nowrap px-2.5 text-xs font-medium transition md:h-7',
+              o.id === value ? 'bg-emerald-500/15 text-emerald-300' : 'bg-raised text-muted hover:text-zinc-200',
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </span>
+    </div>
   );
 }

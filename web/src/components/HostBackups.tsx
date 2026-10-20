@@ -179,7 +179,7 @@ function ClientIcon({ host }: { host: Host }) {
         ? [Container, 'text-sky-400', 'Client PBS en conteneur (image Docker)']
         : c.mode === 'cli'
           ? [Package, 'text-emerald-400', 'Client PBS Windows (proxmoxbackup-directory)']
-          : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (options de l’hôte › Sauvegarde pour l’installer)'];
+          : [PackageX, 'text-zinc-500', 'Client PBS absent : sauvegardes de répertoires impossibles (options de l’hôte › Sauvegardes pour l’installer)'];
   return (
     <span title={title} className="ml-2 inline-flex align-middle">
       <Icon className={`h-4 w-4 ${tone}`} aria-label={title} />
@@ -279,8 +279,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
 
   // Nextcloud AIO plugin: hub with BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
   const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings || !!jobs.nextcloudPrevious);
-  // the client and the token are set in the options of the host (Sauvegarde)
-  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? (jobs.windows ? "Renseigner d'abord le chemin du client PBS (options de l’hôte › Sauvegarde)" : "Installer d'abord le client PBS (options de l’hôte › Sauvegarde)") : !jobs.credential ? "Renseigner d'abord l'accès au PBS (options de l’hôte › Sauvegarde)" : null;
+  // the client and the token are set in the options of the host (Sauvegardes)
+  const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? (jobs.windows ? "Renseigner d'abord le chemin du client PBS (options de l’hôte › Sauvegardes)" : "Installer d'abord le client PBS (options de l’hôte › Sauvegardes)") : !jobs.credential ? "Renseigner d'abord l'accès au PBS (options de l’hôte › Sauvegardes)" : null;
 
   const detach = async (g: BackupGroup) => {
     try {

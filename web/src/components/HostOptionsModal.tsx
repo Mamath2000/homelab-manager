@@ -29,7 +29,7 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
   { id: 'agent', label: 'Agent', icon: Cpu },
   // agents able to back up (the HAOS add-on is not): client, PBS token; Windows: path of the CLI
-  { id: 'backup', label: 'Sauvegarde', icon: Archive },
+  { id: 'backup', label: 'Sauvegardes', icon: Archive },
   { id: 'danger', label: 'Danger', icon: ShieldAlert },
 ];
 
@@ -177,8 +177,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
         )
       }
     >
-      <div className="flex min-h-[26rem] flex-col gap-4 sm:flex-row sm:gap-7">
-        <nav aria-label="Sections" className="flex shrink-0 gap-1 overflow-x-auto sm:w-52 sm:flex-col">
+      <div className="flex min-h-[26rem] min-w-0 flex-col gap-4 sm:flex-row sm:gap-7">
+        <nav aria-label="Sections" className="flex min-w-0 shrink-0 gap-1 overflow-x-auto sm:w-52 sm:flex-col sm:overflow-visible">
           {sections.map(({ id, label, icon: Icon }) => (
             <button
               key={id}

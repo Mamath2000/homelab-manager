@@ -54,7 +54,7 @@ function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
       onClick={onClick}
       className={({ isActive }) =>
         clsx(
-          'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition',
+          'flex items-center gap-2.5 rounded-md px-3 py-3 text-sm font-medium transition md:py-2',
           isActive ? 'bg-raised text-zinc-50 ring-1 ring-inset ring-line' : 'text-zinc-400 hover:bg-raised/60 hover:text-zinc-100',
         )
       }
@@ -98,11 +98,11 @@ function Sidebar({ onNavigate, onPassword, onLogout }: { onNavigate?: () => void
         </div>
         <div className="flex gap-1">
           {!me.isSuperAdmin && (
-            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className="flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100">
+            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className="flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0">
               <KeyRound className="h-4 w-4" /> Mot de passe
             </button>
           )}
-          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className="flex flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100">
+          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className="flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0">
             <LogOut className="h-4 w-4" /> Déconnexion
           </button>
         </div>
@@ -169,7 +169,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
         <div className="flex items-center gap-3">
-          <button className="rounded-sm p-1.5 text-zinc-400 hover:bg-raised md:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
+          <button className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised md:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
@@ -178,7 +178,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
         <div className="flex items-center gap-4 text-sm">
           <Versions />
           {me.canSettings && (
-            <NavLink to="/settings" aria-label="Paramètres" title="Paramètres" className={({ isActive }) => clsx('rounded-sm p-1.5 transition hover:bg-raised hover:text-zinc-100', isActive ? 'text-emerald-300' : 'text-zinc-400')}>
+            <NavLink to="/settings" aria-label="Paramètres" title="Paramètres" className={({ isActive }) => clsx('inline-flex h-10 w-10 items-center justify-center rounded-sm transition hover:bg-raised hover:text-zinc-100 md:h-7 md:w-7', isActive ? 'text-emerald-300' : 'text-zinc-400')}>
               <Settings className="h-4 w-4" />
             </NavLink>
           )}
