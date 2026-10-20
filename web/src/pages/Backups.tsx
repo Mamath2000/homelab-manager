@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { DatabaseBackup, FolderOpen, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
 import { BackupOverview } from '../components/BackupOverview';
-import { StatBars } from '../components/BackupStats';
+import { LastRun } from '../components/BackupStats';
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
@@ -413,7 +413,7 @@ export function Backups() {
                         <th className="th">Type</th>
                         <th className="th">Hôte</th>
                         <th className="th">30 derniers jours</th>
-                        <th className="th" title="Volume réellement transféré par jour (nouvelles données envoyées au PBS)">Transféré (30 j)</th>
+                        <th className="th" title="Volume réellement transféré (nouvelles données envoyées au PBS) et durée, le dernier jour où la sauvegarde a tourné">Dernier transfert</th>
                         <th className="th">Dernière</th>
                         <th className="th">Taille</th>
                         <th className="th">Vérif.</th>
@@ -502,7 +502,7 @@ export function Backups() {
                               )}
                             </td>
                             <td className="td"><BackupTimeline group={g} copy={!!data.offsite} className="w-56" /></td>
-                            <td className="td"><StatBars cells={stats?.groups[g.id]} /></td>
+                            <td className="td"><LastRun cells={stats?.groups[g.id]} /></td>
                             <td className="td" title={g.lastBackup ? dateTime(g.lastBackup) : undefined}>{g.lastBackup ? timeAgo(g.lastBackup) : <span className="text-zinc-500">jamais</span>}</td>
                             <td className="td tabular-nums text-zinc-300">{formatBytes(g.size)}</td>
                             <td className="td text-xs">

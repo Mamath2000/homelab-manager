@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Cloud, HardDrive } from 'lucide-react';
 import type { BackupGroup, BackupsView, BackupStatsView, BackupUsageView } from '../lib/api';
@@ -10,18 +10,22 @@ const DAY = 86_400_000;
 const date = (t: number, o: Intl.DateTimeFormatOptions) => new Date(t).toLocaleDateString('fr-FR', o);
 
 // Width of an element, followed: the charts are drawn in pixels so that their text keeps its size.
+// The element can mount after the first render (empty state, data loading), hence the state-held node.
 function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
+  const ref = useRef<T | null>(null);
+  const [el, setEl] = useState<T | null>(null);
   const [w, setW] = useState(0);
+  const attach = useCallback((node: T | null) => {
+    ref.current = node;
+    setEl(node);
+  }, []);
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const ro = new ResizeObserver(() => setW(Math.round(el.clientWidth)));
     ro.observe(el);
-    setW(Math.round(el.clientWidth));
     return () => ro.disconnect();
-  }, []);
-  return [ref, w] as const;
+  }, [el]);
+  return [attach, w, ref] as const;
 }
 
 // Top of an axis: a round number above the value, so the three ticks (0, half, top) read easily.
@@ -140,7 +144,7 @@ function Gauge({ pct, base }: { pct: number; base: string }) {
 
 // Curve of the fill level over the days known, with the value of each day under the pointer.
 function Curve({ hist, total, stroke, fill }: { hist: Point[]; total: number; stroke: string; fill: string }) {
-  const [ref, w] = useWidth<HTMLDivElement>();
+  const [attach, w, ref] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const H = 56, L = 44, R = 4, T = 6, B = 14;
   if (hist.length < 2) {
@@ -157,7 +161,7 @@ function Curve({ hist, total, stroke, fill }: { hist: Point[]; total: number; st
   };
   const p = hover === null ? null : hist[hover];
   return (
-    <div ref={ref} className="relative" style={{ height: H }} onPointerMove={move} onPointerLeave={() => setHover(null)}>
+    <div ref={attach} className="relative" style={{ height: H }} onPointerMove={move} onPointerLeave={() => setHover(null)}>
       {w > 0 && (
         <svg width={w} height={H} className="block overflow-visible">
           {[hi, lo].map((v) => (
@@ -196,7 +200,7 @@ function Mini({ hist, stroke }: { hist: Point[]; stroke: string }) {
   const lo = Math.min(...tail.map((p) => p.used)), hi = Math.max(...tail.map((p) => p.used));
   const pts = tail.map((p, i) => `${((i / (tail.length - 1)) * 64).toFixed(1)},${(28 - ((p.used - lo) / (hi - lo || 1)) * 24).toFixed(1)}`).join(' ');
   return (
-    <svg viewBox="0 0 64 30" preserveAspectRatio="none" className="h-[30px] w-16 overflow-visible" aria-hidden>
+    <svg viewBox="0 0 64 30" preserveAspectRatio="none" className="h-[30px] w-12 overflow-visible" aria-hidden>
       <polyline points={pts} fill="none" className={stroke} strokeWidth={1.6} />
     </svg>
   );
@@ -207,7 +211,7 @@ function DatastoreRow({ s }: { s: Store }) {
   const g = growth(s.hist, s.total, s.used);
   const stroke = pct >= 90 ? 'stroke-red-500' : pct >= 75 ? 'stroke-amber-400' : 'stroke-emerald-500';
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_4rem] items-center gap-x-3 gap-y-0.5 py-1.5">
+    <div className="grid grid-cols-[minmax(0,1fr)_3rem] items-center gap-x-2 gap-y-0.5 py-1.5">
       <div className="flex min-w-0 justify-between gap-2 text-[13px]">
         <span className="truncate font-medium text-zinc-100">{s.name}</span>
         <span className="shrink-0 tabular-nums"><b className={clsx('font-medium', levelText(pct))}>{pct} %</b> <span className="text-xs text-muted">{formatBytes(s.used)} / {formatBytes(s.total)}</span></span>
@@ -258,7 +262,7 @@ function StoreCard({ title, role, where, icon, accent, curve, curveFill, stores 
       )}
       <Curve hist={hist} total={total} stroke={curve} fill={curveFill} />
       {stores.length > 1 && (
-        <div className="divide-y divide-line border-t border-line">
+        <div className="grid grid-cols-2 gap-x-4 border-t border-line [&>*]:border-b [&>*]:border-line [&>*:nth-last-child(-n+2):nth-child(odd)]:border-b-0 [&>*:last-child]:border-b-0">
           {stores.map((s) => <DatastoreRow key={s.name} s={s} />)}
         </div>
       )}
@@ -352,7 +356,7 @@ function bucketize(days: BackupStatsView['days'], grain: Grain): Bucket[] {
 export function ActivityPanel({ error }: { error: string | null }) {
   const [grain, setGrain] = useState<Grain>('day');
   const { data } = useBackupStats(180);
-  const [ref, w] = useWidth<HTMLDivElement>();
+  const [attach, w, ref] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const [tall, setTall] = useState(false);
   useEffect(() => {
@@ -405,7 +409,7 @@ export function ActivityPanel({ error }: { error: string | null }) {
       ) : (
         <>
           <div className="mt-2 text-[11px] font-medium uppercase tracking-wider text-muted">Volume transféré et durée de sauvegarde</div>
-          <div ref={ref} className="relative mt-1" style={{ height: H + 30 }} onPointerMove={move} onPointerLeave={() => setHover(null)}>
+          <div ref={attach} className="relative mt-1" style={{ height: H + 30 }} onPointerMove={move} onPointerLeave={() => setHover(null)}>
             {w > 0 && (
               <svg width={w} height={H + 30} className="block overflow-visible">
                 {[0, 0.5, 1].map((f) => (

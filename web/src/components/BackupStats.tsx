@@ -1,26 +1,13 @@
-import clsx from 'clsx';
-import { formatBytes, formatDuration, scaleTop } from '../lib/backups';
+import { formatBytes, formatDuration } from '../lib/backups';
 
-// Bars of the volume uploaded per day over the last 30 days, for the line of a backup.
-export function StatBars({ cells, className }: { cells: { uploaded: number; duration: number; failed: number }[] | undefined; className?: string }) {
-  const days = 30;
-  const list = cells ?? [];
-  const max = scaleTop(list.map((c) => c.uploaded));
+// Volume uploaded and time of the last day with a backup, for the line of a backup.
+export function LastRun({ cells }: { cells: { uploaded: number; duration: number; failed: number }[] | undefined }) {
+  const c = [...(cells ?? [])].reverse().find((x) => x.uploaded || x.duration);
+  if (!c) return <span className="text-zinc-500">—</span>;
   return (
-    <div className={clsx('flex h-9 items-end gap-[2px]', className ?? 'w-full min-w-40 max-w-60')} aria-label="Volume transféré, 30 derniers jours">
-      {Array.from({ length: days }, (_, i) => {
-        const c = list[i];
-        const empty = !c || (!c.uploaded && !c.duration);
-        return (
-          <span
-            key={i}
-            title={c && !empty ? `${formatBytes(c.uploaded)} transférés · ${formatDuration(c.duration)}${c.failed ? ` · ${c.failed} échec${c.failed > 1 ? 's' : ''}` : ''}` : undefined}
-            className={clsx('min-w-0 flex-1 rounded-t-[1px]', empty ? 'h-px bg-raised' : c.failed ? 'bg-red-500/80' : c.uploaded > max ? 'bg-emerald-300' : 'bg-emerald-500/80')}
-            // a backup that uploaded nothing new still shows (3 px)
-            style={empty ? undefined : { height: `${Math.max(8, Math.min(1, c.uploaded / max) * 100)}%` }}
-          />
-        );
-      })}
+    <div className="tabular-nums leading-tight" title={c.failed ? `${c.failed} échec${c.failed > 1 ? 's' : ''} ce jour-là` : undefined}>
+      <div className={c.failed ? 'text-red-400' : 'text-zinc-100'}>{formatBytes(c.uploaded)}</div>
+      <div className="text-xs text-muted">{formatDuration(c.duration)}</div>
     </div>
   );
 }
