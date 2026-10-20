@@ -230,3 +230,11 @@ export function databaseJobText(m: { kind?: string; database?: DatabaseDump | nu
   const sizes = dumpsText(m.lastRun?.dumps);
   return `${databaseSummary(m.kind, m.database)} dans ${m.database.workDir} · ${keepText(m.database.keep)}${sizes ? ` · ${sizes}` : ''}`;
 }
+
+// "1 h 05", "12 min", "40 s"
+export function formatDuration(ms: number) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
+}

@@ -1,17 +1,9 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { formatBytes } from '../lib/backups';
+import { formatBytes, formatDuration } from '../lib/backups';
 import { useBackupStats } from '../lib/queries';
 
 const day = (t: number) => new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-
-// "1 h 05", "12 min", "40 s"
-export function formatDuration(ms: number) {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} s`;
-  const m = Math.round(s / 60);
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
-}
 
 // Bars of the volume uploaded per day over the last 30 days, for the line of a backup.
 export function StatBars({ cells, className }: { cells: { uploaded: number; duration: number; failed: number }[] | undefined; className?: string }) {
