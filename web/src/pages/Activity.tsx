@@ -1,7 +1,8 @@
 import { Link, useNavigate } from 'react-router';
 import { History } from 'lucide-react';
 import { JobStatusIcon } from '../components/JobConsole';
-import { Badge, Empty, PageHeader, ResponsiveList, Spinner, Tag } from '../components/ui';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Empty, ResponsiveList, Spinner, Tag } from '../components/ui';
 import { jobTitle, dateTime, duration } from '../lib/format';
 import { useJobs } from '../lib/queries';
 
@@ -11,7 +12,7 @@ export function Activity() {
   if (isLoading || !jobs) return <div className="flex justify-center p-20"><Spinner /></div>;
   return (
     <>
-      <PageHeader icon={History} title="Activité" />
+      <HeaderTitle icon={History} title="Activité" />
       <div className="panel min-w-0">
         {jobs.length === 0 ? (
           <Empty icon={History} title="Aucune tâche">Les recherches et installations de mises à jour apparaîtront ici.</Empty>

@@ -5,7 +5,8 @@ import { api, type Account, type AccountSecret, type ApiKey, type Role } from '.
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Badge, Button, ConfirmModal, CopyField, Modal, PageHeader, ResponsiveList, Spinner } from '../components/ui';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, ConfirmModal, CopyField, Modal, ResponsiveList, Spinner } from '../components/ui';
 
 const ROLES: { value: Role; hint: string }[] = [
   { value: 'admin', hint: 'tout : hôtes, paramètres, comptes' },
@@ -316,11 +317,10 @@ export function Accounts() {
 
   return (
     <>
-      <PageHeader
-        icon={Users}
-        title="Comptes"
-        actions={<Button icon={Plus} variant="primary" onClick={() => setEditing(null)}>Nouveau compte</Button>}
-      />
+      <HeaderTitle icon={Users} title="Comptes" />
+      <div className="mb-4 flex justify-end">
+        <Button icon={Plus} variant="primary" onClick={() => setEditing(null)}>Nouveau compte</Button>
+      </div>
       {me.isSuperAdmin && (
         <p className="mb-4 text-sm text-muted">
           Session <strong className="text-zinc-300">superadmin</strong> : vous pouvez créer des comptes et réinitialiser leurs mots de passe.

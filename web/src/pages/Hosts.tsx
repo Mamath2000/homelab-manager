@@ -10,7 +10,8 @@ import { HostOptionsModal } from '../components/HostOptionsModal';
 import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { BulkSetupModal } from '../components/SetupPanel';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, ResponsiveList, Spinner, StatusDot, Tag } from '../components/ui';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, Checkbox, ConfirmModal, Empty, ResponsiveList, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useBackups, useHosts, useRunBulk, useRunJob, useSites, useTags } from '../lib/queries';
 import { HostTagList, SiteChip } from '../components/HostTags';
@@ -71,18 +72,7 @@ export function Hosts() {
 
   return (
     <>
-      <PageHeader
-        icon={Server}
-        title="Hôtes"
-        actions={
-          <>
-            {canWrite && outdatedAgents.length > 0 && (
-              <Button icon={CircleArrowUp} onClick={() => setAllAgentsModal(true)}>Mettre à jour les agents ({outdatedAgents.length})</Button>
-            )}
-            {canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>}
-          </>
-        }
-      />
+      <HeaderTitle icon={Server} title="Hôtes" />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
@@ -110,6 +100,12 @@ export function Hosts() {
               {f.label}
             </button>
           ))}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {canWrite && outdatedAgents.length > 0 && (
+            <Button icon={CircleArrowUp} onClick={() => setAllAgentsModal(true)}>Mettre à jour les agents ({outdatedAgents.length})</Button>
+          )}
+          {canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>}
         </div>
       </div>
 

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
 import { HostOptionsModal } from '../components/HostOptionsModal';
@@ -16,7 +16,8 @@ import { SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, PageHeader, Panel, Spinner, Tag } from '../components/ui';
+import { HeaderExtra, HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
 import { dateTime, groupIps, jobTitle, timeAgo, uptime } from '../lib/format';
 import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
@@ -24,18 +25,46 @@ import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
 import { AlertTimeline } from '../components/AlertTimeline';
-import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel } from '../lib/status';
+import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel, toneBadge, type Tone } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 
 // One fact of the system strip: label above, value below; `grow` takes the rest of the line (IP list).
-function StripItem({ label, grow, children }: { label: string; grow?: boolean; children: ReactNode }) {
+// Colour of the hostname in the system strip, by connection state
+const nameTone: Record<Tone, string> = {
+  ok: 'text-emerald-300',
+  warn: 'text-amber-300',
+  bad: 'text-red-300',
+  unknown: 'text-violet-300',
+  info: 'text-sky-300',
+  neutral: 'text-zinc-400',
+};
+
+// One cell of the system strip: the label on one line, the value on two lines at most (the full text in the tooltip).
+function StripItem({ label, grow, plain, children }: { label: string; grow?: boolean; plain?: boolean; children: ReactNode }) {
   return (
-    <div className={clsx('min-w-0 border-r border-line px-4 py-2.5 last:border-r-0', grow && 'flex-1 basis-72')}>
-      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</dt>
-      <dd className={clsx('mt-0.5 text-sm text-zinc-200', grow ? 'wrap-break-word' : 'whitespace-nowrap')}>{children}</dd>
+    <div className={clsx('min-w-0 shrink border-r border-line px-4 py-2.5 last:border-r-0', grow && 'flex-1 basis-40')}>
+      <dt className="truncate text-[11px] font-medium uppercase tracking-wide text-muted">{label}</dt>
+      <dd
+        onMouseEnter={(e) => { const el = e.currentTarget; el.title = el.scrollHeight > el.clientHeight + 1 ? (el.textContent ?? '') : ''; }}
+        className={clsx('mt-0.5 text-sm text-zinc-200', plain ? 'flex max-h-[3.25rem] flex-wrap gap-1 overflow-hidden' : 'line-clamp-2 break-words')}
+      >
+        {children}
+      </dd>
     </div>
   );
+}
+
+// Height of an element, followed while it resizes.
+function useHeight(el: HTMLElement | null) {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    if (!el) return;
+    const observer = new ResizeObserver(() => setHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  return height;
 }
 
 // Large screens: detect scroll to keep the sticky host header compact.
@@ -225,6 +254,8 @@ function HostDetailPage({ id }: { id: string }) {
   const [confirmReboot, setConfirmReboot] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const scrolled = useScrolled();
+  const [stripEl, setStripEl] = useState<HTMLDivElement | null>(null);
+  const stripHeight = useHeight(stripEl);
   const [hostPickerOpen, setHostPickerOpen] = useState(false);
   const [hostSearch, setHostSearch] = useState('');
   const hostPickerRef = useRef<HTMLSpanElement>(null);
@@ -235,8 +266,35 @@ function HostDetailPage({ id }: { id: string }) {
   );
   const currentIndex = hostList.findIndex((item) => item.id === id);
   const listSearch = params.toString();
-  const hostPath = (hostId: string) => `/hosts/${hostId}${listSearch ? `?${listSearch}` : ''}`;
-  const goToHost = (hostId: string) => navigate(hostPath(hostId));
+  // previous / next host replace the entry: "back" returns to the screen the host was opened from (dashboard, list...)
+  const goToHost = useCallback((hostId: string) => navigate(`/hosts/${hostId}${listSearch ? `?${listSearch}` : ''}`, { replace: true }), [navigate, listSearch]);
+  const location = useLocation();
+  const goBack = useCallback(() => {
+    // no history inside the app (page opened directly): the list of hosts
+    if (location.key === 'default') navigate(`/hosts${listSearch ? `?${listSearch}` : ''}`);
+    else navigate(-1);
+  }, [location.key, listSearch, navigate]);
+
+  // ← / → : previous / next host of the list (not while typing or with a dialog open)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Backspace') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('input, textarea, select, [contenteditable="true"]') || document.querySelector('[data-modal]')) return;
+      if (event.key === 'Backspace') {
+        event.preventDefault();
+        goBack();
+        return;
+      }
+      const next = hostList[currentIndex + (event.key === 'ArrowRight' ? 1 : -1)];
+      if (currentIndex < 0 || !next) return;
+      event.preventDefault();
+      goToHost(next.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hostList, currentIndex, goBack, goToHost]);
+
   const pickerHosts = hostList.filter((item) => hostMatchesSearch(item, hostSearch, sites ?? [], tags ?? []));
 
   const canRefreshAgent = !!host?.online && !!host.capabilities?.includes('refresh');
@@ -341,144 +399,163 @@ function HostDetailPage({ id }: { id: string }) {
 
   return (
     <>
-      {/* large screens: the content on the left, history and console on the right, fixed */}
-      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
-        <div className="min-w-0 @container">
-          {/* title, system strip and alert timeline stay on top while the content scrolls (below the 3.5rem bar of the layout) */}
-          <div className={clsx('2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6', scrolled ? 'pb-3 shadow-[0_14px_18px_-12px_rgb(0_0_0/0.7)]' : 'pb-5')}>
-            <Link to={`/hosts${listSearch ? `?${listSearch}` : ''}`} className={clsx('mb-3 items-center gap-1.5 text-sm text-muted hover:text-zinc-200', scrolled ? 'hidden' : 'inline-flex')}>
-              <ArrowLeft className="h-4 w-4" /> Hôtes
-            </Link>
-            <PageHeader
-              icon={Server}
-              titleOverflow
-              title={
-                <span ref={hostPickerRef} className="relative inline-flex items-center gap-1">
-                  <button
-                    type="button"
-                    aria-haspopup="listbox"
-                    aria-expanded={hostPickerOpen}
-                    onClick={() => {
-                      setHostSearch('');
-                      setHostPickerOpen((open) => !open);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-sm text-left hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-                  >
-                    {host.name}
-                    <ChevronDown className={clsx('h-4 w-4 text-muted transition-transform', hostPickerOpen && 'rotate-180')} />
-                  </button>
-                  {hostPickerOpen && (
-                    <span role="dialog" aria-label="Sélectionner un hôte" className="absolute left-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-line bg-panel p-2 text-left shadow-xl">
-                      <span className="relative mb-2 block">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                        <input
-                          autoFocus
-                          aria-label="Filtrer les hôtes"
-                          className="input h-9 py-0 pl-9"
-                          placeholder="Filtrer les hôtes…"
-                          value={hostSearch}
-                          onChange={(event) => setHostSearch(event.target.value)}
-                        />
-                      </span>
-                      <span role="listbox" aria-label="Hôtes disponibles" className="block max-h-72 overflow-y-auto">
-                        {pickerHosts.length ? pickerHosts.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            role="option"
-                            aria-selected={item.id === id}
-                            onClick={() => {
-                              setHostPickerOpen(false);
-                              if (item.id !== id) goToHost(item.id);
-                            }}
-                            className={clsx('flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm hover:bg-raised', item.id === id ? 'bg-raised text-emerald-300' : 'text-zinc-200')}
-                          >
-                            <span className={clsx('h-2 w-2 shrink-0 rounded-full', item.online ? 'bg-emerald-400' : 'bg-zinc-600')} />
-                            <span className="min-w-0 flex-1 truncate">{item.name}</span>
-                            {item.id === id && <span className="text-xs text-muted">Actuel</span>}
-                          </button>
-                        )) : (
-                          <span className="block px-2.5 py-3 text-sm text-muted">Aucun hôte ne correspond aux filtres.</span>
-                        )}
-                      </span>
+      {/* the system strip spans the page and stays on top while the content scrolls (below the 3.5rem bar of the layout) */}
+          <HeaderExtra><SiteChip host={host} prominent /></HeaderExtra>
+          <HeaderTitle
+            icon={Server}
+            overflow
+            back={
+              <button
+                type="button"
+                onClick={goBack}
+                title="Retour à l'écran précédent (Retour arrière)"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line px-2 text-sm text-muted transition hover:bg-raised hover:text-zinc-100"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Retour</span>
+              </button>
+            }
+            status={
+              <span className={clsx('inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', toneBadge[connectionMeta(host).tone])}>
+                <StatusDot tone={connectionMeta(host).tone} pulse={connectionMeta(host).label === 'En ligne'} />
+                {connectionMeta(host).label}
+              </span>
+            }
+            title={
+              <span ref={hostPickerRef} className="relative inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={hostPickerOpen}
+                  onClick={() => {
+                    setHostSearch('');
+                    setHostPickerOpen((open) => !open);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-sm text-left hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                >
+                  {host.name}
+                  <ChevronDown className={clsx('h-4 w-4 text-muted transition-transform', hostPickerOpen && 'rotate-180')} />
+                </button>
+                {hostPickerOpen && (
+                  <span role="dialog" aria-label="Sélectionner un hôte" className="absolute left-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-line bg-panel p-2 text-left shadow-xl">
+                    <span className="relative mb-2 block">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                      <input
+                        autoFocus
+                        aria-label="Filtrer les hôtes"
+                        className="input h-9 py-0 pl-9"
+                        placeholder="Filtrer les hôtes…"
+                        value={hostSearch}
+                        onChange={(event) => setHostSearch(event.target.value)}
+                      />
                     </span>
-                  )}
-                  <button
-                    type="button"
-                    aria-label="Hôte précédent"
-                    title={currentIndex > 0 ? `Précédent : ${hostList[currentIndex - 1].name}` : 'Aucun hôte précédent'}
-                    disabled={currentIndex <= 0}
-                    onClick={() => goToHost(hostList[currentIndex - 1].id)}
-                    className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Hôte suivant"
-                    title={currentIndex >= 0 && currentIndex < hostList.length - 1 ? `Suivant : ${hostList[currentIndex + 1].name}` : 'Aucun hôte suivant'}
-                    disabled={currentIndex < 0 || currentIndex >= hostList.length - 1}
-                    onClick={() => goToHost(hostList[currentIndex + 1].id)}
-                    className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </span>
-              }
-              actions={
-                <>
-                  {canWrite && (
-                    <Button
-                      size="sm"
-                      icon={RefreshCw}
-                      loading={refreshing}
-                      disabled={!canRefreshAgent && ((!host.online && !backupsOn) || (!hasApt(host) && !host.docker && !backupsOn))}
-                      title="Relire l'état de l'agent, rechercher les mises à jour APT, vérifier les images Docker et actualiser les sauvegardes"
-                      onClick={refreshData}
-                    >
-                      Actualiser
-                    </Button>
-                  )}
-                  {canManage && <Button icon={Settings} variant="ghost" title="Options" onClick={() => setEditing(true)} />}
-                </>
-              }
-            >
-              <Badge tone={connectionMeta(host).tone}>{connectionMeta(host).label}</Badge>
-              <HostTagList host={host} />
-              {host.roaming && <Tag>Itinérant</Tag>}
-              {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
-              {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
-            </PageHeader>
+                    <span role="listbox" aria-label="Hôtes disponibles" className="block max-h-72 overflow-y-auto">
+                      {pickerHosts.length ? pickerHosts.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          role="option"
+                          aria-selected={item.id === id}
+                          onClick={() => {
+                            setHostPickerOpen(false);
+                            if (item.id !== id) goToHost(item.id);
+                          }}
+                          className={clsx('flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm hover:bg-raised', item.id === id ? 'bg-raised text-emerald-300' : 'text-zinc-200')}
+                        >
+                          <span className={clsx('h-2 w-2 shrink-0 rounded-full', item.online ? 'bg-emerald-400' : 'bg-zinc-600')} />
+                          <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                          {item.id === id && <span className="text-xs text-muted">Actuel</span>}
+                        </button>
+                      )) : (
+                        <span className="block px-2.5 py-3 text-sm text-muted">Aucun hôte ne correspond aux filtres.</span>
+                      )}
+                    </span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label="Hôte précédent"
+                  title={currentIndex > 0 ? `Précédent : ${hostList[currentIndex - 1].name} (←)` : 'Aucun hôte précédent'}
+                  disabled={currentIndex <= 0}
+                  onClick={() => goToHost(hostList[currentIndex - 1].id)}
+                  className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Hôte suivant"
+                  title={currentIndex >= 0 && currentIndex < hostList.length - 1 ? `Suivant : ${hostList[currentIndex + 1].name} (→)` : 'Aucun hôte suivant'}
+                  disabled={currentIndex < 0 || currentIndex >= hostList.length - 1}
+                  onClick={() => goToHost(hostList[currentIndex + 1].id)}
+                  className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </span>
+            }
+          >
+            {host.roaming && <Tag>Itinérant</Tag>}
+            {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
+            {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
+          </HeaderTitle>
 
-            <section className="panel">
-              <dl className="flex flex-wrap">
-                <StripItem label="Hostname">{host.info?.hostname ?? '—'}</StripItem>
-                <StripItem label="OS">{osLabel(host) ?? '—'}</StripItem>
-                <StripItem label={isWindows(host) ? 'Version' : 'Noyau'}><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>
-                <StripItem label="Architecture">{host.info?.arch ?? '—'}</StripItem>
-                {!isWindows(host) && <StripItem label="Virtualisation">{host.info?.virt ?? '—'}</StripItem>}
-                <StripItem label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</StripItem>
-                <StripItem label="Agent">{host.agentVersion ?? '—'}</StripItem>
-                <StripItem label="Certificat">
-                  {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
-                </StripItem>
-                <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
-                {!isWindows(host) && <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>}
-                {showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
-                {(() => {
-                  const { lan, tailscale } = groupIps(host.info?.ips);
-                  return (
-                    <>
-                      <StripItem label="IP LAN" grow><span className="font-mono text-xs">{lan.join(', ') || '—'}</span></StripItem>
-                      {tailscale.length > 0 && <StripItem label="IP Tailscale"><span className="font-mono text-xs">{tailscale.join(', ')}</span></StripItem>}
-                    </>
-                  );
-                })()}
-              </dl>
-            </section>
-            <div className={scrolled ? 'mt-2.5' : 'mt-4'}>
-              <AlertTimeline hostId={host.id} />
-            </div>
+      <div
+        ref={setStripEl}
+        className={clsx('2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6', scrolled ? 'pb-3 shadow-[0_14px_18px_-12px_rgb(0_0_0/0.7)]' : 'pb-5')}
+      >
+          <section className="panel">
+          <dl className="flex flex-wrap lg:flex-nowrap">
+            <StripItem label="Hostname"><span className={clsx('font-medium', nameTone[connectionMeta(host).tone])}>{host.info?.hostname ?? '—'}</span></StripItem>
+            <StripItem label="OS">{osLabel(host) ?? '—'}</StripItem>
+            <StripItem label={isWindows(host) ? 'Version' : 'Noyau'}><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>
+            <StripItem label="Architecture">{host.info?.arch ?? '—'}</StripItem>
+            {!isWindows(host) && <StripItem label="Virtualisation">{host.info?.virt ?? '—'}</StripItem>}
+            <StripItem label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</StripItem>
+            <StripItem label="Agent">{host.agentVersion ?? '—'}</StripItem>
+            <StripItem label="Certificat">
+              {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
+            </StripItem>
+            <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
+            {!isWindows(host) && <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>}
+            {showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
+            {(() => {
+              const { lan, tailscale } = groupIps(host.info?.ips);
+              return (
+                <>
+                  <StripItem label="IP LAN" grow><span className="font-mono text-xs">{lan.join(', ') || '—'}</span></StripItem>
+                  {tailscale.length > 0 && <StripItem label="IP Tailscale"><span className="font-mono text-xs">{tailscale.join(', ')}</span></StripItem>}
+                </>
+              );
+            })()}
+            {host.tags.length > 0 && <StripItem label="Tags" plain><HostTagList host={host} /></StripItem>}
+            {(canWrite || canManage) && (
+              <div className="flex shrink-0 items-center gap-2 self-center px-4 py-2.5">
+                {canWrite && (
+                  <Button
+                    icon={RefreshCw}
+                    loading={refreshing}
+                    disabled={!canRefreshAgent && ((!host.online && !backupsOn) || (!hasApt(host) && !host.docker && !backupsOn))}
+                    title="Actualiser : relire l'état de l'agent, rechercher les mises à jour APT, vérifier les images Docker et actualiser les sauvegardes"
+                    aria-label="Actualiser"
+                    className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5"
+                    onClick={refreshData}
+                  />
+                )}
+                {canManage && (
+                  <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setEditing(true)} />
+                )}
+              </div>
+            )}
+          </dl>
+        </section>
+      </div>
+
+      {/* large screens: the content on the left, history and console on the right, fixed */}
+      <div style={{ '--sh': `${stripHeight}px` } as CSSProperties} className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
+        <div className="min-w-0 @container">
+          <div className={clsx('2xl:sticky 2xl:top-[calc(3.5rem+var(--sh))] 2xl:z-10 2xl:bg-bg', scrolled ? 'pb-2.5' : 'pb-4')}>
+            <AlertTimeline hostId={host.id} />
           </div>
 
           {host.aptSummary?.rebootRequired && (
@@ -544,8 +621,7 @@ function HostDetailPage({ id }: { id: string }) {
         </div>
 
         {/* below the bar of the layout and the top padding of the page, up to the bottom of the window */}
-        <aside className="flex min-w-0 flex-col gap-5 2xl:sticky 2xl:top-20 2xl:h-[calc(100vh-6.5rem)]">
-        <SiteChip host={host} prominent />
+        <aside className="flex min-w-0 flex-col gap-5 2xl:sticky 2xl:top-[calc(3.5rem+var(--sh))] 2xl:h-[calc(100vh-5rem-var(--sh))]">
         <Panel title="Historique" icon={History} className="2xl:flex 2xl:max-h-[35%] 2xl:shrink-0 2xl:flex-col" bodyClassName="max-h-[420px] overflow-auto 2xl:max-h-none 2xl:min-h-0">
           {!jobs?.length ? (
             <p className="p-4 text-sm text-muted">Aucune tâche.</p>

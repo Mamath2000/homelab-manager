@@ -31,7 +31,8 @@ export function hostMatchesSearch(host: Host, query: string, sites: SiteConfig[]
 }
 
 export function filterHosts(hosts: Host[], query: string, filter: HostFilter, site: string, tag: string, sites: SiteConfig[], tags: TagConfig[]) {
-  return hosts.filter((host) => {
+  // by name: the list and the previous / next of a host follow the same order
+  return [...hosts].sort((a, b) => a.name.localeCompare(b.name)).filter((host) => {
     if (site && (site === 'none' ? !!host.siteId : host.siteId !== site)) return false;
     if (tag && !host.tags.includes(tag)) return false;
     if (!hostMatchesSearch(host, query, sites, tags)) return false;

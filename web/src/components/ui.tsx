@@ -100,21 +100,6 @@ export function Tag({ children }: { children: ReactNode }) {
   );
 }
 
-export function PageHeader({ icon: Icon, title, actions, children, titleOverflow = false }: { icon: LucideIcon; title: ReactNode; actions?: ReactNode; children?: ReactNode; titleOverflow?: boolean }) {
-  return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <div className="panel flex min-w-0 items-center gap-3 px-4 py-2.5">
-          <Icon className="h-5 w-5 shrink-0 text-zinc-300" />
-          <h1 className={clsx('min-w-0 max-w-full text-xl font-medium text-zinc-100', titleOverflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
-        </div>
-        {children && <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-    </div>
-  );
-}
-
 export function Panel({ title, icon: Icon, actions, children, className, bodyClassName }: {
   title?: ReactNode;
   icon?: LucideIcon;
@@ -284,7 +269,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   // every window is centered on the page (my-auto: still reachable from the top when taller than the screen);
   // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}>
+    <div data-modal className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}>
       <div
         className={clsx(
           'panel my-auto w-full min-w-0 bg-panel shadow-2xl shadow-black/60',

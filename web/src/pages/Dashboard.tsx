@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { LayoutDashboard, Plus, RefreshCw, Server } from 'lucide-react';
+import { LayoutDashboard, Plus, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { DashboardActions } from '../components/DashboardActions';
 import { DashboardTodo } from '../components/DashboardTodo';
 import { MountBanner } from '../components/PbsMount';
 import { SiteOverview } from '../components/SiteOverview';
 import { SiteTimeline } from '../components/SiteTimeline';
-import { Button, Empty, PageHeader, Spinner } from '../components/ui';
-import { useBackups, useHosts, useJobs, useRunBulk, useSites } from '../lib/queries';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Button, Empty, Spinner } from '../components/ui';
+import { useBackups, useHosts, useJobs, useSites } from '../lib/queries';
 import { aptTile, backupTile, count, groupSites, oldestBackup } from '../lib/sites';
 import { allStacks, hasApt, type Tone } from '../lib/status';
 import { useMe } from '../lib/auth';
@@ -91,13 +92,11 @@ export function Dashboard() {
   const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
   const { data: backups } = useBackups();
   const { data: siteConfig } = useSites();
-  const bulk = useRunBulk();
   const { canWrite, canManage } = useMe();
   const [adding, setAdding] = useState(false);
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
 
-  const onlineApt = hosts.filter((h) => h.online && hasApt(h));
   const sites = groupSites(hosts, siteConfig ?? []);
   // only the backups attached to a host are followed (without PBS: those of Home Assistant)
   const withBackups = !!backups && (backups.connected || backups.groups.length > 0);
@@ -105,20 +104,7 @@ export function Dashboard() {
 
   return (
     <>
-      <PageHeader
-        icon={LayoutDashboard}
-        title="Tableau de bord"
-        actions={
-          <>
-            {canWrite && (
-              <Button icon={RefreshCw} loading={bulk.isPending} disabled={!onlineApt.length} onClick={() => bulk.mutate({ hostIds: onlineApt.map((h) => h.id), action: 'apt_update' })}>
-                Tout vérifier
-              </Button>
-            )}
-            {canManage && <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>}
-          </>
-        }
-      />
+      <HeaderTitle icon={LayoutDashboard} title="Tableau de bord" />
 
       {hosts.length === 0 ? (
         <div className="panel">

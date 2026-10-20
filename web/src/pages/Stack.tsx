@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowUpCircle, Boxes, Container, Eye, EyeOff, FileCode, History, RefreshCw, ScrollText, ShieldAlert, Trash2 } from 'lucide-react';
 import { CheckImagesButton, ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
-import { Badge, Button, Checkbox, Empty, PageHeader, Panel, ResponsiveList, Spinner, Tabs, Tag } from '../components/ui';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, Checkbox, Empty, Panel, ResponsiveList, Spinner, Tabs, Tag } from '../components/ui';
 import { api, type DockerStack, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { jobTitle, timeAgo } from '../lib/format';
@@ -342,39 +343,36 @@ export function Stack() {
 
   return (
     <>
-      <Link to="/docker" className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-zinc-200">
-        <ArrowLeft className="h-4 w-4" /> Docker
-      </Link>
-      <PageHeader
-        icon={Container}
-        title={stack.name}
-        actions={
-          <>
-            <StackActions host={host} stack={stack} disabled={running} onStarted={started} />
-            <CheckImagesButton host={host} disabled={running} onStarted={started} />
-            {canManage &&
-              (stack.managed ? (
-                <Button size="sm" variant="ghost" icon={EyeOff} title="Stack gérée par ailleurs : lecture seule, sans état ni mise à jour" onClick={() => setManaged(false)}>
-                  Ne plus gérer
-                </Button>
-              ) : (
-                <Button size="sm" icon={Eye} onClick={() => setManaged(true)}>
-                  Gérer
-                </Button>
-              ))}
-            {canManage && stack.status === 'down' && (
-              <Button size="sm" variant="ghost" icon={Trash2} className="hover:text-red-400" onClick={forget}>
-                Oublier
-              </Button>
-            )}
-          </>
-        }
-      >
+      <HeaderTitle icon={Container} title={stack.name}>
         <StackStatusBadge stack={stack} />
         {stack.managed && <ImageUpdateBadge update={stack.update} count={stack.updates} />}
         <Link to={`/hosts/${host.id}`}><Tag>{host.name}</Tag></Link>
         {!host.online && <Badge tone="bad">hôte hors ligne</Badge>}
-      </PageHeader>
+      </HeaderTitle>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <Link to="/docker" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-zinc-200">
+          <ArrowLeft className="h-4 w-4" /> Docker
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <StackActions host={host} stack={stack} disabled={running} onStarted={started} />
+          <CheckImagesButton host={host} disabled={running} onStarted={started} />
+          {canManage &&
+            (stack.managed ? (
+              <Button size="sm" variant="ghost" icon={EyeOff} title="Stack gérée par ailleurs : lecture seule, sans état ni mise à jour" onClick={() => setManaged(false)}>
+                Ne plus gérer
+              </Button>
+            ) : (
+              <Button size="sm" icon={Eye} onClick={() => setManaged(true)}>
+                Gérer
+              </Button>
+            ))}
+          {canManage && stack.status === 'down' && (
+            <Button size="sm" variant="ghost" icon={Trash2} className="hover:text-red-400" onClick={forget}>
+              Oublier
+            </Button>
+          )}
+        </div>
+      </div>
 
       {!stack.managed && (
         <div className="panel mb-5 flex flex-wrap items-center gap-3 px-4 py-3 text-sm">

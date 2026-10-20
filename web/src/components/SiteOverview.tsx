@@ -1,12 +1,27 @@
 import { Link } from 'react-router';
 import clsx from 'clsx';
-import { MapPin } from 'lucide-react';
+import { MapPin, RefreshCw } from 'lucide-react';
 import type { DomainMeta, Host, StatusView } from '../lib/api';
 import { cellCls, cellLabel, cellOf, domainCells, domainText, hostsDomains, levelTone, worstLevel, type Cell } from '../lib/monitoring';
-import { useStatus } from '../lib/queries';
+import { useMe } from '../lib/auth';
+import { useRunBulk, useStatus } from '../lib/queries';
 import { count, siteKindMeta, type Site } from '../lib/sites';
-import { toneStroke, type Tone } from '../lib/status';
-import { Badge, Panel } from './ui';
+import { hasApt, toneStroke, type Tone } from '../lib/status';
+import { Badge, Button, Panel } from './ui';
+
+// Looks for APT updates on the online hosts of the given sites.
+function CheckButton({ hosts, label, title }: { hosts: Host[]; label: string; title: string }) {
+  const { canWrite } = useMe();
+  const bulk = useRunBulk();
+  if (!canWrite) return null;
+  const targets = hosts.filter((h) => h.online && hasApt(h));
+  return (
+    <Button size="sm" icon={RefreshCw} loading={bulk.isPending} disabled={!targets.length} title={title} aria-label={label} className="w-10 px-0 md:w-9 md:h-9" onClick={() => bulk.mutate({ hostIds: targets.map((h) => h.id), action: 'apt_update' })} />
+  );
+}
+
+// the host opens with the list of its site: previous / next and the way back stay in it
+const hostLink = (h: Host) => `/hosts/${h.id}?site=${h.siteId ?? 'none'}`;
 
 const cellTone: Record<Cell, Tone> = { ok: 'ok', warn: 'warn', alert: 'bad', unknown: 'neutral', none: 'neutral' };
 
@@ -17,7 +32,7 @@ function Tile({ host, status, domains, small }: { host: Host; status: StatusView
   const title = [host.name, ...domains.map((d) => `${d.label.toLowerCase()} : ${domainText(status?.hosts[host.id]?.domains[d.id])}`)].join(' · ');
   return (
     <Link
-      to={`/hosts/${host.id}`}
+      to={hostLink(host)}
       title={title}
       aria-label={title}
       className={clsx('flex flex-col gap-px transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-emerald-400', small ? 'w-[26px]' : 'w-[30px]')}
@@ -71,6 +86,7 @@ function SiteHeader({ site, status }: { site: Site; status: StatusView | undefin
       <b className="text-[15px] font-medium text-zinc-100">{site.name}</b>
       {site.kind && <Badge tone="neutral">{siteKindMeta[site.kind].label}</Badge>}
       <span className="text-xs text-muted">{site.hosts.length} hôte{site.hosts.length > 1 ? 's' : ''}</span>
+      <span className="ml-auto"><CheckButton hosts={site.hosts} label="Vérifier" title={`Rechercher les mises à jour sur les hôtes de ${site.name}`} /></span>
     </header>
   );
 }
@@ -95,6 +111,7 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
       <header className="mb-1 flex items-center gap-2.5">
         <b className="text-[15px] font-medium text-zinc-100">Sites externes</b>
         <Badge tone="neutral">supervisés</Badge>
+        <span className="ml-auto"><CheckButton hosts={sites.flatMap((s) => s.hosts)} label="Tout vérifier" title="Rechercher les mises à jour sur tous les sites externes" /></span>
       </header>
       {sites.map((s) => {
         const h = s.hosts[0];
@@ -102,7 +119,7 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
         return (
           <Link
             key={s.name}
-            to={`/hosts/${h.id}`}
+            to={hostLink(h)}
             className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50"
           >
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: status ? toneStroke[levelTone[worstLevel(status, s.hosts)]] : toneStroke.neutral }} />

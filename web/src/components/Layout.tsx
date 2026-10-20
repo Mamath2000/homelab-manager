@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { Suspense, useCallback, useMemo, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Plus, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { HeaderSlotContext } from '../lib/headerSlot';
 import { ROLE_LABELS, useMe } from '../lib/auth';
+import { AddHostModal } from './AddHostModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { HostQuickSwitch } from './HostQuickSwitch';
 import { Spinner, StatusDot } from './ui';
@@ -124,52 +126,13 @@ function Versions() {
   );
 }
 
-function SearchBox({ onQuickSwitch }: { onQuickSwitch: () => void }) {
-  const navigate = useNavigate();
-  const [q, setQ] = useState('');
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes(target.tagName)) {
-        e.preventDefault();
-        ref.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-  return (
-    <>
-      <form
-        className="relative hidden w-full max-w-md sm:block"
-        onSubmit={(e) => {
-          e.preventDefault();
-          navigate(`/hosts?q=${encodeURIComponent(q)}`);
-          setQ('');
-          ref.current?.blur();
-        }}
-      >
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-        <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" className="input h-9 py-0 pl-9 pr-10" />
-        <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm border border-line bg-panel px-1.5 text-[10px] text-muted">/</kbd>
-      </form>
-      <button
-        type="button"
-        onClick={onQuickSwitch}
-        aria-label="Rechercher un hôte"
-        title="Rechercher un hôte"
-        className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised hover:text-zinc-100 sm:hidden"
-      >
-        <Search className="h-5 w-5" />
-      </button>
-    </>
-  );
-}
-
 export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void }) {
   const me = useMe();
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [addingHost, setAddingHost] = useState(false);
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
+  const [extraSlot, setExtraSlot] = useState<HTMLElement | null>(null);
+  const slots = useMemo(() => ({ title: titleSlot, extra: extraSlot }), [titleSlot, extraSlot])
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
   const openQuickSwitch = useCallback(() => setQuickSwitchOpen(true), []);
   const closeQuickSwitch = useCallback(() => setQuickSwitchOpen(false), []);
@@ -188,8 +151,22 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
           </button>
           <Logo />
         </div>
-        {!me.isSuperAdmin && <SearchBox onQuickSwitch={openQuickSwitch} />}
+        <div ref={setTitleSlot} className="flex min-w-0 flex-1 items-center gap-3" />
+        {/* centred on the bar: the site of the host, wide screens only (it would cover the title otherwise) */}
+        <div ref={setExtraSlot} className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 items-center xl:flex [&>*]:pointer-events-auto" />
         <div className="flex items-center gap-4 text-sm">
+          {me.canManage && !me.isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => setAddingHost(true)}
+              aria-label="Ajouter un hôte"
+              title="Ajouter un hôte"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-line px-2.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-500/50 hover:bg-raised hover:text-emerald-300 md:h-8"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter</span>
+            </button>
+          )}
           <Versions />
           {me.canSettings && (
             <NavLink to="/settings" aria-label="Paramètres" title="Paramètres" className={({ isActive }) => clsx('inline-flex h-10 w-10 items-center justify-center rounded-sm transition hover:bg-raised hover:text-zinc-100 md:h-7 md:w-7', isActive ? 'text-emerald-300' : 'text-zinc-400')}>
@@ -215,15 +192,18 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
         </div>
       )}
 
+      <AddHostModal open={addingHost} onClose={() => setAddingHost(false)} />
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
       <main className="px-4 py-6 lg:ml-60 lg:px-8">
         <div>
           {/* pages are lazy chunks: the menu stays in place while one loads */}
-          <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
-            <Outlet />
-          </Suspense>
+          <HeaderSlotContext.Provider value={slots}>
+            <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
+              <Outlet />
+            </Suspense>
+          </HeaderSlotContext.Provider>
         </div>
       </main>
     </div>

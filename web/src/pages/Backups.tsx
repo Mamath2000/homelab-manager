@@ -9,7 +9,8 @@ import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
 import { DetailPill, OffsiteCell } from '../components/OffsiteCopy';
 import { MountBanner, MountDialog } from '../components/PbsMount';
-import { Badge, Button, Empty, IconGroup, Modal, PageHeader, ResponsiveList, Spinner } from '../components/ui';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, Empty, IconGroup, Modal, ResponsiveList, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
@@ -180,25 +181,20 @@ export function Backups() {
   const filteredHost = hostFilter && hostList.find((h) => h.id === hostFilter);
   // without PBS, the backups of Home Assistant and the Proxmox VE clusters are still shown
   const shown = data.connected || data.groups.length > 0 || data.clusters.length > 0 || data.cached.length > 0;
+  const actions = (
+    <>
+      {data.connected && (
+        <Button icon={Unlink} onClick={() => setOrphans(true)} title="Sauvegardes du PBS rattachées à aucun hôte">
+          Orphelines ({data.orphans.length})
+        </Button>
+      )}
+      {canWrite && <Button icon={RefreshCw} loading={refreshing} onClick={refresh}>Relever</Button>}
+    </>
+  );
 
   return (
     <>
-      <PageHeader
-        icon={DatabaseBackup}
-        title="Sauvegardes"
-        actions={
-          shown && (
-            <>
-              {data.connected && (
-                <Button icon={Unlink} onClick={() => setOrphans(true)} title="Sauvegardes du PBS rattachées à aucun hôte">
-                  Orphelines ({data.orphans.length})
-                </Button>
-              )}
-              {canWrite && <Button icon={RefreshCw} loading={refreshing} onClick={refresh}>Relever</Button>}
-            </>
-          )
-        }
-      >
+      <HeaderTitle icon={DatabaseBackup} title="Sauvegardes">
         {shown && (
           <span className="text-xs text-muted">
             {data.connected ? <>Proxmox Backup Server · relevé {timeAgo(data.polledAt)}</> : 'Aucun PBS connecté'}
@@ -207,7 +203,7 @@ export function Backups() {
             ))}
           </span>
         )}
-      </PageHeader>
+      </HeaderTitle>
 
       {!shown ? (
         <div className="panel">
@@ -243,12 +239,15 @@ export function Backups() {
             </ul>
           )}
           {data.groups.length === 0 ? (
+            <>
+            <div className="mb-3 flex flex-wrap items-center justify-end gap-2">{actions}</div>
             <div className="panel">
               <Empty icon={DatabaseBackup} title="Aucune sauvegarde suivie">
                 Seules les sauvegardes rattachées à un hôte sont suivies : rattache-les depuis la fiche de chaque hôte (carte Sauvegardes).
                 {data.orphans.length > 0 && <> Le PBS en compte {data.orphans.length} non rattachée{data.orphans.length > 1 ? 's' : ''} (bouton Orphelines).</>}
               </Empty>
             </div>
+            </>
           ) : (
             <>
               <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -292,6 +291,7 @@ export function Backups() {
                     </button>
                   ))}
                 </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>
               </div>
 
               <div className="panel min-w-0">

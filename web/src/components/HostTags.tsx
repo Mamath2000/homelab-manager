@@ -36,7 +36,7 @@ export function SiteChip({ host, prominent }: { host: Pick<Host, 'siteId'>; prom
     <span className={clsx(
       'inline-flex items-center whitespace-nowrap rounded-md font-semibold ring-1 ring-inset',
       tagChip[site.color ?? 'zinc'],
-      prominent ? 'gap-2 px-4 py-2 text-lg' : 'gap-1 px-2 py-0.5 text-xs',
+      prominent ? 'min-w-[22rem] justify-center gap-2 px-4 py-2 text-lg' : 'gap-1 px-2 py-0.5 text-xs',
     )}>
       <MapPin className={prominent ? 'h-5 w-5' : 'h-3 w-3'} />
       {site.name}

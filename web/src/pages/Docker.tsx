@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Container, RefreshCw, Search } from 'lucide-react';
+import { HeaderTitle } from '../components/HeaderSlot';
 import { ImageUpdateBadge, ServiceTags, StackActions, StackStatusBadge } from '../components/Docker';
-import { Button, ConfirmModal, Empty, PageHeader, ResponsiveList, Spinner, Tag } from '../components/ui';
+import { Button, ConfirmModal, Empty, ResponsiveList, Spinner, Tag } from '../components/ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -85,28 +86,7 @@ export function Docker() {
 
   return (
     <>
-      <PageHeader
-        icon={Container}
-        title="Docker"
-        actions={
-          canWrite && dockerHosts.length > 0 && (
-            <>
-              <Button
-                icon={RefreshCw}
-                loading={bulk.isPending}
-                disabled={!dockerHosts.some((h) => h.online)}
-                title="Compare les images au registre sur tous les hôtes Docker (sans rien télécharger)"
-                onClick={() => bulk.mutate({ hostIds: dockerHosts.filter((h) => h.online).map((h) => h.id), action: 'docker_check' })}
-              >
-                Vérifier les images
-              </Button>
-              <Button icon={ArrowUpCircle} variant="primary" disabled={!toUpdate.length} onClick={() => setConfirmUpdate(true)}>
-                Mettre à jour ({toUpdate.length})
-              </Button>
-            </>
-          )
-        }
-      />
+      <HeaderTitle icon={Container} title="Docker" />
 
       {dockerHosts.length === 0 ? (
         <div className="panel">
@@ -144,6 +124,22 @@ export function Docker() {
                 </button>
               ))}
             </div>
+            {canWrite && (
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Button
+                  icon={RefreshCw}
+                  loading={bulk.isPending}
+                  disabled={!dockerHosts.some((h) => h.online)}
+                  title="Compare les images au registre sur tous les hôtes Docker (sans rien télécharger)"
+                  onClick={() => bulk.mutate({ hostIds: dockerHosts.filter((h) => h.online).map((h) => h.id), action: 'docker_check' })}
+                >
+                  Vérifier les images
+                </Button>
+                <Button icon={ArrowUpCircle} variant="primary" disabled={!toUpdate.length} onClick={() => setConfirmUpdate(true)}>
+                  Mettre à jour ({toUpdate.length})
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="panel min-w-0">

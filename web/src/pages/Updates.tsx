@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
 import { RebootTag } from '../components/Reboot';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, Empty, PageHeader, ResponsiveList, Spinner } from '../components/ui';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, Checkbox, Empty, ResponsiveList, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
 import { useHosts } from '../lib/queries';
 import { useMe } from '../lib/auth';
@@ -73,7 +74,7 @@ export function Updates() {
 
   return (
     <>
-      <PageHeader icon={PackageCheck} title="Mises à jour" />
+      <HeaderTitle icon={PackageCheck} title="Mises à jour" />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         {[

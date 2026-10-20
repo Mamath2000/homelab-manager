@@ -11,6 +11,7 @@ import { SettingsDraftProvider, type SettingsDraft } from '../components/setting
 import { SitesSettings } from '../components/SitesSettings';
 import { TagsSettings } from '../components/TagsSettings';
 import { SetupSettings } from '../components/SetupSettings';
+import { HeaderTitle } from '../components/HeaderSlot';
 import { Button, Modal, Panel, VerticalTabs } from '../components/ui';
 import { api } from '../lib/api';
 
@@ -198,13 +199,8 @@ export function Settings() {
 
   return (
     <>
-      <div className="mb-5">
-        <div className="flex items-center gap-3">
-          <SettingsIcon className="h-5 w-5 text-muted" />
-          <h1 className="text-xl font-medium text-zinc-100">Paramètres</h1>
-        </div>
-        <p className="mt-1 text-sm text-muted">Modifie une rubrique puis enregistre ses changements en bas du formulaire.</p>
-      </div>
+      <HeaderTitle icon={SettingsIcon} title="Paramètres" />
+      <p className="mb-5 text-sm text-muted">Modifie une rubrique puis enregistre ses changements en bas du formulaire.</p>
       <div className="panel">
         <VerticalTabs
           tabs={[...tabs]}
