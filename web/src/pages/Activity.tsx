@@ -1,7 +1,7 @@
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { History } from 'lucide-react';
 import { JobStatusIcon } from '../components/JobConsole';
-import { Badge, Empty, PageHeader, Spinner, Tag } from '../components/ui';
+import { Badge, Empty, PageHeader, ResponsiveList, Spinner, Tag } from '../components/ui';
 import { jobTitle, dateTime, duration } from '../lib/format';
 import { useJobs } from '../lib/queries';
 
@@ -12,10 +12,34 @@ export function Activity() {
   return (
     <>
       <PageHeader icon={History} title="Activité" />
-      <div className="panel overflow-x-auto">
+      <div className="panel min-w-0">
         {jobs.length === 0 ? (
           <Empty icon={History} title="Aucune tâche">Les recherches et installations de mises à jour apparaîtront ici.</Empty>
         ) : (
+          <>
+          <ResponsiveList mode="mobile">
+            {jobs.map((j) => (
+              <Link key={j.id} to={`/jobs/${j.id}`} className="block space-y-3 p-4 transition hover:bg-raised/50">
+                <div className="flex min-w-0 items-start gap-3">
+                  <JobStatusIcon status={j.status} />
+                  <div className="min-w-0 flex-1">
+                    <div className="break-words text-sm text-zinc-100">{jobTitle(j)}</div>
+                    {j.packages.length > 0 && <div className="mt-1 break-words text-xs text-muted">{j.packages.length > 3 ? `${j.packages.length} paquets` : j.packages.join(', ')}</div>}
+                    {j.error && <div className="mt-1 break-words text-xs text-red-400">{j.error}</div>}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Tag>{j.hostName}</Tag>
+                  {j.trigger === 'schedule' ? <Badge tone="info">planifiée</Badge> : j.trigger === 'homeassistant' ? <Badge tone="unknown">Home Assistant</Badge> : j.trigger === 'enroll' ? <Badge tone="info">à l'ajout</Badge> : <Badge>manuelle</Badge>}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400">
+                  <div><span className="text-muted">Date · </span>{dateTime(j.createdAt)}</div>
+                  <div><span className="text-muted">Durée · </span>{duration(j.createdAt, j.finishedAt)}</div>
+                </div>
+              </Link>
+            ))}
+          </ResponsiveList>
+          <ResponsiveList mode="desktop">
           <table className="w-full min-w-[760px] text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -44,6 +68,8 @@ export function Activity() {
               ))}
             </tbody>
           </table>
+          </ResponsiveList>
+          </>
         )}
       </div>
     </>

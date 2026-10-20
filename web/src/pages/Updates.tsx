@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
 import { RebootTag } from '../components/Reboot';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, Empty, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, Checkbox, Empty, PageHeader, ResponsiveList, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
 import { useHosts } from '../lib/queries';
 import { useMe } from '../lib/auth';
@@ -98,10 +98,43 @@ export function Updates() {
         </label>
       </div>
 
-      <div className="panel overflow-x-auto">
+      <div className="panel min-w-0">
         {list.length === 0 ? (
           <Empty icon={PackageCheck} title={rows.length ? 'Aucun paquet ne correspond' : 'Tout est à jour'} />
         ) : (
+          <>
+          <ResponsiveList mode="mobile">
+            {list.map((r) => (
+              <article key={r.name} className="min-w-0 space-y-3 p-4">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="min-w-0 break-all font-medium text-zinc-100">{r.name}</h2>
+                  {r.security && <Badge tone="bad">sécurité</Badge>}
+                  {r.reboot && <RebootTag />}
+                </div>
+                <div className="break-all font-mono text-xs text-emerald-300">{[...r.candidates].join(', ')}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {r.hosts.map((h) => (
+                    <Link key={h.id} to={`/hosts/${h.id}`} className={`rounded-sm px-2 py-1 text-xs font-semibold ${h.online ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-zinc-500 line-through'}`}>
+                      {h.name}
+                    </Link>
+                  ))}
+                </div>
+                {canWrite && (
+                  <Button
+                    size="sm"
+                    icon={ArrowUpCircle}
+                    className="min-h-10 w-full md:min-h-0 md:w-auto"
+                    disabled={!r.hosts.some((h) => h.online) || !!busy}
+                    loading={busy === r.name}
+                    onClick={() => upgrade(r)}
+                  >
+                    Mettre à jour ({r.hosts.filter((h) => h.online).length})
+                  </Button>
+                )}
+              </article>
+            ))}
+          </ResponsiveList>
+          <ResponsiveList mode="desktop">
           <table className="w-full min-w-[760px] text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -138,6 +171,8 @@ export function Updates() {
               ))}
             </tbody>
           </table>
+          </ResponsiveList>
+          </>
         )}
       </div>
 

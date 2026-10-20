@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Container, RefreshCw, Search } from 'lucide-react';
 import { ImageUpdateBadge, ServiceTags, StackActions, StackStatusBadge } from '../components/Docker';
-import { Button, ConfirmModal, Empty, PageHeader, Spinner, Tag } from '../components/ui';
+import { Button, ConfirmModal, Empty, PageHeader, ResponsiveList, Spinner, Tag } from '../components/ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -146,10 +146,40 @@ export function Docker() {
             </div>
           </div>
 
-          <div className="panel overflow-x-auto">
+          <div className="panel min-w-0">
             {list.length === 0 ? (
               <p className="p-6 text-sm text-muted">Aucune stack.</p>
             ) : (
+              <>
+                <ResponsiveList mode="mobile">
+                  {list.map((s) => (
+                    <article key={`${s.host.id}/${s.name}`} className="min-w-0 space-y-3 p-4">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <Link
+                          to={stackPath(s.host.id, s.name)}
+                          title={s.name}
+                          className="min-w-0 truncate font-medium text-zinc-100 hover:text-emerald-300"
+                        >
+                          {s.name}
+                        </Link>
+                        {canWrite && <StackActions host={s.host} stack={s} compact />}
+                      </div>
+                      <Link
+                        to={`/hosts/${s.host.id}`}
+                        className={clsx('block truncate text-xs hover:text-emerald-300', s.host.online ? 'text-zinc-300' : 'text-zinc-500 line-through')}
+                      >
+                        {s.host.name}
+                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StackStatusBadge stack={s} />
+                        {s.managed && <ImageUpdateBadge update={s.update} count={s.updates} />}
+                      </div>
+                      {s.problems.length > 0 && <p className="break-words text-xs text-amber-300">{s.problems.join(' · ')}</p>}
+                      {s.services.length > 0 && <ServiceTags services={s.services} />}
+                    </article>
+                  ))}
+                </ResponsiveList>
+                <ResponsiveList mode="desktop">
               <table className="w-full min-w-[900px] text-sm">
                 <thead className="border-b border-line">
                   <tr>
@@ -191,6 +221,8 @@ export function Docker() {
                   ))}
                 </tbody>
               </table>
+                </ResponsiveList>
+              </>
             )}
           </div>
         </>

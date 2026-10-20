@@ -69,6 +69,14 @@ export function IconGroup({ actions, className }: { actions: IconAction[]; class
   );
 }
 
+export function ResponsiveList({ mode, className, children }: { mode: 'mobile' | 'desktop'; className?: string; children: ReactNode }) {
+  return (
+    <div className={clsx(mode === 'mobile' ? 'divide-y divide-line md:hidden' : 'hidden overflow-x-auto md:block', className)}>
+      {children}
+    </div>
+  );
+}
+
 export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
   return (
     <span
@@ -96,9 +104,9 @@ export function PageHeader({ icon: Icon, title, actions, children, titleOverflow
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="panel flex items-center gap-3 px-4 py-2.5">
+        <div className="panel flex min-w-0 items-center gap-3 px-4 py-2.5">
           <Icon className="h-5 w-5 text-zinc-300" />
-          <h1 className={clsx('text-xl font-medium text-zinc-100', titleOverflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
+          <h1 className={clsx('min-w-0 text-xl font-medium text-zinc-100', titleOverflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
         </div>
         {children}
       </div>

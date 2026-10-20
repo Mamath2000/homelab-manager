@@ -6,7 +6,7 @@ import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { useRunJob } from '../lib/queries';
 import { imageUpdateMeta, stackMeta, stackPath } from '../lib/status';
-import { Badge, Button, ConfirmModal, IconGroup, Panel, Tag } from './ui';
+import { Badge, Button, ConfirmModal, IconGroup, Panel, ResponsiveList, Tag } from './ui';
 
 export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'status' | 'running' | 'total'> }) {
   if (!stack.managed) {
@@ -201,8 +201,30 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
       {d.stacks.length === 0 ? (
         <p className="p-4 text-sm text-muted">Aucune stack compose sur cet hôte.</p>
       ) : (
-        // narrow column: the table scrolls instead of overflowing the panel
-        <div className="overflow-x-auto">
+        <div>
+          <ResponsiveList mode="mobile">
+            {d.stacks.map((st) => (
+              <article key={st.name} className="min-w-0 space-y-3 p-4">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <Link
+                    to={stackPath(host.id, st.name)}
+                    title={st.name}
+                    className="min-w-0 truncate font-medium text-zinc-100 hover:text-emerald-300"
+                  >
+                    {st.name}
+                  </Link>
+                  {canWrite && <StackActions host={host} stack={st} disabled={running} compact onStarted={onStarted} />}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StackStatusBadge stack={st} />
+                  {st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}
+                </div>
+                {st.problems.length > 0 && <p className="break-words text-xs text-amber-300">{st.problems.join(' · ')}</p>}
+                {st.services.length > 0 && <ServiceTags services={st.services} />}
+              </article>
+            ))}
+          </ResponsiveList>
+          <ResponsiveList mode="desktop">
           <table className="w-full text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -236,6 +258,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
               ))}
             </tbody>
           </table>
+          </ResponsiveList>
         </div>
       )}
       <p className="border-t border-line px-4 py-2 text-xs text-muted">

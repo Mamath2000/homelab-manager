@@ -19,7 +19,7 @@ import {
 } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Badge, Button, CopyField } from './ui';
+import { Badge, Button, CopyField, Modal } from './ui';
 
 // Detail of a backup and of its copy to the secondary PBS (hub/src/offsite.ts): pill of every backup
 // (host card, backups page), state of the copy in the table, settings in the tab of the window of a
@@ -329,6 +329,16 @@ function Popover({ anchor, onClose, children }: { anchor: HTMLElement; onClose: 
 // copy; the cloud gives the state of the copy when there is one (pulsing while it runs).
 export function DetailPill({ g, remote, onStarted }: { g: BackupGroup; remote: BackupsView['offsite']; onStarted?: (jobId: string) => void }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [desktop, setDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches);
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)');
+    const change = (e: MediaQueryListEvent) => {
+      setDesktop(e.matches);
+      setAnchor(null);
+    };
+    media.addEventListener('change', change);
+    return () => media.removeEventListener('change', change);
+  }, []);
   const o = g.offsite;
   const state = remote && o?.enabled && !offsiteNotCopiable(g) ? copyState(o) : null;
   return (
@@ -338,17 +348,22 @@ export function DetailPill({ g, remote, onStarted }: { g: BackupGroup; remote: B
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
         title={state ? `Détail · copie déportée : ${stateMeta[state].label}` : 'Détail de la sauvegarde'}
         className={clsx(
-          'inline-flex shrink-0 items-center gap-1 rounded-sm border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap',
+          'inline-flex h-10 shrink-0 items-center gap-1 rounded-sm border px-3 text-xs font-medium whitespace-nowrap md:h-auto md:px-1.5 md:py-0.5',
           anchor ? 'border-zinc-500 text-zinc-100' : 'border-line text-zinc-400 hover:text-zinc-200',
         )}
       >
         détail
         {state && <Cloud className={clsx('h-3.5 w-3.5', stateMeta[state].cloud)} />}
       </button>
-      {anchor && (
+      {anchor && desktop && (
         <Popover anchor={anchor} onClose={() => setAnchor(null)}>
           <BackupDetail g={g} remote={remote} onStarted={onStarted} />
         </Popover>
+      )}
+      {anchor && !desktop && (
+        <Modal open onClose={() => setAnchor(null)} title={`Détail · ${g.backupId}`} wide scroll>
+          <BackupDetail g={g} remote={remote} onStarted={onStarted} />
+        </Modal>
       )}
     </>
   );

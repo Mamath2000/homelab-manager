@@ -6,7 +6,7 @@ import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
 import { DetailPill, OffsiteCell } from '../components/OffsiteCopy';
-import { Badge, Button, Empty, IconGroup, Modal, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, Empty, IconGroup, Modal, PageHeader, ResponsiveList, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
@@ -338,10 +338,112 @@ export function Backups() {
                 </div>
               </div>
 
-              <div className="panel overflow-x-auto">
+              <div className="panel min-w-0">
                 {list.length === 0 ? (
                   <p className="p-6 text-sm text-muted">Aucune sauvegarde pour ce filtre.</p>
                 ) : (
+                  <>
+                  <ResponsiveList mode="mobile">
+                    {list.map((g) => {
+                      const meta = backupStateMeta[g.state];
+                      const editDisabled = noEdit(g);
+                      return (
+                        <article key={g.id} className="min-w-0 space-y-3 p-4">
+                          <div className="flex min-w-0 items-start gap-2">
+                            <div className="min-w-0 flex-1">
+                              <h2 className="break-words font-medium text-zinc-100" title={groupLabel(g)}>{groupLabel(g)}</h2>
+                              <p className="mt-1 text-xs text-muted">
+                                {backupKind(g).label} · {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <IconGroup
+                              className="[&>button]:h-10 [&>button]:w-10"
+                              actions={[
+                                {
+                                  icon: Pencil,
+                                  title: editDisabled ? `Modifier — impossible : ${editDisabled}` : 'Modifier la sauvegarde',
+                                  disabled: !!editDisabled,
+                                  onClick: () => setEditing({ host: hostList.find((h) => h.id === g.hostId)!, jobId: g.managed!.jobId }),
+                                },
+                                { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
+                              ]}
+                            />
+                          </div>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Badge tone={meta.tone}>{meta.label}</Badge>
+                            <DetailPill g={g} remote={data.offsite} />
+                          </div>
+                          {g.pve && (
+                            <p className="break-words text-xs text-muted">
+                              PVE {g.pve.cluster} · {scheduleLabel(g)}
+                              {g.pve.lastTask && !g.pve.lastTask.ok && <span className="text-red-400"> · {g.pve.lastTask.error}</span>}
+                            </p>
+                          )}
+                          {g.ha && (
+                            <p className="break-words text-xs text-muted">
+                              Home Assistant · {scheduleLabel(g)}
+                              {g.ha.failedAt && g.ha.failedAt > g.lastBackup && <span className="text-red-400"> · non écrite {timeAgo(g.ha.failedAt)}</span>}
+                              {g.ha.error && <span className="text-amber-400"> · {g.ha.error}</span>}
+                            </p>
+                          )}
+                          {g.managed && (
+                            <p className="break-words text-xs text-muted">
+                              agent · {g.managed.name} · {scheduleLabel(g)}
+                              {g.managed.lastRun && !g.managed.lastRun.ok && <span className="text-red-400"> · {g.managed.lastRun.error}</span>}
+                            </p>
+                          )}
+                          {g.managed && databaseJobText(g.managed) && <p className="break-words text-xs text-zinc-500">{databaseJobText(g.managed)}</p>}
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                            <div>
+                              <div className="text-muted">Hôte</div>
+                              {g.source ? (
+                                <Link to={`/hosts/${g.hostId}`} className="break-words text-zinc-300 hover:text-emerald-300">{hostName(g.hostId)} · auto</Link>
+                              ) : canManage ? (
+                                <select
+                                  className="input mt-1 h-10 w-full min-w-0 py-1 text-xs"
+                                  value={g.hostId ?? ''}
+                                  onChange={(e) => update(g, { hostId: e.target.value || null })}
+                                  title="Hôte de la sauvegarde (détacher : elle n'est plus suivie)"
+                                >
+                                  {hostList.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                                  <option value="">— détacher</option>
+                                </select>
+                              ) : (
+                                <Link to={`/hosts/${g.hostId}`} className="break-words text-zinc-300 hover:text-emerald-300">{hostName(g.hostId)}</Link>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-muted">Dernière · taille</div>
+                              <div className="text-zinc-300" title={g.lastBackup ? dateTime(g.lastBackup) : undefined}>
+                                {g.lastBackup ? timeAgo(g.lastBackup) : 'jamais'} · {formatBytes(g.size)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted">Vérification</div>
+                              <div className={g.verify === 'ok' ? 'text-emerald-400' : g.verify === 'failed' ? 'text-red-400' : 'text-zinc-500'}>
+                                {g.verify === 'ok' ? 'ok' : g.verify === 'failed' ? 'échec' : '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-muted">Seuil</div>
+                              <ThresholdCell g={g} canManage={canManage} onChange={(staleHours) => update(g, { staleHours })} />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted">30 derniers jours</div>
+                            <BackupTimeline group={g} copy={!!data.offsite} />
+                          </div>
+                          {data.offsite && (
+                            <div className="border-t border-line pt-2">
+                              <div className="mb-1 text-xs text-muted">Copie déportée</div>
+                              <OffsiteCell g={g} />
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </ResponsiveList>
+                  <ResponsiveList mode="desktop">
                   <table className={clsx('w-full text-sm', data.offsite ? 'min-w-[1400px]' : 'min-w-[1200px]')}>
                     <thead className="border-b border-line">
                       <tr>
@@ -448,6 +550,8 @@ export function Backups() {
                       })}
                     </tbody>
                   </table>
+                  </ResponsiveList>
+                  </>
                 )}
               </div>
             </>

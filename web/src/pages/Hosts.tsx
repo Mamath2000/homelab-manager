@@ -10,7 +10,7 @@ import { HostOptionsModal } from '../components/HostOptionsModal';
 import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { BulkSetupModal } from '../components/SetupPanel';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner, StatusDot, Tag } from '../components/ui';
+import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, ResponsiveList, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useBackups, useHosts, useRunBulk, useRunJob, useSites, useTags } from '../lib/queries';
 import { HostTagList, SiteChip } from '../components/HostTags';
@@ -135,7 +135,7 @@ export function Hosts() {
           <Empty icon={Server} title={hosts.length ? 'Aucun hôte ne correspond' : 'Aucun hôte'} />
         ) : (
           <>
-            <div className="divide-y divide-line md:hidden">
+            <ResponsiveList mode="mobile">
               {canWrite && (
                 <label className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
                   <Checkbox
@@ -249,8 +249,8 @@ export function Hosts() {
                   </article>
                 );
               })}
-            </div>
-            <div className="hidden overflow-x-auto md:block">
+            </ResponsiveList>
+            <ResponsiveList mode="desktop">
           <table className="w-full min-w-[1200px] text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -343,7 +343,7 @@ export function Hosts() {
               })}
             </tbody>
           </table>
-            </div>
+            </ResponsiveList>
           </>
         )}
       </div>

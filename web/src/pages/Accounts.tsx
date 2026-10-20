@@ -5,7 +5,7 @@ import { api, type Account, type AccountSecret, type ApiKey, type Role } from '.
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Badge, Button, ConfirmModal, CopyField, Modal, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, PageHeader, ResponsiveList, Spinner } from '../components/ui';
 
 const ROLES: { value: Role; hint: string }[] = [
   { value: 'admin', hint: 'tout : hôtes, paramètres, comptes' },
@@ -96,6 +96,19 @@ function ApiKeysSection({ account }: { account: Account }) {
       )}
       {account.apiKeys.length > 0 ? (
         <div className="overflow-hidden rounded-md border border-line">
+          <ResponsiveList mode="mobile">
+            {account.apiKeys.map((k) => (
+              <article key={k.id} className="space-y-2 p-4">
+                <div className="font-medium text-zinc-100">{k.name}</div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400">
+                  <div><span className="text-muted">Créée le · </span>{dateTime(k.createdAt)}</div>
+                  <div><span className="text-muted">Dernière utilisation · </span>{k.lastUsedAt ? dateTime(k.lastUsedAt) : 'jamais'}</div>
+                </div>
+                <Button size="sm" variant="ghost" icon={Trash2} className="min-h-10 md:min-h-0" title="Révoquer cette clé" onClick={() => setRevoking(k)}>Révoquer</Button>
+              </article>
+            ))}
+          </ResponsiveList>
+          <ResponsiveList mode="desktop">
           <table className="w-full text-sm">
             <thead className="border-b border-line bg-white/[0.02]">
               <tr className="text-left">
@@ -118,6 +131,7 @@ function ApiKeysSection({ account }: { account: Account }) {
               ))}
             </tbody>
           </table>
+          </ResponsiveList>
         </div>
       ) : (
         <p className="rounded-md border border-dashed border-line px-3 py-4 text-center text-sm text-muted">Aucune clé d'API.</p>
@@ -316,7 +330,71 @@ export function Accounts() {
       {isLoading ? (
         <Spinner />
       ) : (
-        <div className="panel overflow-x-auto">
+        <div className="panel min-w-0">
+          <ResponsiveList mode="mobile">
+            {data?.map((a) => (
+              <article key={a.id} className="min-w-0 space-y-3 p-4">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="break-words font-medium text-zinc-100">
+                      {a.displayName || a.username}
+                      {a.username === me.username && <span className="ml-2 text-xs font-normal text-muted">(vous)</span>}
+                    </div>
+                    {a.displayName && <div className="break-all font-mono text-xs text-muted">{a.username}</div>}
+                  </div>
+                  <Badge tone={a.role === 'admin' ? 'warn' : a.role === 'operator' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <div className="text-muted">Mot de passe</div>
+                    {issued[a.id] ? (
+                      <div className="mt-1 space-y-1.5">
+                        <CopyField value={issued[a.id]} />
+                        <p className="text-amber-300">
+                          Affiché une seule fois.{' '}
+                          <button className="text-muted underline hover:text-zinc-200" onClick={() => hideIssued(a.id)}>Masquer</button>
+                        </p>
+                      </div>
+                    ) : !a.hasPassword ? (
+                      <span className="text-zinc-400">aucun · connexion impossible</span>
+                    ) : confirming === a.id ? (
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        <Button size="sm" variant="danger" icon={KeyRound} className="min-h-10 md:min-h-0" loading={reset.isPending} onClick={() => reset.mutate(a)}>
+                          Confirmer la réinitialisation
+                        </Button>
+                        <Button size="sm" variant="ghost" className="min-h-10 md:min-h-0" onClick={() => setConfirming(null)}>Annuler</Button>
+                      </div>
+                    ) : (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className={a.mustChangePassword ? 'text-amber-300' : 'text-zinc-400'}>
+                          {a.mustChangePassword ? 'temporaire, à changer à la connexion' : 'défini'}
+                        </span>
+                        {a.username !== me.username && (
+                          <Button size="sm" variant="ghost" icon={KeyRound} className="min-h-10 md:min-h-0" title="Génère un mot de passe temporaire et ferme les sessions du compte" onClick={() => setConfirming(a.id)}>
+                            Réinitialiser
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-zinc-400">
+                    <div><span className="text-muted">Clés d’API · </span>{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</div>
+                    <div><span className="text-muted">Dernière connexion · </span>{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</div>
+                    <div><span className="text-muted">Créé le · </span>{dateTime(a.createdAt)}</div>
+                  </div>
+                </div>
+                {!me.isSuperAdmin && (
+                  <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+                    <Button size="sm" variant="ghost" icon={Pencil} className="min-h-10 md:min-h-0" onClick={() => setEditing(a.id)}>Modifier</Button>
+                    {a.username !== me.username && (
+                      <Button size="sm" variant="ghost" icon={Trash2} className="min-h-10 md:min-h-0" onClick={() => setDeleting(a)}>Supprimer</Button>
+                    )}
+                  </div>
+                )}
+              </article>
+            ))}
+          </ResponsiveList>
+          <ResponsiveList mode="desktop">
           <table className="w-full min-w-[760px] text-sm">
             <thead className="border-b border-line">
               <tr className="text-left">
@@ -385,6 +463,7 @@ export function Accounts() {
               ))}
             </tbody>
           </table>
+          </ResponsiveList>
         </div>
       )}
 

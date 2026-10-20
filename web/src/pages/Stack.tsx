@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowUpCircle, Boxes, Container, Eye, EyeOff, FileCode, History, RefreshCw, ScrollText, ShieldAlert, Trash2 } from 'lucide-react';
 import { CheckImagesButton, ImageUpdateBadge, StackActions, StackStatusBadge } from '../components/Docker';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
-import { Badge, Button, Checkbox, Empty, PageHeader, Panel, Spinner, Tabs, Tag } from '../components/ui';
+import { Badge, Button, Checkbox, Empty, PageHeader, Panel, ResponsiveList, Spinner, Tabs, Tag } from '../components/ui';
 import { api, type DockerStack, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { jobTitle, timeAgo } from '../lib/format';
@@ -23,9 +23,9 @@ const short = (d: string | null) => (d ? d.replace('sha256:', '').slice(0, 12) :
 function ServiceName({ service }: { service: DockerStack['services'][number] }) {
   return (
     <>
-      {service.name}
+      <span className="block min-w-0 truncate" title={service.name}>{service.name}</span>
       {service.external && (
-        <span className="ml-2" title="Conteneur créé par un autre conteneur de la stack, hors du fichier compose : logs seulement, aucune action">
+        <span className="mt-1 inline-block" title="Conteneur créé par un autre conteneur de la stack, hors du fichier compose : logs seulement, aucune action">
           <Badge tone="neutral">hors compose</Badge>
         </span>
       )}
@@ -36,7 +36,16 @@ function ServiceName({ service }: { service: DockerStack['services'][number] }) 
 function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: DockerStack; running: boolean; onStarted: (id: string) => void }) {
   if (!stack.managed) {
     return (
-      <div className="panel overflow-x-auto">
+      <div className="panel min-w-0">
+        <ResponsiveList mode="mobile">
+          {stack.services.map((s) => (
+            <article key={s.name} className="min-w-0 space-y-2 p-4">
+              <div className="min-w-0 font-medium text-zinc-100"><ServiceName service={s} /></div>
+              <p className="truncate font-mono text-xs text-zinc-300" title={s.image || '—'}>{s.image || '—'}</p>
+            </article>
+          ))}
+        </ResponsiveList>
+        <ResponsiveList mode="desktop">
         <table className="w-full text-sm">
           <thead className="border-b border-line">
             <tr>
@@ -55,11 +64,47 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
             ))}
           </tbody>
         </table>
+        </ResponsiveList>
       </div>
     );
   }
   return (
-    <div className="panel overflow-x-auto">
+    <div className="panel min-w-0">
+      <ResponsiveList mode="mobile">
+        {stack.services.map((s) => (
+          <article key={s.name} className="min-w-0 space-y-3 p-4">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 font-medium text-zinc-100"><ServiceName service={s} /></div>
+              <ImageUpdateBadge update={s.update} />
+            </div>
+            <p className="truncate font-mono text-xs text-zinc-300" title={s.image || '—'}>{s.image || '—'}</p>
+            {s.update === 'available' && (
+              <p className="truncate font-mono text-[11px] text-muted" title={`${short(s.localDigest)} → ${short(s.remoteDigest)}`}>
+                {short(s.localDigest)} → <span className="text-amber-300">{short(s.remoteDigest)}</span>
+              </p>
+            )}
+            {s.containers.length === 0 ? (
+              <span className="text-xs text-muted">aucun conteneur</span>
+            ) : (
+              <ul className="space-y-1">
+                {s.containers.map((c) => (
+                  <li key={c.id} className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge tone={stateTone(c.state, c.health)}>{c.health ? `${c.state} · ${c.health}` : c.state}</Badge>
+                    <span className="min-w-0 break-words text-xs text-zinc-400">{c.status}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {s.checkError && s.update === 'unknown' && <p className="break-words text-[11px] text-muted">{s.checkError}</p>}
+            {stack.status !== 'down' && !s.external && (
+              <div className="flex justify-end">
+                <StackActions host={host} stack={stack} service={s.name} disabled={running} compact onStarted={onStarted} />
+              </div>
+            )}
+          </article>
+        ))}
+      </ResponsiveList>
+      <ResponsiveList mode="desktop">
       <table className="w-full min-w-[820px] text-sm">
         <thead className="border-b border-line">
           <tr>
@@ -109,6 +154,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
           ))}
         </tbody>
       </table>
+      </ResponsiveList>
     </div>
   );
 }
