@@ -112,6 +112,10 @@ func (s *session) hello(ctx context.Context) error {
 			caps = append(caps, "pve_cluster:"+cluster)
 		}
 	}
+	// read-only mount of a snapshot (pbsmount.go): native client, FUSE, systemd
+	if pbsMountCapable() {
+		caps = append(caps, "pbs_mount")
+	}
 	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
 	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)
 	caps = append(caps, "backup_setup")
@@ -257,6 +261,35 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 			out.Result = r
 		}
 		cancel()
+	case "pbs_mount":
+		// the client waits for the PBS (TimeoutStartSec of the unit)
+		cctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		var r *PbsMountState
+		if r, err = mountPbsSnapshot(cctx, in.PbsMount); err == nil {
+			out.Result = r
+		}
+		cancel()
+	case "pbs_umount":
+		cctx, cancel := context.WithTimeout(ctx, time.Minute)
+		var paths []string
+		root := ""
+		if in.PbsMount != nil {
+			root = in.PbsMount.MountRoot
+		}
+		if paths, err = unmountPbs(cctx, root); err == nil {
+			out.Result = map[string][]string{"unmounted": paths}
+		}
+		cancel()
+	case "pbs_mount_status":
+		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		root := defaultPbsMountRoot
+		if in.PbsMount != nil {
+			root = pbsMountRootFor(in.PbsMount)
+		}
+		out.Result = pbsMountStatus(cctx, root)
+		cancel()
+	case "pbs_mount_check":
+		out.Result = checkPbsReach(ctx, in.PbsMount)
 	case "pve_token_delete":
 		cctx, cancel := context.WithTimeout(ctx, time.Minute)
 		var r *TokenDeleteResult

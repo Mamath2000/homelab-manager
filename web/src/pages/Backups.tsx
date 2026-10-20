@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { Cloud, DatabaseBackup, HardDrive, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { Cloud, DatabaseBackup, FolderOpen, HardDrive, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
 import { DetailPill, OffsiteCell } from '../components/OffsiteCopy';
+import { MountBanner, MountDialog } from '../components/PbsMount';
 import { Badge, Button, Empty, IconGroup, Modal, PageHeader, ResponsiveList, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -128,6 +129,7 @@ export function Backups() {
   const q = params.get('q') ?? '';
   const [refreshing, setRefreshing] = useState(false);
   const [orphans, setOrphans] = useState(false);
+  const [mounting, setMounting] = useState<string | null>(null);
 
   if (isLoading || !data) return <div className="flex justify-center p-20"><Spinner /></div>;
 
@@ -219,6 +221,7 @@ export function Backups() {
         </div>
       ) : (
         <>
+          <div className="mb-5 empty:hidden"><MountBanner hosts={hostList} /></div>
           {data.pollError && (
             <div className="panel mb-5 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-200">Dernier relevé en échec : {data.pollError}</div>
           )}
@@ -347,6 +350,7 @@ export function Backups() {
                     {list.map((g) => {
                       const meta = backupStateMeta[g.state];
                       const editDisabled = noEdit(g);
+                      const canMount = canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && g.source !== 'haos' && (data.connected || !!data.offsite);
                       return (
                         <article key={g.id} className="min-w-0 space-y-3 p-4">
                           <div className="flex min-w-0 items-start gap-2">
@@ -365,6 +369,11 @@ export function Backups() {
                                   disabled: !!editDisabled,
                                   onClick: () => setEditing({ host: hostList.find((h) => h.id === g.hostId)!, jobId: g.managed!.jobId }),
                                 },
+                                ...(canMount ? [{
+                                  icon: FolderOpen,
+                                  title: 'Monter un snapshot de cette sauvegarde en lecture seule',
+                                  onClick: () => setMounting(g.id),
+                                }] : []),
                                 { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                               ]}
                             />
@@ -463,6 +472,7 @@ export function Backups() {
                       {list.map((g) => {
                         const meta = backupStateMeta[g.state];
                         const rhythm = rhythmLabel(g.interval);
+                        const canMount = canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && g.source !== 'haos' && (data.connected || !!data.offsite);
                         return (
                           <tr key={g.id} className="hover:bg-raised/40">
                             <td className="td">
@@ -478,6 +488,11 @@ export function Backups() {
                                       disabled: !!noEdit(g),
                                       onClick: () => setEditing({ host: hostList.find((h) => h.id === g.hostId)!, jobId: g.managed!.jobId }),
                                     },
+                                    ...(canMount ? [{
+                                      icon: FolderOpen,
+                                      title: 'Monter un snapshot de cette sauvegarde en lecture seule',
+                                      onClick: () => setMounting(g.id),
+                                    }] : []),
                                     { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                                   ]}
                                 />
@@ -559,6 +574,7 @@ export function Backups() {
         </>
       )}
       {data.connected && <OrphansModal data={data} open={orphans} onClose={() => setOrphans(false)} canManage={canManage} />}
+      {canManage && <MountDialog open={mounting !== null} initialGroupId={mounting} onClose={() => setMounting(null)} />}
       {shownGroup && <SnapshotsModal group={shownGroup} open onClose={() => setHistory(null)} />}
       {canManage && editing && <BackupJobEditModal key={editing.jobId} host={editing.host} jobId={editing.jobId} tab={editing.tab} onClose={() => setEditing(null)} />}
     </>

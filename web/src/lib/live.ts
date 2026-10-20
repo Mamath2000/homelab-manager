@@ -54,6 +54,8 @@ export function useLiveEvents(enabled: boolean) {
       qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
       qc.invalidateQueries({ queryKey: ['settings', 'pbs-remote'] });
     });
+    // a snapshot mounted or unmounted (the hosts carry it): the mount window
+    es.addEventListener('pbs-mount', () => qc.invalidateQueries({ queryKey: ['pbs-mount'] }));
     // sites or tags changed in the settings
     es.addEventListener('catalog', () => {
       qc.invalidateQueries({ queryKey: keys.sites });

@@ -15,6 +15,7 @@ export const DEFAULT_PBS: PbsSettings = {
   fingerprint: '',
   tokenId: '',
   tokenSecret: '',
+  mountRoot: '/srv/pbs-restore',
 };
 
 export const PBS_URL_RE = SERVER_URL_RE;

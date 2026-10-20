@@ -111,5 +111,5 @@ test('host: worst of its known domains; unknown ones do not count; absent domain
   const roaming = evaluate(host({ roaming: true, apt: report() }), ctx({ online: false, groups: [group({ verify: 'failed' })] }));
   assert.equal(roaming.domains.system?.level, 'unknown');
   assert.equal(roaming.level, 'alert');
-  assert.deepEqual(DOMAINS.map((d) => d.id), ['system', 'apt', 'docker', 'backup', 'offsite', 'ups']);
+  assert.deepEqual(DOMAINS.map((d) => d.id), ['system', 'apt', 'docker', 'backup', 'offsite', 'ups', 'mount']);
 });

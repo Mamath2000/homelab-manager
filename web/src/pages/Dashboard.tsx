@@ -4,6 +4,7 @@ import { LayoutDashboard, Plus, RefreshCw, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { DashboardActions } from '../components/DashboardActions';
 import { DashboardTodo } from '../components/DashboardTodo';
+import { MountBanner } from '../components/PbsMount';
 import { SiteOverview } from '../components/SiteOverview';
 import { SiteTimeline } from '../components/SiteTimeline';
 import { Button, Empty, PageHeader, Spinner } from '../components/ui';
@@ -128,6 +129,7 @@ export function Dashboard() {
         </div>
       ) : (
         <div className="space-y-4">
+          <MountBanner hosts={hosts} />
           <Kpis hosts={hosts} groups={groups} backups={withBackups} />
           <div className="min-[1100px]:hidden">
             <DashboardTodo section="others" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />

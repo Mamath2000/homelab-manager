@@ -48,6 +48,7 @@ Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backu
 | supervision du PBS | `homelab@pbs!monitor` | `DatastoreAudit` sur `/datastore` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
 | écriture d'un hôte | `host-<hôte>@pbs!backup` | `DatastoreBackup` sur `/datastore/<chaque datastore>/Hosts` | créer des sauvegardes dans le namespace `Hosts`, voir et relire **ses propres** groupes | voir ou relire les groupes des autres hôtes, écrire hors de `Hosts` (namespaces de Proxmox VE) |
 | lecteur (PBS principal) | `homelab@pbs!reader` | `DatastoreReader` sur `/datastore` | lire toutes les sauvegardes du PBS principal : c'est avec lui que le [PBS de secours](#copie-déportée-pbs-de-secours) les tire | écrire, supprimer, modifier quoi que ce soit |
+| montage (volatil) | `homelab-mount@pbs!m<horodatage>` | `DatastoreReader` sur `/datastore/<datastore>/<namespace du groupe>` | lire les sauvegardes de ce namespace, le temps d'un [montage](#monter-une-sauvegarde-lecture-seule) : créé au montage, révoqué au démontage | écrire, supprimer, lire hors de ce namespace ; il n'est jamais conservé par le hub |
 | hub sur le PBS de secours | `homelab@pbs!hub` | `DatastoreBackup` + `DatastoreAudit` sur `/datastore/<datastore cible>`, `RemoteAdmin` sur `/remote` | déclarer l'entrée remote et les sync jobs (dont il est propriétaire), lister les copies et leur état | **supprimer un snapshot**, activer `remove-vanished`, créer un namespace (ni `Datastore.Prune` ni `Datastore.Modify`), toucher aux autres datastores |
 
 Le chemin `{store}` est développé sur chaque datastore présent au moment de la création : après l'ajout d'un datastore, recréer le jeton de l'hôte (le secret est conservé) pour l'étendre.
@@ -184,6 +185,41 @@ Toutes les 15 minutes, et à la fin de chaque copie, le hub relève sur le PBS d
 | en échec | le dernier passage a échoué pour cette sauvegarde, ou le PBS de secours a refusé son job |
 
 « En échec » est une alerte, « en retard » un avertissement : ils s'ajoutent à ceux de la sauvegarde. Le détail d'une sauvegarde copiée donne aussi la prochaine série (« prochaine série dans 9 heures »), la copie en cours, ou l'agent hors ligne ou à mettre à jour.
+
+## Monter une sauvegarde (lecture seule)
+
+L'interface du PBS ne restaure une sauvegarde qu'en entier, ou fichier par fichier. Homelab Manager **monte un snapshot** en lecture seule dans un répertoire d'un hôte (`proxmox-backup-client mount`, FUSE), sans rien extraire : on parcourt, on copie ce qu'il faut, on démonte.
+
+- Sauvegardes de répertoires (`host`) et de conteneurs (`ct`), archives `.pxar` ; pas de VM (PVE et PBS savent les restaurer à côté de l'origine), ni d'archive chiffrée.
+- **Un seul montage à la fois** dans tout le hub. **Jamais de démontage automatique** : tant qu'une sauvegarde est montée, un bandeau orange reste sur le tableau de bord et la page Sauvegardes, et l'hôte (donc son site) est en avertissement dans le domaine **Montage PBS** ([Alertes et statuts](alertes.md)).
+- Administrateurs seulement.
+
+### Monter
+
+Page Sauvegardes › icône de montage sur la ligne de la sauvegarde : une fenêtre en quatre étapes, pré-sélectionnée sur cette sauvegarde.
+
+1. **Sauvegarde** : le PBS (principal ou de secours), puis la sauvegarde. Depuis le PBS de secours, seules celles qu'il a copiées (sync jobs `hlm-*`) sont proposées.
+2. **Snapshot** : lus à l'instant sur le PBS choisi (celui de secours a ses propres snapshots et sa propre rétention).
+3. **Archive** : une par répertoire sauvegardé, `root.pxar` pour un conteneur.
+4. **Destination** : par défaut **l'hôte du PBS**. Les autres hôtes proposés ont un agent connecté qui sait monter (capacité « pbs_mount » : `proxmox-backup-client` installé **nativement** — l'image Docker du client ne peut pas monter pour l'hôte —, `/dev/fuse` et systemd) et qui **joint ce PBS** : son agent teste à l'instant le port et l'empreinte du certificat. « Lien lent » signale une lecture depuis le PBS de secours ou depuis un autre site.
+
+La racine est configurable dans **Paramètres › Sauvegardes › Proxmox Backup Server** (par défaut `/srv/pbs-restore`). Le montage arrive dessous sous `<type>-<id>_<date>_<archive>` (par exemple `/srv/pbs-restore/ct-101_2026-10-19_02-30-00_root`), lisible par root seulement. Le chemin est rappelé dans le bandeau.
+
+### Ce qui se passe
+
+- Le client tourne **toujours sur l'hôte de destination**, dans une unité systemd transitoire `hlm-pbs-mount`, jamais dans le conteneur d'un PBS : pour le PBS de secours en conteneur, il passe par le port publié (pas de `/dev/fuse` ni de `SYS_ADMIN` dans le conteneur). Pour qu'il en soit la destination, l'hôte Docker du PBS doit avoir le client natif (installation par APT depuis sa fiche).
+- **Jeton volatil** : au montage, l'agent du PBS crée `homelab-mount@pbs!m<horodatage>`, `DatastoreReader` sur le seul namespace de la sauvegarde. Son secret va à l'agent de la destination dans la requête seulement, puis dans un fichier d'environnement de systemd (root, `0600`) supprimé dès le démarrage de l'unité : jamais en base, dans les journaux, dans l'interface ni sur une ligne de commande.
+- Le montage est enregistré **avant** la création du jeton : quoi qu'il arrive ensuite (échec, redémarrage du hub), le hub sait qu'un jeton peut exister et le révoque.
+
+### Démonter
+
+**Démonter** (bandeau) arrête l'unité, démonte, supprime le répertoire vide, puis l'agent du PBS **révoque le jeton** (et l'utilisateur `homelab-mount@pbs` quand il n'a plus de jeton). Ce qui ne peut pas se faire tout de suite (agent hors ligne) se fait à son retour ; le bandeau l'indique (« démontage en attente ») et l'avertissement reste jusque-là. Le jeton est révoqué même si l'hôte n'a pas encore pu démonter : le montage ne peut alors plus rien lire.
+
+Un montage perdu (redémarrage de l'hôte, unité arrêtée à la main) est constaté au retour de l'agent ou au plus tard 5 minutes après : le jeton est révoqué, le montage oublié. Un hôte qui porte un montage ne peut pas être supprimé.
+
+### Conteneurs non privilégiés : uid décalés
+
+Une sauvegarde de CT non privilégié garde les propriétaires **vus depuis l'hôte Proxmox** : décalés de 100000 (`root` du conteneur = uid 100000, l'utilisateur 1000 = 101000). Copier vers le conteneur d'origine en conservant ces uid donnerait des fichiers inaccessibles : copier sans les propriétaires (`cp -r --no-preserve=ownership`, `rsync -rlt`), puis rétablir le propriétaire dans le conteneur ; ou copier depuis l'hôte Proxmox vers le rootfs du conteneur en gardant les uid décalés (`rsync -a`).
 
 ## Déconnecter un PBS ou un cluster
 
@@ -371,4 +407,4 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
 ## Rôles
 
-Tous les rôles voient les sauvegardes et le détail de leur copie. Les opérateurs peuvent relever, **lancer** une sauvegarde de répertoires et **copier maintenant** une sauvegarde copiée. Seuls les administrateurs règlent les connexions (PBS, PBS de secours, clusters), les jetons, les jobs, l'installation du client, le rattachement, le seuil propre à une sauvegarde et sa copie déportée.
+Tous les rôles voient les sauvegardes et le détail de leur copie. Les opérateurs peuvent relever, **lancer** une sauvegarde de répertoires et **copier maintenant** une sauvegarde copiée. Seuls les administrateurs règlent les connexions (PBS, PBS de secours, clusters), les jetons, les jobs, l'installation du client, le rattachement, le seuil propre à une sauvegarde et sa copie déportée, et **montent / démontent** une sauvegarde.

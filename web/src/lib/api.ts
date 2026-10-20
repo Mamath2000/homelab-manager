@@ -172,6 +172,8 @@ export interface Host {
   setup: SetupState | null;
   // Proxmox VE guest this host is (one of its MAC addresses), null: none or not a single one
   pve: HostPveLink | null;
+  // snapshot of a PBS mounted here (hub/src/pbsMount.ts); null: none
+  pbsMount: PbsMount | null;
   // OS of the agent (windows: presence, info and sessions only)
   osFamily: 'linux' | 'windows';
   // Windows: path of the backup CLI set in the options (checked by the agent: capability backup:cli)
@@ -584,6 +586,57 @@ export interface BackupsView {
   cached: { id: string; hostId: string; name: string; store: string; ns: string; backupId: string; schedule: string; connectEveryDays: number | null; enabled: boolean; at: string }[];
 }
 
+// Read-only mount of a snapshot of a PBS (hub/src/pbsMount.ts): one in all the hub, on the host that has it
+export type PbsMountSource = 'main' | 'offsite';
+export interface PbsMount {
+  state: 'mounting' | 'mounted' | 'unmounting';
+  source: PbsMountSource;
+  pbsHostId: string;
+  groupId: string;
+  label: string;
+  store: string;
+  ns: string;
+  type: 'host' | 'ct';
+  backupId: string;
+  time: number; // unix s
+  archive: string;
+  tokenId: string;
+  path?: string;
+  slow?: boolean;
+  startedAt: string;
+  mountedAt?: string;
+  unmounted?: boolean;
+  revoked?: boolean;
+  error?: string | null;
+}
+export interface PbsMountOverview {
+  sources: { id: PbsMountSource; label: string; host: string | null; ready: boolean; reason: string | null }[];
+  active: { hostId: string; hostName: string } | null;
+  mountRoot: string;
+}
+export interface PbsMountGroup {
+  id: string;
+  label: string;
+  store: string;
+  ns: string;
+  type: 'host' | 'ct';
+  backupId: string;
+  hostName: string | null;
+  lastBackup: number | null;
+}
+export interface PbsMountSnapshot {
+  time: number;
+  size: number | null;
+  comment: string | null;
+  verify: 'ok' | 'failed' | null;
+  archives: { name: string; size: number | null; encrypted: boolean }[];
+}
+export interface PbsMountDestinations {
+  pbsHost: { id: string; name: string | null; reason: string | null };
+  defaultHostId: string | null;
+  hosts: { id: string; name: string; siteId: string | null; online: boolean; isPbsHost: boolean; slow: boolean; reach: { ok: boolean; error: string | null } }[];
+}
+
 // Agent that administers a PBS (hub/src/pbsAgent.ts): host, PBS installed on it or in a container
 export interface PbsAgentLink {
   hostId: string;
@@ -621,6 +674,7 @@ export interface PbsSettings {
   tokenId: string;
   hasSecret: boolean;
   clientImage?: string;
+  mountRoot: string;
   tailscaleUrl?: string; // PBS address for the hosts of the Tailscale access network
   polledAt?: string;
   pollError?: string | null;
@@ -714,6 +768,7 @@ export interface PbsSettingsInput {
   fingerprint: string;
   agent?: PbsAgentLink;
   clientImage?: string;
+  mountRoot: string;
   tailscaleUrl?: string;
 }
 
@@ -988,6 +1043,12 @@ export const api = {
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
   backups: () => request<BackupsView>('GET', '/api/backups'),
   refreshBackups: () => request<{ ok: boolean }>('POST', '/api/backups/refresh'),
+  pbsMount: () => request<PbsMountOverview>('GET', '/api/pbs-mount'),
+  pbsMountGroups: (source: PbsMountSource) => request<PbsMountGroup[]>('GET', `/api/pbs-mount/${source}/groups`),
+  pbsMountSnapshots: (source: PbsMountSource, group: string) => request<PbsMountSnapshot[]>('GET', `/api/pbs-mount/${source}/snapshots?group=${encodeURIComponent(group)}`),
+  pbsMountDestinations: (source: PbsMountSource) => request<PbsMountDestinations>('GET', `/api/pbs-mount/${source}/destinations`),
+  mountSnapshot: (m: { source: PbsMountSource; groupId: string; time: number; archive: string; hostId: string }) => request<{ path: string; slow: boolean }>('POST', '/api/pbs-mount', m),
+  unmountSnapshot: () => request<{ pending: PbsMount | null }>('POST', '/api/pbs-mount/unmount'),
   setHostBackups: (hostId: string, ids: string[]) => request<BackupGroup[]>('PUT', `/api/hosts/${hostId}/backups`, { ids }),
   updateBackup: (id: string, patch: { hostId?: string | null; staleHours?: number | null }) =>
     request<BackupGroup>('PATCH', `/api/backups/${encodeURIComponent(id)}`, patch),

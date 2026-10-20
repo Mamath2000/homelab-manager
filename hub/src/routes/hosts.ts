@@ -176,6 +176,8 @@ export function registerHostRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { id: string } }>('/api/hosts/:id', async (req, reply) => {
     const _id = parseId(req.params.id);
+    // its record is what revokes the token of the mount
+    if (_id && (await hosts.countDocuments({ _id, pbsMount: { $exists: true } }))) return reply.code(409).send({ error: 'une sauvegarde est montée sur cet hôte : la démonter d’abord' });
     const res = _id && (await hosts.deleteOne({ _id }));
     if (!res || res.deletedCount === 0) return reply.code(404).send({ error: 'host not found' });
     disconnectAgent(req.params.id);

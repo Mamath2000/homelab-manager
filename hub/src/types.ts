@@ -166,6 +166,8 @@ export interface HostDoc {
   haExcluded?: boolean;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
+  // snapshot of a PBS mounted read-only on this host (pbsMount.ts); one in all the hub
+  pbsMount?: PbsMount;
   // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied
   // store: datastore the token was given rights on (token created by the command of the UI); unknown otherwise
   pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date; store?: string };
@@ -435,6 +437,7 @@ export interface PbsSettings {
   // backups run by the agents: client image where proxmox-backup-client is not installed (the default
   // time zone of their jobs is the TZ of the hub, see backupJobs.ts)
   clientImage?: string;
+  mountRoot: string; // root directory for read-only PBS snapshot mounts on destination hosts
 }
 
 // One backup group of the PBS: datastore + namespace + type + id.
@@ -494,6 +497,34 @@ export interface BackupOffsite {
 }
 
 // Secondary PBS (settings._id 'pbs-remote'): pulls from the main PBS the groups chosen one by one.
+// Read-only mount of a snapshot (pbsMount.ts), kept on the host it is mounted on. Written before the
+// volatile token is created: whatever happens next, the hub knows a token may exist and revokes it.
+// mounting: being set up; mounted; unmounting: asked (or the mount was lost), waiting for the agent of the
+// host to unmount and / or for the agent of the PBS to revoke the token.
+export type PbsMountSource = 'main' | 'offsite';
+export interface PbsMount {
+  state: 'mounting' | 'mounted' | 'unmounting';
+  source: PbsMountSource;
+  link: PbsAgentLink; // agent of the PBS: creates and revokes the token
+  groupId: string; // BackupDoc of the main PBS
+  label: string;
+  store: string; // datastore on the PBS of the source
+  ns: string;
+  type: 'host' | 'ct';
+  backupId: string;
+  time: number; // unix s of the snapshot
+  archive: string; // root.pxar.didx
+  mountRoot: string;
+  tokenId: string; // the secret is never stored
+  path?: string;
+  slow?: boolean; // secondary PBS or another site: reads cross a slow link
+  startedAt: Date;
+  mountedAt?: Date;
+  unmounted?: boolean; // unmounting: done on the host
+  revoked?: boolean; // unmounting: token revoked
+  error?: string | null; // last failure of the unmount or of the revocation
+}
+
 export interface PbsRemoteSettings {
   _id: 'pbs-remote';
   agent?: PbsAgentLink;
@@ -732,7 +763,7 @@ export interface BackupPve {
 
 // Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups';
+export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups' | 'mount';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -748,6 +779,7 @@ export interface HostAlertDoc {
   backup?: DayAlert;
   offsite?: DayAlert;
   ups?: DayAlert;
+  mount?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;
 }

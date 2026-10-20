@@ -28,6 +28,7 @@ export const DOMAINS: DomainMeta[] = [
   { id: 'backup', label: 'Sauvegardes', icon: 'database-backup' },
   { id: 'offsite', label: 'Copie externe', icon: 'cloud-upload' },
   { id: 'ups', label: 'Onduleur', icon: 'battery-charging' },
+  { id: 'mount', label: 'Montage PBS', icon: 'folder-open' },
 ];
 
 export interface Check {
@@ -176,6 +177,16 @@ export function upsStatus(h: Pick<HostDoc, 'ups'>, ctx: Pick<Context, 'online'>)
   return known(problems.map((p) => check(p.message, p.message, p.level, p.message)));
 }
 
+// A snapshot mounted here (pbsMount.ts): a warning as long as it is, never unmounted automatically.
+export function mountStatus(h: Pick<HostDoc, 'pbsMount'>): DomainReport {
+  const m = h.pbsMount;
+  if (!m) return null;
+  const what = `${m.label} (${new Date(m.time * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`;
+  if (m.state === 'unmounting') return known([check('mount', 'Montage', 'warn', `Démontage de ${what} en attente${m.error ? ` : ${m.error}` : ''}`)]);
+  if (m.state === 'mounting') return known([check('mount', 'Montage', 'warn', `Montage de ${what} en cours`)]);
+  return known([check('mount', 'Montage', 'warn', `Sauvegarde ${what} montée sous ${m.path ?? '/srv/pbs-restore'}`)]);
+}
+
 const PROVIDERS: Record<AlertDomain, Provider> = {
   system: systemStatus,
   apt: aptStatus,
@@ -183,6 +194,7 @@ const PROVIDERS: Record<AlertDomain, Provider> = {
   backup: backupStatus,
   offsite: offsiteStatus,
   ups: upsStatus,
+  mount: mountStatus,
 };
 
 // --- evaluation ---------------------------------------------------------------------------------

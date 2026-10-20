@@ -15,6 +15,7 @@ import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
 import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
 import { isHaBackupReport, refreshHaBackups } from './haBackups.js';
 import { isSeriesReport, onOffsiteHello, onOffsiteReport, onOffsiteSynced } from './offsite.js';
+import { onMountHello } from './pbsMount.js';
 import { isUpsReport } from './ups.js';
 import { isSessionReport } from './sessions.js';
 import { randomUUID } from 'node:crypto';
@@ -211,6 +212,8 @@ export function registerAgentSocket(app: FastifyInstance) {
               syncHost(host._id).catch((err) => log.warn({ err }, 'backup sync failed'));
               // the secondary PBS: the definition of the daily series of the copies
               onOffsiteHello(host._id).catch((err) => log.warn({ err }, 'offsite series sync failed'));
+              // a mounted snapshot: lost at a reboot, or an unmount / a revocation waiting for this agent
+              onMountHello(host._id, log).catch((err) => log.warn({ err }, 'PBS mount reconciliation failed'));
               // new MAC addresses: the link with a Proxmox VE guest may change
               if (JSON.stringify(before?.info?.macs ?? null) !== JSON.stringify(msg.info?.macs ?? null)) {
                 refreshLinks().then(() => publish('backups', {})).catch((err) => log.warn({ err }, 'PVE link failed'));

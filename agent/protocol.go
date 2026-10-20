@@ -115,7 +115,7 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pve_detect | pve_token | pve_token_delete | refresh
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | refresh
 	Tail  int    `json:"tail,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`
@@ -135,6 +135,8 @@ type Inbound struct {
 	Method string `json:"method,omitempty"`
 	// pbs_token: user, token and rights to create on the PBS of this host (pbs_token_delete: to revoke)
 	Pbs *PbsTokenSpec `json:"pbs,omitempty"`
+	// pbs_mount: the snapshot to mount here and the volatile token (pbs_mount_check: the PBS address only)
+	PbsMount *PbsMountSpec `json:"pbsMount,omitempty"`
 	// pve_token: user, token and rights to create on the Proxmox VE cluster of this node (pve_token_delete: to revoke)
 	Pve *PveTokenSpec `json:"pve,omitempty"`
 	// offsite_sync: the copy to this secondary PBS (offsite.go)

@@ -16,6 +16,7 @@ import {
 } from '../pbs.js';
 import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollPve, pveGet } from '../pve.js';
 import { validTimeZone } from '../calendar.js';
+import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
@@ -46,6 +47,7 @@ interface SettingsBody {
   agent?: PbsAgentLink;
   tailscaleUrl?: string;
   clientImage?: string;
+  mountRoot?: string;
 }
 
 const agentLinkSchema = {
@@ -65,6 +67,7 @@ const settingsBody = {
     agent: agentLinkSchema,
     clientImage: { type: 'string', maxLength: 256 },
     tailscaleUrl: { type: 'string', maxLength: 256 },
+    mountRoot: { type: 'string', maxLength: 256 },
   },
 } as const;
 
@@ -79,6 +82,9 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
     _id: 'pbs',
   };
   next.tailscaleUrl = (body.tailscaleUrl ?? current.tailscaleUrl ?? '').trim().replace(/\/+$/, '');
+  const mountRoot = normalizeMountRoot(body.mountRoot ?? current.mountRoot ?? '/srv/pbs-restore');
+  if (!mountRoot) return 'racine de montage invalide (chemin absolu différent de /)';
+  next.mountRoot = mountRoot;
   if (next.tailscaleUrl && !PBS_URL_RE.test(next.tailscaleUrl)) return 'URL Tailscale invalide (https://100.x.y.z:8007)';
   if (next.url && !PBS_URL_RE.test(next.url)) return 'URL invalide (https://pbs:8007)';
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';

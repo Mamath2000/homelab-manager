@@ -71,5 +71,7 @@ export function hostDto(h: HostDoc) {
     setup: setupDto(h),
     // Proxmox VE guest this host is (see pve.ts)
     pve: h.pve ?? null,
+    // snapshot of a PBS mounted here (pbsMount.ts); the agent link stays in the hub
+    pbsMount: h.pbsMount ? (({ link, ...m }) => ({ ...m, pbsHostId: link.hostId }))(h.pbsMount) : null,
   };
 }

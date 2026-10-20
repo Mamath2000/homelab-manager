@@ -28,6 +28,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     fingerprint: data.fingerprint,
     ...(data.agent ? { agent: data.agent } : {}),
     clientImage: data.clientImage ?? '',
+    mountRoot: data.mountRoot ?? '/srv/pbs-restore',
     tailscaleUrl: data.tailscaleUrl ?? '',
   }));
   const [form, setForm] = useState<PbsSettingsInput>(initial);
@@ -37,7 +38,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const set = (patch: Partial<PbsSettingsInput>) => setForm({ ...form, ...patch });
+  const set = (patch: Partial<PbsSettingsInput>) => setForm((current) => ({ ...current, ...patch }));
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const requestClose = () => {
     if (busy) return;
@@ -85,7 +86,11 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
         title="Proxmox Backup Server"
         footer={
           <>
-            <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <div className="mr-auto flex w-full min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm md:w-auto">
+              <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Répertoire racine des snapshots montés en lecture seule sur les hôtes de destination">
+                <span className="shrink-0">Racine des montages</span>
+                <input className="input h-8 w-56 py-1 font-mono text-xs" value={form.mountRoot} onChange={(e) => set({ mountRoot: e.target.value.trim() })} placeholder="/srv/pbs-restore" spellCheck={false} />
+              </label>
               <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Image Docker du client PBS, pour les hôtes sans client installé">
                 <span className="shrink-0">Image du client</span>
                 <input className="input h-8 w-60 py-1 font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />

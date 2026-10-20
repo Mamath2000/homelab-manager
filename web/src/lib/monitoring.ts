@@ -1,4 +1,4 @@
-import { Activity, BatteryCharging, CloudUpload, Container, DatabaseBackup, Package, Radio, type LucideIcon } from 'lucide-react';
+import { Activity, BatteryCharging, CloudUpload, Container, DatabaseBackup, FolderOpen, Package, Radio, type LucideIcon } from 'lucide-react';
 import type { AlertLevel, DomainMeta, DomainStatus, Host, HostAlertDay, StatusView } from './api';
 import type { Tone } from './status';
 
@@ -12,6 +12,7 @@ const icons: Record<string, LucideIcon> = {
   'database-backup': DatabaseBackup,
   'cloud-upload': CloudUpload,
   'battery-charging': BatteryCharging,
+  'folder-open': FolderOpen,
 };
 export const domainIcon = (d: Pick<DomainMeta, 'icon'>): LucideIcon => icons[d.icon] ?? Activity;
 
