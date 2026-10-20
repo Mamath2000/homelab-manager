@@ -8,6 +8,9 @@
 - Toute autre action (mise à jour unitaire d'un agent, d'un hôte, d'un paquet, d'une stack ; démarrer/redémarrer ; réglage
   réversible) se lance **directement** au clic : `loading` sur le bouton, retour par toast ou par le job.
 
+- **Toutes les boîtes de dialogue sont centrées sur la page** (verticalement et horizontalement) : passer par `Modal`, qui le fait ;
+  ne pas réintroduire de décalage depuis le haut.
+
 ## Lancement local (`make dev` / `make start`)
 
 - Les ports du hub de test sont **figés** dans `.env.local` (gitignoré, `override` lu par le Makefile ; dev-math : interface 3001,

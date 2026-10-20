@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -253,7 +253,7 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
 // open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, wide, scroll, low }: {
+export function Modal({ open, onClose, title, children, footer, wide, wider, scroll }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -262,10 +262,10 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll, lo
   // true: 2xl, 'xl': 5xl (content in columns), 'screen': 5xl at 16:9, the size of the screen (fixed
   // height: switching tabs does not resize it; the body scrolls)
   wide?: boolean | 'xl' | 'screen';
+  // with 'xl' / 'screen': 6xl instead of 5xl (four columns side by side)
+  wider?: boolean;
   // long content: the body scrolls inside the window, header and footer stay visible
   scroll?: boolean;
-  // lower in the screen (18vh from the top instead of 12vh)
-  low?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -279,22 +279,17 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll, lo
     };
   }, [open, onClose]);
   if (!open) return null;
+  // every window is centered on the page (my-auto: still reachable from the top when taller than the screen);
   // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
-  const top = wide === 'screen' ? (low ? '10vh' : '6vh') : low ? '18vh' : '12vh';
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-4 backdrop-blur-xs md:pt-[var(--modal-top)]"
-      onMouseDown={onClose}
-      style={{ '--modal-top': top } as CSSProperties}
-    >
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}>
       <div
         className={clsx(
-          'panel w-full min-w-0 bg-panel shadow-2xl shadow-black/60',
-          wide === 'xl' || wide === 'screen' ? 'max-w-[calc(100vw-2rem)] sm:max-w-5xl' : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
-          // 12vh on top, at most 70vh high: the window stays clear of the bottom of the screen
-          wide === 'screen' ? 'flex min-h-[20rem] flex-col' : scroll && 'flex max-h-[70vh] flex-col',
+          'panel my-auto w-full min-w-0 bg-panel shadow-2xl shadow-black/60',
+          wide === 'xl' || wide === 'screen' ? clsx('max-w-[calc(100vw-2rem)]', wider ? 'sm:max-w-6xl' : 'sm:max-w-5xl') : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
+          // at most 70vh high: the window keeps a margin above and below
+          wide === 'screen' ? 'flex max-h-[calc(100vh-2rem)] min-h-[20rem] flex-col' : scroll && 'flex max-h-[70vh] flex-col',
         )}
-        style={wide === 'screen' ? { maxHeight: `calc(100vh - ${top} - 2rem)` } : undefined}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">

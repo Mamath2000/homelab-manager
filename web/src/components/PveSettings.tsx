@@ -103,7 +103,7 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
       <Modal
         open
         onClose={requestClose}
-        wide="screen" low
+        wide="screen"
         title={cluster ? `Cluster ${cluster.name}` : 'Nouveau cluster Proxmox VE'}
         footer={
           <>

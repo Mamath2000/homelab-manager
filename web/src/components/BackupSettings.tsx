@@ -82,7 +82,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
       <Modal
         open={open}
         onClose={requestClose}
-        wide="screen" low
+        wide="screen"
         title="Proxmox Backup Server"
         footer={
           <>

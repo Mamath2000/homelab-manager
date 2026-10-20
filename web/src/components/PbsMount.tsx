@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { AlertTriangle, FolderOpen, Lock, RefreshCw, ShieldCheck, Unplug } from 'lucide-react';
 import { api, type Host, type PbsMount, type PbsMountSource } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -9,10 +9,10 @@ import { dateTime, timeAgo } from '../lib/format';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { Step, Steps } from './PbsDialog';
-import { Badge, Button, ConfirmModal, CopyField, Modal, Segmented, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
 
 // Read-only mount of a snapshot of a PBS on a host (hub/src/pbsMount.ts, #209): a window in four steps
-// (backup of the PBS chosen, snapshot, archive, destination) and the banner shown as long as a snapshot
+// (PBS holding the backup, snapshot, archive, destination) and the banner shown as long as a snapshot
 // is mounted (dashboard, backups page). Never unmounted automatically.
 
 const snapshotDate = (t: number) => dateTime(t * 1000);
@@ -50,10 +50,18 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
   const [busy, setBusy] = useState(false);
 
   const overview = useQuery({ queryKey: ['pbs-mount'], queryFn: api.pbsMount, enabled: open });
-  const source: PbsMountSource = picked ?? overview.data?.sources.find((s) => s.ready)?.id ?? 'main';
-  const src = overview.data?.sources.find((s) => s.id === source);
-  const groups = useQuery({ queryKey: ['pbs-mount', source, 'groups'], queryFn: () => api.pbsMountGroups(source), enabled: open && !!src?.ready });
-  const selectedGroupId = initialGroupId && groups.data?.some((g) => g.id === initialGroupId) ? initialGroupId : null;
+  const sources = overview.data?.sources ?? [];
+  // the backup is given by its row: look it up on every ready PBS to offer the ones that hold it
+  const groupsBySource = useQueries({
+    queries: sources.map((s) => ({ queryKey: ['pbs-mount', s.id, 'groups'], queryFn: () => api.pbsMountGroups(s.id), enabled: open && s.ready })),
+  });
+  const groupOn = (i: number) => groupsBySource[i]?.data?.find((g) => g.id === initialGroupId);
+  const source: PbsMountSource =
+    picked ?? sources.find((s, i) => s.ready && groupOn(i))?.id ?? sources.find((s) => s.ready)?.id ?? 'main';
+  const srcIndex = sources.findIndex((s) => s.id === source);
+  const selectedGroup = srcIndex >= 0 ? groupOn(srcIndex) : undefined;
+  const selectedGroupId = selectedGroup?.id ?? null;
+  const anyGroup = selectedGroup ?? sources.map((_, i) => groupOn(i)).find(Boolean);
   const snaps = useQuery({ queryKey: ['pbs-mount', source, 'snapshots', selectedGroupId], queryFn: () => api.pbsMountSnapshots(source, selectedGroupId!), enabled: open && !!selectedGroupId, staleTime: 0 });
   // tested by the agents now: asked once the archive is chosen
   const dests = useQuery({ queryKey: ['pbs-mount', source, 'destinations'], queryFn: () => api.pbsMountDestinations(source), enabled: open && !!archive, staleTime: 0, gcTime: 0 });
@@ -73,7 +81,6 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
   };
 
   const snap = snaps.data?.find((s) => s.time === time);
-  const selectedGroup = groups.data?.find((g) => g.id === selectedGroupId);
   const dest = dests.data?.hosts.find((h) => h.id === hostId);
   const active = overview.data?.active;
   const states = stepStates([!!selectedGroupId, time !== null, !!archive, !!dest?.reach.ok]);
@@ -98,38 +105,58 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
   };
 
   return (
-    <Modal open={open} onClose={close} wide="screen" title="Monter une sauvegarde (lecture seule)">
+    <Modal open={open} onClose={close} wide="screen" wider title="Monter une sauvegarde (lecture seule)">
       {active && (
         <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           Une sauvegarde est déjà montée sur {active.hostName} : un seul montage à la fois, la démonter d’abord.
         </p>
       )}
       <Steps>
-        <Step n={1} title="Sauvegarde" state={states[0]} intro="Sauvegarde choisie depuis sa ligne dans la page Sauvegardes.">
-          {overview.data && (
-            <Segmented label="PBS" options={overview.data.sources.map((s) => ({ id: s.id, label: s.label }))} value={source} onChange={pickSource} />
-          )}
-          {src && !src.ready ? (
-            <p className="text-xs text-red-400">{src.reason}</p>
-          ) : (
-            <div className="mt-3">
-              <Loading q={groups} />
-              {selectedGroup ? (
-                <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs">
-                  <p className="font-medium text-zinc-100">{selectedGroup.label}</p>
-                  <p className="mt-1 font-mono text-[11px] text-muted">
-                    {selectedGroup.type}/{selectedGroup.backupId} · {selectedGroup.store} › {selectedGroup.ns || 'racine'}
-                  </p>
-                  <p className="mt-1 text-[11px] text-muted">
-                    {selectedGroup.hostName ?? 'orpheline'}
-                    {selectedGroup.lastBackup ? ` · ${timeAgo(selectedGroup.lastBackup)}` : ''}
-                  </p>
-                </div>
-              ) : groups.data ? (
-                <p className="text-xs text-amber-300">Cette sauvegarde n’est pas disponible sur ce PBS.</p>
-              ) : null}
-            </div>
-          )}
+        <Step
+          n={1}
+          title="Serveur PBS"
+          state={states[0]}
+          intro={
+            anyGroup ? (
+              <>
+                Sauvegarde <b className="text-zinc-200">{anyGroup.label}</b> <span className="font-mono">({anyGroup.type}/{anyGroup.backupId})</span> : PBS d’où la lire.
+              </>
+            ) : (
+              'PBS d’où lire la sauvegarde choisie dans la page Sauvegardes.'
+            )
+          }
+        >
+          <Loading q={overview} />
+          <div className={listCls}>
+            {sources.map((s, i) => {
+              const q = groupsBySource[i];
+              const g = groupOn(i);
+              return (
+                <Choice key={s.id} selected={s.id === source && !!g} disabled={!s.ready || !g} onClick={() => pickSource(s.id)}>
+                  <span className="flex items-center gap-2 font-medium">
+                    {s.label}
+                    {q?.isFetching && <Spinner className="h-3 w-3" />}
+                  </span>
+                  <span className="block text-[11px] text-muted">
+                    {!s.ready ? (
+                      <span className="text-red-400">{s.reason}</span>
+                    ) : q?.error ? (
+                      <span className="text-red-400">{(q.error as Error).message}</span>
+                    ) : g ? (
+                      <>
+                        <span className="font-mono">
+                          {g.store} › {g.ns || 'racine'}
+                        </span>
+                        {g.lastBackup ? ` · ${timeAgo(g.lastBackup)}` : ''}
+                      </>
+                    ) : q?.data ? (
+                      <span className="text-amber-300">Sauvegarde absente de ce PBS</span>
+                    ) : null}
+                  </span>
+                </Choice>
+              );
+            })}
+          </div>
         </Step>
 
         <Step n={2} title="Snapshot" state={states[1]} intro="Lu à l’instant sur le PBS choisi, du plus récent au plus ancien.">
