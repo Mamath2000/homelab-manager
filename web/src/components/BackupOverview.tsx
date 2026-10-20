@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx';
 import { Cloud, HardDrive } from 'lucide-react';
 import type { BackupGroup, BackupsView, BackupStatsView, BackupUsageView } from '../lib/api';
-import { formatBytes, formatDuration, scaleTop } from '../lib/backups';
+import { formatBytes, formatDuration, offsiteNotCopiable, scaleTop } from '../lib/backups';
 import { timeAgo } from '../lib/format';
 import { useBackupStats, useBackupUsage } from '../lib/queries';
 
@@ -36,38 +36,68 @@ function niceTop(v: number) {
 
 // --- status ------------------------------------------------------------------------------
 
-// Followed backups by state, last day with a backup and the 30 last days.
-export function StateBand({ groups, days }: { groups: BackupGroup[]; days: BackupStatsView['days'] | undefined }) {
+type Part = { n: number; label: string; bar: string; dot: string };
+
+// One tracking card: how many are up to date out of the total, a bar and the legend by state.
+function TrackCard({ title, ok, total, parts, unit }: { title: string; ok: number; total: number; parts: Part[]; unit: string }) {
+  const shown = parts.filter((p) => p.n > 0);
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5 px-5 py-4">
+      <span className="text-[11px] font-medium uppercase tracking-wider text-muted">{title}</span>
+      <div className="text-2xl font-semibold leading-tight tabular-nums text-zinc-100">
+        {ok} <span className="text-sm font-normal text-muted">sur {total} {unit}</span>
+      </div>
+      <div className="flex h-2 gap-0.5" role="img" aria-label={shown.map((p) => `${p.n} ${p.label}`).join(', ')}>
+        {shown.map((p) => <i key={p.label} className={clsx('block rounded-[2px]', p.bar)} style={{ flex: p.n }} />)}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-300">
+        {shown.map((p) => (
+          <span key={p.label} className="flex items-center gap-1.5"><span className={clsx('inline-block h-2 w-2', p.dot)} />{p.n} {p.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Followed backups by state (main PBS, and copies to the secondary PBS when there is one), last day with a
+// backup and the 30 last days.
+export function StateBand({ groups, days, offsite }: { groups: BackupGroup[]; days: BackupStatsView['days'] | undefined; offsite: boolean }) {
   const ok = groups.filter((g) => g.state === 'ok').length;
   const late = groups.filter((g) => g.state === 'stale').length;
   const bad = groups.filter((g) => g.state === 'failed' || g.state === 'task_failed' || g.state === 'gone').length;
-  const other = groups.length - ok - late - bad;
-  const parts = [
+  const main: Part[] = [
     { n: ok, label: 'à jour', bar: 'bg-emerald-500', dot: 'rounded-full bg-emerald-500' },
     { n: late, label: 'en retard', bar: 'bg-amber-400', dot: 'rounded-[2px] bg-amber-400' },
     { n: bad, label: 'en échec / disparues', bar: 'bg-red-500', dot: 'rotate-45 scale-90 rounded-[1px] bg-red-500' },
-    { n: other, label: 'autres', bar: 'bg-zinc-600', dot: 'rounded-full bg-zinc-600' },
-  ].filter((p) => p.n > 0);
+    { n: groups.length - ok - late - bad, label: 'autres', bar: 'bg-zinc-600', dot: 'rounded-full bg-zinc-600' },
+  ];
+  // copies: the groups that can be copied; the ones without copy enabled are apart
+  const copiable = groups.filter((g) => !offsiteNotCopiable(g));
+  const copied = copiable.filter((g) => g.offsite?.enabled);
+  const count = (st: string) => copied.filter((g) => g.offsite?.state === st).length;
+  const cok = count('ok');
+  const copies: Part[] = [
+    { n: cok, label: 'à jour', bar: 'bg-sky-400', dot: 'rounded-full bg-sky-400' },
+    { n: copied.filter((g) => g.offsite?.state === 'pending' || !g.offsite?.state).length, label: 'en attente', bar: 'bg-zinc-500', dot: 'rounded-full bg-zinc-500' },
+    { n: count('late'), label: 'en retard', bar: 'bg-amber-400', dot: 'rounded-[2px] bg-amber-400' },
+    { n: count('failed'), label: 'en échec', bar: 'bg-red-500', dot: 'rotate-45 scale-90 rounded-[1px] bg-red-500' },
+  ];
   const list = days ?? [];
   const last = [...list].reverse().find((d) => d.count > 0);
   const l30 = list.slice(-30);
   const tot = l30.reduce((a, d) => ({ up: a.up + d.uploaded, dur: a.dur + d.duration, failed: a.failed + d.failed, active: a.active + (d.count ? 1 : 0) }), { up: 0, dur: 0, failed: 0, active: 0 });
   return (
-    <section className="panel grid divide-y divide-line md:grid-cols-[1.3fr_1fr_1fr] md:divide-x md:divide-y-0" aria-label="État des sauvegardes">
-      <div className="flex min-w-0 flex-col gap-1.5 px-5 py-4">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted">Suivi</span>
-        <div className="text-2xl font-semibold leading-tight tabular-nums text-zinc-100">
-          {ok} <span className="text-sm font-normal text-muted">sur {groups.length} à jour</span>
-        </div>
-        <div className="flex h-2 gap-0.5" role="img" aria-label={parts.map((p) => `${p.n} ${p.label}`).join(', ')}>
-          {parts.map((p) => <i key={p.label} className={clsx('block rounded-[2px]', p.bar)} style={{ flex: p.n }} />)}
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-300">
-          {parts.map((p) => (
-            <span key={p.label} className="flex items-center gap-1.5"><span className={clsx('inline-block h-2 w-2', p.dot)} />{p.n} {p.label}</span>
-          ))}
-        </div>
-      </div>
+    <section className={clsx('panel grid divide-y divide-line md:divide-x md:divide-y-0', offsite ? 'md:grid-cols-2 min-[1100px]:grid-cols-[1.2fr_1.2fr_1fr_1fr]' : 'md:grid-cols-[1.3fr_1fr_1fr]')} aria-label="État des sauvegardes">
+      <TrackCard title={offsite ? 'Suivi · PBS principal' : 'Suivi'} ok={ok} total={groups.length} parts={main} unit="à jour" />
+      {offsite && (
+        <TrackCard
+          title="Suivi · PBS secours"
+          ok={cok}
+          total={copied.length}
+          parts={copies}
+          unit={`copiées à jour${copiable.length > copied.length ? ` (${copiable.length - copied.length} non copiée${copiable.length - copied.length > 1 ? 's' : ''})` : ''}`}
+        />
+      )}
       <div className="flex min-w-0 flex-col gap-1.5 px-5 py-4">
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted">Dernière sauvegarde</span>
         {last ? (
@@ -475,7 +505,7 @@ export function BackupOverview({ data }: { data: BackupsView }) {
   const hasStorage = data.datastores.length > 0 || !!data.offsite?.usage;
   return (
     <div className="mb-5 space-y-3">
-      <StateBand groups={data.groups} days={stats?.days} />
+      <StateBand groups={data.groups} days={stats?.days} offsite={!!data.offsite} />
       {data.connected || hasStorage ? (
         <div className={clsx('grid gap-3 min-[1100px]:grid-cols-[minmax(340px,440px)_minmax(0,1fr)] min-[1500px]:grid-cols-[1fr_1fr_2fr]', !hasStorage && '!grid-cols-1')}>
           {hasStorage && (
