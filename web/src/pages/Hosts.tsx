@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Plus, RefreshCw, Search, Server, Settings, Wand2 } from 'lucide-react';
 import { hostBackups } from '../lib/backups';
@@ -130,10 +130,127 @@ export function Hosts() {
         </div>
       )}
 
-      <div className="panel overflow-x-auto">
+      <div className="panel overflow-hidden">
         {list.length === 0 ? (
           <Empty icon={Server} title={hosts.length ? 'Aucun hôte ne correspond' : 'Aucun hôte'} />
         ) : (
+          <>
+            <div className="divide-y divide-line md:hidden">
+              {canWrite && (
+                <label className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
+                  <Checkbox
+                    label="Tout sélectionner"
+                    checked={allChecked}
+                    indeterminate={visibleSelected.length > 0}
+                    onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())}
+                  />
+                  Tout sélectionner
+                </label>
+              )}
+              {list.map((h) => {
+                const s = h.aptSummary;
+                const status = connectionMeta(h);
+                const backup = hostBackups(backups?.groups, h.id);
+                return (
+                  <article key={h.id} className="space-y-3 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-2">
+                        {canWrite && <Checkbox label={`Sélectionner ${h.name}`} checked={selected.has(h.id)} onChange={(on) => toggle(h.id, on)} />}
+                        <StatusDot tone={status.tone} />
+                        <div className="min-w-0">
+                          <Link
+                            to={`/hosts/${h.id}${params.size ? `?${params.toString()}` : ''}`}
+                            className="break-all font-medium text-zinc-100 hover:text-emerald-300"
+                          >
+                            {h.name}
+                          </Link>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            <Badge tone={status.tone}>{status.label}</Badge>
+                            <HostTagList host={h} />
+                            {h.accessNetwork === 'tailscale' && <Tag>Tailscale</Tag>}
+                          </div>
+                        </div>
+                      </div>
+                      {h.siteId ? <SiteChip host={h} /> : null}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {!hasApt(h) ? <Badge tone="neutral">MAJ non prises en charge</Badge> : !s ? <Badge tone="unknown">MAJ inconnues</Badge> : s.upgradable === 0 ? <Badge tone="ok">À jour</Badge> : (
+                        <>
+                          {s.security > 0 && <Badge tone="bad">{s.security} sécu</Badge>}
+                          <Badge tone="warn">{s.upgradable} MAJ</Badge>
+                        </>
+                      )}
+                      {h.dockerSummary?.updates ? <Badge tone="warn"><Container className="h-3 w-3" />{h.dockerSummary.updates} Docker</Badge> : null}
+                      <RebootStatus summary={s} compact />
+                      {h.agentOutdated && <AgentBadge short />}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {canWrite && (
+                        <Button
+                          size="sm"
+                          icon={RefreshCw}
+                          loading={run.isPending}
+                          disabled={!h.online}
+                          title="Rechercher les mises à jour"
+                          onClick={() => run.mutate({ hostId: h.id, action: 'apt_update' })}
+                        >
+                          Rechercher les MAJ
+                        </Button>
+                      )}
+                      {canManage && (
+                        <Button size="sm" icon={Settings} title="Options" onClick={() => setOptionsHostId(h.id)}>
+                          Options
+                        </Button>
+                      )}
+                    </div>
+
+                    <details className="border-t border-line pt-2">
+                      <summary className="cursor-pointer text-xs text-muted hover:text-zinc-200">Détails système et activité</summary>
+                      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                        <dt className="text-muted">Système</dt>
+                        <dd className="text-zinc-300">
+                          {osLabel(h) ?? '—'}{h.info?.virt && h.info.virt !== 'none' ? ` · ${h.info.virt}` : ''}
+                        </dd>
+                        <dt className="text-muted">IP</dt>
+                        <dd className="break-all font-mono text-zinc-400">{h.info?.ips?.[0] ?? '—'}</dd>
+                        <dt className="text-muted">Dernière vérif.</dt>
+                        <dd className={listsStale(h) ? 'text-violet-300' : 'text-zinc-400'}>{h.apt ? timeAgo(h.apt.listsUpdatedAt) : '—'}</dd>
+                        <dt className="text-muted">Vu</dt>
+                        <dd className="text-zinc-400">{h.online ? 'Maintenant' : timeAgo(h.lastSeenAt)}</dd>
+                        <dt className="text-muted">Agent</dt>
+                        <dd className="text-zinc-400">{h.agentVersion ?? '—'}</dd>
+                        {h.setup?.drift ? (
+                          <>
+                            <dt className="text-muted">Standardisation</dt>
+                            <dd><Badge tone="warn" className="gap-1"><Wand2 className="h-3 w-3" />Non standard</Badge></dd>
+                          </>
+                        ) : null}
+                        {backup && backup.state !== 'ok' ? (
+                          <>
+                            <dt className="text-muted">Sauvegarde</dt>
+                            <dd>
+                              <Badge tone={backup.state === 'failed' || backup.state === 'task_failed' ? 'bad' : 'warn'} className="gap-1">
+                                <DatabaseBackup className="h-3 w-3" />
+                                {backup.state === 'failed' || backup.state === 'task_failed' ? 'En échec' : backup.state === 'disabled' ? 'Désactivée' : 'En retard'}
+                              </Badge>
+                            </dd>
+                          </>
+                        ) : null}
+                        {needsReinstall(h) && (
+                          <>
+                            <dt className="text-muted">Agent</dt>
+                            <dd><ReinstallBadge short /></dd>
+                          </>
+                        )}
+                      </dl>
+                    </details>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1200px] text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -226,6 +343,8 @@ export function Hosts() {
               })}
             </tbody>
           </table>
+            </div>
+          </>
         )}
       </div>
 
