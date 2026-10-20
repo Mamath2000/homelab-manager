@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { backupStats, settings } from './db.js';
+import { backupStats, settings, storageUsage } from './db.js';
 import { groupKey, pbsGet } from './pbs.js';
-import type { BackupStatDoc, PbsSettings } from './types.js';
+import type { BackupStatDoc, PbsSettings, StorageUsageDoc } from './types.js';
 
 // What each backup really transferred and how long it took, read from the tasks of the main PBS: the
 // server log of a backup task ends each archive with "Upload size: <bytes> (<n>%)" (the new chunks
@@ -167,4 +167,31 @@ export async function statsView(days: number, now = Date.now()) {
     // the last 30 days of each group, for the bars of its line
     groups: Object.fromEntries([...byGroup].map(([id, list]) => [id, dailySeries(list, 30, now).map((c) => ({ uploaded: c.uploaded, duration: c.duration, failed: c.failed }))])),
   };
+}
+
+// --- fill level of the datastores ------------------------------------------------------------
+
+// Keeps the last fill level seen of each datastore for today (one document per datastore and day).
+export async function recordUsage(source: StorageUsageDoc['source'], rows: { store: string; used: number; total: number }[], now = Date.now()) {
+  const day = midnight(now);
+  for (const r of rows) {
+    await storageUsage.updateOne(
+      { _id: `${source}|${r.store}|${day}` },
+      { $set: { source, store: r.store, day, used: r.used, total: r.total, at: new Date(now) } },
+      { upsert: true },
+    );
+  }
+}
+
+// Fill level per day of each datastore over the last `days` days, oldest first.
+export async function usageView(days: number, now = Date.now()) {
+  const from = midnight(now) - days * DAY;
+  const docs = await storageUsage.find({ day: { $gte: from } }).sort({ day: 1 }).toArray();
+  const out: { main: Record<string, { day: number; used: number; total: number }[]>; offsite: { day: number; used: number; total: number }[] } = { main: {}, offsite: [] };
+  for (const d of docs) {
+    const p = { day: d.day, used: d.used, total: d.total };
+    if (d.source === 'main') (out.main[d.store] ??= []).push(p);
+    else out.offsite.push(p);
+  }
+  return out;
 }

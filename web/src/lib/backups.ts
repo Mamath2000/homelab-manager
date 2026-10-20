@@ -238,3 +238,12 @@ export function formatDuration(ms: number) {
   const m = Math.round(s / 60);
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`;
 }
+
+// Top of the scale: one huge day (a first full backup) would flatten every other bar, so the scale stops a
+// little above the usual days and the bars beyond it are drawn full height, marked and labelled.
+export function scaleTop(values: number[]) {
+  const v = values.filter((x) => x > 0).sort((a, b) => a - b);
+  if (!v.length) return 1;
+  const usual = v[Math.min(v.length - 1, Math.floor(v.length * 0.9))] * 1.25;
+  return Math.max(1, Math.min(v[v.length - 1], usual));
+}

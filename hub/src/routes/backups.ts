@@ -18,7 +18,7 @@ import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollP
 import { validTimeZone } from '../calendar.js';
 import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
-import { statsView } from '../pbsStats.js';
+import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
@@ -261,7 +261,11 @@ export function registerBackupRoutes(app: FastifyInstance) {
   });
 
   // what the backups uploaded and how long they took, per day over 30 or 60 days and per group (every role reads)
-  app.get<{ Querystring: { days?: 30 | 60 } }>('/api/backups/stats', { schema: { querystring: { type: 'object', properties: { days: { type: 'integer', enum: [30, 60] } } } } }, async (req) => statsView(req.query.days ?? 30));
+  // (30 to 180 days: the weeks and months of the page are added up from the days)
+  app.get<{ Querystring: { days?: 30 | 60 | 90 | 180 } }>('/api/backups/stats', { schema: { querystring: { type: 'object', properties: { days: { type: 'integer', enum: [30, 60, 90, 180] } } } } }, async (req) => statsView(req.query.days ?? 30));
+
+  // fill level of the datastores of the main PBS and of the secondary one, per day (every role reads)
+  app.get('/api/backups/usage', async () => usageView(90));
 
   app.post('/api/backups/refresh', async (req, reply) => {
     // Home Assistant backups: read again by their agents meanwhile (an agent that fails keeps its last report)
