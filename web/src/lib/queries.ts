@@ -19,7 +19,11 @@ export function useBackups() {
   return useQuery({ queryKey: keys.backups, queryFn: api.backups });
 }
 
-export function useBackupStats(days: 30 | 60) {
+export function useBackupUsage() {
+  return useQuery({ queryKey: [...keys.backups, 'usage'], queryFn: api.backupUsage });
+}
+
+export function useBackupStats(days: 30 | 60 | 90 | 180) {
   // under the key of the backups: refreshed by the same event
   return useQuery({ queryKey: [...keys.backups, 'stats', days], queryFn: () => api.backupStats(days) });
 }

@@ -7,6 +7,7 @@ import { backups, hosts, parseId, settings } from './db.js';
 import { publish } from './events.js';
 import { appendJobLog, finishJob, startHubJob } from './jobs.js';
 import { HISTORY, loadPbsSettings, pbsCall } from './pbs.js';
+import { recordUsage } from './pbsStats.js';
 import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, OffsiteSeriesReport, PbsRemoteSettings } from './types.js';
 
 // Copy of chosen backups to a secondary PBS ("copie déportée"). The secondary pulls from the main PBS:
@@ -497,6 +498,7 @@ async function doPoll(log?: FastifyBaseLogger) {
       { _id: 'pbs-remote' },
       { $set: { polledAt: new Date(), pollError: null, usage: usage ? { store: usage.store, total: usage.total!, used: usage.used ?? 0, avail: usage.avail ?? 0 } : null } },
     );
+    if (usage) await recordUsage('offsite', [{ store: usage.store, used: usage.used ?? 0, total: usage.total! }]).catch((err) => log?.warn({ err }, 'secondary PBS usage not recorded'));
     log?.info({ groups: groups.length }, 'secondary PBS polled');
   } catch (err) {
     await settings.updateOne({ _id: 'pbs-remote' }, { $set: { polledAt: new Date(), pollError: (err as Error).message } });

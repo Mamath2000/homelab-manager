@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -14,6 +14,7 @@ export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let backups: Collection<BackupDoc>;
 export let backupStats: Collection<BackupStatDoc>;
+export let storageUsage: Collection<StorageUsageDoc>;
 export let hostAlerts: Collection<HostAlertDoc>;
 
 export async function connectDb() {
@@ -27,6 +28,7 @@ export async function connectDb() {
   settings = db.collection('settings');
   backups = db.collection('backups');
   backupStats = db.collection('backupStats');
+  storageUsage = db.collection('storageUsage');
   guests = db.collection('guests');
   backupJobs = db.collection('backupJobs');
   hostAlerts = db.collection('hostAlerts');
@@ -50,6 +52,9 @@ export async function connectDb() {
     backupStats.createIndex({ start: -1 }),
     backupStats.createIndex({ groupId: 1, start: -1 }),
     backupStats.createIndex({ at: 1 }, { expireAfterSeconds: 400 * 24 * 3600, name: 'backup_stats_ttl' }),
+    // one document per datastore and day, kept 400 days
+    storageUsage.createIndex({ source: 1, store: 1, day: 1 }),
+    storageUsage.createIndex({ at: 1 }, { expireAfterSeconds: 400 * 24 * 3600, name: 'storage_usage_ttl' }),
     // backup results reported by the agents, recorded once
     jobs.createIndex({ resultId: 1 }, { sparse: true }),
     // one document per host and day, kept a little longer than the timeline of the host page shows

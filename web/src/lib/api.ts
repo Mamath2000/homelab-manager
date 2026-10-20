@@ -570,6 +570,12 @@ export interface BackupStatsView {
   groups: Record<string, { uploaded: number; duration: number; failed: number }[]>;
 }
 
+// Fill level of the datastores per day, oldest first (hub pbsStats.ts usageView)
+export interface BackupUsageView {
+  main: Record<string, { day: number; used: number; total: number }[]>;
+  offsite: { day: number; used: number; total: number }[];
+}
+
 export interface BackupsView {
   statsError: string | null;
   // main PBS connected: its groups, datastores and the jobs of the hosts (the backups of Home Assistant and
@@ -1052,7 +1058,8 @@ export const api = {
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
   backups: () => request<BackupsView>('GET', '/api/backups'),
-  backupStats: (days: 30 | 60) => request<BackupStatsView>('GET', `/api/backups/stats?days=${days}`),
+  backupStats: (days: 30 | 60 | 90 | 180) => request<BackupStatsView>('GET', `/api/backups/stats?days=${days}`),
+  backupUsage: () => request<BackupUsageView>('GET', '/api/backups/usage'),
   refreshBackups: () => request<{ ok: boolean }>('POST', '/api/backups/refresh'),
   pbsMount: () => request<PbsMountOverview>('GET', '/api/pbs-mount'),
   pbsMountGroups: (source: PbsMountSource) => request<PbsMountGroup[]>('GET', `/api/pbs-mount/${source}/groups`),

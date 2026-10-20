@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { Cloud, DatabaseBackup, FolderOpen, HardDrive, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
-import { StatBars, StatsPanel } from '../components/BackupStats';
+import { DatabaseBackup, FolderOpen, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { BackupOverview } from '../components/BackupOverview';
+import { StatBars } from '../components/BackupStats';
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
@@ -176,12 +177,6 @@ export function Backups() {
         (!needle || g.backupId.toLowerCase().includes(needle) || (g.comment ?? '').toLowerCase().includes(needle) || hostName(g.hostId).toLowerCase().includes(needle)),
     )
     .sort((a, b) => hostName(a.hostId).localeCompare(hostName(b.hostId)) || a.backupId.localeCompare(b.backupId));
-  const tiles = [
-    { label: 'Sauvegardes suivies', value: data.groups.length },
-    { label: 'À jour', value: data.groups.filter((g) => g.state === 'ok').length },
-    { label: 'En retard', value: data.groups.filter((g) => g.state === 'stale').length },
-    { label: 'Échec / disparues', value: data.groups.filter((g) => g.state === 'failed' || g.state === 'task_failed' || g.state === 'gone').length },
-  ];
   const filteredHost = hostFilter && hostList.find((h) => h.id === hostFilter);
   // without PBS, the backups of Home Assistant and the Proxmox VE clusters are still shown
   const shown = data.connected || data.groups.length > 0 || data.clusters.length > 0 || data.cached.length > 0;
@@ -230,51 +225,7 @@ export function Backups() {
           {data.clusters.filter((c) => c.pollError).map((c) => (
             <div key={c.id} className="panel mb-5 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-200">Relevé du cluster {c.name} en échec : {c.pollError}</div>
           ))}
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {tiles.map((t) => (
-              <div key={t.label} className="panel px-5 py-4">
-                <div className="text-2xl font-semibold tabular-nums text-zinc-100">{t.value}</div>
-                <div className="text-xs text-muted">{t.label}</div>
-              </div>
-            ))}
-          </div>
-          {data.datastores.length > 0 && (
-            <div className="mb-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {data.datastores.map((d) => {
-                const pct = d.total ? Math.round((d.used / d.total) * 100) : 0;
-                return (
-                  <div key={d.store} className="panel px-5 py-4">
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2 text-zinc-200"><HardDrive className="h-4 w-4 text-muted" />{d.store}</span>
-                      <span className="tabular-nums text-xs text-muted">{formatBytes(d.used)} / {formatBytes(d.total)}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-raised">
-                      <div className={clsx('h-full rounded-full', pct >= 90 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-400' : 'bg-emerald-500')} style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className="mt-1 text-xs text-muted">{pct} % utilisé · {formatBytes(d.avail)} libres</div>
-                  </div>
-                );
-              })}
-              {data.offsite?.usage && (() => {
-                const u = data.offsite.usage;
-                const pct = u.total ? Math.round((u.used / u.total) * 100) : 0;
-                return (
-                  <div className="panel px-5 py-4" title={data.offsite.pollError ? `Relevé en échec : ${data.offsite.pollError}` : `Relevé ${timeAgo(data.offsite.polledAt)}`}>
-                    <div className="mb-2 flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2 text-zinc-200"><Cloud className="h-4 w-4 text-sky-400" />{data.offsite.store} <span className="text-xs text-muted">· secours {data.offsite.host}</span></span>
-                      <span className="tabular-nums text-xs text-muted">{formatBytes(u.used)} / {formatBytes(u.total)}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-raised">
-                      <div className={clsx('h-full rounded-full', pct >= 90 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-400' : 'bg-sky-400')} style={{ width: `${pct}%` }} />
-                    </div>
-                    <div className={clsx('mt-1 text-xs', data.offsite.pollError ? 'text-red-400' : 'text-muted')}>
-                      {data.offsite.pollError ? 'relevé du PBS de secours en échec' : `${pct} % utilisé · ${formatBytes(u.avail)} libres`}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
+          <BackupOverview data={data} />
 
           {data.cached.length > 0 && (
             <ul className="mb-5 space-y-1.5">
@@ -300,7 +251,6 @@ export function Backups() {
             </div>
           ) : (
             <>
-              {data.connected && <StatsPanel error={data.statsError} />}
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" />

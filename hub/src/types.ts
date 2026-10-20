@@ -786,6 +786,17 @@ export interface HostAlertDoc {
   expiresAt: Date;
 }
 
+// Fill level of a datastore, last value of each day (pbsStats.ts recordUsage): the history of the usage
+export interface StorageUsageDoc {
+  _id: string; // <source>|<store>|<day>
+  source: 'main' | 'offsite';
+  store: string;
+  day: number; // unix ms, local midnight
+  used: number; // bytes
+  total: number;
+  at: Date; // for the TTL index
+}
+
 // One backup task of the main PBS (pbsStats.ts): what it really uploaded (new chunks, the PBS log's
 // "Upload size") and how long it ran. Kept after the PBS drops the old task logs.
 export interface BackupStatDoc {
