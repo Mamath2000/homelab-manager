@@ -33,7 +33,8 @@ function Choice({ selected, disabled, onClick, children }: { selected: boolean; 
   );
 }
 
-const listCls = 'max-h-[46vh] min-h-0 space-y-1.5 overflow-y-auto pr-1';
+// fills its step, which has the height of the window (Modal fixed): scrolls inside
+const listCls = 'min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1';
 
 function Loading({ q }: { q: { isPending: boolean; error: unknown } }) {
   if (q.error) return <p className="text-xs text-red-400">{(q.error as Error).message}</p>;
@@ -105,13 +106,13 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
   };
 
   return (
-    <Modal open={open} onClose={close} wide="screen" wider title="Monter une sauvegarde (lecture seule)">
+    <Modal open={open} onClose={close} wide="screen" wider fixed title="Monter une sauvegarde (lecture seule)">
       {active && (
         <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           Une sauvegarde est déjà montée sur {active.hostName} : un seul montage à la fois, la démonter d’abord.
         </p>
       )}
-      <Steps>
+      <Steps fill>
         <Step
           n={1}
           title="Serveur PBS"

@@ -8,8 +8,11 @@ import type { StepState } from '../lib/steps';
 // one to do now (stepStates); the ones after it are dimmed. What the agent detected is shown as text,
 // never as a field to type in.
 
-export function Steps({ children }: { children: ReactNode }) {
-  return <div className="grid gap-3 sm:grid-cols-2 lg:min-h-full lg:grid-cols-4">{children}</div>;
+// fill: the steps take the whole height of a fixed window (Modal fixed), their lists scroll inside
+export function Steps({ children, fill }: { children: ReactNode; fill?: boolean }) {
+  return (
+    <div className={clsx('grid gap-3 sm:grid-cols-2 lg:grid-cols-4', fill ? 'lg:h-full lg:grid-rows-[minmax(0,1fr)]' : 'lg:min-h-full')}>{children}</div>
+  );
 }
 
 // One step: number (a check once done), title, short explanation, content; footer: its action, at the bottom.
@@ -24,7 +27,7 @@ export function Step({ n, title, state, intro, children, footer }: {
   return (
     <section
       className={clsx(
-        'flex min-w-0 flex-col gap-3 rounded-lg border p-4 text-sm',
+        'flex min-h-0 min-w-0 flex-col gap-3 rounded-lg border p-4 text-sm',
         state === 'active' ? 'border-emerald-500/50 bg-raised/60' : 'border-line bg-raised/20',
         state === 'todo' && 'opacity-50',
       )}
