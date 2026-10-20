@@ -16,7 +16,7 @@ export function SettingsFormActions({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+    <div className="sticky bottom-0 z-20 -mx-4 mt-6 flex flex-wrap items-center gap-3 border-t border-line bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_rgba(0,0,0,0.25)] md:static md:mx-0 md:mt-6 md:bg-transparent md:px-0 md:pb-0 md:pt-4 md:shadow-none">
       <p className="text-xs text-muted" aria-live="polite">
         {saving ? 'Enregistrement…' : dirty ? 'Modifications non enregistrées' : 'Tous les changements sont enregistrés'}
       </p>

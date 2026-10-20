@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import clsx from 'clsx';
 import { Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
@@ -124,7 +124,7 @@ function Versions() {
   );
 }
 
-function SearchBox() {
+function SearchBox({ onQuickSwitch }: { onQuickSwitch: () => void }) {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const ref = useRef<HTMLInputElement>(null);
@@ -140,25 +140,39 @@ function SearchBox() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   return (
-    <form
-      className="relative hidden w-full max-w-md sm:block"
-      onSubmit={(e) => {
-        e.preventDefault();
-        navigate(`/hosts?q=${encodeURIComponent(q)}`);
-        setQ('');
-        ref.current?.blur();
-      }}
-    >
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-      <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" className="input h-9 py-0 pl-9 pr-10" />
-      <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm border border-line bg-panel px-1.5 text-[10px] text-muted">/</kbd>
-    </form>
+    <>
+      <form
+        className="relative hidden w-full max-w-md sm:block"
+        onSubmit={(e) => {
+          e.preventDefault();
+          navigate(`/hosts?q=${encodeURIComponent(q)}`);
+          setQ('');
+          ref.current?.blur();
+        }}
+      >
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+        <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" className="input h-9 py-0 pl-9 pr-10" />
+        <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm border border-line bg-panel px-1.5 text-[10px] text-muted">/</kbd>
+      </form>
+      <button
+        type="button"
+        onClick={onQuickSwitch}
+        aria-label="Rechercher un hôte"
+        title="Rechercher un hôte"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised hover:text-zinc-100 sm:hidden"
+      >
+        <Search className="h-5 w-5" />
+      </button>
+    </>
   );
 }
 
 export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void }) {
   const me = useMe();
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
+  const openQuickSwitch = useCallback(() => setQuickSwitchOpen(true), []);
+  const closeQuickSwitch = useCallback(() => setQuickSwitchOpen(false), []);
   const { pathname } = useLocation();
   // drawer is open for the path it was opened on: any navigation closes it
   const [drawerPath, setDrawerPath] = useState<string | null>(null);
@@ -174,7 +188,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
           </button>
           <Logo />
         </div>
-        {!me.isSuperAdmin && <SearchBox />}
+        {!me.isSuperAdmin && <SearchBox onQuickSwitch={openQuickSwitch} />}
         <div className="flex items-center gap-4 text-sm">
           <Versions />
           {me.canSettings && (
@@ -202,7 +216,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       )}
 
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
-      {!me.isSuperAdmin && <HostQuickSwitch />}
+      {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
       <main className="px-4 py-6 md:ml-60 md:px-8">
         <div>

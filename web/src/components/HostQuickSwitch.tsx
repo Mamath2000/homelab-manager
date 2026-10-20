@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router';
 import { Modal } from './ui';
 import { useHosts } from '../lib/queries';
 
-export function HostQuickSwitch() {
-  const [open, setOpen] = useState(false);
+export function HostQuickSwitch({ open, onOpen, onClose }: { open: boolean; onOpen: () => void; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const navigate = useNavigate();
@@ -41,20 +40,20 @@ export function HostQuickSwitch() {
       event.preventDefault();
       setQuery('');
       setSelectedIndex(0);
-      setOpen(true);
+      onOpen();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [onOpen]);
 
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: 'nearest' });
   }, [open, selectedIndex]);
 
   const close = () => {
-    setOpen(false);
     setQuery('');
     setSelectedIndex(0);
+    onClose();
   };
 
   const selectHost = () => {

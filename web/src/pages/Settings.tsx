@@ -205,7 +205,7 @@ export function Settings() {
         </div>
         <p className="mt-1 text-sm text-muted">Modifie une rubrique puis enregistre ses changements en bas du formulaire.</p>
       </div>
-      <div className="panel overflow-hidden">
+      <div className="panel">
         <VerticalTabs
           tabs={[...tabs]}
           value={tab}
