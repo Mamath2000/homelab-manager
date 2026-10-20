@@ -517,7 +517,7 @@ export interface PbsMount {
   mountRoot: string;
   tokenId: string; // the secret is never stored
   path?: string;
-  slow?: boolean; // secondary PBS or another site: reads cross a slow link
+  slow?: boolean; // reads across sites
   startedAt: Date;
   mountedAt?: Date;
   unmounted?: boolean; // unmounting: done on the host
@@ -529,6 +529,7 @@ export interface PbsRemoteSettings {
   _id: 'pbs-remote';
   agent?: PbsAgentLink;
   url: string;
+  tailscaleUrl?: string;
   fingerprint: string;
   store: string; // target datastore, the one the token of the hub has rights on
   tokenId: string; // token of the hub on the secondary

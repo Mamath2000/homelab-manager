@@ -56,7 +56,7 @@ async function sourceOf(id: PbsMountSource): Promise<Source> {
   const r = await loadRemoteSettings();
   if (!remoteReady(r)) throw new PbsMountError('PBS de secours non connecté');
   if (!r.agent) throw new PbsMountError('PBS de secours non relié à son agent : le jeton du montage ne peut pas être créé');
-  return { id, label: sourceLabel[id], conn: r, link: r.agent, url: r.url, fingerprint: r.fingerprint, storeOf: () => r.store };
+  return { id, label: sourceLabel[id], conn: r, link: r.agent, url: r.url, tailscaleUrl: r.tailscaleUrl, fingerprint: r.fingerprint, storeOf: () => r.store };
 }
 
 export async function mountSources() {
@@ -198,9 +198,13 @@ export async function mountDestinations(source: PbsMountSource) {
   };
 }
 
-// Reads cross a slow link: the secondary (another site, slow server), or a host of another site than the PBS.
-export const slowLink = (source: PbsMountSource, h: Pick<HostDoc, 'siteId'>, pbsHost: Pick<HostDoc, 'siteId'> | null) =>
-  source === 'offsite' || (!!pbsHost && (h.siteId ?? null) !== (pbsHost.siteId ?? null));
+// Reads across sites are slow. A missing site is unknown; keep the secondary warning conservative.
+export const slowLink = (source: PbsMountSource, h: Pick<HostDoc, '_id' | 'siteId'>, pbsHost: Pick<HostDoc, '_id' | 'siteId'> | null) =>
+  pbsHost && h._id.equals(pbsHost._id)
+    ? false
+    : pbsHost && h.siteId && pbsHost.siteId
+      ? h.siteId !== pbsHost.siteId
+      : source === 'offsite';
 
 // --- mount / unmount -----------------------------------------------------------------------
 

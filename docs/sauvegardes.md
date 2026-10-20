@@ -113,7 +113,7 @@ Un second PBS, distant, garde une copie des sauvegardes choisies **une à une** 
 
 Paramètres › Sauvegardes › **PBS de secours (copie déportée)** :
 
-1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse et empreinte remplies par l'agent, datastores proposés.
+1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse, adresse Tailscale et empreinte remplies par l'agent, datastores proposés.
 2. **Datastore cible**, puis **Créer le jeton** du hub sur le PBS de secours (droits sur ce datastore seulement).
 3. **Jeton lecteur sur le PBS principal**, créé par l'agent du PBS principal (qui doit donc être relié).
 4. **Tester la connexion** (datastore visible, namespaces existants), puis, en pied de fenêtre, régler le **départ des copies** quotidiennes (voir plus bas) et **Enregistrer**. Le PBS de secours est connecté dès que son adresse, son datastore cible et les deux jetons sont là.
@@ -201,7 +201,7 @@ Page Sauvegardes › icône de montage sur la ligne de la sauvegarde : une fenê
 1. **Sauvegarde** : le PBS (principal ou de secours), puis la sauvegarde. Depuis le PBS de secours, seules celles qu'il a copiées (sync jobs `hlm-*`) sont proposées.
 2. **Snapshot** : lus à l'instant sur le PBS choisi (celui de secours a ses propres snapshots et sa propre rétention).
 3. **Archive** : une par répertoire sauvegardé, `root.pxar` pour un conteneur.
-4. **Destination** : par défaut **l'hôte du PBS**. Les autres hôtes proposés ont un agent connecté qui sait monter (capacité « pbs_mount » : `proxmox-backup-client` installé **nativement** — l'image Docker du client ne peut pas monter pour l'hôte —, `/dev/fuse` et systemd) et qui **joint ce PBS** : son agent teste à l'instant le port et l'empreinte du certificat. « Lien lent » signale une lecture depuis le PBS de secours ou depuis un autre site.
+4. **Destination** : par défaut **l'hôte du PBS**. Les autres hôtes proposés ont un agent connecté qui sait monter (capacité « pbs_mount » : `proxmox-backup-client` installé **nativement** — l'image Docker du client ne peut pas monter pour l'hôte —, `/dev/fuse` et systemd) et qui **joint ce PBS** : son agent teste à l'instant le port et l'empreinte du certificat. Si l'hôte est configuré pour Tailscale et que l'adresse Tailscale du PBS est renseignée, elle est choisie automatiquement ; sinon l'adresse normale est utilisée. « Lien lent » signale une lecture entre sites, pas le seul fait de lire depuis le PBS de secours : restaurer sur le même site que ce PBS est indiqué comme direct.
 
 La racine est configurable dans **Paramètres › Sauvegardes › Proxmox Backup Server** (par défaut `/srv/pbs-restore`). Le montage arrive dessous sous `<type>-<id>_<date>_<archive>` (par exemple `/srv/pbs-restore/ct-101_2026-10-19_02-30-00_root`), lisible par root seulement. Le chemin est rappelé dans le bandeau.
 

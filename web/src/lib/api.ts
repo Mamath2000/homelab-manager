@@ -736,6 +736,7 @@ export interface PbsRemoteSettings {
   connected: boolean; // address, target datastore and both tokens
   agent?: PbsAgentLink;
   url: string;
+  tailscaleUrl?: string;
   fingerprint: string;
   store: string;
   tokenId: string;
@@ -751,6 +752,7 @@ export interface PbsRemoteSettings {
 
 export interface PbsRemoteInput {
   url: string;
+  tailscaleUrl?: string;
   fingerprint: string;
   agent?: PbsAgentLink;
   startTime?: string;

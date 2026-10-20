@@ -69,15 +69,20 @@ test('target: the address the host reaches the PBS at, with the pinned certifica
   const src = { url: 'https://192.168.100.20:8007', tailscaleUrl: 'https://100.80.1.2:8007', fingerprint: fp, label: 'PBS principal' };
   assert.deepEqual(target(src, { accessNetwork: 'lan' }), { server: '192.168.100.20', port: 8007, fingerprint: fp.toUpperCase() });
   assert.equal(target(src, { accessNetwork: 'tailscale' }).server, '100.80.1.2');
+  assert.equal(target({ ...src, tailscaleUrl: undefined }, { accessNetwork: 'tailscale' }).server, '192.168.100.20');
   assert.equal(target({ ...src, url: 'https://pbs2.lan' }, {}).port, 8007);
   assert.equal(target({ ...src, url: 'https://[fd00::2]:8008' }, {}).server, '[fd00::2]');
   assert.throws(() => target({ ...src, fingerprint: '' }, {}), /empreinte/);
 });
 
-test('slow link: the secondary, or another site than the PBS', () => {
-  assert.equal(slowLink('main', { siteId: 'vouille' }, { siteId: 'vouille' }), false);
-  assert.equal(slowLink('main', { siteId: 'jarsay' }, { siteId: 'vouille' }), true);
-  assert.equal(slowLink('offsite', { siteId: 'canicoif' }, { siteId: 'canicoif' }), true);
+test('slow link: another site, but not the secondary on its own site', () => {
+  const pbs = { _id: new ObjectId(), siteId: 'vouille' };
+  assert.equal(slowLink('main', { _id: new ObjectId(), siteId: 'vouille' }, pbs), false);
+  assert.equal(slowLink('main', { _id: new ObjectId(), siteId: 'jarsay' }, pbs), true);
+  assert.equal(slowLink('offsite', { _id: new ObjectId(), siteId: 'canicoif' }, { _id: new ObjectId(), siteId: 'canicoif' }), false);
+  assert.equal(slowLink('offsite', { _id: new ObjectId(), siteId: 'jarsay' }, { _id: new ObjectId(), siteId: 'canicoif' }), true);
+  assert.equal(slowLink('offsite', { _id: pbs._id }, { _id: pbs._id }), false);
+  assert.equal(slowLink('offsite', { _id: new ObjectId() }, null), true);
 });
 
 test('monitoring: a mounted snapshot keeps the host in warning, until it is unmounted', () => {

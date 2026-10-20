@@ -46,6 +46,7 @@ const agentLinkSchema = {
 
 interface RemoteBody {
   url: string;
+  tailscaleUrl?: string;
   fingerprint: string;
   agent?: PbsAgentLink;
   startTime?: string;
@@ -55,7 +56,13 @@ const remoteBody = {
   type: 'object',
   additionalProperties: false,
   required: ['url', 'fingerprint'],
-  properties: { url: { type: 'string', maxLength: 256 }, fingerprint: { type: 'string', maxLength: 128 }, agent: agentLinkSchema, startTime: { type: 'string', maxLength: 5 } },
+  properties: {
+    url: { type: 'string', maxLength: 256 },
+    tailscaleUrl: { type: 'string', maxLength: 256 },
+    fingerprint: { type: 'string', maxLength: 128 },
+    agent: agentLinkSchema,
+    startTime: { type: 'string', maxLength: 5 },
+  },
 } as const;
 
 const nativeOrContainer = (a: PbsAgentLink): PbsAgentLink => (a.mode === 'native' ? { hostId: a.hostId, mode: 'native' } : a);
@@ -65,12 +72,14 @@ async function resolve(body: RemoteBody): Promise<PbsRemoteSettings | string> {
   const next: PbsRemoteSettings = {
     ...current,
     url: body.url.trim().replace(/\/+$/, ''),
+    tailscaleUrl: (body.tailscaleUrl ?? current.tailscaleUrl ?? '').trim().replace(/\/+$/, ''),
     fingerprint: body.fingerprint ? normalizeFingerprint(body.fingerprint) : '',
     ...(body.agent ? { agent: nativeOrContainer(body.agent) } : {}),
     ...(body.startTime !== undefined ? { startTime: body.startTime } : {}),
   };
   if (body.startTime !== undefined && !HHMM_RE.test(body.startTime)) return 'heure de départ invalide (HH:MM)';
   if (next.url && !PBS_URL_RE.test(next.url)) return 'URL invalide (https://pbs:8007)';
+  if (next.tailscaleUrl && !PBS_URL_RE.test(next.tailscaleUrl)) return 'URL Tailscale invalide (https://100.x.y.z:8007)';
   if (next.fingerprint && !FINGERPRINT_RE.test(next.fingerprint)) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
   if (next.agent) {
     const bad = checkLink(next.agent);

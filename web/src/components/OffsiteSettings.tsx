@@ -20,7 +20,13 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
   const qc = useQueryClient();
   const toast = useToast();
   const { data: main } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
-  const [initial] = useState<PbsRemoteInput>(() => ({ url: data.url, fingerprint: data.fingerprint, ...(data.agent ? { agent: data.agent } : {}), startTime: data.startTime }));
+  const [initial] = useState<PbsRemoteInput>(() => ({
+    url: data.url,
+    tailscaleUrl: data.tailscaleUrl,
+    fingerprint: data.fingerprint,
+    ...(data.agent ? { agent: data.agent } : {}),
+    startTime: data.startTime,
+  }));
   const [form, setForm] = useState<PbsRemoteInput>(initial);
   // tokens: saved as soon as the agents created them, apart from the form
   const [saved, setSaved] = useState(data);
@@ -113,7 +119,12 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
               excludeHostId={main?.agent?.hostId}
               primary={host === 'active'}
               onDetected={(agent, found) => {
-                set({ agent, url: found.url ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
+                set({
+                  agent,
+                  url: found.url ?? '',
+                  tailscaleUrl: found.tailscaleUrl ?? '',
+                  ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}),
+                });
                 setStores(found.datastores ?? []);
                 if (!store && found.datastores?.length === 1) setStore(found.datastores[0]);
                 setTest(null);
@@ -125,9 +136,11 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
             <DetectedRows
               rows={[
                 { label: 'Adresse', value: form.url, empty: 'non détectée' },
+                { label: 'Adresse Tailscale', value: form.tailscaleUrl, empty: 'non détectée' },
                 { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)' },
               ]}
             />
+            <p className="text-xs text-muted">Pour un montage, l’adresse Tailscale est choisie automatiquement sur les hôtes configurés pour accéder au réseau Tailscale ; sinon l’adresse normale est utilisée.</p>
             <label className="block">
               <span className={field}>Datastore cible</span>
               <select className="input" value={store} onChange={(e) => setStore(e.target.value)} disabled={!form.agent}>
