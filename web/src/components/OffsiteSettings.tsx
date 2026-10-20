@@ -95,6 +95,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
         open={open}
         onClose={requestClose}
         wide="screen"
+        fixed
         title="PBS de secours"
         footer={
           <>
@@ -112,7 +113,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
           </>
         }
       >
-        <Steps>
+        <Steps fill>
           <Step n={1} title="Hôte du PBS de secours" state={host} intro="Son agent trouve le PBS (installé, ou dans un conteneur lancé), crée le jeton du hub et lance les copies quotidiennes.">
             <PbsAgentPicker
               link={form.agent}

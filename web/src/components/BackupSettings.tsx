@@ -83,6 +83,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
         open={open}
         onClose={requestClose}
         wide="screen"
+        fixed
         title="Proxmox Backup Server"
         footer={
           <>
@@ -101,7 +102,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
           </>
         }
       >
-        <Steps>
+        <Steps fill>
           <Step n={1} title="Hôte du PBS" state={host} intro="Son agent trouve le PBS (installé, ou dans un conteneur lancé), donne ses adresses et son empreinte, puis crée les jetons.">
             <PbsAgentPicker
               link={form.agent}

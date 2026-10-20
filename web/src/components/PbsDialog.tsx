@@ -44,7 +44,8 @@ export function Step({ n, title, state, intro, children, footer }: {
         <h4 className="font-medium text-zinc-100">{title}</h4>
       </div>
       {intro && <p className="text-xs text-muted">{intro}</p>}
-      {children}
+      {/* in a fixed window (Steps fill) the content scrolls between the intro and the footer; a list inside may scroll itself (flex-1 min-h-0) */}
+      {children && <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">{children}</div>}
       {footer && <div className="mt-auto space-y-2 pt-1">{footer}</div>}
     </section>
   );

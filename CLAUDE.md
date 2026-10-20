@@ -10,6 +10,8 @@
 
 - **Toutes les boîtes de dialogue sont centrées sur la page** (verticalement et horizontalement) : passer par `Modal`, qui le fait ;
   ne pas réintroduire de décalage depuis le haut.
+- **Boîte en étapes = hauteur fixe** : `<Modal wide="screen" fixed>` + `<Steps fill>` ; la taille ne change pas d'une étape à
+  l'autre, le contenu d'une étape défile dans sa colonne (une liste peut défiler seule : `min-h-0 flex-1 overflow-y-auto`).
 
 ## Lancement local (`make dev` / `make start`)
 

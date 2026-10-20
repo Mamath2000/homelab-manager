@@ -104,6 +104,7 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
         open
         onClose={requestClose}
         wide="screen"
+        fixed
         title={cluster ? `Cluster ${cluster.name}` : 'Nouveau cluster Proxmox VE'}
         footer={
           <>
@@ -122,7 +123,7 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
           </>
         }
       >
-        <Steps>
+        <Steps fill>
           <Step n={1} title="Nœud du cluster" state={node} intro="Un nœud dont l’agent est enrôlé : il décrit le cluster, ses interfaces et son certificat, puis crée le jeton.">
             <AgentPicker<PveDetected>
               capability="pve"
