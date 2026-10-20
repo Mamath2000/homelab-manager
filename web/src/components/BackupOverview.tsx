@@ -87,7 +87,7 @@ export function StateBand({ groups, days, offsite }: { groups: BackupGroup[]; da
   const l30 = list.slice(-30);
   const tot = l30.reduce((a, d) => ({ up: a.up + d.uploaded, dur: a.dur + d.duration, failed: a.failed + d.failed, active: a.active + (d.count ? 1 : 0) }), { up: 0, dur: 0, failed: 0, active: 0 });
   return (
-    <section className={clsx('panel grid divide-y divide-line md:divide-x md:divide-y-0', offsite ? 'md:grid-cols-2 min-[1100px]:grid-cols-[1.2fr_1.2fr_1fr_1fr]' : 'md:grid-cols-[1.3fr_1fr_1fr]')} aria-label="État des sauvegardes">
+    <section className={clsx('panel grid divide-y divide-line md:divide-x md:divide-y-0', offsite ? 'md:grid-cols-[1.2fr_1.2fr_1fr_1fr]' : 'md:grid-cols-[1.3fr_1fr_1fr]')} aria-label="État des sauvegardes">
       <TrackCard title={offsite ? 'Suivi · PBS principal' : 'Suivi'} ok={ok} total={groups.length} parts={main} unit="à jour" />
       {offsite && (
         <TrackCard
@@ -302,7 +302,7 @@ function StoreCard({ title, role, where, icon, accent, curve, curveFill, stores 
 
 // Main PBS (all its datastores, each with its own fill level) and secondary PBS.
 export function StoragePanels({ data, usage }: { data: BackupsView; usage: BackupUsageView | undefined }) {
-  const main: Store[] = data.datastores.map((d) => ({ name: d.store, total: d.total, used: d.used, hist: (usage?.main[d.store] ?? []).map((p) => ({ day: p.day, used: p.used })) }));
+  const main: Store[] = [...data.datastores].sort((a, b) => a.store.localeCompare(b.store, 'fr', { numeric: true })).map((d) => ({ name: d.store, total: d.total, used: d.used, hist: (usage?.main[d.store] ?? []).map((p) => ({ day: p.day, used: p.used })) }));
   const off = data.offsite?.usage;
   return (
     <>
