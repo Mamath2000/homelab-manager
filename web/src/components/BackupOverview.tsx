@@ -502,14 +502,15 @@ function TipRow({ k, v }: { k: string; v: ReactNode }) {
 export function BackupOverview({ data }: { data: BackupsView }) {
   const { data: stats } = useBackupStats(180);
   const { data: usage } = useBackupUsage();
-  const hasStorage = data.datastores.length > 0 || !!data.offsite?.usage;
+  const cards = (data.datastores.length > 0 ? 1 : 0) + (data.offsite?.usage ? 1 : 0);
+  const hasStorage = cards > 0;
   return (
     <div className="mb-5 space-y-3">
       <StateBand groups={data.groups} days={stats?.days} offsite={!!data.offsite} />
       {data.connected || hasStorage ? (
-        <div className={clsx('grid gap-3 min-[1100px]:grid-cols-[minmax(340px,440px)_minmax(0,1fr)] min-[1500px]:grid-cols-[1fr_1fr_2fr]', !hasStorage && '!grid-cols-1')}>
+        <div className={clsx('grid gap-3 min-[1100px]:grid-cols-[minmax(340px,440px)_minmax(0,1fr)]', cards === 2 && 'min-[1500px]:grid-cols-[1fr_1fr_2fr]', !hasStorage && '!grid-cols-1')}>
           {hasStorage && (
-            <div className="grid min-w-0 content-start gap-3 md:grid-cols-2 min-[1100px]:grid-cols-1 min-[1500px]:contents">
+            <div className={clsx('grid min-w-0 gap-3 min-[1100px]:grid-cols-1', cards === 2 && 'md:grid-cols-2 min-[1500px]:contents')}>
               <StoragePanels data={data} usage={usage} />
             </div>
           )}
