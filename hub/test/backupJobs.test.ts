@@ -172,7 +172,7 @@ test('the same PBS: host, mode and container', async () => {
 test('PBS tokens created by the agent of the PBS: rights, secret, admin only', async () => {
   const { PBS_TOKEN_ACLS, defaultHostTokenId, tokenSecretOf, PbsAgentError } = await import('../src/pbsAgent.js');
   // monitoring reads nothing; a host writes in the namespace Hosts of every datastore only
-  assert.deepEqual(PBS_TOKEN_ACLS.monitor, [{ path: '/datastore', role: 'DatastoreAudit' }]);
+  assert.deepEqual(PBS_TOKEN_ACLS.monitor, [{ path: '/datastore', role: 'DatastoreAudit' }, { path: '/system/tasks', role: 'Audit' }]);
   assert.deepEqual(PBS_TOKEN_ACLS.host, [{ path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' }]);
   assert.equal(defaultHostTokenId('Canicoif PProd'), 'host-canicoif-pprod@pbs!backup');
   const uuid = '0b1c2d3e-1111-2222-3333-444455556666';

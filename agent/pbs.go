@@ -68,6 +68,8 @@ var (
 		"DatastoreBackup": pbsDatastorePathRe,
 		"DatastoreReader": pbsDatastorePathRe,
 		"RemoteAdmin":     regexp.MustCompile(`^/remote(/[A-Za-z0-9._-]+)?$`),
+		// read the tasks of the PBS and their logs (what a backup uploaded), nothing else
+		"Audit": regexp.MustCompile(`^/system/tasks$`),
 	}
 )
 

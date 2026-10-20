@@ -563,7 +563,15 @@ export interface BackupOrphan {
   gone: boolean;
 }
 
+// Volume uploaded and time spent by the backups of one day (hub pbsStats.ts)
+export interface BackupStatsView {
+  days: { day: number; uploaded: number; duration: number; count: number; failed: number }[];
+  // last 30 days of each group (by id), oldest first
+  groups: Record<string, { uploaded: number; duration: number; failed: number }[]>;
+}
+
 export interface BackupsView {
+  statsError: string | null;
   // main PBS connected: its groups, datastores and the jobs of the hosts (the backups of Home Assistant and
   // the Proxmox VE clusters are shown without it)
   connected: boolean;
@@ -1044,6 +1052,7 @@ export const api = {
   setStackManaged: (hostId: string, stack: string, managed: boolean) =>
     request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/managed`, { managed }),
   backups: () => request<BackupsView>('GET', '/api/backups'),
+  backupStats: (days: 30 | 60) => request<BackupStatsView>('GET', `/api/backups/stats?days=${days}`),
   refreshBackups: () => request<{ ok: boolean }>('POST', '/api/backups/refresh'),
   pbsMount: () => request<PbsMountOverview>('GET', '/api/pbs-mount'),
   pbsMountGroups: (source: PbsMountSource) => request<PbsMountGroup[]>('GET', `/api/pbs-mount/${source}/groups`),

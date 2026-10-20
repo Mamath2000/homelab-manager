@@ -18,6 +18,7 @@ import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollP
 import { validTimeZone } from '../calendar.js';
 import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
+import { statsView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
@@ -236,6 +237,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       connected: pbsConnected(s),
       polledAt: s.polledAt ?? null,
       pollError: s.pollError ?? null,
+      statsError: s.statsError ?? null,
       datastores: s.datastores ?? [],
       clusters: (await loadPveSettings()).clusters.map((c) => ({ id: c.id, name: c.name, polledAt: c.polledAt ?? null, pollError: c.pollError ?? null, guests: c.guests ?? 0 })),
       // followed: the groups attached to a host; the others are only listed, to be attached
@@ -257,6 +259,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
       ),
     };
   });
+
+  // what the backups uploaded and how long they took, per day over 30 or 60 days and per group (every role reads)
+  app.get<{ Querystring: { days?: 30 | 60 } }>('/api/backups/stats', { schema: { querystring: { type: 'object', properties: { days: { type: 'integer', enum: [30, 60] } } } } }, async (req) => statsView(req.query.days ?? 30));
 
   app.post('/api/backups/refresh', async (req, reply) => {
     // Home Assistant backups: read again by their agents meanwhile (an agent that fails keeps its last report)

@@ -431,6 +431,7 @@ export interface PbsSettings {
   // last poll
   polledAt?: Date;
   pollError?: string | null;
+  statsError?: string | null; // collection of the backup statistics (pbsStats.ts)
   datastores?: PbsDatastoreUsage[];
   // retention applied by the PBS (prune jobs, options of the datastores), see pbs.ts
   prune?: { store: string; ns: string; schedule: string | null; keep: Record<string, number> }[];
@@ -783,4 +784,16 @@ export interface HostAlertDoc {
   mount?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;
+}
+
+// One backup task of the main PBS (pbsStats.ts): what it really uploaded (new chunks, the PBS log's
+// "Upload size") and how long it ran. Kept after the PBS drops the old task logs.
+export interface BackupStatDoc {
+  _id: string; // UPID of the task
+  groupId: string; // <store>/<ns>/<type>/<id>, as BackupDoc._id
+  start: number; // unix ms
+  end: number;
+  uploaded: number; // bytes
+  ok: boolean;
+  at: Date; // start, for the TTL index
 }

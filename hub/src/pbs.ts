@@ -3,6 +3,7 @@ import { backups, settings } from './db.js';
 import { publish } from './events.js';
 import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
 import { adhocBlocker, offsiteState } from './offsite.js';
+import { collectBackupStats } from './pbsStats.js';
 import { ApiError, apiGet, apiRequest, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
 
@@ -424,6 +425,8 @@ async function doPoll(log?: FastifyBaseLogger) {
     await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true }, source: { $ne: 'haos' } }, { $set: { gone: true } });
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores, prune } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
+    // what each backup uploaded and its duration (never fails the poll)
+    await collectBackupStats(s, log);
   } catch (err) {
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: new Date(), pollError: (err as Error).message } }, { upsert: true });
     log?.warn({ err }, 'PBS poll failed');

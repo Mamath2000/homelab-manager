@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { Cloud, DatabaseBackup, FolderOpen, HardDrive, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { StatBars, StatsPanel } from '../components/BackupStats';
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
@@ -12,7 +13,7 @@ import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
-import { useBackups, useHosts } from '../lib/queries';
+import { useBackups, useBackupStats, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
 
 type Filter = 'all' | 'late';
@@ -109,6 +110,7 @@ function ThresholdCell({ g, canManage, onChange }: { g: BackupGroup; canManage: 
 export function Backups() {
   const { data, isLoading } = useBackups();
   const { data: hosts } = useHosts();
+  const { data: stats } = useBackupStats(30);
   const { canWrite, canManage, canSettings } = useMe();
   const toast = useToast();
   // backup job edited from its line (pencil): its host and job
@@ -298,6 +300,7 @@ export function Backups() {
             </div>
           ) : (
             <>
+              {data.connected && <StatsPanel error={data.statsError} />}
               <div className="mb-3 flex flex-wrap items-center gap-3">
                 <label className="relative">
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" />
@@ -453,13 +456,14 @@ export function Backups() {
                     })}
                   </ResponsiveList>
                   <ResponsiveList mode="desktop">
-                  <table className={clsx('w-full text-sm', data.offsite ? 'min-w-[1400px]' : 'min-w-[1200px]')}>
+                  <table className={clsx('w-full text-sm', data.offsite ? 'min-w-[1560px]' : 'min-w-[1360px]')}>
                     <thead className="border-b border-line">
                       <tr>
                         <th className="th">Sauvegarde</th>
                         <th className="th">Type</th>
                         <th className="th">Hôte</th>
                         <th className="th">30 derniers jours</th>
+                        <th className="th" title="Volume réellement transféré par jour (nouvelles données envoyées au PBS)">Transféré (30 j)</th>
                         <th className="th">Dernière</th>
                         <th className="th">Taille</th>
                         <th className="th">Vérif.</th>
@@ -548,6 +552,7 @@ export function Backups() {
                               )}
                             </td>
                             <td className="td"><BackupTimeline group={g} copy={!!data.offsite} className="w-56" /></td>
+                            <td className="td"><StatBars cells={stats?.groups[g.id]} /></td>
                             <td className="td" title={g.lastBackup ? dateTime(g.lastBackup) : undefined}>{g.lastBackup ? timeAgo(g.lastBackup) : <span className="text-zinc-500">jamais</span>}</td>
                             <td className="td tabular-nums text-zinc-300">{formatBytes(g.size)}</td>
                             <td className="td text-xs">

@@ -251,6 +251,17 @@ func TestValidatePbsToken(t *testing.T) {
 	if err := validatePbsToken(ok()); err != nil {
 		t.Fatal(err)
 	}
+	// the monitor token reads the tasks of the PBS: Audit on /system/tasks only
+	audit := &PbsTokenSpec{User: "a@pbs", Token: "t1", ACLs: []PbsACL{{Path: "/system/tasks", Role: "Audit"}}}
+	if err := validatePbsToken(audit); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/", "/system", "/system/tasks/x", "/datastore"} {
+		audit.ACLs[0].Path = p
+		if validatePbsToken(audit) == nil {
+			t.Errorf("Audit on %s: accepted", p)
+		}
+	}
 	bad := map[string]func(s *PbsTokenSpec){
 		"user realm":     func(s *PbsTokenSpec) { s.User = "a@pam" },
 		"user injection": func(s *PbsTokenSpec) { s.User = "a b@pbs" },

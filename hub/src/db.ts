@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -13,6 +13,7 @@ export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc |
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let backups: Collection<BackupDoc>;
+export let backupStats: Collection<BackupStatDoc>;
 export let hostAlerts: Collection<HostAlertDoc>;
 
 export async function connectDb() {
@@ -25,6 +26,7 @@ export async function connectDb() {
   apiKeys = db.collection('apiKeys');
   settings = db.collection('settings');
   backups = db.collection('backups');
+  backupStats = db.collection('backupStats');
   guests = db.collection('guests');
   backupJobs = db.collection('backupJobs');
   hostAlerts = db.collection('hostAlerts');
@@ -44,6 +46,10 @@ export async function connectDb() {
     sessions.createIndex({ userId: 1 }),
     backups.createIndex({ hostId: 1 }),
     backupJobs.createIndex({ hostId: 1 }),
+    // one document per PBS backup task, kept 400 days
+    backupStats.createIndex({ start: -1 }),
+    backupStats.createIndex({ groupId: 1, start: -1 }),
+    backupStats.createIndex({ at: 1 }, { expireAfterSeconds: 400 * 24 * 3600, name: 'backup_stats_ttl' }),
     // backup results reported by the agents, recorded once
     jobs.createIndex({ resultId: 1 }, { sparse: true }),
     // one document per host and day, kept a little longer than the timeline of the host page shows

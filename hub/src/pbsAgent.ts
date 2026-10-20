@@ -17,8 +17,12 @@ export interface PbsAcl {
 // Rights of each token (least privilege), granted to the user AND to the token. Their scope is
 // described in docs/sauvegardes.md: keep both in step.
 export const PBS_TOKEN_ACLS = {
-  // supervision of the main PBS: lists datastores, groups and snapshots, reads nothing
-  monitor: [{ path: '/datastore', role: 'DatastoreAudit' }],
+  // supervision of the main PBS: lists datastores, groups and snapshots, reads nothing; the tasks and
+  // their logs (what each backup uploaded, pbsStats.ts) need Sys.Audit, given on /system/tasks only
+  monitor: [
+    { path: '/datastore', role: 'DatastoreAudit' },
+    { path: '/system/tasks', role: 'Audit' },
+  ],
   // a host: writes and sees its own groups in the namespace Hosts only
   host: [{ path: '/datastore/{store}/Hosts', role: 'DatastoreBackup' }],
   // on the main PBS, used by the secondary to pull: reads every backup, writes nothing
