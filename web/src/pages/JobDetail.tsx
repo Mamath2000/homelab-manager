@@ -16,7 +16,7 @@ export function JobDetail() {
       <PageHeader icon={Terminal} title={job ? `${jobTitle(job)} · ${job.hostName}` : 'Tâche'}>
         {job && <Link to={`/hosts/${job.hostId}`} className="text-sm text-emerald-400 hover:underline">Voir l'hôte</Link>}
       </PageHeader>
-      <JobConsole jobId={id} height="h-[65vh]" />
+      <JobConsole jobId={id} height="h-[50dvh] sm:h-[65vh]" />
     </>
   );
 }

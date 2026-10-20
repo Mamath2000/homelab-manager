@@ -29,7 +29,7 @@ export function JobConsole({ jobId, height = 'h-80', className }: { jobId: strin
   return (
     <div className={clsx('overflow-hidden rounded-md border border-line', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised/60 px-3 py-2 text-xs">
-        <span className="flex items-center gap-2 text-zinc-200">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-zinc-200">
           <JobStatusIcon status={job.status} />
           <span className="font-medium">{jobTitle(job)}</span>
           <span className="text-muted">· {job.hostName}</span>

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -282,8 +282,10 @@ export function Modal({ open, onClose, title, children, footer, wide, scroll, lo
   // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
   const top = wide === 'screen' ? (low ? '10vh' : '6vh') : low ? '18vh' : '12vh';
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}
-      style={{ paddingTop: top }}
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 pt-4 backdrop-blur-xs md:pt-[var(--modal-top)]"
+      onMouseDown={onClose}
+      style={{ '--modal-top': top } as CSSProperties}
     >
       <div
         className={clsx(

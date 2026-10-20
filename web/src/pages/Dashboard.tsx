@@ -129,6 +129,9 @@ export function Dashboard() {
       ) : (
         <div className="space-y-4">
           <Kpis hosts={hosts} groups={groups} backups={withBackups} />
+          <div className="min-[1100px]:hidden">
+            <DashboardTodo section="others" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+          </div>
           <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_400px]">
             <div className="flex min-w-0 flex-col gap-4">
               <SiteOverview sites={sites} />
@@ -136,7 +139,12 @@ export function Dashboard() {
             </div>
             <div className="flex min-w-0 flex-col gap-4">
               {canWrite && <DashboardActions hosts={hosts} groups={groups} />}
-              <DashboardTodo hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+              <div className="hidden min-[1100px]:block">
+                <DashboardTodo hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+              </div>
+              <div className="min-[1100px]:hidden">
+                <DashboardTodo section="regular" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+              </div>
             </div>
           </div>
         </div>

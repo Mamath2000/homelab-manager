@@ -41,7 +41,19 @@ function TodoPanel({ title, icon, more, children }: { title: string; icon: Lucid
 // Lists of the right column: backups to watch, then pending security updates, then Docker stacks to
 // update, then the rest (hosts
 // offline, agents to reinstall, Docker problems, failed tasks of the last 24 h).
-export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; groups: BackupGroup[] | undefined; jobs: Job[] | undefined; jobsAt: number }) {
+export function DashboardTodo({
+  hosts,
+  groups,
+  jobs,
+  jobsAt,
+  section = 'all',
+}: {
+  hosts: Host[];
+  groups: BackupGroup[] | undefined;
+  jobs: Job[] | undefined;
+  jobsAt: number;
+  section?: 'all' | 'others' | 'regular';
+}) {
   const { data: sites } = useSites();
   const site = (h: Host) => siteName(h, sites);
   const byId = new Map(hosts.map((h) => [h.id, h]));
@@ -73,7 +85,7 @@ export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; 
 
   return (
     <>
-      {backups.length > 0 && (
+      {section !== 'others' && backups.length > 0 && (
         <TodoPanel title="Sauvegardes à surveiller" icon={DatabaseBackup} more="/backups?f=late">
           {backups.map((g) => {
             const h = g.hostId ? byId.get(g.hostId) : undefined;
@@ -90,7 +102,7 @@ export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; 
           })}
         </TodoPanel>
       )}
-      {security.length > 0 && (
+      {section !== 'others' && security.length > 0 && (
         <TodoPanel title="Correctifs de sécurité en attente" icon={ShieldAlert} more="/updates">
           {security.map((h) => (
             <Row
@@ -104,7 +116,7 @@ export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; 
           ))}
         </TodoPanel>
       )}
-      {stackUpdates.length > 0 && (
+      {section !== 'others' && stackUpdates.length > 0 && (
         <TodoPanel title="Stacks Docker à mettre à jour" icon={Container} more="/docker?f=updates">
           {stackUpdates.map((s) => (
             <Row
@@ -118,7 +130,7 @@ export function DashboardTodo({ hosts, groups, jobs, jobsAt }: { hosts: Host[]; 
           ))}
         </TodoPanel>
       )}
-      {others.length > 0 && (
+      {section !== 'regular' && others.length > 0 && (
         <TodoPanel title="Autres points à traiter" icon={ClipboardList} more="/activity">
           {others}
         </TodoPanel>

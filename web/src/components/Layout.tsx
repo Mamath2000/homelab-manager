@@ -183,7 +183,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
         <div className="flex items-center gap-3">
-          <button className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised md:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
+          <button className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised lg:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
@@ -204,11 +204,11 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
         </div>
       </header>
 
-      <aside className="fixed bottom-0 left-0 top-14 hidden w-60 border-r border-line bg-bg md:block">
+      <aside className="fixed bottom-0 left-0 top-14 hidden w-60 border-r border-line bg-bg lg:block">
         <Sidebar onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
       </aside>
       {drawer && (
-        <div className="fixed inset-0 top-14 z-20 bg-black/60 md:hidden" onClick={() => setDrawer(false)}>
+        <div className="fixed inset-0 top-14 z-20 bg-black/60 lg:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-64 border-r border-line bg-bg" onClick={(e) => e.stopPropagation()}>
             <Sidebar onNavigate={() => setDrawer(false)} onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
           </aside>
@@ -218,7 +218,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
-      <main className="px-4 py-6 md:ml-60 md:px-8">
+      <main className="px-4 py-6 lg:ml-60 lg:px-8">
         <div>
           {/* pages are lazy chunks: the menu stays in place while one loads */}
           <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
