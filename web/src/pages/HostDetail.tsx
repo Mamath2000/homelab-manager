@@ -261,7 +261,7 @@ function HostDetailPage({ id }: { id: string }) {
   const hostPickerRef = useRef<HTMLSpanElement>(null);
 
   const hostList = useMemo(
-    () => filterHosts(hosts ?? [], params.get('q') ?? '', parseHostFilter(params.get('f')), params.get('site') ?? '', params.get('tag') ?? '', sites ?? [], tags ?? []),
+    () => filterHosts(hosts ?? [], params.get('q') ?? '', parseHostFilter(params.get('f')), params.get('site') ?? '', params.get('tag') ?? '', sites ?? [], tags ?? [], params.get('os') ?? ''),
     [hosts, params, sites, tags],
   );
   const currentIndex = hostList.findIndex((item) => item.id === id);

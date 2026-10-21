@@ -1,7 +1,8 @@
 import type { Host, SiteConfig, TagConfig } from './api';
+import { OS_OTHER, osColumns, osKey } from './hostOverview';
 import { connection, needsReinstall, updateState, type Connection, type UpdateState } from './status';
 
-export type HostFilter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent' | 'reinstall';
+export type HostFilter = 'all' | Connection | Exclude<UpdateState, 'uptodate' | 'unknown'> | 'reboot' | 'cleanup' | 'agent' | 'reinstall' | 'docker';
 
 export const hostFilters: { key: HostFilter; label: string }[] = [
   { key: 'all', label: 'Tous' },
@@ -14,6 +15,7 @@ export const hostFilters: { key: HostFilter; label: string }[] = [
   { key: 'reboot', label: 'Reboot' },
   { key: 'cleanup', label: 'À nettoyer' },
   { key: 'agent', label: 'Agent obsolète' },
+  { key: 'docker', label: 'Docker à mettre à jour' },
   { key: 'reinstall', label: 'À réinstaller' },
 ];
 
@@ -30,10 +32,12 @@ export function hostMatchesSearch(host: Host, query: string, sites: SiteConfig[]
     .some((value) => value?.toLowerCase().includes(needle));
 }
 
-export function filterHosts(hosts: Host[], query: string, filter: HostFilter, site: string, tag: string, sites: SiteConfig[], tags: TagConfig[]) {
+export function filterHosts(hosts: Host[], query: string, filter: HostFilter, site: string, tag: string, sites: SiteConfig[], tags: TagConfig[], os = '') {
+  const columns = os ? osColumns(hosts) : [];
   // by name: the list and the previous / next of a host follow the same order
   return [...hosts].sort((a, b) => a.name.localeCompare(b.name)).filter((host) => {
     if (site && (site === 'none' ? !!host.siteId : host.siteId !== site)) return false;
+    if (os && !matchesOs(host, os, columns)) return false;
     if (tag && !host.tags.includes(tag)) return false;
     if (!hostMatchesSearch(host, query, sites, tags)) return false;
     switch (filter) {
@@ -50,6 +54,8 @@ export function filterHosts(hosts: Host[], query: string, filter: HostFilter, si
         return !!host.agentOutdated;
       case 'reinstall':
         return needsReinstall(host);
+      case 'docker':
+        return (host.dockerSummary?.updates ?? 0) > 0;
       case 'cleanup':
         return (host.aptSummary?.autoremovable ?? 0) > 0;
       case 'reboot':
@@ -58,4 +64,10 @@ export function filterHosts(hosts: Host[], query: string, filter: HostFilter, si
         return true;
     }
   });
+}
+
+// A host is in the column of its distribution, or in 'autres' when that one is not among the shown columns.
+function matchesOs(host: Host, os: string, columns: ReturnType<typeof osColumns>) {
+  const key = osKey(host);
+  return os === OS_OTHER ? !columns.some((c) => c.key === key) : key === os;
 }

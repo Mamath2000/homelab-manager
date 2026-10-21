@@ -12,6 +12,15 @@ export const toneText: Record<Tone, string> = {
   neutral: 'text-zinc-400',
 };
 
+export const toneBg: Record<Tone, string> = {
+  ok: 'bg-emerald-500',
+  warn: 'bg-amber-400',
+  bad: 'bg-red-500',
+  unknown: 'bg-violet-400',
+  info: 'bg-sky-400',
+  neutral: 'bg-zinc-500',
+};
+
 export const toneStroke: Record<Tone, string> = {
   ok: '#22c55e',
   warn: '#f59e0b',
