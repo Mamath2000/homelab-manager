@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import clsx from 'clsx';
 import type { Host, SiteConfig } from '../lib/api';
 import type { HostFilter } from '../lib/hostFilters';
-import { inColumn, osColumns, overview, siteRows, todoItems, worstTone, type Part } from '../lib/hostOverview';
+import { inColumn, kindColumns, overview, siteRows, todoItems, worstTone, type Part } from '../lib/hostOverview';
 import { toneBadge, toneBg } from '../lib/status';
 
 const label = 'text-[11px] font-medium uppercase tracking-wider text-muted';
@@ -33,26 +33,26 @@ interface Props {
   sites: SiteConfig[];
   filter: HostFilter;
   site: string;
-  os: string;
+  kind: string;
   onFilter: (key: string) => void;
   onSite: (id: string) => void;
-  onOs: (key: string) => void;
-  // site and system together, one URL update
-  onSiteOs: (site: string, os: string) => void;
+  onKind: (key: string) => void;
+  // site and nature together, one URL update
+  onSiteKind: (site: string, kind: string) => void;
 }
 
-// Top of the Hosts page: health of the fleet, sites × systems matrix (a cell is the worst state of its hosts) and what
+// Top of the Hosts page: health of the fleet, sites × natures matrix (a cell is the worst state of its hosts) and what
 // needs action. Everything filters the list below; a second click removes the filter.
-export function HostsOverview({ hosts, sites, filter, site, os, onFilter, onSite, onOs, onSiteOs }: Props) {
+export function HostsOverview({ hosts, sites, filter, site, kind, onFilter, onSite, onKind, onSiteKind }: Props) {
   const o = useMemo(() => overview(hosts), [hosts]);
-  const columns = useMemo(() => osColumns(hosts), [hosts]);
+  const columns = useMemo(() => kindColumns(hosts), [hosts]);
   const rows = useMemo(() => siteRows(hosts, sites), [hosts, sites]);
   const todo = useMemo(() => todoItems.map((t) => ({ ...t, n: hosts.filter(t.test).length })).filter((t) => t.n > 0 || t.key !== 'reinstall'), [hosts]);
   const online = o.fleet[0].n;
   const upToDate = o.updates[0].n;
-  const toggleSiteOs = (siteId: string, osKey: string) => {
-    const same = site === siteId && os === osKey;
-    onSiteOs(same ? '' : siteId, same ? '' : osKey);
+  const toggleSiteKind = (siteId: string, kindKey: string) => {
+    const same = site === siteId && kind === kindKey;
+    onSiteKind(same ? '' : siteId, same ? '' : kindKey);
   };
 
   const todoChips = todo.map((t) => (
@@ -81,17 +81,17 @@ export function HostsOverview({ hosts, sites, filter, site, os, onFilter, onSite
       {/* grand écran et tablette */}
       <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <div className="panel min-w-0 px-4 py-2.5">
-          <div className="grid gap-0.5" style={{ gridTemplateColumns: cols }} role="grid" aria-label="Hôtes par site et par système, la couleur est le pire état de la case">
+          <div className="grid gap-0.5" style={{ gridTemplateColumns: cols }} role="grid" aria-label="Hôtes par site et par nature, la couleur est le pire état de la case">
             <span />
             {columns.map((c) => (
-              <button key={c.key} type="button" title={c.merged?.join(', ') ?? c.label} aria-pressed={os === c.key} onClick={() => onOs(os === c.key ? '' : c.key)}
-                className={clsx(cellHead, 'hover:bg-raised hover:text-zinc-200', os === c.key && 'bg-emerald-500/10 text-zinc-100 ring-1 ring-emerald-500')}>
+              <button key={c.key} type="button" title={c.label} aria-pressed={kind === c.key} onClick={() => onKind(kind === c.key ? '' : c.key)}
+                className={clsx(cellHead, 'hover:bg-raised hover:text-zinc-200', kind === c.key && 'bg-emerald-500/10 text-zinc-100 ring-1 ring-emerald-500')}>
                 {c.label}
               </button>
             ))}
             <span className={cellHead}>Total</span>
             {rows.map((r) => (
-              <RowCells key={r.id} id={r.id} name={r.name} hosts={r.hosts} columns={columns} site={site} os={os} onSite={onSite} onCell={toggleSiteOs} />
+              <RowCells key={r.id} id={r.id} name={r.name} hosts={r.hosts} columns={columns} site={site} kind={kind} onSite={onSite} onCell={toggleSiteKind} />
             ))}
           </div>
         </div>
@@ -142,11 +142,11 @@ export function HostsOverview({ hosts, sites, filter, site, os, onFilter, onSite
               <i className={clsx('h-2 w-2 rounded-full', toneBg[worstTone(r.hosts)])} />{r.name}<b className="font-semibold tabular-nums">{r.hosts.length}</b>
             </button>
           ))}
-          <span className={clsx(label, 'shrink-0 pl-2 pr-0.5')}>Systèmes</span>
+          <span className={clsx(label, 'shrink-0 pl-2 pr-0.5')}>Natures</span>
           {columns.map((c) => (
-            <button key={c.key} type="button" title={c.merged?.join(', ')} aria-pressed={os === c.key} onClick={() => onOs(os === c.key ? '' : c.key)}
-              className={clsx('flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs', os === c.key ? 'border-emerald-500 bg-emerald-500/10' : 'border-line bg-raised')}>
-              {c.label}<b className="font-semibold tabular-nums">{hosts.filter((h) => inColumn(h, c, columns)).length}</b>
+            <button key={c.key} type="button" title={c.label} aria-pressed={kind === c.key} onClick={() => onKind(kind === c.key ? '' : c.key)}
+              className={clsx('flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs', kind === c.key ? 'border-emerald-500 bg-emerald-500/10' : 'border-line bg-raised')}>
+              {c.label}<b className="font-semibold tabular-nums">{hosts.filter((h) => inColumn(h, c)).length}</b>
             </button>
           ))}
         </div>
@@ -155,15 +155,15 @@ export function HostsOverview({ hosts, sites, filter, site, os, onFilter, onSite
   );
 }
 
-function RowCells({ id, name, hosts, columns, site, os, onSite, onCell }: {
+function RowCells({ id, name, hosts, columns, site, kind, onSite, onCell }: {
   id: string;
   name: string;
   hosts: Host[];
-  columns: ReturnType<typeof osColumns>;
+  columns: ReturnType<typeof kindColumns>;
   site: string;
-  os: string;
+  kind: string;
   onSite: (id: string) => void;
-  onCell: (site: string, os: string) => void;
+  onCell: (site: string, kind: string) => void;
 }) {
   return (
     <>
@@ -172,9 +172,9 @@ function RowCells({ id, name, hosts, columns, site, os, onSite, onCell }: {
         <span className="truncate">{name}</span>
       </button>
       {columns.map((c) => {
-        const cell = hosts.filter((h) => inColumn(h, c, columns));
+        const cell = hosts.filter((h) => inColumn(h, c));
         if (!cell.length) return <span key={c.key} className="flex h-[22px] items-center justify-center text-xs text-zinc-600">·</span>;
-        const active = site === id && os === c.key;
+        const active = site === id && kind === c.key;
         return (
           <button key={c.key} type="button" aria-pressed={active} title={cell.map((h) => h.name).join(', ')} onClick={() => onCell(id, c.key)}
             className={clsx('flex h-[22px] items-center justify-center rounded-sm text-xs font-semibold tabular-nums ring-1 ring-inset transition hover:brightness-125', toneBadge[worstTone(cell)], active && 'ring-2 !ring-zinc-100')}>

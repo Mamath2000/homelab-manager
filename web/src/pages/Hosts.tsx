@@ -29,7 +29,7 @@ export function Hosts() {
   const filter = parseHostFilter(params.get('f'));
   const site = params.get('site') ?? '';
   const tag = params.get('tag') ?? '';
-  const os = params.get('os') ?? '';
+  const kind = params.get('kind') ?? '';
   const { data: sites } = useSites();
   const { data: tags } = useTags();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -58,8 +58,8 @@ export function Hosts() {
   const outdatedAgents = (hosts ?? []).filter((h) => h.agentOutdated && h.online && canSelfUpdate(h));
 
   const list = useMemo(
-    () => filterHosts(hosts ?? [], q, filter, site, tag, sites ?? [], tags ?? [], os),
-    [hosts, q, filter, site, tag, os, sites, tags],
+    () => filterHosts(hosts ?? [], q, filter, site, tag, sites ?? [], tags ?? [], kind),
+    [hosts, q, filter, site, tag, kind, sites, tags],
   );
 
   const optionsHost = hosts?.find((h) => h.id === optionsHostId);
@@ -84,11 +84,11 @@ export function Hosts() {
         sites={sites ?? []}
         filter={filter}
         site={site}
-        os={os}
+        kind={kind}
         onFilter={(key) => setParam('f', key === filter ? '' : key)}
         onSite={(id) => setParam('site', id)}
-        onOs={(key) => setParam('os', key)}
-        onSiteOs={(id, key) => setMany({ site: id, os: key })}
+        onKind={(key) => setParam('kind', key)}
+        onSiteKind={(id, key) => setMany({ site: id, kind: key })}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">

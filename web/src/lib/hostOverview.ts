@@ -3,43 +3,43 @@ import { connection, connectionMeta, hasApt, needsReinstall, updateState, type T
 
 // Figures of the header of the Hosts page: health of the fleet, sites × systems matrix, what needs action.
 
-export const OS_OTHER = 'autres';
-// The matrix shows this many distributions, the others go in one column.
-const OS_COLUMNS = 3;
+export type Kind = 'pve' | 'pbs' | 'windows' | 'wsl' | 'lxc' | 'vm' | 'physical';
 
-const distroLabels: Record<string, string> = { haos: 'Home Assistant OS', unraid: 'Unraid', windows: 'Windows' };
+// Columns of the matrix, in this order; the ones without host are left out.
+const kinds: { key: Kind; label: string }[] = [
+  { key: 'pve', label: 'PVE' },
+  { key: 'pbs', label: 'PBS' },
+  { key: 'vm', label: 'VM' },
+  { key: 'lxc', label: 'LXC' },
+  { key: 'physical', label: 'Physique' },
+  { key: 'windows', label: 'Windows' },
+  { key: 'wsl', label: 'WSL' },
+];
 
-// Distribution of a host (version and variant such as WSL left out), '' when unknown.
-export function osKey(h: Host) {
-  return h.info?.osId || (h.osFamily === 'windows' ? 'windows' : '');
+// Nature of a host: Proxmox node (agent capability), Windows, WSL, container, VM (virtualisation reported by the agent or
+// guest type known from Proxmox), else a physical machine.
+export function hostKind(h: Host): Kind {
+  if (h.capabilities?.includes('pve')) return 'pve';
+  if (h.capabilities?.includes('pbs')) return 'pbs';
+  if (h.osFamily === 'windows') return 'windows';
+  const virt = h.info?.virt;
+  if (virt === 'wsl') return 'wsl';
+  if (h.pve?.type === 'lxc' || virt === 'lxc' || virt === 'lxc-libvirt' || virt === 'docker' || virt === 'podman') return 'lxc';
+  if (h.pve?.type === 'qemu' || (virt && virt !== 'none')) return 'vm';
+  return 'physical';
 }
 
-export function osName(key: string) {
-  if (!key) return 'Inconnu';
-  return distroLabels[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
-}
-
-export interface OsColumn {
-  key: string;
+export interface KindColumn {
+  key: Kind;
   label: string;
-  // distributions gathered in the 'autres' column
-  merged?: string[];
 }
 
-// The most frequent distributions, then the others together.
-export function osColumns(hosts: Host[]): OsColumn[] {
-  const count = new Map<string, number>();
-  for (const h of hosts) count.set(osKey(h), (count.get(osKey(h)) ?? 0) + 1);
-  const sorted = [...count.entries()].sort((a, b) => b[1] - a[1] || osName(a[0]).localeCompare(osName(b[0]), 'fr'));
-  const shown = sorted.length > OS_COLUMNS + 1 ? sorted.slice(0, OS_COLUMNS) : sorted;
-  const columns: OsColumn[] = shown.map(([key]) => ({ key, label: osName(key) }));
-  const rest = sorted.slice(shown.length);
-  if (rest.length) columns.push({ key: OS_OTHER, label: 'Autres', merged: rest.map(([key]) => osName(key)) });
-  return columns;
+export function kindColumns(hosts: Host[]): KindColumn[] {
+  const present = new Set(hosts.map(hostKind));
+  return kinds.filter((k) => present.has(k.key));
 }
 
-export const inColumn = (h: Host, col: OsColumn, columns: OsColumn[]) =>
-  col.key === OS_OTHER ? !columns.some((c) => c.key === osKey(h)) : osKey(h) === col.key;
+export const inColumn = (h: Host, col: KindColumn) => hostKind(h) === col.key;
 
 const rank: Record<Tone, number> = { bad: 4, warn: 3, unknown: 2, neutral: 1, info: 1, ok: 0 };
 
