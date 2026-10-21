@@ -79,7 +79,7 @@ export function HostsOverview({ hosts, sites, filter, site, os, onFilter, onSite
   return (
     <section aria-label="Vue d’ensemble du parc" className="mb-4">
       {/* grand écran et tablette */}
-      <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] min-[1280px]:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <div className="panel min-w-0 px-4 py-2.5">
           <div className="grid gap-0.5" style={{ gridTemplateColumns: cols }} role="grid" aria-label="Hôtes par site et par système, la couleur est le pire état de la case">
             <span />
@@ -112,10 +112,10 @@ export function HostsOverview({ hosts, sites, filter, site, os, onFilter, onSite
           </div>
         </div>
 
-        <div className="panel min-w-0 px-4 py-2.5 md:col-span-2 min-[1280px]:col-span-1">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-[1280px]:block">
-            <span className={clsx(label, 'min-[1280px]:mb-2 min-[1280px]:block')}>À traiter</span>
-            <div className="flex flex-wrap gap-1.5 min-[1280px]:grid min-[1280px]:grid-cols-2">{todoChips}</div>
+        <div className="panel min-w-0 px-4 py-2.5 md:col-span-2 xl:col-span-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 xl:block">
+            <span className={clsx(label, 'xl:mb-2 xl:block')}>À traiter</span>
+            <div className="flex flex-wrap gap-1.5 xl:grid xl:grid-cols-2">{todoChips}</div>
           </div>
         </div>
       </div>
