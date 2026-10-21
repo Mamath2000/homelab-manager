@@ -100,6 +100,28 @@ test('a roaming host offline is neither an alert nor counted offline', () => {
   assert.equal(state(ROOT_ID, 'alerts'), '0');
 });
 
+test('session entities are unavailable when their agent is offline', () => {
+  const h = {
+    ...host('windows'),
+    capabilities: ['session'],
+    sessions: {
+      checkedAt: Date.now(),
+      sessions: [{ id: 1, user: 'Mamath', state: 'active' as const, interactive: true }],
+    },
+  };
+  const { devices } = build([{ host: h, online: false, busy: false }], opts);
+  const id = `hm_${h._id.toHexString()}`;
+  const components = devices.find((d) => d.id === id)!.discovery.components as Record<
+    string,
+    { availability?: { topic: string }[]; availability_mode?: string }
+  >;
+
+  for (const key of ['users_logged_in', 'interactive', 'session_locked', 'session_changed', 'logged_users', 'users']) {
+    assert.deepEqual(components[key].availability?.map(({ topic }) => topic), ['hm/lwt', `hm/${id}/agent/state`]);
+    assert.equal(components[key].availability_mode, 'all');
+  }
+});
+
 test('a host excluded from Home Assistant has no device and is left out of the totals', () => {
   const kept = host('pve1', { upgradable: [pkg('openssl', true)] });
   const hidden = { ...host('lab', { upgradable: [pkg('curl')] }), haExcluded: true };

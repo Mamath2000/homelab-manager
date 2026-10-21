@@ -128,7 +128,12 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
             </span>
             {domains.map((d) => {
               const c = cellOf(status?.hosts[h.id]?.domains[d.id]);
-              return <Badge key={d.id} tone={cellTone[c]}>{d.label} · {cellLabel[c]}</Badge>;
+              return (
+                <Badge key={d.id} tone={cellTone[c]} className="flex-col !gap-0 text-center leading-tight">
+                  <span>{d.label}</span>
+                  <span>{cellLabel[c]}</span>
+                </Badge>
+              );
             })}
           </Link>
         );
