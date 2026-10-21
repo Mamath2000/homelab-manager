@@ -11,6 +11,7 @@ import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { BulkSetupModal } from '../components/SetupPanel';
 import { HeaderTitle } from '../components/HeaderSlot';
+import { HostsOverview } from '../components/HostsOverview';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, ResponsiveList, Spinner, StatusDot, Tag } from '../components/ui';
 import { timeAgo } from '../lib/format';
 import { useBackups, useHosts, useRunBulk, useRunJob, useSites, useTags } from '../lib/queries';
@@ -28,6 +29,7 @@ export function Hosts() {
   const filter = parseHostFilter(params.get('f'));
   const site = params.get('site') ?? '';
   const tag = params.get('tag') ?? '';
+  const os = params.get('os') ?? '';
   const { data: sites } = useSites();
   const { data: tags } = useTags();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -42,19 +44,22 @@ export function Hosts() {
   const { canWrite, canManage } = useMe();
   const run = useRunJob();
 
-  const setParam = (k: string, v: string) => {
+  const setMany = (values: Record<string, string>) => {
     const next = new URLSearchParams(params);
-    if (v) next.set(k, v);
-    else next.delete(k);
+    for (const [k, v] of Object.entries(values)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
     setParams(next, { replace: true });
   };
+  const setParam = (k: string, v: string) => setMany({ [k]: v });
 
   // agents out of sync with the binary served by the hub, able to update themselves now
   const outdatedAgents = (hosts ?? []).filter((h) => h.agentOutdated && h.online && canSelfUpdate(h));
 
   const list = useMemo(
-    () => filterHosts(hosts ?? [], q, filter, site, tag, sites ?? [], tags ?? []),
-    [hosts, q, filter, site, tag, sites, tags],
+    () => filterHosts(hosts ?? [], q, filter, site, tag, sites ?? [], tags ?? [], os),
+    [hosts, q, filter, site, tag, os, sites, tags],
   );
 
   const optionsHost = hosts?.find((h) => h.id === optionsHostId);
@@ -73,6 +78,18 @@ export function Hosts() {
   return (
     <>
       <HeaderTitle icon={Server} title="Hôtes" />
+
+      <HostsOverview
+        hosts={hosts}
+        sites={sites ?? []}
+        filter={filter}
+        site={site}
+        os={os}
+        onFilter={(key) => setParam('f', key === filter ? '' : key)}
+        onSite={(id) => setParam('site', id)}
+        onOs={(key) => setParam('os', key)}
+        onSiteOs={(id, key) => setMany({ site: id, os: key })}
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full max-w-xs">
