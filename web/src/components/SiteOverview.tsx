@@ -120,21 +120,25 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
           <Link
             key={s.name}
             to={hostLink(h)}
-            className="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50"
+            className="flex flex-col gap-1.5 border-t border-line py-2 text-sm first-of-type:border-t-0 hover:bg-raised/50"
           >
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: status ? toneStroke[levelTone[worstLevel(status, s.hosts)]] : toneStroke.neutral }} />
-            <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium text-zinc-200">{s.name}</span> <span className="text-muted">{h.name}</span>
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: status ? toneStroke[levelTone[worstLevel(status, s.hosts)]] : toneStroke.neutral }} />
+              <span className="min-w-0 truncate">
+                <span className="font-medium text-zinc-200">{s.name}</span> <span className="text-muted">{h.name}</span>
+              </span>
             </span>
-            {domains.map((d) => {
-              const c = cellOf(status?.hosts[h.id]?.domains[d.id]);
-              return (
-                <Badge key={d.id} tone={cellTone[c]} className="flex-col !gap-0 text-center leading-tight">
-                  <span>{d.label}</span>
-                  <span>{cellLabel[c]}</span>
-                </Badge>
-              );
-            })}
+            <span className="flex w-full gap-2">
+              {domains.map((d) => {
+                const c = cellOf(status?.hosts[h.id]?.domains[d.id]);
+                return (
+                  <Badge key={d.id} tone={cellTone[c]} className="min-w-0 flex-1 basis-0 flex-col !gap-0 whitespace-normal text-center leading-tight">
+                    <span>{d.label}</span>
+                    <span>{cellLabel[c]}</span>
+                  </Badge>
+                );
+              })}
+            </span>
           </Link>
         );
       })}
