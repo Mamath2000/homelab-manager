@@ -11,7 +11,7 @@ sidebar_position: 5
 | Rôle | Droits |
 |---|---|
 | `admin` | Tout : hôtes (ajout, modification, suppression, commandes d'installation, révocation des agents), mises à jour, paramètres, comptes |
-| `operator` | Voit tout et lance les actions : vérifications, mises à jour, nettoyages, redémarrages, mises à jour d'agents. Ne gère ni les hôtes, ni les paramètres, ni les comptes |
+| `operator` | Voit tout et lance les actions : vérifications, mises à jour, nettoyages, redémarrages, verrouillage de session, mises à jour d'agents (pas l'extinction d'un hôte, réservée à `admin`). Ne gère ni les hôtes, ni les paramètres, ni les comptes |
 | `viewer` | Lecture seule |
 
 Les droits sont vérifiés par le hub sur chaque requête : l'interface ne fait que masquer ce qui n'est pas autorisé.

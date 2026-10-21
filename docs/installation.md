@@ -194,7 +194,7 @@ Particularités :
 
 ### Postes Windows
 
-Un poste Windows 10 / 11 (64 bits) remonte sa **présence**, son **système** (nom, version de Windows, IP, MAC, uptime) et ses **sessions** (utilisateurs connectés, session active, verrouillée ou déconnectée). Rien d'autre : ni mises à jour, ni Docker, ni standardisation, ni sauvegardes.
+Un poste Windows 10 / 11 (64 bits) remonte sa **présence**, son **système** (nom, version de Windows, IP, MAC, uptime) et ses **sessions** (utilisateurs connectés, session active, verrouillée ou déconnectée). Il accepte aussi les **commandes à distance** : redémarrer, éteindre et verrouiller une session (voir ci-dessous). Rien d'autre : ni mises à jour, ni Docker, ni standardisation.
 
 1. **Ajouter un hôte**, puis onglet **Windows** de la fenêtre d'installation : télécharger `homelab-agent.exe`.
 2. Dans le dossier du fichier, ouvrir **PowerShell en administrateur** et coller la commande affichée :
@@ -211,6 +211,16 @@ Le jeton est celui de l'add-on Home Assistant OS : adresse du hub, clé épingl�
 | CA du hub, clé privée et certificat (accès SYSTEM et administrateurs seulement) | `C:\ProgramData\homelab-agent\` |
 | Journal (repart de zéro au-delà de 1 Mo) | `C:\ProgramData\homelab-agent\agent.log` |
 | Service Windows (démarrage automatique, relancé en cas d'échec) | `homelab-agent` |
+
+Commandes à distance (fiche de l'hôte) :
+
+| Commande | Où | Rôle requis |
+|---|---|---|
+| Verrouiller | bouton sur chaque session non verrouillée du panneau **Sessions** (un helper verrouille la session de l'utilisateur) | `operator` |
+| Redémarrer | **Options** › **Danger** | `operator` |
+| Éteindre | **Options** › **Danger** : l'hôte ne repart pas seul (sur place ou Wake-on-LAN) | `admin` |
+
+Le redémarrage et l'extinction forcent la fermeture des applications (`shutdown /f`, délai de 3 s). Sur un hôte Linux, **Éteindre** (`systemctl poweroff`) est disponible dans les mêmes conditions que **Redémarrer** : ni Unraid ni WSL.
 
 Particularités :
 

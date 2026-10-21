@@ -252,6 +252,7 @@ function HostDetailPage({ id }: { id: string }) {
   const tls = useAgentTls();
   const upsert = useUpdateHostCache();
   const [confirmReboot, setConfirmReboot] = useState(false);
+  const [confirmShutdown, setConfirmShutdown] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const scrolled = useScrolled();
   const [stripEl, setStripEl] = useState<HTMLDivElement | null>(null);
@@ -662,6 +663,7 @@ function HostDetailPage({ id }: { id: string }) {
           onClose={() => setEditing(false)}
           danger={{
             onReboot: host.capabilities.includes('reboot') ? () => { setEditing(false); setConfirmReboot(true); } : undefined,
+            onShutdown: canManage && host.capabilities.includes('shutdown') ? () => { setEditing(false); setConfirmShutdown(true); } : undefined,
             rebootDisabled: !host.online || !!running,
             onRevoke: () => { setEditing(false); setConfirmRevoke(true); },
             onDelete: () => { setEditing(false); setDeleting(true); },
@@ -678,8 +680,21 @@ function HostDetailPage({ id }: { id: string }) {
         loading={run.isPending}
         onConfirm={() => run.mutate({ hostId: host.id, action: 'reboot' }, { onSuccess: (j) => { setJobId(j.id); setConfirmReboot(false); } })}
       >
-        L'hôte redémarre dans les secondes qui suivent (<code className="text-zinc-100">systemctl reboot</code>). Il repasse « En ligne » dès que l'agent se reconnecte.
+        L'hôte redémarre dans les secondes qui suivent{isWindows(host) ? '' : <> (<code className="text-zinc-100">systemctl reboot</code>)</>}. Il repasse « En ligne » dès que l'agent se reconnecte.
         {host.info?.virt === 'none' || !host.info?.virt ? null : <p className="mt-2 text-xs text-muted">Virtualisation : {host.info.virt} (seul ce conteneur ou cette VM redémarre).</p>}
+      </ConfirmModal>
+      <ConfirmModal
+        open={confirmShutdown}
+        onClose={() => setConfirmShutdown(false)}
+        title={`Éteindre ${host.name}`}
+        confirmLabel="Éteindre"
+        danger
+        loading={run.isPending}
+        onConfirm={() => run.mutate({ hostId: host.id, action: 'shutdown' }, { onSuccess: (j) => { setJobId(j.id); setConfirmShutdown(false); } })}
+      >
+        L'hôte s'éteint dans les secondes qui suivent{isWindows(host) ? '' : <> (<code className="text-zinc-100">systemctl poweroff</code>)</>}. Il ne redémarre pas seul : il faut le rallumer sur place ou par Wake-on-LAN.
+        {host.online && host.sessionSummary?.interactive && <p className="mt-2 text-xs text-amber-300">Une session est en cours d'utilisation (activité clavier/souris).</p>}
+        {host.info?.virt === 'none' || !host.info?.virt ? null : <p className="mt-2 text-xs text-muted">Virtualisation : {host.info.virt} (seul ce conteneur ou cette VM s'éteint).</p>}
       </ConfirmModal>
       <ConfirmModal open={confirmRevoke} onClose={() => setConfirmRevoke(false)} title={`Révoquer l'agent de ${host.name}`} confirmLabel="Révoquer" danger onConfirm={revoke}>
         L'agent est déconnecté immédiatement et son certificat est refusé, de même que toute commande d'installation en attente.

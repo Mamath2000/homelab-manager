@@ -53,6 +53,7 @@ const jobBody = {
     packages: { type: 'array', maxItems: 500, items: { type: 'string', maxLength: 128 } },
     stack: { type: 'string', maxLength: 64 },
     service: { type: 'string', maxLength: 64 },
+    sessionId: { type: 'integer', minimum: 0 },
   },
 } as const;
 
@@ -239,7 +240,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map((j) => jobDto(j));
   });
 
-  app.post<{ Params: { id: string }; Body: { action: JobAction; packages?: string[]; stack?: string; service?: string } }>(
+  app.post<{ Params: { id: string }; Body: { action: JobAction; packages?: string[]; stack?: string; service?: string; sessionId?: number } }>(
     '/api/hosts/:id/jobs',
     { schema: { body: jobBody } },
     async (req, reply) => {
@@ -252,7 +253,18 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (req.body.action === 'reboot' && !host.capabilities?.includes('reboot')) {
         return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas redémarrer : mets-le à jour" });
       }
-      const { action, stack, service } = req.body;
+      if (req.body.action === 'shutdown' && !host.capabilities?.includes('shutdown')) {
+        return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas éteindre : mets-le à jour" });
+      }
+      // shutdown: operators restart and lock, only an admin powers a host off
+      if (req.body.action === 'shutdown' && req.user!.role !== 'admin') return reply.code(403).send({ error: 'forbidden' });
+      if (req.body.action === 'lock') {
+        if (!host.capabilities?.includes('lock')) return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas verrouiller une session : mets-le à jour" });
+        if (!host.sessions?.sessions.some((s) => s.id === req.body.sessionId)) return reply.code(400).send({ error: 'session inconnue sur cet hôte' });
+      } else if (req.body.sessionId !== undefined) {
+        return reply.code(400).send({ error: 'sessionId ne concerne que le verrouillage' });
+      }
+      const { action, stack, service, sessionId } = req.body;
       if (action === 'setup_apply') {
         if (!canSetup(host)) return reply.code(400).send({ error: "la standardisation n'est pas disponible sur cet hôte (Debian / Ubuntu, agent à jour)" });
         // the values of the host: standard configuration and its overrides (PUT /api/hosts/:id/setup)
@@ -279,7 +291,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       }
       const packages = req.body.packages ?? [];
       if (!validPackages(packages)) return reply.code(400).send({ error: 'invalid package name' });
-      const job = await createJob(host, action, packages, 'manual', { stack, service });
+      const job = await createJob(host, action, packages, 'manual', { stack, service, sessionId });
       reply.code(202);
       return jobDto(job);
     },

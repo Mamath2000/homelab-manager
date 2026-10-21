@@ -58,6 +58,8 @@ export function hasRunningJob(hostId: string) {
 export interface JobTarget {
   stack?: string;
   service?: string;
+  // lock: session to lock
+  sessionId?: number;
   // setup_apply: what the agent applies (built by setup.ts from the profile, never from the request)
   setup?: { modules: SetupOption[] } & Record<string, unknown>;
   // backup_run: id and name of the backup job
@@ -76,6 +78,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     packages,
     ...(target.stack ? { stack: target.stack } : {}),
     ...(target.service ? { service: target.service } : {}),
+    ...(target.sessionId !== undefined ? { sessionId: target.sessionId } : {}),
     ...(target.setup ? { modules: target.setup.modules } : {}),
     ...(target.backupJob ? { backupJobId: new ObjectId(target.backupJob), backupJobName: target.backupJobName } : {}),
     ...(target.method ? { method: target.method } : {}),
@@ -101,6 +104,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
       packages,
       ...(target.stack ? { stack: target.stack } : {}),
       ...(target.service ? { service: target.service } : {}),
+      ...(target.sessionId !== undefined ? { sessionId: target.sessionId } : {}),
       ...(target.setup ? { setup: target.setup } : {}),
       ...(target.backupJob ? { backupJob: target.backupJob } : {}),
       ...(target.method ? { method: target.method } : {}),

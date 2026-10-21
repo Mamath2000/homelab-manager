@@ -3,7 +3,7 @@ import type { UserDoc } from './types.js';
 // What each role may call, decided on the matched route pattern (see isPublic in auth.ts).
 // Anything not explicitly allowed is refused.
 //   admin     everything
-//   operator  reads + runs jobs (updates, cleanup, reboot, agent updates) + standardisation of a host; no hosts, settings or accounts
+//   operator  reads + runs jobs (updates, cleanup, reboot, lock, agent updates; not shutdown: checked on the job route) + standardisation of a host; no hosts, settings or accounts
 //   viewer    reads only
 //   superadmin  accounts only: list, create, reset passwords (first install and recovery)
 export function authorize(role: UserDoc['role'], method: string, route: string) {

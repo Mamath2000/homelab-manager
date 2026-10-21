@@ -31,7 +31,7 @@ type session struct {
 	haBackupErrLogged bool
 }
 
-// Actions this host supports: APT only where apt-get exists (not on Unraid), reboot through
+// Actions this host supports: APT only where apt-get exists (not on Unraid), reboot and shutdown through
 // systemd only (on Unraid a reboot from the shell could skip the array shutdown) and not on WSL
 // (a stopped distribution only starts again from Windows).
 func platformCapabilities() []string {
@@ -41,7 +41,7 @@ func platformCapabilities() []string {
 		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
 	}
 	if _, err := exec.LookPath("systemctl"); err == nil && !onWSL {
-		caps = append(caps, "reboot")
+		caps = append(caps, "reboot", "shutdown")
 	}
 	// standardisation (setup.go): Debian-like hosts only
 	if _, err := exec.LookPath("useradd"); err == nil && hasApt() {
@@ -387,19 +387,23 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			args = append(args, in.Packages...)
 		}
 		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", args...)
-	case "reboot":
+	case "reboot", "shutdown":
 		path, lerr := exec.LookPath("systemctl")
 		if lerr != nil {
 			done(-1, fmt.Errorf("systemctl not found"))
 			return
 		}
+		verb, msg := "reboot", "rebooting"
+		if in.Action == "shutdown" {
+			verb, msg = "poweroff", "powering off"
+		}
 		// report success first: the reboot stops this agent before it could answer
-		emit("rebooting in 3 seconds...\n")
+		emit(msg + " in 3 seconds...\n")
 		done(0, nil)
 		go func() {
 			time.Sleep(3 * time.Second)
-			if out, err := exec.Command(path, "reboot").CombinedOutput(); err != nil {
-				log.Printf("reboot failed: %v: %s", err, out)
+			if out, err := exec.Command(path, verb).CombinedOutput(); err != nil {
+				log.Printf("%s failed: %v: %s", verb, err, out)
 			}
 		}()
 		return

@@ -51,6 +51,8 @@ type Inbound struct {
 	Op     string   `json:"op,omitempty"`
 	Scopes []string `json:"scopes,omitempty"`
 	Sha256 string   `json:"sha256,omitempty"` // agent_update: expected hash of the new binary
+	// lock: the session to lock
+	SessionID *uint32 `json:"sessionId,omitempty"`
 	// backup_sync: the whole definition of the backups of this host (backup.go)
 	Backup *BackupSpec `json:"backup,omitempty"`
 	// backup_run: the backup job to run now

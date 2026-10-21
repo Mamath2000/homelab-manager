@@ -16,6 +16,8 @@ import { Badge, Button, Checkbox, Modal } from './ui';
 // Actions of the « Danger » zone, owned by the caller (its confirmations); no zone without them (host list).
 export interface HostDangerActions {
   onReboot?: () => void;
+  // admins only
+  onShutdown?: () => void;
   rebootDisabled: boolean;
   onRevoke: () => void;
   onDelete: () => void;
@@ -275,6 +277,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                 <Capability label="Mises à jour APT" enabled={hasApt(host)} detail="Gestion des paquets système" />
                 <Capability label="Docker" enabled={!!host.docker} detail={host.docker ? `${host.docker.engine} · Compose ${host.docker.compose}` : 'Aucun moteur Docker détecté'} />
                 <Capability label="Redémarrage" enabled={host.capabilities.includes('reboot')} detail="Redémarrage à distance de l’hôte" />
+                <Capability label="Extinction" enabled={host.capabilities.includes('shutdown')} detail="Extinction à distance de l’hôte" />
+                {isWindows(host) && <Capability label="Verrouillage" enabled={host.capabilities.includes('lock')} detail="Verrouillage d’une session utilisateur" />}
                 <Capability label="Mise à jour de l’agent" enabled={host.capabilities.includes('agent_update')} detail="L’agent peut se mettre à jour lui-même" />
                 <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
                 <Capability label="Sauvegardes Home Assistant" enabled={host.capabilities.includes('ha_backups')} detail="Remontée des sauvegardes Home Assistant" />
@@ -311,6 +315,19 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                       </div>
                     </div>
                     <Button variant="danger" icon={Power} disabled={danger.rebootDisabled} onClick={danger.onReboot}>Redémarrer</Button>
+                  </div>
+                )}
+                {danger.onShutdown && (
+                  <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <Power className="mt-0.5 h-4 w-4 shrink-0 text-red-300" />
+                      <div>
+                        <p className="text-sm font-medium text-zinc-100">Éteindre cet hôte</p>
+                        <p className="mt-0.5 text-xs text-muted">L’hôte ne repart pas seul : il faut le rallumer sur place ou par Wake-on-LAN.</p>
+                        {danger.rebootDisabled && <p className="mt-1 text-xs text-amber-300">Disponible lorsque l’hôte est en ligne et sans tâche en cours.</p>}
+                      </div>
+                    </div>
+                    <Button variant="danger" icon={Power} disabled={danger.rebootDisabled} onClick={danger.onShutdown}>Éteindre</Button>
                   </div>
                 )}
                 {host.agentAuth !== 'none' && (

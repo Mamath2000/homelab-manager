@@ -38,6 +38,8 @@ export const actionLabel: Record<string, string> = {
   apt_upgrade: 'Mise à jour',
   apt_autoremove: 'Nettoyage des paquets',
   reboot: 'Redémarrage',
+  shutdown: 'Extinction',
+  lock: 'Verrouillage de session',
   agent_update: "Mise à jour de l'agent",
   docker_check: 'Vérification des images Docker',
   docker_up: 'Démarrage de stack',

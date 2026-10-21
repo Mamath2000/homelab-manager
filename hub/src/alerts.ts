@@ -21,7 +21,7 @@ export function dayKey(d: Date) {
 
 // Domain a failed job counts in (null: none, e.g. an agent update).
 export function jobDomain(action: JobDoc['action']): AlertDomain | null {
-  if (action.startsWith('apt_') || action === 'reboot') return 'apt';
+  if (action.startsWith('apt_') || action === 'reboot' || action === 'shutdown') return 'apt';
   if (action.startsWith('docker_')) return 'docker';
   if (action.startsWith('backup_')) return 'backup';
   if (action === 'offsite_run') return 'offsite';
@@ -136,6 +136,8 @@ const actionLabel: Partial<Record<JobDoc['action'], string>> = {
   apt_upgrade: 'mise à jour',
   apt_autoremove: 'nettoyage des paquets',
   reboot: 'redémarrage',
+  shutdown: 'extinction',
+  lock: 'verrouillage',
   docker_check: 'vérification des images',
   docker_up: 'démarrage',
   docker_stop: 'arrêt',

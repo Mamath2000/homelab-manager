@@ -6,7 +6,7 @@ export function rights(me: Me) {
   return {
     ...me,
     isSuperAdmin: me.role === 'superadmin',
-    // run jobs: checks, updates, cleanup, reboot, agent updates
+    // run jobs: checks, updates, cleanup, reboot, lock, agent updates
     canWrite: me.role === 'admin' || me.role === 'operator',
     // add / edit / delete hosts, agent tokens
     canManage: me.role === 'admin',

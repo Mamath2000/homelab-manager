@@ -261,7 +261,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -1041,7 +1041,7 @@ export const api = {
   deleteTag: (id: string) => request<void>('DELETE', `/api/tags/${id}`),
   dockerUpdate: (targets: { hostId: string; stack: string }[]) => request<Job[]>('POST', '/api/jobs/docker-update', { targets }),
   job: (id: string) => request<Job>('GET', `/api/jobs/${id}`),
-  runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string }) =>
+  runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string } | { sessionId: number }) =>
     request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action, packages, ...target }),
 
   stackLogs: (hostId: string, stack: string, service: string | undefined, tail: number) =>

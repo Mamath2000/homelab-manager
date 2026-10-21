@@ -99,7 +99,7 @@ Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même
 
 ## Limites
 
-- Le hub reste le point de commande : un hub compromis peut lancer les actions prévues (mises à jour APT, nettoyage, redémarrage). Il ne peut ni exécuter de commande arbitraire ni installer un agent non signé.
+- Le hub reste le point de commande : un hub compromis peut lancer les actions prévues (mises à jour APT, nettoyage, redémarrage, extinction, verrouillage de session). Il ne peut ni exécuter de commande arbitraire ni installer un agent non signé.
 - À l'installation initiale, tout vient du hub. La sécurité repose sur la commande copiée depuis l'interface, et donc sur l'accès à cette interface.
 - Il n'y a pas de protection contre le retour à une version plus ancienne : un hub compromis peut redistribuer un ancien agent signé.
 - L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, le hub en crée une nouvelle au démarrage et tous les agents sont à réinstaller.

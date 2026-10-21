@@ -46,6 +46,13 @@ func main() {
 		runIdleProbe()
 		return
 	}
+	// the helper that locks the session it runs in (power_windows.go)
+	if len(os.Args) == 2 && os.Args[1] == "lock-session" {
+		if err := lockWorkStation(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	cleanOldBinary()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -195,7 +202,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// backups: backup_setup (the hub may send definitions), backup_connect (jobs run on connection),
 	// "backup" and backup:cli once the CLI named by the definition is there
-	caps := []string{"refresh", "session", "agent_update", "backup_setup", "backup_connect"}
+	caps := []string{"refresh", "session", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect"}
 	client := backups.clientPresent()
 	if client {
 		caps = append(caps, "backup", "backup:cli")
@@ -312,8 +319,8 @@ func (s *session) loop(ctx context.Context) error {
 	}
 }
 
-// run executes a job of the hub. Only agent_update and backup_run exist on Windows; any other action
-// must not stay pending on the hub.
+// run executes a job of the hub. Only agent_update, backup_run and the power actions exist on Windows; any
+// other action must not stay pending on the hub.
 func (s *session) run(ctx context.Context, in Inbound) {
 	emit := func(d string) { _ = s.send(ctx, Outbound{Type: "job_log", JobID: in.JobID, Data: d}) }
 	if in.Action == "backup_run" {
@@ -327,6 +334,14 @@ func (s *session) run(ctx context.Context, in Inbound) {
 			}
 			_ = s.send(ctx, o)
 		}()
+		return
+	}
+	switch in.Action {
+	case "reboot", "shutdown":
+		go s.power(ctx, in, emit)
+		return
+	case "lock":
+		go s.lock(ctx, in, emit)
 		return
 	}
 	if in.Action != "agent_update" {

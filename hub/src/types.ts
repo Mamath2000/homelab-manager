@@ -293,6 +293,8 @@ export const JOB_ACTIONS = [
   'apt_upgrade',
   'apt_autoremove',
   'reboot',
+  'shutdown',
+  'lock',
   'agent_update',
   'docker_check',
   ...DOCKER_ACTIONS,
@@ -312,6 +314,8 @@ export interface JobDoc {
   // docker actions: target stack, and service when the action is limited to one
   stack?: string;
   service?: string;
+  // lock: the Windows session locked
+  sessionId?: number;
   // setup_apply: options applied
   modules?: SetupOption[];
   // backup_run: the backup job (BackupJobDoc) and its name
