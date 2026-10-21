@@ -86,7 +86,7 @@ Un [poste Windows](installation.md#postes-windows) a en plus, sur son appareil, 
 | Session verrouillée | capteur binaire : toutes les sessions ouvertes sont verrouillées |
 | Utilisateurs | capteur : nombre d'utilisateurs connectés ; attributs `users` (noms) et `sessions` (détail : poste, état, ouverture) |
 
-Ni APT, ni Docker, ni bouton Redémarrer, ni entité de mise à jour de l'agent. Ces entités remplacent celles du script `ha-agent` (identifiants différents : automatisations à reprendre).
+Ni APT, ni Docker, ni bouton Redémarrer, ni entité de mise à jour de l'agent.
 
 ### Sous-composant APT
 

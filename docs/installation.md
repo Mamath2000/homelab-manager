@@ -194,7 +194,7 @@ Particularités :
 
 ### Postes Windows
 
-Un poste Windows 10 / 11 (64 bits) remonte sa **présence**, son **système** (nom, version de Windows, IP, MAC, uptime) et ses **sessions** (utilisateurs connectés, session active, verrouillée ou déconnectée). Rien d'autre : ni mises à jour, ni Docker, ni standardisation, ni sauvegardes. Il remplace le script `ha-agent`.
+Un poste Windows 10 / 11 (64 bits) remonte sa **présence**, son **système** (nom, version de Windows, IP, MAC, uptime) et ses **sessions** (utilisateurs connectés, session active, verrouillée ou déconnectée). Rien d'autre : ni mises à jour, ni Docker, ni standardisation, ni sauvegardes.
 
 1. **Ajouter un hôte**, puis onglet **Windows** de la fenêtre d'installation : télécharger `homelab-agent.exe`.
 2. Dans le dossier du fichier, ouvrir **PowerShell en administrateur** et coller la commande affichée :
