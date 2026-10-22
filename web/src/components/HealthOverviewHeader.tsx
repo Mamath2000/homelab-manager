@@ -14,7 +14,7 @@ const label = 'text-[11px] font-medium uppercase tracking-wider text-muted';
 const MAX_ALERTS = 8;
 
 // Risk of a host from 0 (nothing to report) to 1 (several alerts): a warning weighs 0.3, an alert 0.6.
-export function healthRisk(h: HealthOverviewHost): number {
+function healthRisk(h: HealthOverviewHost): number {
   const alerts = h.health?.alerts ?? [];
   return Math.min(1, alerts.reduce((sum, a) => sum + (a.level === 'alert' ? 0.6 : 0.3), 0));
 }
