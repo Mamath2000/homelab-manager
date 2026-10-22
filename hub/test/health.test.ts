@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks } from '../src/health.js';
 import type { HostInfo } from '../src/types.js';
 
 const now = Date.now();
@@ -63,4 +63,11 @@ test('virtualized hosts are identified from agent virtualization information', (
   assert.equal(isVirtualizedHealthHost({ info: info('kvm') }), true);
   assert.equal(isVirtualizedHealthHost({ info: info('none') }), false);
   assert.equal(isVirtualizedHealthHost({}), false);
+});
+
+test('WSL hosts have no health disks', () => {
+  const info = (virt: string): HostInfo => ({ hostname: 'host', osId: 'linux', osName: 'Linux', kernel: '6', arch: 'amd64', uptime: 1, ips: [], virt });
+  assert.equal(hasNoHealthDisks({ info: info('wsl') }), true);
+  assert.equal(hasNoHealthDisks({ info: info('kvm') }), false);
+  assert.equal(hasNoHealthDisks({}), false);
 });

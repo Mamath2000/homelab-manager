@@ -55,6 +55,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
   const visibleVolumes = visibleHealthVolumes(disk?.volumes ?? []);
   const smart = health?.smart;
   const virtualization = host.info?.virt.trim().toLowerCase();
+  const noDisks = virtualization === 'wsl';
   const virtualized = !!virtualization && virtualization !== 'none' && virtualization !== 'unknown';
 
   return (
@@ -93,23 +94,23 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
           ) : <p className="text-sm text-muted">En attente de la première mesure de l'agent.</p>}
         </section>
 
-        <section>
-          <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><HardDrive className="h-4 w-4 text-amber-300" />Volumes</h3>
-          <p className="mb-3 text-xs text-muted">Les montages loop et pseudo-filesystems sont masqués sous Unix. Les partitions et volumes RAID restent visibles ; un disque virtuel présenté comme un disque local par une VM ne peut pas toujours être distingué du matériel.</p>
-          {!visibleVolumes.length ? <p className="text-sm text-muted">Pas de volume remonté pour le moment.</p> : (
-            <div className="space-y-3">
-              {visibleVolumes.map((v) => (
-                <div key={`${v.device}:${v.mountpoint}`} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(180px,1fr)] sm:items-center">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-zinc-200" title={v.mountpoint}>{v.mountpoint}</p>
-                    <p className="truncate font-mono text-[10px] text-muted" title={v.device}>{v.device} · {v.fstype} · {formatBytes(v.used)} / {formatBytes(v.total)}</p>
+        {!noDisks && (<section>
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><HardDrive className="h-4 w-4 text-amber-300" />Volumes</h3>
+            <p className="mb-3 text-xs text-muted">Les montages loop et pseudo-filesystems sont masqués sous Unix. Les partitions et volumes RAID restent visibles ; un disque virtuel présenté comme un disque local par une VM ne peut pas toujours être distingué du matériel.</p>
+            {!visibleVolumes.length ? <p className="text-sm text-muted">Pas de volume remonté pour le moment.</p> : (
+              <div className="space-y-3">
+                {visibleVolumes.map((v) => (
+                  <div key={`${v.device}:${v.mountpoint}`} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(180px,1fr)] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-zinc-200" title={v.mountpoint}>{v.mountpoint}</p>
+                      <p className="truncate font-mono text-[10px] text-muted" title={v.device}>{v.device} · {v.fstype} · {formatBytes(v.used)} / {formatBytes(v.total)}</p>
+                    </div>
+                    <Percent value={v.percent} tone="amber" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />
                   </div>
-                  <Percent value={v.percent} tone="amber" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+                ))}
+              </div>
+            )}
+          </section>)}
 
         {host.capabilities.includes('smart') && !virtualized && (
           <section className="border-t border-line pt-4">
@@ -155,6 +156,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
         settings={settings}
         historyError={isError ? error.message : undefined}
         virtualized={virtualized}
+        noDisks={noDisks}
       />
     </Panel>
   );

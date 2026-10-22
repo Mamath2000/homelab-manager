@@ -106,6 +106,7 @@ export interface HealthOverviewHost {
   online: boolean;
   supported: boolean;
   virtualized: boolean;
+  noDisks: boolean;
   health: HealthSnapshot | null;
   samples: { sampledAt: string; report: HealthSystem }[];
 }

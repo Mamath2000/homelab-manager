@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, AlertTriangle, ChartLine, Clock3, Server } from 'lucide-react';
 import { Link } from 'react-router';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, Panel, Spinner } from '../components/ui';
 import { HealthDetailModal } from '../components/HealthDetailModal';
+import { HealthOverviewHeader } from '../components/HealthOverviewHeader';
+import { inColumn, kindColumns } from '../lib/hostOverview';
+import { useHosts, useSites } from '../lib/queries';
 import { api, visibleHealthVolumes, type HealthOverviewHost, type HealthSettings } from '../lib/api';
 
 function Metric({ label, value, color, warning, alert, durationMinutes }: { label: string; value: number; color: string; warning?: number; alert?: number; durationMinutes?: number }) {
@@ -44,7 +47,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
           <div className="grid grid-cols-2 gap-3">
             <Metric label="CPU" value={system.cpuPercent} color="bg-emerald-400" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
             <Metric label="Mémoire" value={system.memPercent} color="bg-sky-400" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
-            {host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-amber-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />}
+            {!host.noDisks && host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-amber-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />}
             {system.load1 !== undefined && (
               <div className="text-right text-xs text-muted">
                 Charge 1 / 5 / 15 min<br /><span className="font-mono">
@@ -65,7 +68,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
           {!host.supported ? 'Agent non compatible avec la collecte Santé.' : !host.online ? 'Hôte hors ligne.' : 'En attente de la première collecte.'}
         </div>
       )}
-      <HealthDetailModal open={chartOpen} onClose={() => setChartOpen(false)} hostName={host.name} health={host.health} samples={host.samples} settings={settings} virtualized={host.virtualized} />
+      <HealthDetailModal open={chartOpen} onClose={() => setChartOpen(false)} hostName={host.name} health={host.health} samples={host.samples} settings={settings} virtualized={host.virtualized} noDisks={host.noDisks} />
     </Panel>
   );
 }
@@ -73,8 +76,17 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
 export function Health() {
   const { data, isLoading, error } = useQuery({ queryKey: ['health', 'overview'], queryFn: api.healthOverview, refetchInterval: 30_000 });
   const { data: settings } = useQuery({ queryKey: ['settings', 'health'], queryFn: api.healthSettings });
-  const list = data?.hosts ?? [];
-  const supported = list.filter((h) => h.supported);
+  const { data: hostList } = useHosts();
+  const { data: siteConfig } = useSites();
+  const [{ site, kind }, setSel] = useState({ site: '', kind: '' });
+  const list = useMemo(() => (data?.hosts ?? []).filter((h) => h.health?.system), [data]);
+  const items = useMemo(() => list.flatMap((health) => { const host = hostList?.find((h) => h.id === health.id); return host ? [{ host, health }] : []; }), [list, hostList]);
+  const shown = useMemo(() => {
+    const col = kindColumns(items.map((i) => i.host)).find((c) => c.key === kind);
+    const ids = new Set(items.filter(({ host }) => (!site || (host.siteId || 'none') === site) && (!col || inColumn(host, col))).map((i) => i.host.id));
+    return !site && !kind ? list : list.filter((h) => ids.has(h.id));
+  }, [items, list, site, kind]);
+  const supported = list;
   const alerts = supported.reduce((count, h) => count + (h.health?.alerts?.length ?? 0), 0);
   const measured = supported.filter((h) => h.health?.system).length;
   return (
@@ -88,9 +100,10 @@ export function Health() {
         <Empty icon={Server} title="Aucun hôte">Ajoute un agent pour commencer à suivre la santé des machines.</Empty>
       ) : (
         <>
+          <HealthOverviewHeader items={items} sites={siteConfig ?? []} site={site} kind={kind} onSiteKind={(s, k) => setSel({ site: s, kind: k })} />
           <div className="mb-4 flex items-center gap-2 text-xs text-muted"><Clock3 className="h-4 w-4" />CPU et mémoire toutes les 30 s · volumes toutes les 5 min · SMART toutes les 24 h, sur les seuls disques choisis pour chaque hôte.</div>
           <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-            {list.map((host) => <HostHealthCard key={host.id} host={host} settings={settings} />)}
+            {shown.map((host) => <HostHealthCard key={host.id} host={host} settings={settings} />)}
           </div>
         </>
       )}

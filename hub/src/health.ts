@@ -51,6 +51,11 @@ export function isVirtualizedHealthHost(host: Pick<HostDoc, 'info'>): boolean {
   return !!virt && virt !== 'none' && virt !== 'unknown';
 }
 
+// WSL shares the Windows disks: its volumes say nothing about the machine, so they are neither kept nor alerted on.
+export function hasNoHealthDisks(host: Pick<HostDoc, 'info'>): boolean {
+  return host.info?.virt?.trim().toLowerCase() === 'wsl';
+}
+
 export async function healthConfigForHost(host: HostDoc) {
   const s = await loadHealthSettings();
   return {
@@ -207,6 +212,10 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   const sampledAt = new Date(report.checkedAt);
   const host = await hosts.findOne({ _id: hostId });
   if (!host) return;
+  if (category === 'disks' && hasNoHealthDisks(host)) {
+    await hosts.updateOne({ _id: hostId }, { $unset: { 'health.disks': '' }, $set: { 'health.alerts': (host.health?.alerts ?? []).filter((a) => !a.key.startsWith('disks:')) } });
+    return;
+  }
   await healthMetrics.insertOne({ hostId, category, sampledAt, report });
 
   const s = await loadHealthSettings();
@@ -320,6 +329,7 @@ export function registerHealthRoutes(app: FastifyInstance) {
         online: isOnline(host._id.toHexString()),
         supported: host.capabilities?.includes('health') ?? false,
         virtualized: isVirtualizedHealthHost(host),
+        noDisks: hasNoHealthDisks(host),
         health: host.health ?? null,
         samples: (byHost.get(host._id.toHexString()) ?? []).map(({ sampledAt, report }) => ({ sampledAt, report })),
       })),

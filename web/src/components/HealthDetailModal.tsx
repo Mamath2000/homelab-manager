@@ -85,7 +85,7 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
   );
 }
 
-export function HealthDetailModal({ open, onClose, hostName, health, samples, settings, historyError, virtualized = false }: {
+export function HealthDetailModal({ open, onClose, hostName, health, samples, settings, historyError, virtualized = false, noDisks = false }: {
   open: boolean;
   onClose: () => void;
   hostName: string;
@@ -94,6 +94,7 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
   settings?: HealthSettings;
   historyError?: string;
   virtualized?: boolean;
+  noDisks?: boolean;
 }) {
   const system = health?.system;
   const volumes = visibleHealthVolumes(health?.disks?.volumes ?? []);
@@ -130,7 +131,7 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
           </section>
         )}
 
-        <section>
+        {!noDisks && <section>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><HardDrive className="h-4 w-4 text-amber-300" />Volumes ({volumes.length})</h3>
           {settings && <p className="mb-3 text-xs text-muted">Warning {settings.diskWarningThreshold}% · alerte {settings.diskAlertThreshold}% · déclenchement immédiat</p>}
           {!volumes.length ? <p className="rounded-md border border-line p-4 text-sm text-muted">Aucune mesure de volume disponible.</p> : (
@@ -151,7 +152,7 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
               ))}
             </div>
           )}
-        </section>
+        </section>}
 
         {!virtualized && <section>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><Thermometer className="h-4 w-4 text-violet-300" />Disques SMART ({smartDisks.length})</h3>
