@@ -43,6 +43,76 @@ export interface HostInfo {
   macs?: string[] | null;
 }
 
+export interface HealthSystem {
+  checkedAt: number;
+  cpuPercent: number;
+  memPercent: number;
+  memUsed: number;
+  memTotal: number;
+  load1?: number;
+  load5?: number;
+  load15?: number;
+}
+
+export interface HealthVolume {
+  device: string;
+  mountpoint: string;
+  fstype: string;
+  used: number;
+  total: number;
+  percent: number;
+}
+
+export interface HealthDisks {
+  checkedAt: number;
+  volumes: HealthVolume[];
+}
+
+export interface HealthSmartDisk {
+  device: string;
+  model?: string;
+  serial?: string;
+  healthy?: boolean;
+  temperatureC?: number;
+  reallocated?: number;
+  nvmeWearPercent?: number;
+  error?: string;
+}
+
+export interface HealthSmart {
+  checkedAt: number;
+  disks: HealthSmartDisk[];
+}
+
+export interface HealthSnapshot {
+  system?: HealthSystem;
+  disks?: HealthDisks;
+  smart?: HealthSmart;
+  alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[];
+}
+
+export interface HealthMetricDoc {
+  _id?: ObjectId;
+  hostId: ObjectId;
+  category: 'system' | 'disks' | 'smart';
+  sampledAt: Date;
+  report: HealthSystem | HealthDisks | HealthSmart;
+}
+
+export interface HealthSettings {
+  _id: 'health';
+  systemIntervalSeconds: number;
+  diskIntervalSeconds: number;
+  smartIntervalSeconds: number;
+  retentionHours: number;
+  cpuThreshold: number;
+  memoryThreshold: number;
+  diskThreshold: number;
+  smartTemperatureThreshold: number;
+  smartWearThreshold: number;
+  sustainedMinutes: number;
+}
+
 export interface AptSummary {
   upgradable: number;
   security: number;
@@ -145,6 +215,8 @@ export interface HostDoc {
   aptSummary?: AptSummary;
   docker?: DockerReport;
   ups?: UpsReport;
+  health?: HealthSnapshot;
+  smartDevices?: string[];
   // Windows: user sessions (agent session_report)
   sessions?: SessionReport;
   dockerUpdates?: DockerUpdates;
@@ -769,7 +841,7 @@ export interface BackupPve {
 
 // Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups' | 'mount';
+export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups' | 'mount' | 'health';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -786,6 +858,7 @@ export interface HostAlertDoc {
   offsite?: DayAlert;
   ups?: DayAlert;
   mount?: DayAlert;
+  health?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;
 }

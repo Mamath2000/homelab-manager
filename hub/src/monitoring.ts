@@ -29,6 +29,7 @@ export const DOMAINS: DomainMeta[] = [
   { id: 'offsite', label: 'Copie externe', icon: 'cloud-upload' },
   { id: 'ups', label: 'Onduleur', icon: 'battery-charging' },
   { id: 'mount', label: 'Montage PBS', icon: 'folder-open' },
+  { id: 'health', label: 'Santé', icon: 'activity' },
 ];
 
 export interface Check {
@@ -187,6 +188,15 @@ export function mountStatus(h: Pick<HostDoc, 'pbsMount'>): DomainReport {
   return known([check('mount', 'Montage', 'warn', `Sauvegarde ${what} montée sous ${m.path ?? '/srv/pbs-restore'}`)]);
 }
 
+export function healthStatus(h: Pick<HostDoc, 'health'>, ctx: Pick<Context, 'online'>): DomainReport {
+  if (!h.health) return null;
+  if (!ctx.online) return unknown('Hôte hors ligne');
+  const alerts = h.health.alerts ?? [];
+  return known(alerts.length
+    ? alerts.map((a) => check(a.key, a.label, a.level, a.reason))
+    : [check('health', 'Santé', 'ok')]);
+}
+
 const PROVIDERS: Record<AlertDomain, Provider> = {
   system: systemStatus,
   apt: aptStatus,
@@ -195,6 +205,7 @@ const PROVIDERS: Record<AlertDomain, Provider> = {
   offsite: offsiteStatus,
   ups: upsStatus,
   mount: mountStatus,
+  health: healthStatus,
 };
 
 // --- evaluation ---------------------------------------------------------------------------------

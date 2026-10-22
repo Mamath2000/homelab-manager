@@ -94,6 +94,9 @@ type Outbound struct {
 	Updates      *DockerUpdates  `json:"updates,omitempty"`
 	HaBackups    *HaBackupReport `json:"haBackups,omitempty"`
 	Ups          *UpsReport      `json:"ups,omitempty"`
+	HealthSystem *HealthSystem   `json:"healthSystem,omitempty"`
+	HealthDisks  *HealthDisks    `json:"healthDisks,omitempty"`
+	HealthSmart  *HealthSmart    `json:"healthSmart,omitempty"`
 	Offsite      *OffsiteReport  `json:"offsite,omitempty"`
 	ReqID        string          `json:"reqId,omitempty"`
 	Result       any             `json:"result,omitempty"`
@@ -142,5 +145,6 @@ type Inbound struct {
 	// offsite_sync: the copy to this secondary PBS (offsite.go)
 	Offsite *OffsiteSpec `json:"offsite,omitempty"`
 	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read
-	Scopes []string `json:"scopes,omitempty"`
+	Scopes       []string     `json:"scopes,omitempty"`
+	HealthConfig HealthConfig `json:"healthConfig,omitempty"`
 }

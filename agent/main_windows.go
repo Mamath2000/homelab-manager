@@ -176,16 +176,20 @@ func runAgent(ctx context.Context, cfg config) {
 	backups = newBackupModule(cfg.Dir)
 	go backups.loop(ctx)
 	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
-		return (&session{conn: conn, http: client, hub: cfg.Hub}).loop(ctx)
+		return (&session{conn: conn, http: client, hub: cfg.Hub, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}).loop(ctx)
 	})
 }
 
 type session struct {
-	conn *websocket.Conn
-	http *http.Client
-	hub  string
-	mu   sync.Mutex // serialises writes
-	last []byte     // last session report sent (JSON of the sessions)
+	conn          *websocket.Conn
+	http          *http.Client
+	hub           string
+	mu            sync.Mutex // serialises writes
+	healthMu      sync.RWMutex
+	healthCfg     HealthConfig
+	healthChanged chan struct{}
+	healthSmartMu sync.Mutex
+	last          []byte // last session report sent (JSON of the sessions)
 	// backup client present in the last hello: a definition that changes it calls for a new hello
 	client bool
 }
@@ -202,7 +206,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// backups: backup_setup (the hub may send definitions), backup_connect (jobs run on connection),
 	// "backup" and backup:cli once the CLI named by the definition is there
-	caps := []string{"refresh", "session", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect"}
+	caps := []string{"refresh", "session", "health", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect"}
 	client := backups.clientPresent()
 	if client {
 		caps = append(caps, "backup", "backup:cli")
@@ -260,6 +264,8 @@ func (s *session) loop(ctx context.Context) error {
 	if err := s.hello(ctx); err != nil {
 		return err
 	}
+	s.setHealthConfig(defaultHealthConfig())
+	go s.healthLoop(ctx)
 	// pending backup results go to this connection
 	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer backups.detach()
@@ -299,6 +305,8 @@ func (s *session) loop(ctx context.Context) error {
 			continue
 		}
 		switch in.Type {
+		case "health_config":
+			s.setHealthConfig(in.HealthConfig)
 		case "rpc":
 			out := Outbound{Type: "rpc_result", ReqID: in.ReqID}
 			if in.Op == "refresh" {

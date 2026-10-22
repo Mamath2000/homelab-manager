@@ -18,6 +18,7 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 - **Échanges sécurisés** avec les agents : TLS avec la clé du hub épinglée, commande d'installation à usage unique, un certificat par agent, révocation en un clic. Voir [docs/securite.md](docs/securite.md).
 - **Nettoyage** : paquets devenus inutiles (anciens noyaux, dépendances orphelines) détectés par simulation d'`apt autoremove`, supprimables depuis l'interface ou Home Assistant.
 - **Docker** : stacks compose des hôtes découvertes automatiquement, état des conteneurs et santé, images à mettre à jour (vérifiées auprès du registre sans rien télécharger), démarrer / arrêter / redémarrer / mettre à jour une stack ou un service, logs et fichiers compose (`.env` masqué). Voir [docs/docker.md](docs/docker.md).
+- **Santé** : écran dédié avec courbes CPU/mémoire de la dernière heure, charge Unix, occupation des volumes, alertes à seuil et SMART explicitement configuré par hôte. Les mesures sont conservées 48 h dans MongoDB puis purgées. Voir [docs/sante.md](docs/sante.md).
 - **Sauvegardes** : suivi d'un Proxmox Backup Server par son API ; jobs vzdump des clusters Proxmox VE rattachés automatiquement aux hôtes (lien par adresse MAC), retard jugé sur leur planification ; sauvegardes de répertoires définies dans le hub et lancées par les agents (client APT ou conteneur), et sauvegardes de bases PostgreSQL / MongoDB (dumps faits par l'agent) ; jetons créés par une commande à usage unique ; alertes dans l'interface et Home Assistant. Voir [docs/sauvegardes.md](docs/sauvegardes.md).
 - **Standardisation** : configuration standard des hôtes en trois sections (système : paquets, connexion SSH par mot de passe ; root et un utilisateur : clés SSH, alias, prompt, écran d'accueil), surchargeable option par option sur chaque hôte, appliquée à un hôte, à une sélection d'hôtes ou automatiquement à l'ajout, avec un état de conformité par option. Voir [docs/standardisation.md](docs/standardisation.md).
 - **Historique** des tâches avec leurs sorties (conservé 90 jours).
@@ -184,4 +185,4 @@ L'agent a sa propre version, `agent/VERSION` (X.Y.Z), indépendante de celle de 
 - [ ] Alertes (ntfy, MQTT, Telegram…)
 - [x] Sauvegardes : suivi PBS et Proxmox VE, sauvegardes de répertoires pilotées, alertes
 - [ ] Standardisation : profils de paquets, clés SSH, accès
-- [ ] Métriques système légères
+- [x] Santé : métriques système légères, alertes à seuil, SMART

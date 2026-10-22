@@ -3,7 +3,7 @@ import { ObjectId } from 'mongodb';
 import { AgentRequestError, REFRESH_SCOPES, agentRequest, disconnectAgent, isOnline, refreshAgent, type RefreshScope } from '../agents.js';
 import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
-import { backups, hosts, jobs, parseId } from '../db.js';
+import { backups, healthMetrics, hosts, jobs, parseId } from '../db.js';
 import { allAlertDays, hostAlertDays } from '../alerts.js';
 import { DOMAINS, evaluateAll } from '../monitoring.js';
 import { publish } from '../events.js';
@@ -183,6 +183,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     if (!res || res.deletedCount === 0) return reply.code(404).send({ error: 'host not found' });
     disconnectAgent(req.params.id);
     await jobs.deleteMany({ hostId: _id });
+    await healthMetrics.deleteMany({ hostId: _id });
     await forgetHost(_id);
     publish('host.deleted', { id: req.params.id });
     return reply.code(204).send();

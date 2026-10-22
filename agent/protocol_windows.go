@@ -34,6 +34,9 @@ type Outbound struct {
 	Capabilities []string       `json:"capabilities,omitempty"`
 	BinaryHash   string         `json:"binaryHash,omitempty"`
 	Sessions     *SessionReport `json:"sessions,omitempty"`
+	HealthSystem *HealthSystem  `json:"healthSystem,omitempty"`
+	HealthDisks  *HealthDisks   `json:"healthDisks,omitempty"`
+	HealthSmart  *HealthSmart   `json:"healthSmart,omitempty"`
 	ReqID        string         `json:"reqId,omitempty"`
 	Result       any            `json:"result,omitempty"`
 	JobID        string         `json:"jobId,omitempty"`
@@ -56,5 +59,6 @@ type Inbound struct {
 	// backup_sync: the whole definition of the backups of this host (backup.go)
 	Backup *BackupSpec `json:"backup,omitempty"`
 	// backup_run: the backup job to run now
-	BackupJob string `json:"backupJob,omitempty"`
+	BackupJob    string       `json:"backupJob,omitempty"`
+	HealthConfig HealthConfig `json:"healthConfig,omitempty"`
 }

@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, GuestDoc, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -9,13 +9,14 @@ export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
 export let apiKeys: Collection<ApiKeyDoc>;
-export let settings: Collection<HomeAssistantSettings | AgentSettings | PkiDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
+export let settings: Collection<HomeAssistantSettings | AgentSettings | HealthSettings | PkiDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let backups: Collection<BackupDoc>;
 export let backupStats: Collection<BackupStatDoc>;
 export let storageUsage: Collection<StorageUsageDoc>;
 export let hostAlerts: Collection<HostAlertDoc>;
+export let healthMetrics: Collection<HealthMetricDoc>;
 
 export async function connectDb() {
   await client.connect();
@@ -32,6 +33,7 @@ export async function connectDb() {
   guests = db.collection('guests');
   backupJobs = db.collection('backupJobs');
   hostAlerts = db.collection('hostAlerts');
+  healthMetrics = db.collection('healthMetrics');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -60,6 +62,8 @@ export async function connectDb() {
     // one document per host and day, kept a little longer than the timeline of the host page shows
     hostAlerts.createIndex({ hostId: 1, day: 1 }, { unique: true }),
     hostAlerts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'host_alerts_ttl' }),
+    healthMetrics.createIndex({ hostId: 1, category: 1, sampledAt: -1 }),
+    healthMetrics.createIndex({ sampledAt: 1 }, { expireAfterSeconds: 48 * 3600, name: 'health_metrics_ttl' }),
     // accounts created before roles existed keep full access
     users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
     // "monitor" was renamed "operator" (and lost the settings)

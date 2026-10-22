@@ -18,6 +18,7 @@ import { isSeriesReport, onOffsiteHello, onOffsiteReport, onOffsiteSynced } from
 import { onMountHello } from './pbsMount.js';
 import { isUpsReport } from './ups.js';
 import { isSessionReport } from './sessions.js';
+import { healthConfigForHost, receiveHealthReport } from './health.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
 
@@ -137,6 +138,9 @@ interface AgentMessage {
   offsite?: unknown;
   ups?: unknown;
   sessions?: unknown;
+  healthSystem?: unknown;
+  healthDisks?: unknown;
+  healthSmart?: unknown;
   reqId?: string;
   result?: unknown;
   jobId?: string;
@@ -205,6 +209,8 @@ export function registerAgentSocket(app: FastifyInstance) {
                 },
               );
               await emitHost(host._id);
+              const healthHost = await hosts.findOne({ _id: host._id });
+              if (healthHost?.capabilities?.includes('health')) sendToAgent(id, await healthConfigForHost(healthHost));
               await maybeAutoUpdate(host._id);
               // answered through this socket: not awaited
               onAgentHello(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
@@ -271,6 +277,18 @@ export function registerAgentSocket(app: FastifyInstance) {
               if (!isUpsReport(msg.ups)) return;
               await hosts.updateOne({ _id: host._id }, { $set: { ups: msg.ups, lastSeenAt: new Date() } });
               await emitHost(host._id);
+              break;
+            case 'health_system':
+              if (await receiveHealthReport(host._id, 'system', msg.healthSystem)) await emitHost(host._id);
+              else log.warn('discarded invalid health system report');
+              break;
+            case 'health_disks':
+              if (await receiveHealthReport(host._id, 'disks', msg.healthDisks)) await emitHost(host._id);
+              else log.warn('discarded invalid health disk report');
+              break;
+            case 'health_smart':
+              if (await receiveHealthReport(host._id, 'smart', msg.healthSmart)) await emitHost(host._id);
+              else log.warn('discarded invalid health SMART report');
               break;
             case 'backup_synced':
               await onSynced(host._id, msg.data, msg.error);

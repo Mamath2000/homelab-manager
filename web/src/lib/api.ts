@@ -29,6 +29,76 @@ export interface HostInfo {
   macs?: string[] | null;
 }
 
+export interface HealthSystem {
+  checkedAt: number;
+  cpuPercent: number;
+  memPercent: number;
+  memUsed: number;
+  memTotal: number;
+  load1?: number;
+  load5?: number;
+  load15?: number;
+}
+
+export interface HealthVolume {
+  device: string;
+  mountpoint: string;
+  fstype: string;
+  used: number;
+  total: number;
+  percent: number;
+}
+
+export interface HealthDisks {
+  checkedAt: number;
+  volumes: HealthVolume[];
+}
+
+export interface HealthSmartDisk {
+  device: string;
+  model?: string;
+  serial?: string;
+  healthy?: boolean;
+  temperatureC?: number;
+  reallocated?: number;
+  nvmeWearPercent?: number;
+  error?: string;
+}
+
+export interface HealthSmart {
+  checkedAt: number;
+  disks: HealthSmartDisk[];
+}
+
+export interface HealthSnapshot {
+  system?: HealthSystem;
+  disks?: HealthDisks;
+  smart?: HealthSmart;
+  alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[];
+}
+
+export interface HealthSettings {
+  systemIntervalSeconds: number;
+  diskIntervalSeconds: number;
+  smartIntervalSeconds: number;
+  retentionHours: number;
+  cpuThreshold: number;
+  memoryThreshold: number;
+  diskThreshold: number;
+  smartTemperatureThreshold: number;
+  smartWearThreshold: number;
+  sustainedMinutes: number;
+}
+
+export interface HealthOverviewHost {
+  id: string;
+  name: string;
+  online: boolean;
+  supported: boolean;
+  health: HealthSnapshot | null;
+  samples: { sampledAt: string; report: HealthSystem }[];
+}
+
 // UPS reported by the agent (NUT); numbers are absent when the UPS does not report them.
 export interface UpsReport {
   checkedAt: number;
@@ -167,6 +237,8 @@ export interface Host {
   dockerSummary: DockerSummary | null;
   // UPS monitored by NUT on the host, null: none
   ups: UpsReport | null;
+  health: HealthSnapshot | null;
+  smartDevices: string[];
   // standardisation: values of this host that differ from the standard, last conformity check
   setupOverrides: SetupOverrides;
   setup: SetupState | null;
@@ -1030,6 +1102,11 @@ export const api = {
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
+  hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
+  saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),
+  healthSettings: () => request<HealthSettings>('GET', '/api/settings/health'),
+  saveHealthSettings: (s: Omit<HealthSettings, 'retentionHours'>) => request<HealthSettings>('PUT', '/api/settings/health', s),
+  healthOverview: () => request<{ hosts: HealthOverviewHost[] }>('GET', '/api/health/overview'),
   alerts: () => request<{ days: (HostAlertDay & { hostId: string })[] }>('GET', '/api/alerts'),
   status: () => request<StatusView>('GET', '/api/status'),
   sites: () => request<{ sites: SiteConfig[] }>('GET', '/api/sites'),

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { DOMAINS, aptStatus, backupStatus, dayOf, dockerStatus, evaluate, offsiteStatus, systemStatus, worst, type Context } from '../src/monitoring.js';
+import { DOMAINS, aptStatus, backupStatus, dayOf, dockerStatus, evaluate, healthStatus, offsiteStatus, systemStatus, worst, type Context } from '../src/monitoring.js';
 import type { AptReport, BackupDoc, DockerStack, HostDoc, Package } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -111,5 +111,14 @@ test('host: worst of its known domains; unknown ones do not count; absent domain
   const roaming = evaluate(host({ roaming: true, apt: report() }), ctx({ online: false, groups: [group({ verify: 'failed' })] }));
   assert.equal(roaming.domains.system?.level, 'unknown');
   assert.equal(roaming.level, 'alert');
-  assert.deepEqual(DOMAINS.map((d) => d.id), ['system', 'apt', 'docker', 'backup', 'offsite', 'ups', 'mount']);
+  assert.deepEqual(DOMAINS.map((d) => d.id), ['system', 'apt', 'docker', 'backup', 'offsite', 'ups', 'mount', 'health']);
+});
+
+test('health alerts are live checks and are unknown while the host is offline', () => {
+  const snapshot = {
+    system: { checkedAt: now, cpuPercent: 95, memPercent: 30, memUsed: 30, memTotal: 100 },
+    alerts: [{ key: 'system:cpu', label: 'CPU', level: 'warn' as const, reason: 'CPU élevée' }],
+  };
+  assert.deepEqual(dayOf(healthStatus({ health: snapshot }, on)), { level: 'warn', reasons: ['CPU élevée'] });
+  assert.equal(healthStatus({ health: snapshot }, off)?.level, 'unknown');
 });

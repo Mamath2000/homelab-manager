@@ -23,10 +23,14 @@ import (
 const defaultDir = "/etc/homelab-agent"
 
 type session struct {
-	hub  string
-	http *http.Client // pinned TLS + client certificate, for downloads from the hub
-	conn *websocket.Conn
-	mu   sync.Mutex // serialises writes
+	hub           string
+	http          *http.Client // pinned TLS + client certificate, for downloads from the hub
+	conn          *websocket.Conn
+	mu            sync.Mutex // serialises writes
+	healthMu      sync.RWMutex
+	healthCfg     HealthConfig
+	healthChanged chan struct{}
+	healthSmartMu sync.Mutex
 	// a failure to read the Home Assistant backups is logged once per streak
 	haBackupErrLogged bool
 }
@@ -37,6 +41,10 @@ type session struct {
 func platformCapabilities() []string {
 	// refresh: rpc reading again what the agent reports on its own (refresh.go)
 	caps := []string{"refresh"}
+	caps = append(caps, "health")
+	if _, err := exec.LookPath("smartctl"); err == nil {
+		caps = append(caps, "smart")
+	}
 	if hasApt() {
 		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
 	}
@@ -88,7 +96,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// HAOS add-on: no action on the host at this stage, it only describes itself (haos.go)
 	if onHAOS {
-		caps := []string{"haos", "refresh"}
+		caps := []string{"haos", "refresh", "health"}
 		if haBackupsReadable.Load() {
 			caps = append(caps, "ha_backups")
 		}
@@ -480,6 +488,8 @@ func (s *session) loop(ctx context.Context) error {
 	if err := s.hello(ctx); err != nil {
 		return err
 	}
+	s.setHealthConfig(defaultHealthConfig())
+	go s.healthLoop(ctx)
 	// pending backup results go to this connection
 	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer backups.detach()
@@ -552,6 +562,8 @@ func (s *session) loop(ctx context.Context) error {
 			}()
 		case "backup_result_ack":
 			backups.ack(in.ReqID)
+		case "health_config":
+			s.setHealthConfig(in.HealthConfig)
 		}
 	}
 }
@@ -581,7 +593,7 @@ func main() {
 	go offsite.loop(ctx)
 
 	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
-		s := &session{hub: cfg.Hub, http: client, conn: conn}
+		s := &session{hub: cfg.Hub, http: client, conn: conn, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}
 		return s.loop(ctx)
 	})
 }

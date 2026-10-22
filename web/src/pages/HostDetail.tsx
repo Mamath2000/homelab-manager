@@ -11,6 +11,7 @@ import { RebootTag } from '../components/Reboot';
 import { CleanupButton } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
 import { UpsPanel } from '../components/UpsPanel';
+import { HealthPanel } from '../components/HealthPanel';
 import { SessionsPanel } from '../components/SessionsPanel';
 import { SetupModal, SetupStatus } from '../components/SetupPanel';
 import { showSetup } from '../lib/setup';
@@ -380,6 +381,7 @@ function HostDetailPage({ id }: { id: string }) {
 
   // Ordered cards flow into balanced columns when there is enough room.
   const blocks: ReactNode[] = [];
+  if (host.capabilities.includes('health')) blocks.push(<HealthPanel key="health" host={host} canManage={canManage} />);
   if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);

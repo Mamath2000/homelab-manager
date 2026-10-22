@@ -18,6 +18,7 @@ const Dashboard = page(() => import('./pages/Dashboard'), 'Dashboard');
 const Docker = page(() => import('./pages/Docker'), 'Docker');
 const HostDetail = page(() => import('./pages/HostDetail'), 'HostDetail');
 const Hosts = page(() => import('./pages/Hosts'), 'Hosts');
+const Health = page(() => import('./pages/Health'), 'Health');
 const JobDetail = page(() => import('./pages/JobDetail'), 'JobDetail');
 const Settings = page(() => import('./pages/Settings'), 'Settings');
 const Stack = page(() => import('./pages/Stack'), 'Stack');
@@ -80,6 +81,7 @@ export default function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="hosts" element={<Hosts />} />
                 <Route path="hosts/:id" element={<HostDetail />} />
+                <Route path="health" element={<Health />} />
                 <Route path="updates" element={<Updates />} />
                 <Route path="docker" element={<Docker />} />
                 <Route path="docker/:hostId/:stack" element={<Stack />} />

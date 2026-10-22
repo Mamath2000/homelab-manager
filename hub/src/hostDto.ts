@@ -67,6 +67,8 @@ export function hostDto(h: HostDoc) {
     dockerSummary: dockerSummary(docker),
     // UPS monitored by NUT on the host (null: none)
     ups: h.ups ?? null,
+    health: h.health ?? null,
+    smartDevices: h.smartDevices ?? [],
     setupOverrides: h.setupOverrides ?? {},
     setup: setupDto(h),
     // Proxmox VE guest this host is (see pve.ts)

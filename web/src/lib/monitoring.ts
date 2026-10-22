@@ -13,6 +13,7 @@ const icons: Record<string, LucideIcon> = {
   'cloud-upload': CloudUpload,
   'battery-charging': BatteryCharging,
   'folder-open': FolderOpen,
+  activity: Activity,
 };
 export const domainIcon = (d: Pick<DomainMeta, 'icon'>): LucideIcon => icons[d.icon] ?? Activity;
 
