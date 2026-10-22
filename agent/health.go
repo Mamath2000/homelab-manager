@@ -132,7 +132,7 @@ func collectHealthDisks() (*HealthDisks, error) {
 	}
 	r := &HealthDisks{CheckedAt: time.Now().UnixMilli(), Volumes: []HealthVolume{}}
 	for _, p := range partitions {
-		if onHAOS && (p.Fstype == "overlay" || p.Fstype == "tmpfs" || p.Fstype == "proc" || p.Fstype == "sysfs") {
+		if isHealthExcludedMountpoint(p.Mountpoint) || !isHealthStoragePartition(p.Device, p.Fstype) {
 			continue
 		}
 		usage, err := disk.Usage(p.Mountpoint)
@@ -149,6 +149,10 @@ func collectHealthDisks() (*HealthDisks, error) {
 		})
 	}
 	return r, nil
+}
+
+func isHealthExcludedMountpoint(mountpoint string) bool {
+	return mountpoint == "/boot/efi"
 }
 
 func (s *session) healthConfig() HealthConfig {

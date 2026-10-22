@@ -246,7 +246,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   footer?: ReactNode;
   // true: 2xl, 'xl': 5xl (content in columns), 'screen': 5xl at 16:9, the size of the screen (fixed
   // height: switching tabs does not resize it; the body scrolls)
-  wide?: boolean | 'xl' | 'screen';
+  wide?: boolean | 'xl' | 'screen' | 'screen-wide';
   // with 'xl' / 'screen': 6xl instead of 5xl (four columns side by side)
   wider?: boolean;
   // with 'screen': fixed height (dialogs in steps), whatever the content; the body fills it and scrolls inside
@@ -267,15 +267,16 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   }, [open, onClose]);
   if (!open) return null;
   // every window is centered on the page (my-auto: still reachable from the top when taller than the screen);
+  const screenWide = wide === 'screen' || wide === 'screen-wide';
   // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
   return (
     <div data-modal className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}>
       <div
         className={clsx(
           'panel my-auto w-full min-w-0 bg-panel shadow-2xl shadow-black/60',
-          wide === 'xl' || wide === 'screen' ? clsx('max-w-[calc(100vw-2rem)]', wider ? 'sm:max-w-6xl' : 'sm:max-w-5xl') : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
+          wide === 'xl' || screenWide ? clsx('max-w-[calc(100vw-2rem)]', wide === 'screen-wide' ? 'sm:max-w-7xl' : wider ? 'sm:max-w-6xl' : 'sm:max-w-5xl') : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
           // at most 70vh high: the window keeps a margin above and below
-          wide === 'screen'
+          screenWide
             ? clsx('flex flex-col', fixed ? 'h-[min(52rem,calc(100vh-2rem))]' : 'max-h-[calc(100vh-2rem)] min-h-[20rem]')
             : scroll && 'flex max-h-[70vh] flex-col',
         )}
@@ -287,7 +288,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className={clsx('min-w-0 px-5 py-4', (scroll || wide === 'screen') && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
+        <div className={clsx('min-w-0 px-5 py-4', (scroll || screenWide) && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
         {footer && <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </div>
     </div>

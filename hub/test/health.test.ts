@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, isHealthDisks, isHealthSmart, isHealthSystem } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost } from '../src/health.js';
+import type { HostInfo } from '../src/types.js';
 
 const now = Date.now();
 
@@ -13,6 +14,16 @@ test('health defaults use distinct system, volume, and SMART frequencies with sh
       DEFAULT_HEALTH_SETTINGS.retentionHours,
     ],
     [30, 300, 86400, 48],
+  );
+  assert.deepEqual(
+    [
+      DEFAULT_HEALTH_SETTINGS.cpuWarningThreshold,
+      DEFAULT_HEALTH_SETTINGS.cpuAlertThreshold,
+      DEFAULT_HEALTH_SETTINGS.systemSustainedMinutes,
+      DEFAULT_HEALTH_SETTINGS.diskSustainedMinutes,
+      DEFAULT_HEALTH_SETTINGS.smartSustainedMinutes,
+    ],
+    [75, 90, 5, 0, 0],
   );
 });
 
@@ -32,4 +43,25 @@ test('volume reports reject invalid or virtual percentages outside the report sh
 test('SMART reports validate optional measurements and bounded error text', () => {
   assert.equal(isHealthSmart({ checkedAt: now, disks: [{ device: '/dev/sda', healthy: true, temperatureC: 40, reallocated: 0 }] }), true);
   assert.equal(isHealthSmart({ checkedAt: now, disks: [{ device: '/dev/sda', temperatureC: 300 }] }), false);
+});
+
+test('health metrics distinguish warning and alert levels after their configured duration', () => {
+  const now = 1_000_000;
+  const samples = [
+    { checkedAt: now - 120_000, value: 95 },
+    { checkedAt: now - 60_000, value: 96 },
+    { checkedAt: now, value: 97 },
+  ];
+  assert.equal(healthMetricLevel(97, samples, 75, 90, 2, 60, undefined, now), 'alert');
+  assert.equal(healthMetricLevel(85, samples.map((sample) => ({ ...sample, value: 85 })), 75, 90, 2, 60, undefined, now), 'warn');
+  assert.equal(healthMetricLevel(95, [{ checkedAt: now, value: 95 }], 75, 90, 2, 60, undefined, now), undefined);
+  assert.equal(healthMetricLevel(95, [], 75, 90, 0, 60, undefined, now), 'alert');
+  assert.equal(healthMetricLevel(87, [], 75, 90, 0, 60, 'alert', now), 'alert');
+});
+
+test('virtualized hosts are identified from agent virtualization information', () => {
+  const info = (virt: string): HostInfo => ({ hostname: 'host', osId: 'linux', osName: 'Linux', kernel: '6', arch: 'amd64', uptime: 1, ips: [], virt });
+  assert.equal(isVirtualizedHealthHost({ info: info('kvm') }), true);
+  assert.equal(isVirtualizedHealthHost({ info: info('none') }), false);
+  assert.equal(isVirtualizedHealthHost({}), false);
 });

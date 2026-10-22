@@ -11,16 +11,45 @@ export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   diskIntervalSeconds: 5 * 60,
   smartIntervalSeconds: 24 * 3600,
   retentionHours: 48,
-  cpuThreshold: 90,
-  memoryThreshold: 90,
-  diskThreshold: 80,
-  smartTemperatureThreshold: 70,
-  smartWearThreshold: 80,
-  sustainedMinutes: 5,
+  cpuWarningThreshold: 75,
+  cpuAlertThreshold: 90,
+  memoryWarningThreshold: 80,
+  memoryAlertThreshold: 90,
+  diskWarningThreshold: 75,
+  diskAlertThreshold: 90,
+  smartTemperatureWarningThreshold: 60,
+  smartTemperatureAlertThreshold: 70,
+  smartWearWarningThreshold: 70,
+  smartWearAlertThreshold: 85,
+  systemSustainedMinutes: 5,
+  diskSustainedMinutes: 0,
+  smartSustainedMinutes: 0,
 };
 
 export async function loadHealthSettings(): Promise<HealthSettings> {
-  return { ...DEFAULT_HEALTH_SETTINGS, ...((await settings.findOne({ _id: 'health' })) as HealthSettings | null) };
+  const stored = (await settings.findOne({ _id: 'health' })) as (Partial<HealthSettings> & Record<string, unknown>) | null;
+  const legacyNumber = (key: string) => typeof stored?.[key] === 'number' ? stored[key] as number : undefined;
+  const legacyAlert = (key: string, fallback: number) => Math.max(2, legacyNumber(key) ?? fallback);
+  return {
+    ...DEFAULT_HEALTH_SETTINGS,
+    ...stored,
+    cpuWarningThreshold: stored?.cpuWarningThreshold ?? Math.min(DEFAULT_HEALTH_SETTINGS.cpuWarningThreshold, legacyAlert('cpuThreshold', DEFAULT_HEALTH_SETTINGS.cpuAlertThreshold) - 1),
+    cpuAlertThreshold: stored?.cpuAlertThreshold ?? legacyAlert('cpuThreshold', DEFAULT_HEALTH_SETTINGS.cpuAlertThreshold),
+    memoryWarningThreshold: stored?.memoryWarningThreshold ?? Math.min(DEFAULT_HEALTH_SETTINGS.memoryWarningThreshold, legacyAlert('memoryThreshold', DEFAULT_HEALTH_SETTINGS.memoryAlertThreshold) - 1),
+    memoryAlertThreshold: stored?.memoryAlertThreshold ?? legacyAlert('memoryThreshold', DEFAULT_HEALTH_SETTINGS.memoryAlertThreshold),
+    diskWarningThreshold: stored?.diskWarningThreshold ?? Math.min(DEFAULT_HEALTH_SETTINGS.diskWarningThreshold, legacyAlert('diskThreshold', DEFAULT_HEALTH_SETTINGS.diskAlertThreshold) - 1),
+    diskAlertThreshold: stored?.diskAlertThreshold ?? legacyAlert('diskThreshold', DEFAULT_HEALTH_SETTINGS.diskAlertThreshold),
+    smartTemperatureWarningThreshold: stored?.smartTemperatureWarningThreshold ?? Math.min(DEFAULT_HEALTH_SETTINGS.smartTemperatureWarningThreshold, legacyAlert('smartTemperatureThreshold', DEFAULT_HEALTH_SETTINGS.smartTemperatureAlertThreshold) - 1),
+    smartTemperatureAlertThreshold: stored?.smartTemperatureAlertThreshold ?? legacyAlert('smartTemperatureThreshold', DEFAULT_HEALTH_SETTINGS.smartTemperatureAlertThreshold),
+    smartWearWarningThreshold: stored?.smartWearWarningThreshold ?? Math.min(DEFAULT_HEALTH_SETTINGS.smartWearWarningThreshold, legacyAlert('smartWearThreshold', DEFAULT_HEALTH_SETTINGS.smartWearAlertThreshold) - 1),
+    smartWearAlertThreshold: stored?.smartWearAlertThreshold ?? legacyAlert('smartWearThreshold', DEFAULT_HEALTH_SETTINGS.smartWearAlertThreshold),
+    systemSustainedMinutes: stored?.systemSustainedMinutes ?? legacyNumber('sustainedMinutes') ?? DEFAULT_HEALTH_SETTINGS.systemSustainedMinutes,
+  };
+}
+
+export function isVirtualizedHealthHost(host: Pick<HostDoc, 'info'>): boolean {
+  const virt = host.info?.virt?.trim().toLowerCase();
+  return !!virt && virt !== 'none' && virt !== 'unknown';
 }
 
 export async function healthConfigForHost(host: HostDoc) {
@@ -31,7 +60,7 @@ export async function healthConfigForHost(host: HostDoc) {
       systemIntervalSeconds: s.systemIntervalSeconds,
       diskIntervalSeconds: s.diskIntervalSeconds,
       smartIntervalSeconds: s.smartIntervalSeconds,
-      smartDevices: host.smartDevices ?? [],
+      smartDevices: isVirtualizedHealthHost(host) ? [] : host.smartDevices ?? [],
     },
   };
 }
@@ -87,7 +116,38 @@ type HealthCategory = HealthMetricDoc['category'];
 type HealthReport = HealthSystem | HealthDisks | HealthSmart;
 const pendingHostWrites = new Map<string, Promise<void>>();
 
-function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings, samples: HealthSystem[] = []) {
+export function healthMetricLevel(
+  current: number,
+  samples: { checkedAt: number; value: number }[],
+  warning: number,
+  alert: number,
+  durationMinutes: number,
+  intervalSeconds: number,
+  previous: 'warn' | 'alert' | undefined,
+  now = Date.now(),
+): 'warn' | 'alert' | undefined {
+  const sustained = (threshold: number) => {
+    if (durationMinutes === 0) return current >= threshold;
+    const intervalMs = intervalSeconds * 1000;
+    const cutoff = now - durationMinutes * 60_000;
+    if (!samples.length || samples[samples.length - 1].checkedAt < now - intervalMs * 2) return false;
+    let start = 0;
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i].value < threshold) start = i + 1;
+    }
+    const high = samples.slice(start);
+    if (!high.length || high[0].checkedAt > cutoff) return false;
+    for (let i = 1; i < high.length; i++) {
+      if (high[i].checkedAt - high[i - 1].checkedAt > intervalMs * 2) return false;
+    }
+    return true;
+  };
+  if (sustained(alert) || (previous === 'alert' && current >= alert - 5)) return 'alert';
+  if (sustained(warning) || (previous === 'warn' && current >= warning - 5)) return 'warn';
+  return undefined;
+}
+
+function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings, samples: HealthReport[] = []) {
   const old = h.health?.alerts ?? [];
   const retained = old.filter((a) => !a.key.startsWith(`${category}:`));
   const next: NonNullable<HostDoc['health']>['alerts'] = [];
@@ -95,43 +155,49 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
 
   if (category === 'system') {
     const r = report as HealthSystem;
-    const cutoff = Date.now() - settings.sustainedMinutes * 60_000;
-    const intervalMs = settings.systemIntervalSeconds * 1000;
-    const highFor = (field: 'cpuPercent' | 'memPercent', threshold: number) => {
-      if (!samples.length || samples[0].checkedAt > cutoff || samples[samples.length - 1].checkedAt < Date.now() - intervalMs * 2) return false;
-      let start = 0;
-      for (let i = 0; i < samples.length; i++) {
-        if (samples[i][field] < threshold) start = i + 1;
-      }
-      const highSamples = samples.slice(start);
-      if (!highSamples.length || highSamples[0].checkedAt > cutoff) return false;
-      for (let i = 1; i < highSamples.length; i++) {
-        if (highSamples[i].checkedAt - highSamples[i - 1].checkedAt > intervalMs * 2) return false;
-      }
-      return true;
+    const previous = (key: string) => old.find((a) => a.key === `system:${key}`)?.level;
+    const addSystemMetric = (key: 'cpu' | 'memory', label: string, field: 'cpuPercent' | 'memPercent', value: number, warning: number, critical: number) => {
+      const level = healthMetricLevel(
+        value,
+        samples.filter((sample): sample is HealthSystem => 'cpuPercent' in sample).map((sample) => ({ checkedAt: sample.checkedAt, value: sample[field] })),
+        warning,
+        critical,
+        settings.systemSustainedMinutes,
+        settings.systemIntervalSeconds,
+        previous(key),
+      );
+      if (level) alert(key, label, `${label} à ${value.toFixed(1)} % (warning ${warning} %, alerte ${critical} %, durée ${settings.systemSustainedMinutes} min)`, level);
     };
-    const previous = (key: string) => old.some((a) => a.key === `system:${key}`);
-    if (highFor('cpuPercent', settings.cpuThreshold) || (previous('cpu') && r.cpuPercent >= settings.cpuThreshold - 5)) {
-      alert('cpu', 'CPU', `CPU > ${settings.cpuThreshold} % depuis au moins ${settings.sustainedMinutes} min (${r.cpuPercent.toFixed(1)} %)`);
-    }
-    if (highFor('memPercent', settings.memoryThreshold) || (previous('memory') && r.memPercent >= settings.memoryThreshold - 5)) {
-      alert('memory', 'Mémoire', `Mémoire > ${settings.memoryThreshold} % depuis au moins ${settings.sustainedMinutes} min (${r.memPercent.toFixed(1)} %)`);
-    }
+    addSystemMetric('cpu', 'CPU', 'cpuPercent', r.cpuPercent, settings.cpuWarningThreshold, settings.cpuAlertThreshold);
+    addSystemMetric('memory', 'Mémoire', 'memPercent', r.memPercent, settings.memoryWarningThreshold, settings.memoryAlertThreshold);
   } else if (category === 'disks') {
-    const previous = new Set(old.map((a) => a.key));
+    const previous = new Map(old.map((a) => [a.key, a.level]));
     for (const v of (report as HealthDisks).volumes) {
       const key = `disks:volume:${v.mountpoint}`;
-      if (v.percent >= settings.diskThreshold || (previous.has(key) && v.percent >= settings.diskThreshold - 5)) {
-        alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (seuil ${settings.diskThreshold} %)`);
-      }
+      const values = samples.filter((sample): sample is HealthDisks => 'volumes' in sample)
+        .flatMap((sample) => sample.volumes.filter((volume) => volume.mountpoint === v.mountpoint).map((volume) => ({ checkedAt: sample.checkedAt, value: volume.percent })));
+      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, settings.diskSustainedMinutes, settings.diskIntervalSeconds, previous.get(key));
+      if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, durée ${settings.diskSustainedMinutes} min)`, level);
     }
   } else {
-    const previous = new Set(old.map((a) => a.key));
+    const previous = new Map(old.map((a) => [a.key, a.level]));
     for (const d of (report as HealthSmart).disks) {
       if (d.healthy === false) alert(`smart:${d.device}:health`, d.device, `${d.device} : état SMART en échec`, 'alert');
-      if (d.temperatureC !== undefined && (d.temperatureC >= settings.smartTemperatureThreshold || (previous.has(`smart:smart:${d.device}:temperature`) && d.temperatureC >= settings.smartTemperatureThreshold - 5))) alert(`smart:${d.device}:temperature`, d.device, `${d.device} : température ${d.temperatureC} °C`);
+      if (d.temperatureC !== undefined) {
+        const key = `smart:smart:${d.device}:temperature`;
+        const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
+          .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.temperatureC !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.temperatureC! })));
+        const level = healthMetricLevel(d.temperatureC, values, settings.smartTemperatureWarningThreshold, settings.smartTemperatureAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds, previous.get(key));
+        if (level) alert(`smart:${d.device}:temperature`, d.device, `${d.device} : température ${d.temperatureC} °C (warning ${settings.smartTemperatureWarningThreshold} °C, alerte ${settings.smartTemperatureAlertThreshold} °C, durée ${settings.smartSustainedMinutes} min)`, level);
+      }
       if (d.reallocated !== undefined && d.reallocated > 0) alert(`smart:${d.device}:reallocated`, d.device, `${d.device} : ${d.reallocated} secteur(s) réalloué(s)`, 'alert');
-      if (d.nvmeWearPercent !== undefined && (d.nvmeWearPercent >= settings.smartWearThreshold || (previous.has(`smart:smart:${d.device}:wear`) && d.nvmeWearPercent >= settings.smartWearThreshold - 5))) alert(`smart:${d.device}:wear`, d.device, `${d.device} : usure NVMe ${d.nvmeWearPercent} %`);
+      if (d.nvmeWearPercent !== undefined) {
+        const key = `smart:smart:${d.device}:wear`;
+        const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
+          .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.nvmeWearPercent !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.nvmeWearPercent! })));
+        const level = healthMetricLevel(d.nvmeWearPercent, values, settings.smartWearWarningThreshold, settings.smartWearAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds, previous.get(key));
+        if (level) alert(`smart:${d.device}:wear`, d.device, `${d.device} : usure NVMe ${d.nvmeWearPercent} % (warning ${settings.smartWearWarningThreshold} %, alerte ${settings.smartWearAlertThreshold} %, durée ${settings.smartSustainedMinutes} min)`, level);
+      }
       if (d.error) alert(`smart:${d.device}:error`, d.device, `${d.device} : ${d.error}`);
     }
   }
@@ -145,13 +211,11 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   await healthMetrics.insertOne({ hostId, category, sampledAt, report });
 
   const s = await loadHealthSettings();
-  let recentSystem: HealthSystem[] = [];
-  if (category === 'system') {
-    const since = new Date(Date.now() - s.sustainedMinutes * 60_000 - s.systemIntervalSeconds * 2_000);
-    const docs = await healthMetrics.find({ hostId, category: 'system', sampledAt: { $gte: since } }).sort({ sampledAt: 1 }).toArray();
-    recentSystem = docs.map((d) => d.report as HealthSystem);
-  }
-  const alerts = reportAlerts(host, category, report, s, recentSystem);
+  const durationMinutes = category === 'system' ? s.systemSustainedMinutes : category === 'disks' ? s.diskSustainedMinutes : s.smartSustainedMinutes;
+  const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'disks' ? s.diskIntervalSeconds : s.smartIntervalSeconds;
+  const since = new Date(Date.now() - durationMinutes * 60_000 - intervalSeconds * 2_000);
+  const docs = await healthMetrics.find({ hostId, category, sampledAt: { $gte: since } }).sort({ sampledAt: 1 }).limit(5000).toArray();
+  const alerts = reportAlerts(host, category, report, s, docs.map((d) => d.report));
   const field = category === 'system' ? 'health.system' : category === 'disks' ? 'health.disks' : 'health.smart';
   await hosts.updateOne({ _id: hostId }, { $set: { [field]: report, 'health.alerts': alerts } });
 }
@@ -178,18 +242,30 @@ export async function receiveHealthReport(hostId: ObjectId, category: HealthCate
 
 const healthSettingsBody = {
   type: 'object',
-  required: ['systemIntervalSeconds', 'diskIntervalSeconds', 'smartIntervalSeconds', 'cpuThreshold', 'memoryThreshold', 'diskThreshold', 'smartTemperatureThreshold', 'smartWearThreshold', 'sustainedMinutes'],
+  required: [
+    'systemIntervalSeconds', 'diskIntervalSeconds', 'smartIntervalSeconds',
+    'cpuWarningThreshold', 'cpuAlertThreshold', 'memoryWarningThreshold', 'memoryAlertThreshold',
+    'diskWarningThreshold', 'diskAlertThreshold', 'smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold',
+    'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'diskSustainedMinutes', 'smartSustainedMinutes',
+  ],
   additionalProperties: false,
   properties: {
     systemIntervalSeconds: { type: 'integer', minimum: 10, maximum: 3600 },
     diskIntervalSeconds: { type: 'integer', minimum: 60, maximum: 86400 },
     smartIntervalSeconds: { type: 'integer', minimum: 600, maximum: 2592000 },
-    cpuThreshold: { type: 'number', minimum: 1, maximum: 100 },
-    memoryThreshold: { type: 'number', minimum: 1, maximum: 100 },
-    diskThreshold: { type: 'number', minimum: 1, maximum: 100 },
-    smartTemperatureThreshold: { type: 'number', minimum: 1, maximum: 150 },
-    smartWearThreshold: { type: 'number', minimum: 1, maximum: 1000 },
-    sustainedMinutes: { type: 'integer', minimum: 1, maximum: 60 },
+    cpuWarningThreshold: { type: 'number', minimum: 1, maximum: 99 },
+    cpuAlertThreshold: { type: 'number', minimum: 2, maximum: 100 },
+    memoryWarningThreshold: { type: 'number', minimum: 1, maximum: 99 },
+    memoryAlertThreshold: { type: 'number', minimum: 2, maximum: 100 },
+    diskWarningThreshold: { type: 'number', minimum: 1, maximum: 99 },
+    diskAlertThreshold: { type: 'number', minimum: 2, maximum: 100 },
+    smartTemperatureWarningThreshold: { type: 'number', minimum: 1, maximum: 149 },
+    smartTemperatureAlertThreshold: { type: 'number', minimum: 2, maximum: 150 },
+    smartWearWarningThreshold: { type: 'number', minimum: 1, maximum: 999 },
+    smartWearAlertThreshold: { type: 'number', minimum: 2, maximum: 1000 },
+    systemSustainedMinutes: { type: 'integer', minimum: 0, maximum: 60 },
+    diskSustainedMinutes: { type: 'integer', minimum: 0, maximum: 1440 },
+    smartSustainedMinutes: { type: 'integer', minimum: 0, maximum: 2880 },
   },
 } as const;
 
@@ -198,7 +274,17 @@ export function registerHealthRoutes(app: FastifyInstance) {
   app.put<{ Body: Omit<HealthSettings, '_id' | 'retentionHours'> }>(
     '/api/settings/health',
     { schema: { body: healthSettingsBody } },
-    async (req) => {
+    async (req, reply) => {
+      const pairs = [
+        [req.body.cpuWarningThreshold, req.body.cpuAlertThreshold],
+        [req.body.memoryWarningThreshold, req.body.memoryAlertThreshold],
+        [req.body.diskWarningThreshold, req.body.diskAlertThreshold],
+        [req.body.smartTemperatureWarningThreshold, req.body.smartTemperatureAlertThreshold],
+        [req.body.smartWearWarningThreshold, req.body.smartWearAlertThreshold],
+      ];
+      if (pairs.some(([warning, alert]) => warning >= alert)) {
+        return reply.code(400).send({ error: 'Le seuil warning doit être inférieur au seuil alerte.' });
+      }
       const next: HealthSettings = { ...DEFAULT_HEALTH_SETTINGS, ...req.body, retentionHours: 48 };
       await settings.replaceOne({ _id: 'health' }, next, { upsert: true });
       for (const host of await hosts.find({}).toArray()) {
@@ -235,6 +321,7 @@ export function registerHealthRoutes(app: FastifyInstance) {
         name: host.name,
         online: isOnline(host._id.toHexString()),
         supported: host.capabilities?.includes('health') ?? false,
+        virtualized: isVirtualizedHealthHost(host),
         health: host.health ?? null,
         samples: (byHost.get(host._id.toHexString()) ?? []).map(({ sampledAt, report }) => ({ sampledAt, report })),
       })),
@@ -258,6 +345,7 @@ export function registerHealthRoutes(app: FastifyInstance) {
       if (!hostId) return reply.code(404).send({ error: 'host not found' });
       const current = await hosts.findOne({ _id: hostId });
       if (!current) return reply.code(404).send({ error: 'host not found' });
+      if (isVirtualizedHealthHost(current)) return reply.code(409).send({ error: 'SMART désactivé sur les hôtes virtualisés' });
       if (!current.capabilities?.includes('smart')) return reply.code(409).send({ error: 'SMART indisponible sur cet agent' });
       const host = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { smartDevices: req.body.devices } }, { returnDocument: 'after' });
       if (!host) return reply.code(404).send({ error: 'host not found' });

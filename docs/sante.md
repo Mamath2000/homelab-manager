@@ -14,21 +14,25 @@ Les agents Linux, Windows et Home Assistant OS envoient des rapports typés ind�
 
 La charge `load 1/5/15` est envoyée sur Unix ; Windows n'a pas ces valeurs. Home Assistant OS expose l'occupation du disque de données par l'API Supervisor ; ses disques ne sont pas activés pour SMART par défaut.
 
+Sous Unix, les montages `loop` (images/conteneurs), les pseudo-filesystems (`overlay`, `tmpfs`, `proc`, etc.) et `/boot/efi` sont exclus de la liste des volumes. Les partitions et volumes RAID restent suivis. Une machine virtuelle qui présente son disque virtuel comme un disque local ne permet pas à l'agent de savoir si le stockage sous-jacent est physique.
+
 MongoDB stocke les échantillons dans `healthMetrics`, indexés par hôte, catégorie et horodatage. Un index TTL supprime automatiquement les mesures après **48 h**. La courbe UI montre la dernière heure : il n'y a pas d'historique long terme.
 
-Les fréquences et seuils globaux se règlent dans **Paramètres → Santé**. Valeurs par défaut :
+Les fréquences et seuils globaux se règlent dans **Paramètres → Santé**. Seuils par défaut (warning / alerte) :
 
-- CPU > 90 % pendant 5 min ;
-- mémoire > 90 % pendant 5 min ;
-- volume utilisé à 80 % ;
-- température SMART à 70 °C ;
-- usure NVMe à 80 % ; tout secteur réalloué est signalé.
+- CPU : 75 / 90 % ;
+- mémoire : 80 / 90 % ;
+- volume : 75 / 90 % ;
+- température SMART : 60 / 70 °C ;
+- usure NVMe : 70 / 85 % ; tout secteur réalloué est signalé immédiatement.
 
-CPU, mémoire, volume, température et usure NVMe conservent une marge de résolution de 5 points pour limiter les oscillations près du seuil. Les alertes sont ajoutées au domaine Santé, à la chronologie et aux notifications Home Assistant si l'intégration est activée.
+La durée est réglable séparément pour les mesures système (CPU/mémoire), volumes et SMART. CPU et mémoire demandent 5 minutes continues par défaut ; les volumes et SMART déclenchent immédiatement. Une durée de 0 signifie immédiat. Les alertes actives conservent une hystérésis de 5 points pour éviter les oscillations près du seuil. Les alertes sont ajoutées au domaine Santé, à la chronologie et aux notifications Home Assistant si l'intégration est activée.
 
 ## SMART
 
 SMART est volontairement **opt-in hôte par hôte**. Sur un agent Linux qui annonce la capacité `smart`, la fiche de l'hôte permet de saisir les périphériques physiques (par exemple `/dev/sda` ou `/dev/nvme0`). Seuls ces chemins sont transmis à l'agent et interrogés avec `smartctl`; aucune détection ou requête SMART automatique n'est faite sur les disques virtualisés. Le paquet `smartmontools` doit être installé et l'agent doit disposer des droits nécessaires.
+
+La configuration SMART n'est pas proposée pour les hôtes que l'agent identifie comme virtualisés, et le hub n'envoie pas de périphériques SMART configurés à ces agents.
 
 Les rapports affichent l'état global, la température, les secteurs réalloués et l'usure NVMe lorsque les données sont fournies par le disque. Les VMs/LXC sans accès au périphérique physique et les contrôleurs/RAID non exposés par `smartctl` ne remontent pas ces détails.
 

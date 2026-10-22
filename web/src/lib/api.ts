@@ -49,6 +49,10 @@ export interface HealthVolume {
   percent: number;
 }
 
+export function visibleHealthVolumes(volumes: HealthVolume[]): HealthVolume[] {
+  return volumes.filter((volume) => volume.mountpoint !== '/boot/efi');
+}
+
 export interface HealthDisks {
   checkedAt: number;
   volumes: HealthVolume[];
@@ -82,12 +86,19 @@ export interface HealthSettings {
   diskIntervalSeconds: number;
   smartIntervalSeconds: number;
   retentionHours: number;
-  cpuThreshold: number;
-  memoryThreshold: number;
-  diskThreshold: number;
-  smartTemperatureThreshold: number;
-  smartWearThreshold: number;
-  sustainedMinutes: number;
+  cpuWarningThreshold: number;
+  cpuAlertThreshold: number;
+  memoryWarningThreshold: number;
+  memoryAlertThreshold: number;
+  diskWarningThreshold: number;
+  diskAlertThreshold: number;
+  smartTemperatureWarningThreshold: number;
+  smartTemperatureAlertThreshold: number;
+  smartWearWarningThreshold: number;
+  smartWearAlertThreshold: number;
+  systemSustainedMinutes: number;
+  diskSustainedMinutes: number;
+  smartSustainedMinutes: number;
 }
 
 export interface HealthOverviewHost {
@@ -95,6 +106,7 @@ export interface HealthOverviewHost {
   name: string;
   online: boolean;
   supported: boolean;
+  virtualized: boolean;
   health: HealthSnapshot | null;
   samples: { sampledAt: string; report: HealthSystem }[];
 }

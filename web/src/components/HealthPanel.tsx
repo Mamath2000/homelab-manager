@@ -1,49 +1,26 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, HardDrive, Thermometer } from 'lucide-react';
-import { api, type HealthSystem, type Host } from '../lib/api';
+import { Activity, ChartLine, HardDrive, Thermometer } from 'lucide-react';
+import { api, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
+import { HealthDetailModal } from './HealthDetailModal';
 import { Badge, Button, Panel } from './ui';
 
-function Percent({ value, tone = 'emerald' }: { value: number; tone?: 'emerald' | 'sky' | 'amber' }) {
+function Percent({ value, tone = 'emerald', warning, alert, durationMinutes }: { value: number; tone?: 'emerald' | 'sky' | 'amber'; warning?: number; alert?: number; durationMinutes?: number }) {
   const colors = { emerald: 'bg-emerald-400', sky: 'bg-sky-400', amber: 'bg-amber-400' };
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-black/30">
-        <div className={`h-full ${colors[tone]}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-      </div>
-      <span className="w-12 text-right font-mono text-xs">{value.toFixed(1)} %</span>
-    </div>
-  );
-}
-
-function SystemChart({ samples }: { samples: { sampledAt: string; report: HealthSystem }[] }) {
-  if (samples.length < 2) return <p className="py-10 text-center text-sm text-muted">La courbe se dessine à mesure que les mesures arrivent.</p>;
-  const points = (field: 'cpuPercent' | 'memPercent') => samples.map(({ report }, i) => {
-    const x = (i / (samples.length - 1)) * 600;
-    const y = 130 - (Math.max(0, Math.min(100, report[field])) / 100) * 120;
-    return `${x},${y}`;
-  }).join(' ');
-  const current = samples[samples.length - 1];
-  return (
     <div>
-      <svg viewBox="0 0 600 140" role="img" aria-label="Charge CPU et mémoire de la dernière heure" className="h-36 w-full overflow-visible">
-        {[0, 25, 50, 75, 100].map((v) => {
-          const y = 130 - v * 1.2;
-          return <g key={v}><line x1="0" x2="600" y1={y} y2={y} stroke="currentColor" className="text-line" strokeDasharray={v === 0 ? undefined : '3 5'} /><text x="0" y={y - 3} fill="currentColor" className="text-muted" fontSize="9">{v}</text></g>;
-        })}
-        <polyline points={points('cpuPercent')} fill="none" stroke="#34d399" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-        <polyline points={points('memPercent')} fill="none" stroke="#38bdf8" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <div className="flex justify-between text-[10px] text-muted">
-        <span>{dateTime(Number(new Date(samples[0].sampledAt)))}</span><span>{dateTime(Number(new Date(current.sampledAt)))}</span>
+      <div className="flex items-center gap-2">
+        <div className="relative h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-black/30">
+          <div className={`h-full ${colors[tone]}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+          {warning !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-amber-300" style={{ left: `${warning}%` }} title={`Warning ${warning}% · ${durationMinutes ?? 0} min`} />}
+          {alert !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-red-400" style={{ left: `${alert}%` }} title={`Alerte ${alert}% · ${durationMinutes ?? 0} min`} />}
+        </div>
+        <span className="w-12 text-right font-mono text-xs">{value.toFixed(1)} %</span>
       </div>
-      <div className="mt-2 flex gap-4 text-xs">
-        <span className="flex items-center gap-1.5 text-emerald-300"><i className="h-2 w-2 rounded-full bg-emerald-400" />CPU</span>
-        <span className="flex items-center gap-1.5 text-sky-300"><i className="h-2 w-2 rounded-full bg-sky-400" />Mémoire</span>
-      </div>
+      {warning !== undefined && alert !== undefined && <div className="mt-1 flex flex-wrap justify-between gap-x-2 pl-1 text-[10px] text-muted"><span>Warning {warning}%</span><span>Alerte {alert}%</span><span>{durationMinutes ? `après ${durationMinutes} min` : 'immédiat'}</span></div>}
     </div>
   );
 }
@@ -51,11 +28,13 @@ function SystemChart({ samples }: { samples: { sampledAt: string; report: Health
 export function HealthPanel({ host, canManage }: { host: Host; canManage: boolean }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const [chartOpen, setChartOpen] = useState(false);
   const { data, isError, error } = useQuery({
     queryKey: ['health', host.id],
     queryFn: () => api.hostHealth(host.id, 1),
     refetchInterval: 30_000,
   });
+  const { data: settings } = useQuery({ queryKey: ['settings', 'health'], queryFn: api.healthSettings });
   const systemSamples = useMemo(
     () => (data?.samples ?? []).filter((s): s is typeof s & { report: HealthSystem } => s.category === 'system'),
     [data],
@@ -73,7 +52,10 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
   const health = host.health;
   const system = health?.system;
   const disk = health?.disks;
+  const visibleVolumes = visibleHealthVolumes(disk?.volumes ?? []);
   const smart = health?.smart;
+  const virtualization = host.info?.virt.trim().toLowerCase();
+  const virtualized = !!virtualization && virtualization !== 'none' && virtualization !== 'unknown';
 
   return (
     <Panel title="Santé" icon={Activity} actions={system && <span className="text-xs text-muted">Mesures : {dateTime(system.checkedAt)}</span>}>
@@ -90,16 +72,20 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
         ) : <p className="text-sm text-emerald-300">Aucune alerte de santé active.</p>}
 
         <section className="rounded-md border border-line bg-raised/20 p-3">
-          <h3 className="mb-3 text-sm font-medium text-zinc-100">CPU et mémoire · dernière heure</h3>
-          <SystemChart samples={systemSamples} />
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-medium text-zinc-100">CPU et mémoire</h3>
+            <Button size="sm" variant="ghost" title="Afficher le graphique CPU et mémoire" aria-label="Afficher le graphique CPU et mémoire" onClick={() => setChartOpen(true)}><ChartLine className="h-4 w-4" /></Button>
+          </div>
           {isError && <p className="mt-2 text-xs text-amber-300">Historique indisponible : {error.message}</p>}
           {system ? (
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div><p className="mb-1 text-xs text-muted">CPU</p><Percent value={system.cpuPercent} /></div>
-              <div><p className="mb-1 text-xs text-muted">Mémoire · {formatBytes(system.memUsed)} / {formatBytes(system.memTotal)}</p><Percent value={system.memPercent} tone="sky" /></div>
+              <div><p className="mb-1 text-xs text-muted">CPU</p><Percent value={system.cpuPercent} warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} /></div>
+              <div><p className="mb-1 text-xs text-muted">Mémoire · {formatBytes(system.memUsed)} / {formatBytes(system.memTotal)}</p><Percent value={system.memPercent} tone="sky" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} /></div>
               {system.load1 !== undefined && (
                 <p className="text-xs text-muted sm:col-span-2">
-                  Charge Unix : <span className="font-mono text-zinc-300">{system.load1.toFixed(2)} / {system.load5?.toFixed(2)} / {system.load15?.toFixed(2)}</span>
+                  Charge Unix : <span className="font-mono">
+                    {([['1', system.load1], ['5', system.load5], ['15', system.load15]] as const).map(([period, value]) => value !== undefined && <span key={period} className={value > 1 ? 'text-red-400' : 'text-zinc-300'}>{value.toFixed(2)} </span>)}
+                  </span>
                   <span className="ml-1">(1 / 5 / 15 min)</span>
                 </p>
               )}
@@ -109,22 +95,23 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
 
         <section>
           <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><HardDrive className="h-4 w-4 text-amber-300" />Volumes</h3>
-          {!disk?.volumes.length ? <p className="text-sm text-muted">Pas de volume remonté pour le moment.</p> : (
+          <p className="mb-3 text-xs text-muted">Les montages loop et pseudo-filesystems sont masqués sous Unix. Les partitions et volumes RAID restent visibles ; un disque virtuel présenté comme un disque local par une VM ne peut pas toujours être distingué du matériel.</p>
+          {!visibleVolumes.length ? <p className="text-sm text-muted">Pas de volume remonté pour le moment.</p> : (
             <div className="space-y-3">
-              {disk.volumes.map((v) => (
+              {visibleVolumes.map((v) => (
                 <div key={`${v.device}:${v.mountpoint}`} className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(180px,1fr)] sm:items-center">
                   <div className="min-w-0">
                     <p className="truncate text-sm text-zinc-200" title={v.mountpoint}>{v.mountpoint}</p>
                     <p className="truncate font-mono text-[10px] text-muted" title={v.device}>{v.device} · {v.fstype} · {formatBytes(v.used)} / {formatBytes(v.total)}</p>
                   </div>
-                  <Percent value={v.percent} tone="amber" />
+                  <Percent value={v.percent} tone="amber" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} durationMinutes={settings?.diskSustainedMinutes} />
                 </div>
               ))}
             </div>
           )}
         </section>
 
-        {host.capabilities.includes('smart') && (
+        {host.capabilities.includes('smart') && !virtualized && (
           <section className="border-t border-line pt-4">
             <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><Thermometer className="h-4 w-4 text-violet-300" />SMART · configuré pour cet hôte</h3>
             {canManage && (
@@ -159,6 +146,16 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
           </section>
         )}
       </div>
+      <HealthDetailModal
+        open={chartOpen}
+        onClose={() => setChartOpen(false)}
+        hostName={host.name}
+        health={health}
+        samples={systemSamples}
+        settings={settings}
+        historyError={isError ? error.message : undefined}
+        virtualized={virtualized}
+      />
     </Panel>
   );
 }

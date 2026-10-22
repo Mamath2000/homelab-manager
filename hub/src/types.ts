@@ -105,12 +105,19 @@ export interface HealthSettings {
   diskIntervalSeconds: number;
   smartIntervalSeconds: number;
   retentionHours: number;
-  cpuThreshold: number;
-  memoryThreshold: number;
-  diskThreshold: number;
-  smartTemperatureThreshold: number;
-  smartWearThreshold: number;
-  sustainedMinutes: number;
+  cpuWarningThreshold: number;
+  cpuAlertThreshold: number;
+  memoryWarningThreshold: number;
+  memoryAlertThreshold: number;
+  diskWarningThreshold: number;
+  diskAlertThreshold: number;
+  smartTemperatureWarningThreshold: number;
+  smartTemperatureAlertThreshold: number;
+  smartWearWarningThreshold: number;
+  smartWearAlertThreshold: number;
+  systemSustainedMinutes: number;
+  diskSustainedMinutes: number;
+  smartSustainedMinutes: number;
 }
 
 export interface AptSummary {
