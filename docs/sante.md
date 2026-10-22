@@ -26,7 +26,7 @@ Les fréquences et seuils globaux se règlent dans **Paramètres → Santé**. S
 - température SMART : 60 / 70 °C ;
 - usure NVMe : 70 / 85 % ; tout secteur réalloué est signalé immédiatement.
 
-La durée est réglable séparément pour les mesures système (CPU/mémoire), volumes et SMART. CPU et mémoire demandent 5 minutes continues par défaut ; les volumes et SMART déclenchent immédiatement. Une durée de 0 signifie immédiat. Les alertes actives conservent une hystérésis de 5 points pour éviter les oscillations près du seuil. Les alertes sont ajoutées au domaine Santé, à la chronologie et aux notifications Home Assistant si l'intégration est activée.
+La durée est réglable séparément pour les mesures système (CPU/mémoire) et SMART. CPU et mémoire demandent 5 minutes continues par défaut ; les volumes déclenchent immédiatement dès le franchissement d'un seuil, et SMART déclenche immédiatement par défaut. Une durée de 0 signifie immédiat pour les catégories temporisées. Les alertes actives conservent une hystérésis de 5 points pour éviter les oscillations près du seuil. Les alertes sont ajoutées au domaine Santé, à la chronologie et aux notifications Home Assistant si l'intégration est activée.
 
 ## SMART
 

@@ -20,10 +20,9 @@ test('health defaults use distinct system, volume, and SMART frequencies with sh
       DEFAULT_HEALTH_SETTINGS.cpuWarningThreshold,
       DEFAULT_HEALTH_SETTINGS.cpuAlertThreshold,
       DEFAULT_HEALTH_SETTINGS.systemSustainedMinutes,
-      DEFAULT_HEALTH_SETTINGS.diskSustainedMinutes,
       DEFAULT_HEALTH_SETTINGS.smartSustainedMinutes,
     ],
-    [75, 90, 5, 0, 0],
+    [75, 90, 5, 0],
   );
 });
 

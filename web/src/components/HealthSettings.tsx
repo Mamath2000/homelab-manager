@@ -16,14 +16,14 @@ const thresholds: {
   label: string;
   warning: keyof Form;
   alert: keyof Form;
-  duration: keyof Form;
+  duration?: keyof Form;
   max: number;
   suffix: string;
-  durationMax: number;
+  durationMax?: number;
 }[] = [
   { label: 'CPU', warning: 'cpuWarningThreshold', alert: 'cpuAlertThreshold', duration: 'systemSustainedMinutes', max: 100, suffix: '%', durationMax: 60 },
   { label: 'Mémoire', warning: 'memoryWarningThreshold', alert: 'memoryAlertThreshold', duration: 'systemSustainedMinutes', max: 100, suffix: '%', durationMax: 60 },
-  { label: 'Volumes', warning: 'diskWarningThreshold', alert: 'diskAlertThreshold', duration: 'diskSustainedMinutes', max: 100, suffix: '%', durationMax: 1440 },
+  { label: 'Volumes', warning: 'diskWarningThreshold', alert: 'diskAlertThreshold', max: 100, suffix: '%' },
   { label: 'Température SMART', warning: 'smartTemperatureWarningThreshold', alert: 'smartTemperatureAlertThreshold', duration: 'smartSustainedMinutes', max: 150, suffix: '°C', durationMax: 2880 },
   { label: 'Usure NVMe SMART', warning: 'smartWearWarningThreshold', alert: 'smartWearAlertThreshold', duration: 'smartSustainedMinutes', max: 1000, suffix: '%', durationMax: 2880 },
 ];
@@ -44,7 +44,6 @@ function formOf(s: HealthSettingsValues): Form {
     smartWearWarningThreshold: s.smartWearWarningThreshold,
     smartWearAlertThreshold: s.smartWearAlertThreshold,
     systemSustainedMinutes: s.systemSustainedMinutes,
-    diskSustainedMinutes: s.diskSustainedMinutes,
     smartSustainedMinutes: s.smartSustainedMinutes,
   };
 }
@@ -82,7 +81,7 @@ export function HealthSettings() {
   return (
     <Panel title="Collecte et alertes Santé" icon={Activity}>
       <div className="space-y-4 p-4">
-        <p className="max-w-3xl text-sm leading-relaxed text-muted">Chaque indicateur déclenche un warning ou une alerte après être resté au-dessus du seuil pendant la durée définie. Une durée de 0 déclenche immédiatement. Les disques SMART sont activés hôte par hôte et ne doivent pas inclure de disques virtualisés.</p>
+        <p className="max-w-3xl text-sm leading-relaxed text-muted">Les seuils de volume déclenchent immédiatement. Les autres indicateurs peuvent demander une durée au-dessus du seuil. Les disques SMART sont activés hôte par hôte et ne doivent pas inclure de disques virtualisés.</p>
         <div className="grid gap-3 lg:grid-cols-2">
           {intervals.map(({ key, label, min, max, suffix, help }) => (
             <label key={key} className="rounded-md border border-line bg-raised/30 p-3">
@@ -106,12 +105,12 @@ export function HealthSettings() {
           <h3 className="mb-2 text-sm font-medium text-zinc-100">Seuils et temporisations</h3>
           <div className="space-y-2">
             {thresholds.map(({ label, warning, alert, duration, max, suffix, durationMax }) => (
-              <div key={label} className="grid gap-3 rounded-md border border-line bg-raised/30 p-3 sm:grid-cols-[minmax(8rem,1fr)_repeat(3,minmax(6rem,auto))] sm:items-end">
+              <div key={label} className={`grid gap-3 rounded-md border border-line bg-raised/30 p-3 sm:items-end ${duration ? 'sm:grid-cols-[minmax(8rem,1fr)_repeat(3,minmax(6rem,auto))]' : 'sm:grid-cols-[minmax(8rem,1fr)_repeat(2,minmax(6rem,auto))]'}`}>
                 <span className="text-sm font-medium text-zinc-100">{label}</span>
                 {([
                   [warning, 'Warning', max, suffix],
                   [alert, 'Alerte', max, suffix],
-                  [duration, 'Durée', durationMax, 'minutes'],
+                  ...(duration ? [[duration, 'Durée', durationMax ?? 2880, 'minutes'] as const] : []),
                 ] as const).map(([key, title, maxValue, unit]) => (
                   <label key={`${label}-${key}`} className="text-xs text-muted">
                     <span className="mb-1 block">{title}</span>
@@ -130,7 +129,7 @@ export function HealthSettings() {
                 ))}
               </div>
             ))}
-            <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. Une durée de zéro signifie un déclenchement immédiat. La période est partagée entre CPU et mémoire, entre les volumes, et entre les mesures SMART.</p>
+            <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. La durée est partagée entre CPU et mémoire, ainsi qu’entre les mesures SMART. Les seuils de volume sont toujours immédiats.</p>
           </div>
         </div>
         <div className="flex justify-end gap-2">

@@ -97,7 +97,6 @@ export interface HealthSettings {
   smartWearWarningThreshold: number;
   smartWearAlertThreshold: number;
   systemSustainedMinutes: number;
-  diskSustainedMinutes: number;
   smartSustainedMinutes: number;
 }
 

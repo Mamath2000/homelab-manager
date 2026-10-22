@@ -104,7 +104,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                     <p className="truncate text-sm text-zinc-200" title={v.mountpoint}>{v.mountpoint}</p>
                     <p className="truncate font-mono text-[10px] text-muted" title={v.device}>{v.device} · {v.fstype} · {formatBytes(v.used)} / {formatBytes(v.total)}</p>
                   </div>
-                  <Percent value={v.percent} tone="amber" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} durationMinutes={settings?.diskSustainedMinutes} />
+                  <Percent value={v.percent} tone="amber" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />
                 </div>
               ))}
             </div>

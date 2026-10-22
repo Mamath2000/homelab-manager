@@ -13,10 +13,10 @@ function Metric({ label, value, color, warning, alert, durationMinutes }: { labe
       <div className="mb-1 flex justify-between text-xs"><span className="text-muted">{label}</span><span className="font-mono text-zinc-200">{value.toFixed(1)} %</span></div>
       <div className="relative h-1.5 overflow-hidden rounded-full bg-black/30">
         <div className={`h-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-        {warning !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-amber-300" style={{ left: `${warning}%` }} title={`Warning ${warning}% · ${durationMinutes ?? 0} min`} />}
-        {alert !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-red-400" style={{ left: `${alert}%` }} title={`Alerte ${alert}% · ${durationMinutes ?? 0} min`} />}
+        {warning !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-amber-300" style={{ left: `${warning}%` }} title={`Warning ${warning}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
+        {alert !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-red-400" style={{ left: `${alert}%` }} title={`Alerte ${alert}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
       </div>
-      {warning !== undefined && alert !== undefined && <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-[10px] text-muted"><span>Warning {warning}%</span><span>Alerte {alert}%</span><span>{durationMinutes ? `après ${durationMinutes} min` : 'immédiat'}</span></div>}
+      {warning !== undefined && alert !== undefined && <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-[10px] text-muted"><span>Warning {warning}%</span><span>Alerte {alert}%</span>{durationMinutes !== undefined && <span>{durationMinutes ? `après ${durationMinutes} min` : 'immédiat'}</span>}</div>}
     </div>
   );
 }
@@ -24,6 +24,7 @@ function Metric({ label, value, color, warning, alert, durationMinutes }: { labe
 function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings?: HealthSettings }) {
   const [chartOpen, setChartOpen] = useState(false);
   const alerts = host.health?.alerts ?? [];
+  const hasCriticalAlert = alerts.some((alert) => alert.level === 'alert');
   const system = host.health?.system;
   const maxDisk = Math.max(0, ...visibleHealthVolumes(host.health?.disks?.volumes ?? []).map((v) => v.percent));
   return (
@@ -33,7 +34,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
       actions={
         <div className="flex items-center gap-2">
           {system && <Button size="sm" variant="ghost" title={`Afficher le graphique CPU et mémoire de ${host.name}`} aria-label={`Afficher le graphique CPU et mémoire de ${host.name}`} onClick={() => setChartOpen(true)}><ChartLine className="h-4 w-4" /></Button>}
-          {alerts.length > 0 && <Badge tone="bad"><AlertTriangle className="mr-1 h-3 w-3" />{alerts.length}</Badge>}
+          {alerts.length > 0 && <Badge tone={hasCriticalAlert ? 'bad' : 'warn'}><AlertTriangle className="mr-1 h-3 w-3" />{alerts.length}</Badge>}
           <span className={`h-2 w-2 rounded-full ${host.online ? 'bg-emerald-400' : 'bg-zinc-600'}`} title={host.online ? 'En ligne' : 'Hors ligne'} />
         </div>
       }
@@ -43,7 +44,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
           <div className="grid grid-cols-2 gap-3">
             <Metric label="CPU" value={system.cpuPercent} color="bg-emerald-400" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
             <Metric label="Mémoire" value={system.memPercent} color="bg-sky-400" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
-            {host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-amber-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} durationMinutes={settings?.diskSustainedMinutes} />}
+            {host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-amber-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />}
             {system.load1 !== undefined && (
               <div className="text-right text-xs text-muted">
                 Charge 1 / 5 / 15 min<br /><span className="font-mono">
@@ -54,7 +55,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
           </div>
           {alerts.length > 0 && (
             <ul className="space-y-1 border-t border-line pt-2">
-              {alerts.slice(0, 3).map((a) => <li key={a.key} className="truncate text-xs text-amber-300" title={a.reason}>{a.reason}</li>)}
+              {alerts.slice(0, 3).map((a) => <li key={a.key} className={`truncate text-xs ${a.level === 'alert' ? 'text-red-300' : 'text-amber-300'}`} title={a.reason}>{a.reason}</li>)}
               {alerts.length > 3 && <li className="text-xs text-muted">… et {alerts.length - 3} autre(s)</li>}
             </ul>
           )}

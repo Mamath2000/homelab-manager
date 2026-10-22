@@ -22,7 +22,6 @@ export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   smartWearWarningThreshold: 70,
   smartWearAlertThreshold: 85,
   systemSustainedMinutes: 5,
-  diskSustainedMinutes: 0,
   smartSustainedMinutes: 0,
 };
 
@@ -176,8 +175,8 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
       const key = `disks:volume:${v.mountpoint}`;
       const values = samples.filter((sample): sample is HealthDisks => 'volumes' in sample)
         .flatMap((sample) => sample.volumes.filter((volume) => volume.mountpoint === v.mountpoint).map((volume) => ({ checkedAt: sample.checkedAt, value: volume.percent })));
-      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, settings.diskSustainedMinutes, settings.diskIntervalSeconds, previous.get(key));
-      if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, durée ${settings.diskSustainedMinutes} min)`, level);
+      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, 0, settings.diskIntervalSeconds, previous.get(key));
+      if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, déclenchement immédiat)`, level);
     }
   } else {
     const previous = new Map(old.map((a) => [a.key, a.level]));
@@ -188,7 +187,7 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
         const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
           .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.temperatureC !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.temperatureC! })));
         const level = healthMetricLevel(d.temperatureC, values, settings.smartTemperatureWarningThreshold, settings.smartTemperatureAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds, previous.get(key));
-        if (level) alert(`smart:${d.device}:temperature`, d.device, `${d.device} : température ${d.temperatureC} °C (warning ${settings.smartTemperatureWarningThreshold} °C, alerte ${settings.smartTemperatureAlertThreshold} °C, durée ${settings.smartSustainedMinutes} min)`, level);
+          if (level) alert(`smart:${d.device}:temperature`, d.device, `${d.device} : température ${d.temperatureC} °C (warning ${settings.smartTemperatureWarningThreshold} °C, alerte ${settings.smartTemperatureAlertThreshold} °C, ${settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'})`, level);
       }
       if (d.reallocated !== undefined && d.reallocated > 0) alert(`smart:${d.device}:reallocated`, d.device, `${d.device} : ${d.reallocated} secteur(s) réalloué(s)`, 'alert');
       if (d.nvmeWearPercent !== undefined) {
@@ -196,7 +195,7 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
         const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
           .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.nvmeWearPercent !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.nvmeWearPercent! })));
         const level = healthMetricLevel(d.nvmeWearPercent, values, settings.smartWearWarningThreshold, settings.smartWearAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds, previous.get(key));
-        if (level) alert(`smart:${d.device}:wear`, d.device, `${d.device} : usure NVMe ${d.nvmeWearPercent} % (warning ${settings.smartWearWarningThreshold} %, alerte ${settings.smartWearAlertThreshold} %, durée ${settings.smartSustainedMinutes} min)`, level);
+        if (level) alert(`smart:${d.device}:wear`, d.device, `${d.device} : usure NVMe ${d.nvmeWearPercent} % (warning ${settings.smartWearWarningThreshold} %, alerte ${settings.smartWearAlertThreshold} %, ${settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'})`, level);
       }
       if (d.error) alert(`smart:${d.device}:error`, d.device, `${d.device} : ${d.error}`);
     }
@@ -211,7 +210,7 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   await healthMetrics.insertOne({ hostId, category, sampledAt, report });
 
   const s = await loadHealthSettings();
-  const durationMinutes = category === 'system' ? s.systemSustainedMinutes : category === 'disks' ? s.diskSustainedMinutes : s.smartSustainedMinutes;
+  const durationMinutes = category === 'system' ? s.systemSustainedMinutes : category === 'disks' ? 0 : s.smartSustainedMinutes;
   const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'disks' ? s.diskIntervalSeconds : s.smartIntervalSeconds;
   const since = new Date(Date.now() - durationMinutes * 60_000 - intervalSeconds * 2_000);
   const docs = await healthMetrics.find({ hostId, category, sampledAt: { $gte: since } }).sort({ sampledAt: 1 }).limit(5000).toArray();
@@ -246,7 +245,7 @@ const healthSettingsBody = {
     'systemIntervalSeconds', 'diskIntervalSeconds', 'smartIntervalSeconds',
     'cpuWarningThreshold', 'cpuAlertThreshold', 'memoryWarningThreshold', 'memoryAlertThreshold',
     'diskWarningThreshold', 'diskAlertThreshold', 'smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold',
-    'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'diskSustainedMinutes', 'smartSustainedMinutes',
+    'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'smartSustainedMinutes',
   ],
   additionalProperties: false,
   properties: {
@@ -264,7 +263,6 @@ const healthSettingsBody = {
     smartWearWarningThreshold: { type: 'number', minimum: 1, maximum: 999 },
     smartWearAlertThreshold: { type: 'number', minimum: 2, maximum: 1000 },
     systemSustainedMinutes: { type: 'integer', minimum: 0, maximum: 60 },
-    diskSustainedMinutes: { type: 'integer', minimum: 0, maximum: 1440 },
     smartSustainedMinutes: { type: 'integer', minimum: 0, maximum: 2880 },
   },
 } as const;
