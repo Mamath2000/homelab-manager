@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -151,8 +152,17 @@ func collectHealthDisks() (*HealthDisks, error) {
 	return r, nil
 }
 
+// Boot partition and container runtime storage (Docker, containerd): not a volume to watch.
 func isHealthExcludedMountpoint(mountpoint string) bool {
-	return mountpoint == "/boot/efi"
+	if mountpoint == "/boot/efi" {
+		return true
+	}
+	for _, dir := range []string{"/var/lib/docker", "/var/lib/containerd"} {
+		if mountpoint == dir || strings.HasPrefix(mountpoint, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *session) healthConfig() HealthConfig {

@@ -13,7 +13,7 @@ test('health defaults use distinct system, volume, and SMART frequencies with sh
       DEFAULT_HEALTH_SETTINGS.smartIntervalSeconds,
       DEFAULT_HEALTH_SETTINGS.retentionHours,
     ],
-    [30, 300, 86400, 48],
+    [30, 300, 7 * 86400, 48],
   );
   assert.deepEqual(
     [

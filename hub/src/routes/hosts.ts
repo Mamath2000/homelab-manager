@@ -8,6 +8,7 @@ import { allAlertDays, hostAlertDays } from '../alerts.js';
 import { DOMAINS, evaluateAll } from '../monitoring.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
+import { isVirtualizedHealthHost } from '../health.js';
 import { agentCommands } from '../hubUrl.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
@@ -371,6 +372,20 @@ export function registerHostRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  // Physical disks smartctl can read on the host, offered in its SMART options (nothing is stored).
+  app.get<{ Params: { id: string } }>('/api/hosts/:id/health/smart/candidates', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    const host = _id && (await hosts.findOne({ _id }, { projection: { capabilities: 1, info: 1 } }));
+    if (!host) return reply.code(404).send({ error: 'host not found' });
+    if (isVirtualizedHealthHost(host)) return reply.code(409).send({ error: 'SMART désactivé sur les hôtes virtualisés' });
+    if (!host.capabilities?.includes('smart')) return reply.code(409).send({ error: 'SMART indisponible sur cet agent (smartmontools absent ou agent trop ancien)' });
+    try {
+      return await agentRequest<{ candidates: unknown[] }>(req.params.id, 'smart_scan', {}, 40_000);
+    } catch (err) {
+      return agentError(reply, err);
+    }
+  });
 
   // Instant command on the UPS of the host: beeper and quick battery test only (the agent checks
   // its own list again and holds the NUT credentials).

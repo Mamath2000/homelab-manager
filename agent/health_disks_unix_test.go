@@ -39,3 +39,14 @@ func TestBootEFIMountpointIsExcluded(t *testing.T) {
 		t.Fatal("similarly named mountpoint should not be excluded")
 	}
 }
+
+func TestContainerStorageMountpointsAreExcluded(t *testing.T) {
+	for _, m := range []string{"/var/lib/docker", "/var/lib/containerd", "/var/lib/docker/overlay2"} {
+		if !isHealthExcludedMountpoint(m) {
+			t.Errorf("%s should be excluded", m)
+		}
+	}
+	if isHealthExcludedMountpoint("/var/lib/dockerdata") {
+		t.Fatal("similarly named mountpoint should not be excluded")
+	}
+}

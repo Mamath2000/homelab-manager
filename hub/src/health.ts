@@ -9,7 +9,7 @@ export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   _id: 'health',
   systemIntervalSeconds: 30,
   diskIntervalSeconds: 5 * 60,
-  smartIntervalSeconds: 24 * 3600,
+  smartIntervalSeconds: 7 * 24 * 3600,
   retentionHours: 48,
   cpuWarningThreshold: 75,
   cpuAlertThreshold: 90,

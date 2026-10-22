@@ -207,6 +207,9 @@ func (s *session) hello(ctx context.Context) error {
 	// backups: backup_setup (the hub may send definitions), backup_connect (jobs run on connection),
 	// "backup" and backup:cli once the CLI named by the definition is there
 	caps := []string{"refresh", "session", "health", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect"}
+	if _, err := findSmartctl(); err == nil {
+		caps = append(caps, "smart")
+	}
 	client := backups.clientPresent()
 	if client {
 		caps = append(caps, "backup", "backup:cli")
@@ -313,6 +316,12 @@ func (s *session) loop(ctx context.Context) error {
 				_ = s.hello(ctx)
 				s.sessions(ctx, true)
 				out.Result = map[string][]string{"scopes": {"info", "session"}}
+			} else if in.Op == "smart_scan" {
+				if list, err := listSmartCandidates(ctx); err != nil {
+					out.Error = err.Error()
+				} else {
+					out.Result = map[string][]SmartCandidate{"candidates": list}
+				}
 			} else {
 				out.Error = fmt.Sprintf("unknown request %q", in.Op)
 			}

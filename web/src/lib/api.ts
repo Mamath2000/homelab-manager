@@ -50,7 +50,16 @@ export interface HealthVolume {
 }
 
 export function visibleHealthVolumes(volumes: HealthVolume[]): HealthVolume[] {
-  return volumes.filter((volume) => volume.mountpoint !== '/boot/efi');
+  // same exclusions as the agent, for what older agents still report
+  return volumes.filter((v) => v.mountpoint !== '/boot/efi' && !/^\/var\/lib\/(docker|containerd)(\/|$)/.test(v.mountpoint));
+}
+
+// A physical disk smartctl can read on the host (agent smart_scan).
+export interface SmartCandidate {
+  device: string;
+  model?: string;
+  protocol?: string;
+  sizeBytes?: number;
 }
 
 export interface HealthDisks {
@@ -1116,6 +1125,7 @@ export const api = {
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),
+  hostSmartCandidates: (id: string) => request<{ candidates: SmartCandidate[] }>('GET', `/api/hosts/${id}/health/smart/candidates`),
   healthSettings: () => request<HealthSettings>('GET', '/api/settings/health'),
   saveHealthSettings: (s: Omit<HealthSettings, 'retentionHours'>) => request<HealthSettings>('PUT', '/api/settings/health', s),
   healthOverview: () => request<{ hosts: HealthOverviewHost[] }>('GET', '/api/health/overview'),

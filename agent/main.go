@@ -42,7 +42,7 @@ func platformCapabilities() []string {
 	// refresh: rpc reading again what the agent reports on its own (refresh.go)
 	caps := []string{"refresh"}
 	caps = append(caps, "health")
-	if _, err := exec.LookPath("smartctl"); err == nil {
+	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
 	if hasApt() {
@@ -319,6 +319,11 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
 		out.Result = map[string][]string{"scopes": s.refresh(ctx, in.Scopes)}
+	case "smart_scan":
+		var list []SmartCandidate
+		if list, err = listSmartCandidates(ctx); err == nil {
+			out.Result = map[string][]SmartCandidate{"candidates": list}
+		}
 	case "docker_forget":
 		if err = dock.forget(ctx, in.Stack); err == nil {
 			out.Result = map[string]bool{"ok": true}

@@ -6,7 +6,7 @@ import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { HealthDetailModal } from './HealthDetailModal';
-import { Badge, Button, Panel } from './ui';
+import { Badge, Button, Checkbox, Panel } from './ui';
 
 function Percent({ value, tone = 'emerald', warning, alert, durationMinutes }: { value: number; tone?: 'emerald' | 'sky' | 'amber'; warning?: number; alert?: number; durationMinutes?: number }) {
   const colors = { emerald: 'bg-emerald-400', sky: 'bg-sky-400', amber: 'bg-amber-400' };
@@ -49,6 +49,16 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
     },
     onError: (err: Error) => toast.error(err.message),
   });
+  const selected = useMemo(() => new Set(devices.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean)), [devices]);
+  const scan = useMutation({
+    mutationFn: () => api.hostSmartCandidates(host.id),
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const toggleDevice = (device: string, on: boolean) => {
+    const next = new Set(selected);
+    if (on) next.add(device); else next.delete(device);
+    setDevices([...next].join(', '));
+  };
   const health = host.health;
   const system = health?.system;
   const disk = health?.disks;
@@ -112,19 +122,45 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
             )}
           </section>)}
 
+        {host.capabilities.includes('health') && !virtualized && !host.capabilities.includes('smart') && (
+          <section className="border-t border-line pt-4">
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><Thermometer className="h-4 w-4 text-violet-300" />SMART · smartmontools requis</h3>
+            <p className="mb-2 text-xs text-muted">L'agent ne trouve pas <span className="font-mono">smartctl</span>. Installe smartmontools sur l'hôte (en administrateur), puis attends la prochaine connexion de l'agent ou actualise l'hôte.</p>
+            <pre className="overflow-x-auto rounded-md border border-line bg-black/30 px-3 py-2 font-mono text-xs text-zinc-200">{host.osFamily === 'windows'
+              ? 'winget install smartmontools\n# ou l\'installeur officiel : https://www.smartmontools.org/wiki/Download'
+              : 'apt install smartmontools'}</pre>
+          </section>
+        )}
+
         {host.capabilities.includes('smart') && !virtualized && (
           <section className="border-t border-line pt-4">
             <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><Thermometer className="h-4 w-4 text-violet-300" />SMART · configuré pour cet hôte</h3>
             {canManage && (
-              <div className="mb-3 flex flex-wrap gap-2">
-                <input
-                  className="input min-w-48 flex-1"
-                  aria-label="Disques physiques SMART"
-                  placeholder="/dev/sda, /dev/nvme0"
-                  value={devices}
-                  onChange={(event) => setDevices(event.target.value)}
-                />
-                <Button size="sm" loading={saveSmart.isPending} disabled={!host.online} onClick={() => saveSmart.mutate()}>Enregistrer</Button>
+              <div className="mb-3 space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    className="input min-w-48 flex-1"
+                    aria-label="Disques physiques SMART"
+                    placeholder="/dev/sda, /dev/nvme0"
+                    value={devices}
+                    onChange={(event) => setDevices(event.target.value)}
+                  />
+                  <Button size="sm" variant="ghost" loading={scan.isPending} disabled={!host.online} onClick={() => scan.mutate()}>Détecter les disques</Button>
+                  <Button size="sm" loading={saveSmart.isPending} disabled={!host.online} onClick={() => saveSmart.mutate()}>Enregistrer</Button>
+                </div>
+                {scan.data && (!scan.data.candidates.length ? <p className="text-xs text-muted">Aucun disque détecté par smartctl.</p> : (
+                  <ul className="divide-y divide-line rounded-md border border-line">
+                    {scan.data.candidates.map((c) => (
+                      <li key={c.device} className="flex items-center gap-3 px-3 py-1.5 text-xs">
+                        <Checkbox label={c.device} checked={selected.has(c.device)} onChange={(on) => toggleDevice(c.device, on)} />
+                        <span className="font-mono text-zinc-100">{c.device}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted">{c.model ?? 'modèle inconnu'}</span>
+                        {c.protocol && <Badge>{c.protocol}</Badge>}
+                        {!!c.sizeBytes && <span className="text-muted">{formatBytes(c.sizeBytes)}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                ))}
               </div>
             )}
             {!host.smartDevices.length ? <p className="text-xs text-muted">Aucun périphérique sélectionné. Les disques virtualisés ne doivent pas être ajoutés.</p> : !smart?.disks.length ? <p className="text-xs text-muted">En attente de la prochaine collecte SMART.</p> : (

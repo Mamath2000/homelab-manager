@@ -10,6 +10,13 @@ import { inColumn, kindColumns } from '../lib/hostOverview';
 import { useHosts, useSites } from '../lib/queries';
 import { api, visibleHealthVolumes, type HealthOverviewHost, type HealthSettings } from '../lib/api';
 
+// 604800 → « tous les 7 j », 86400 → « toutes les 24 h »
+function smartEvery(seconds = 7 * 86400) {
+  if (seconds % 86400 === 0 && seconds >= 2 * 86400) return `tous les ${seconds / 86400} j`;
+  if (seconds % 3600 === 0) return `toutes les ${seconds / 3600} h`;
+  return `toutes les ${Math.round(seconds / 60)} min`;
+}
+
 function Metric({ label, value, color, warning, alert, durationMinutes }: { label: string; value: number; color: string; warning?: number; alert?: number; durationMinutes?: number }) {
   return (
     <div className="min-w-0">
@@ -101,7 +108,7 @@ export function Health() {
       ) : (
         <>
           <HealthOverviewHeader items={items} sites={siteConfig ?? []} site={site} kind={kind} onSiteKind={(s, k) => setSel({ site: s, kind: k })} />
-          <div className="mb-4 flex items-center gap-2 text-xs text-muted"><Clock3 className="h-4 w-4" />CPU et mémoire toutes les 30 s · volumes toutes les 5 min · SMART toutes les 24 h, sur les seuls disques choisis pour chaque hôte.</div>
+          <div className="mb-4 flex items-center gap-2 text-xs text-muted"><Clock3 className="h-4 w-4" />CPU et mémoire toutes les 30 s · volumes toutes les 5 min · SMART {smartEvery(settings?.smartIntervalSeconds)}, sur les seuls disques choisis pour chaque hôte.</div>
           <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
             {shown.map((host) => <HostHealthCard key={host.id} host={host} settings={settings} />)}
           </div>
