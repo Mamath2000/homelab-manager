@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Activity, AlertTriangle, ChartLine, Cpu, EyeOff, HardDrive, Thermometer } from 'lucide-react';
+import { Activity, AlertTriangle, ChartLine, Cpu, EyeOff, HardDrive, Layers, Thermometer } from 'lucide-react';
 import { api, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { thresholdBg } from '../lib/status';
 import { useToast } from '../lib/toast';
 import { HealthDetailModal } from './HealthDetailModal';
+import { RaidArrays } from './RaidArrays';
 import { SmartSetup } from './SmartSetup';
 import { Badge, Button, Panel } from './ui';
 
@@ -72,6 +73,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
   const alertsOf = (...keys: string[]) => allAlerts.filter((a) => keys.some((k) => a.key === k || a.key.startsWith(`${k}:`)));
   const hasCriticalAlert = alerts.some((alert) => alert.level === 'alert');
   const smartDisks = !virtualized ? smart?.disks ?? [] : [];
+  const raidArrays = health?.raid?.arrays ?? [];
 
   return (
     <Panel
@@ -124,6 +126,13 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
               </div>
             )}
           </section>)}
+
+        {raidArrays.length > 0 && (
+          <section>
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><Layers className="h-4 w-4 text-sky-300" />RAID</h3>
+            <RaidArrays arrays={raidArrays} actions={(a) => <SilenceButton hostId={host.id} alerts={alertsOf(`raid:${a.name}`)} canManage={canManage} />} />
+          </section>
+        )}
 
         {smartDisks.length > 0 && (
           <section>

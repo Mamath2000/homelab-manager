@@ -37,6 +37,7 @@ type Outbound struct {
 	HealthSystem *HealthSystem  `json:"healthSystem,omitempty"`
 	HealthDisks  *HealthDisks   `json:"healthDisks,omitempty"`
 	HealthSmart  *HealthSmart   `json:"healthSmart,omitempty"`
+	HealthRaid   *HealthRaid    `json:"healthRaid,omitempty"`
 	ReqID        string         `json:"reqId,omitempty"`
 	Result       any            `json:"result,omitempty"`
 	JobID        string         `json:"jobId,omitempty"`

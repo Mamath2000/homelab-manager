@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { ChartLine, HardDrive, Thermometer } from 'lucide-react';
+import { ChartLine, HardDrive, Layers, Thermometer } from 'lucide-react';
 import { formatBytes } from '../lib/backups';
 import { visibleHealthVolumes, type HealthSettings, type HealthSnapshot, type HealthSystem } from '../lib/api';
 import { dateTime } from '../lib/format';
+import { RaidArrays } from './RaidArrays';
 import { Badge, Modal } from './ui';
 
 type Sample = { sampledAt: string; report: HealthSystem };
@@ -100,6 +101,7 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
   const system = health?.system;
   const volumes = visibleHealthVolumes(health?.disks?.volumes ?? []);
   const smartDisks = health?.smart?.disks ?? [];
+  const raidArrays = health?.raid?.arrays ?? [];
   return (
     <Modal open={open} onClose={onClose} title={`Détail Santé · ${hostName}`} wide="screen-wide" scroll>
       <div className="space-y-5">
@@ -153,6 +155,12 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
               ))}
             </div>
           )}
+        </section>}
+
+        {raidArrays.length > 0 && <section>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><Layers className="h-4 w-4 text-sky-300" />RAID ({raidArrays.length})</h3>
+          <p className="mb-3 text-xs text-muted">Alerte : array dégradé, disque en échec ou arrêté · warning : reconstruction ou resynchro en cours, incohérences après contrôle, erreurs de lecture corrigées (à chaque nouvelle valeur) · le contrôle périodique n'alerte pas · déclenchement immédiat</p>
+          <RaidArrays arrays={raidArrays} />
         </section>}
 
         {!virtualized && <section>

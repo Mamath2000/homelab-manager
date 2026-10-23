@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts } from '../src/health.js';
 import type { HostInfo } from '../src/types.js';
 import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
@@ -88,4 +88,41 @@ test('a disk asleep keeps its last known values', () => {
   assert.deepEqual(kept.disks[0], { device: '/dev/sde', model: 'WD', temperatureC: 34, healthy: true, standby: true });
   assert.deepEqual(kept.disks[1], { device: '/dev/sdf', temperatureC: 33 });
   assert.deepEqual(kept.disks[2], { device: '/dev/sdg', standby: true });
+});
+
+const raidArray = {
+  name: 'md0', level: 'raid5', state: 'clean', raidDisks: 4, degraded: 0, syncAction: 'idle', mismatchCount: 0,
+  members: [{ device: 'sdb1', state: 'in_sync', slot: 0, errors: 0 }, { device: 'sdd1', state: 'in_sync', slot: 2, errors: 0 }],
+};
+
+test('RAID reports validate md arrays and their members', () => {
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [raidArray] }), true);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [] }), true);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [{ ...raidArray, degraded: -1 }] }), false);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [{ ...raidArray, syncPercent: 101 }] }), false);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [{ ...raidArray, members: [{ device: 'sdb1', state: 'in_sync' }] }] }), false);
+});
+
+test('RAID alerts: degraded and failed member are alerts, rebuild and corrected errors warnings, scrub silent', () => {
+  const keys = (a: object) => raidAlerts({ checkedAt: now, arrays: [{ ...raidArray, ...a }] }).map((x) => `${x.key}=${x.level}`);
+  assert.deepEqual(keys({}), []);
+  assert.deepEqual(keys({ syncAction: 'check', syncPercent: 40 }), []);
+  assert.deepEqual(keys({ syncAction: 'check', mismatchCount: 8 }), []);
+  assert.deepEqual(keys({ mismatchCount: 8 }), ['raid:md0:mismatch=warn']);
+  assert.deepEqual(
+    keys({ degraded: 1, syncAction: 'recover', syncPercent: 25, members: [{ device: 'sdb1', state: 'in_sync', slot: 0, errors: 0 }, { device: 'sdg1', state: 'faulty', errors: 0 }] }),
+    ['raid:md0:degraded=alert', 'raid:md0:member:sdg1:faulty=alert', 'raid:md0:sync=warn'],
+  );
+  assert.deepEqual(keys({ state: 'inactive' }), ['raid:md0:state=alert']);
+  assert.deepEqual(keys({ state: 'read-auto' }), ['raid:md0:state=warn']);
+  // the count is in the key: an accepted warning comes back when the count changes
+  assert.deepEqual(keys({ members: [{ device: 'sdd1', state: 'in_sync', slot: 2, errors: 8 }] }), ['raid:md0:member:sdd1:errors:8=warn']);
+  assert.equal(isHealthAlertSilenced({ key: 'raid:md0:member:sdd1:errors:9', level: 'warn' }, [{ key: 'raid:md0:member:sdd1:errors:8', level: 'warn' }]), false);
+});
+
+test('RAID arrays of a container are its host\'s', () => {
+  const host = (virt: string) => ({ info: { virt } as HostInfo });
+  assert.equal(isContainerHealthHost(host('lxc')), true);
+  assert.equal(isContainerHealthHost(host('kvm')), false);
+  assert.equal(isContainerHealthHost(host('none')), false);
 });

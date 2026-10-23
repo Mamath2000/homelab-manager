@@ -1,6 +1,6 @@
 ---
 title: Santé
-description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
+description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID logiciel mdadm), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
 sidebar_position: 3.6
 ---
 
@@ -16,6 +16,7 @@ Les agents Linux, Windows et Home Assistant OS envoient des rapports typés, cha
 |---|---|---|
 | CPU, mémoire, charge Unix | 30 s | 10 s – 1 h |
 | Usage des volumes | 5 min | 1 min – 24 h |
+| RAID logiciel (mdadm) | avec les volumes | — |
 | SMART | 24 h | 10 min – 30 jours |
 
 Les fréquences se règlent globalement dans **Paramètres › Santé**.
@@ -36,6 +37,23 @@ SMART est volontairement **opt-in, hôte par hôte**.
 
 Les rapports affichent l'état global, la température, les secteurs réalloués et l'usure NVMe quand le disque les fournit. Les VM et LXC sans accès au périphérique physique, et les contrôleurs RAID que `smartctl` n'expose pas, ne remontent pas ces détails.
 
+## RAID logiciel (mdadm)
+
+Sur Linux, l'agent lit l'état des arrays `md` dans `/sys/block/mdX/md/` (lecture passive, sans paquet ni droit particulier), au rythme des volumes. Rien à activer : la capacité `raid` n'est annoncée, et le bloc **RAID** n'apparaît, que sur un hôte qui a au moins un array. Les conteneurs (LXC, Docker…) voient les arrays de leur hôte : leurs rapports sont ignorés. Le driver md propre à Unraid n'est pas concerné.
+
+Par array : niveau, état, disques actifs / attendus, synchronisation en cours avec sa progression, incohérences (`mismatch_cnt`) et, par membre, état et erreurs de lecture corrigées par md.
+
+| Situation | Niveau |
+|---|---|
+| Array dégradé, membre en échec (`faulty`), array arrêté (`inactive`, `readonly`…) | alerte |
+| Array en `read-auto` | avertissement |
+| Reconstruction, resynchro ou remodelage en cours | avertissement |
+| Incohérences relevées par le dernier contrôle | avertissement |
+| Erreurs de lecture corrigées sur un membre | avertissement |
+| Contrôle périodique (`check` / `repair`, timers `mdcheck`) | affiché, sans alerte |
+
+Le compteur d'erreurs corrigées n'est jamais remis à zéro par le noyau : l'avertissement porte sa valeur. Une fois accepté, il ne compte plus ; si le compteur augmente, un nouvel avertissement apparaît. Tous les niveaux RAID sont immédiats et sans seuil réglable.
+
 ## Alertes
 
 La santé est un [domaine d'alerte](alertes.md) à part entière (`health`, libellé **Santé**) : ligne dans la frise des 30 jours de la fiche, carré dans la tuile de l'hôte et filtre de la frise du tableau de bord. Comme APT, Docker ou l'onduleur, il n'est lu que tant que l'agent est connecté : hors ligne, il est inconnu (gris) et ne colore ni l'hôte ni le site.
@@ -50,7 +68,7 @@ Seuils par défaut, réglables dans **Paramètres › Santé** (avertissement / 
 | Température SMART | 60 °C | 70 °C |
 | Usure NVMe | 70 % | 85 % |
 
-Un secteur réalloué est signalé immédiatement, quels que soient les seuils.
+Un secteur réalloué est signalé immédiatement, quels que soient les seuils. Les niveaux RAID sont décrits [plus haut](#raid-logiciel-mdadm).
 
 ### Durée avant déclenchement
 
@@ -58,7 +76,8 @@ La durée se règle séparément pour les mesures système (CPU, mémoire) et po
 
 - CPU et mémoire : 5 minutes continues au-dessus du seuil ;
 - volumes : immédiat dès le franchissement du seuil ;
-- SMART : immédiat.
+- SMART : immédiat ;
+- RAID : immédiat.
 
 Une durée de 0 signifie immédiat pour les catégories temporisées. Une alerte active garde une hystérésis de 5 points pour éviter les oscillations près du seuil.
 
@@ -72,7 +91,7 @@ Avec l'[intégration Home Assistant](home-assistant.md), les alertes du domaine 
 
 ## Limites de plateforme
 
-- **Windows** collecte CPU, mémoire et volumes ; la charge Unix et SMART ne s'appliquent pas.
+- **Windows** collecte CPU, mémoire et volumes ; la charge Unix, SMART et le RAID mdadm ne s'appliquent pas.
 - **Home Assistant OS** s'appuie sur les statistiques Linux visibles dans l'add-on pour CPU, mémoire et charge, et sur `/host/info` de l'API Supervisor pour l'occupation du disque de données. SMART n'y est pas activé par défaut.
 - **Unix** : la charge `load 1/5/15` n'existe que sur ces plateformes.
 - Une métrique absente d'une plateforme ou d'un agent reste vide, jamais remplacée par zéro.

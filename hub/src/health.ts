@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import type { FastifyInstance } from 'fastify';
 import { healthMetrics, hosts, settings } from './db.js';
-import type { HealthDisks, HealthMetricDoc, HealthSettings, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
+import type { HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthSettings, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
 import { parseId } from './db.js';
 import { isOnline, sendToAgent } from './agents.js';
 import { healthWithSilenced } from './healthSilence.js';
@@ -57,6 +57,12 @@ export function isVirtualizedHealthHost(host: Pick<HostDoc, 'info'>): boolean {
 // WSL shares the Windows disks: its volumes say nothing about the machine, so they are neither kept nor alerted on.
 export function hasNoHealthDisks(host: Pick<HostDoc, 'info'>): boolean {
   return host.info?.virt?.trim().toLowerCase() === 'wsl';
+}
+
+// A container sees the block devices of its host in /sys: their md arrays are the host's, not its own.
+const CONTAINER_VIRT = new Set(['lxc', 'lxc-libvirt', 'openvz', 'systemd-nspawn', 'docker', 'podman', 'rkt', 'wsl', 'proot', 'pouch']);
+export function isContainerHealthHost(host: Pick<HostDoc, 'info'>): boolean {
+  return CONTAINER_VIRT.has(host.info?.virt?.trim().toLowerCase() ?? '');
 }
 
 export async function healthConfigForHost(host: HostDoc) {
@@ -120,8 +126,56 @@ export function isHealthSmart(v: unknown): v is HealthSmart {
   return checkedAt(r.checkedAt) && Array.isArray(r.disks) && r.disks.length <= 32 && r.disks.every(isHealthSmartDisk);
 }
 
+const shortText = (v: unknown, max = 64) => typeof v === 'string' && v.length <= max;
+const count = (v: unknown) => finite(v) && Number.isInteger(v) && v >= 0;
+
+function isHealthRaidMember(v: unknown): v is HealthRaidMember {
+  if (!v || typeof v !== 'object') return false;
+  const m = v as HealthRaidMember;
+  return shortText(m.device) && m.device.length > 0 && shortText(m.state, 256) && (m.slot === undefined || count(m.slot)) && count(m.errors);
+}
+
+function isHealthRaidArray(v: unknown): v is HealthRaidArray {
+  if (!v || typeof v !== 'object') return false;
+  const a = v as HealthRaidArray;
+  return shortText(a.name) && a.name.length > 0 && shortText(a.level) && shortText(a.state) && shortText(a.syncAction) &&
+    count(a.raidDisks) && count(a.degraded) && count(a.mismatchCount) &&
+    (a.syncPercent === undefined || (finite(a.syncPercent) && a.syncPercent >= 0 && a.syncPercent <= 100)) &&
+    Array.isArray(a.members) && a.members.length <= 64 && a.members.every(isHealthRaidMember);
+}
+
+export function isHealthRaid(v: unknown): v is HealthRaid {
+  if (!v || typeof v !== 'object') return false;
+  const r = v as HealthRaid;
+  return checkedAt(r.checkedAt) && Array.isArray(r.arrays) && r.arrays.length <= 32 && r.arrays.every(isHealthRaidArray);
+}
+
+// md states where the array no longer serves its data normally
+const RAID_STOPPED_STATES = new Set(['inactive', 'readonly', 'broken', 'suspended', 'clear']);
+
+// Alerts of the RAID report, immediate. The corrected read errors of a member are part of the key: accepting the warning
+// accepts that count, a new error raises it again.
+export function raidAlerts(report: HealthRaid) {
+  const list: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[] = [];
+  for (const a of report.arrays) {
+    const add = (key: string, level: 'warn' | 'alert', reason: string) => list.push({ key: `raid:${a.name}:${key}`, label: a.name, level, reason: `${a.name} : ${reason}` });
+    if (a.degraded > 0) add('degraded', 'alert', `${a.level} dégradé, ${a.degraded} disque(s) manquant(s) sur ${a.raidDisks}`);
+    if (RAID_STOPPED_STATES.has(a.state)) add('state', 'alert', `array ${a.state}`);
+    else if (a.state === 'read-auto') add('state', 'warn', 'array en lecture seule (read-auto)');
+    for (const m of a.members) {
+      if (m.state.split(',').includes('faulty')) add(`member:${m.device}:faulty`, 'alert', `${m.device} en échec (faulty)`);
+      if (m.errors > 0) add(`member:${m.device}:errors:${m.errors}`, 'warn', `${m.device} : ${m.errors} erreur(s) de lecture corrigée(s)`);
+    }
+    const progress = a.syncPercent !== undefined ? ` (${a.syncPercent.toFixed(1)} %)` : '';
+    if (['resync', 'recover', 'reshape'].includes(a.syncAction)) add('sync', 'warn', `${a.syncAction} en cours${progress}`);
+    // check / repair: the periodic scrub, shown but not alerted on; its mismatches are, once it is over
+    else if (a.mismatchCount > 0 && a.syncAction === 'idle') add('mismatch', 'warn', `${a.mismatchCount} secteur(s) incohérent(s) au dernier contrôle`);
+  }
+  return list;
+}
+
 type HealthCategory = HealthMetricDoc['category'];
-type HealthReport = HealthSystem | HealthDisks | HealthSmart;
+type HealthReport = HealthSystem | HealthDisks | HealthSmart | HealthRaid;
 const pendingHostWrites = new Map<string, Promise<void>>();
 
 export function healthMetricLevel(
@@ -187,6 +241,8 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
       const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, 0, settings.diskIntervalSeconds, previous.get(key));
       if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, déclenchement immédiat)`, level);
     }
+  } else if (category === 'raid') {
+    next.push(...raidAlerts(report as HealthRaid));
   } else {
     const previous = new Map(old.map((a) => [a.key, a.level]));
     for (const d of (report as HealthSmart).disks) {
@@ -228,17 +284,24 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
     await hosts.updateOne({ _id: hostId }, { $unset: { 'health.disks': '' }, $set: { 'health.alerts': (host.health?.alerts ?? []).filter((a) => !a.key.startsWith('disks:')) } });
     return;
   }
+  if (category === 'raid' && isContainerHealthHost(host)) {
+    await hosts.updateOne({ _id: hostId }, { $unset: { 'health.raid': '' }, $set: { 'health.alerts': (host.health?.alerts ?? []).filter((a) => !a.key.startsWith('raid:')) } });
+    return;
+  }
   await healthMetrics.insertOne({ hostId, category, sampledAt, report });
 
   const s = await loadHealthSettings();
-  const durationMinutes = category === 'system' ? s.systemSustainedMinutes : category === 'disks' ? 0 : s.smartSustainedMinutes;
-  const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'disks' ? s.diskIntervalSeconds : s.smartIntervalSeconds;
+  const durationMinutes = category === 'system' ? s.systemSustainedMinutes : category === 'smart' ? s.smartSustainedMinutes : 0;
+  const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'smart' ? s.smartIntervalSeconds : s.diskIntervalSeconds;
   const since = new Date(Date.now() - durationMinutes * 60_000 - intervalSeconds * 2_000);
   const docs = await healthMetrics.find({ hostId, category, sampledAt: { $gte: since } }).sort({ sampledAt: 1 }).limit(5000).toArray();
   const stored = category === 'smart' ? keepStandbyDisks(report as HealthSmart, host.health?.smart) : report;
   const alerts = reportAlerts(host, category, stored, s, docs.map((d) => d.report));
-  const field = category === 'system' ? 'health.system' : category === 'disks' ? 'health.disks' : 'health.smart';
-  await hosts.updateOne({ _id: hostId }, { $set: { [field]: stored, 'health.alerts': alerts } });
+  const field = `health.${category}`;
+  const update: Record<string, unknown> = { [field]: stored, 'health.alerts': alerts };
+  // RAID keys carry a count: an acceptance whose alert is gone (count changed, array repaired) is dropped
+  if (category === 'raid') update.healthSilenced = (host.healthSilenced ?? []).filter((x) => !x.key.startsWith('raid:') || alerts.some((a) => a.key === x.key));
+  await hosts.updateOne({ _id: hostId }, { $set: update });
 }
 
 async function saveReport(hostId: ObjectId, category: HealthCategory, report: HealthReport) {
@@ -256,7 +319,8 @@ async function saveReport(hostId: ObjectId, category: HealthCategory, report: He
 export async function receiveHealthReport(hostId: ObjectId, category: HealthCategory, report: unknown) {
   if ((category === 'system' && !isHealthSystem(report)) ||
       (category === 'disks' && !isHealthDisks(report)) ||
-      (category === 'smart' && !isHealthSmart(report))) return false;
+      (category === 'smart' && !isHealthSmart(report)) ||
+      (category === 'raid' && !isHealthRaid(report))) return false;
   await saveReport(hostId, category, report as HealthReport);
   return true;
 }

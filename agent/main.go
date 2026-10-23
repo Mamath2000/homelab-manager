@@ -45,6 +45,9 @@ func platformCapabilities() []string {
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
+	if hasHealthRaid() {
+		caps = append(caps, "raid")
+	}
 	if hasApt() {
 		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
 	}

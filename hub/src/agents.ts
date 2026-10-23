@@ -141,6 +141,7 @@ interface AgentMessage {
   healthSystem?: unknown;
   healthDisks?: unknown;
   healthSmart?: unknown;
+  healthRaid?: unknown;
   reqId?: string;
   result?: unknown;
   jobId?: string;
@@ -289,6 +290,10 @@ export function registerAgentSocket(app: FastifyInstance) {
             case 'health_smart':
               if (await receiveHealthReport(host._id, 'smart', msg.healthSmart)) await emitHost(host._id);
               else log.warn('discarded invalid health SMART report');
+              break;
+            case 'health_raid':
+              if (await receiveHealthReport(host._id, 'raid', msg.healthRaid)) await emitHost(host._id);
+              else log.warn('discarded invalid health RAID report');
               break;
             case 'backup_synced':
               await onSynced(host._id, msg.data, msg.error);

@@ -84,10 +84,36 @@ export interface HealthSmart {
   disks: HealthSmartDisk[];
 }
 
+export interface HealthRaidMember {
+  device: string;
+  state: string;
+  slot?: number;
+  errors: number;
+}
+
+// Linux software RAID (mdadm) array
+export interface HealthRaidArray {
+  name: string;
+  level: string;
+  state: string;
+  raidDisks: number;
+  degraded: number;
+  syncAction: string;
+  syncPercent?: number;
+  mismatchCount: number;
+  members: HealthRaidMember[];
+}
+
+export interface HealthRaid {
+  checkedAt: number;
+  arrays: HealthRaidArray[];
+}
+
 export interface HealthSnapshot {
   system?: HealthSystem;
   disks?: HealthDisks;
   smart?: HealthSmart;
+  raid?: HealthRaid;
   alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string; silenced?: boolean }[];
 }
 
@@ -1124,7 +1150,7 @@ export const api = {
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
-  hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
+  hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart' | 'raid'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart | HealthRaid }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),
   silenceHealthAlerts: (id: string, keys: string[], silenced: boolean) => request<{ healthSilenced: { key: string; level: 'warn' | 'alert' }[] }>('PUT', `/api/hosts/${id}/health/silenced`, { keys, silenced }),
   hostSmartCandidates: (id: string) => request<{ candidates: SmartCandidate[] }>('GET', `/api/hosts/${id}/health/smart/candidates`),

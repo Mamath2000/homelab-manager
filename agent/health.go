@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -58,6 +59,30 @@ type HealthSmartDisk struct {
 type HealthSmart struct {
 	CheckedAt int64             `json:"checkedAt"`
 	Disks     []HealthSmartDisk `json:"disks"`
+}
+
+type HealthRaidMember struct {
+	Device string `json:"device"`
+	State  string `json:"state"`          // in_sync, faulty, spare... (comma-separated flags)
+	Slot   *int   `json:"slot,omitempty"` // none for a spare or a failed member
+	Errors uint64 `json:"errors"`         // read errors md corrected, never reset
+}
+
+type HealthRaidArray struct {
+	Name          string             `json:"name"`
+	Level         string             `json:"level"`
+	State         string             `json:"state"` // array_state: clean, active, inactive, read-auto...
+	RaidDisks     int                `json:"raidDisks"`
+	Degraded      int                `json:"degraded"`
+	SyncAction    string             `json:"syncAction"` // idle, check, repair, resync, recover, reshape, frozen
+	SyncPercent   *float64           `json:"syncPercent,omitempty"`
+	MismatchCount uint64             `json:"mismatchCount"`
+	Members       []HealthRaidMember `json:"members"`
+}
+
+type HealthRaid struct {
+	CheckedAt int64             `json:"checkedAt"`
+	Arrays    []HealthRaidArray `json:"arrays"`
 }
 
 type HealthConfig struct {
@@ -193,6 +218,7 @@ func (s *session) healthLoop(ctx context.Context) {
 
 	s.healthSystem(ctx)
 	s.healthDisks(ctx)
+	s.healthRaid(ctx)
 	s.healthSmart(ctx)
 
 	for {
@@ -203,6 +229,7 @@ func (s *session) healthLoop(ctx context.Context) {
 			s.healthSystem(ctx)
 		case <-diskTicker.C:
 			s.healthDisks(ctx)
+			s.healthRaid(ctx)
 		case <-smartTicker.C:
 			if len(s.healthConfig().SmartDevices) > 0 {
 				go s.healthSmart(ctx)
@@ -233,6 +260,24 @@ func (s *session) healthDisks(ctx context.Context) {
 		return
 	}
 	_ = s.send(ctx, Outbound{Type: "health_disks", HealthDisks: r})
+}
+
+// healthRaidReported: a host without md arrays sends nothing; one whose arrays went away sends an empty report once,
+// so the hub drops them.
+var healthRaidReported atomic.Bool
+
+func hasHealthRaid() bool {
+	return len(collectHealthRaid().Arrays) > 0
+}
+
+func (s *session) healthRaid(ctx context.Context) {
+	r := collectHealthRaid()
+	if len(r.Arrays) == 0 && !healthRaidReported.Load() {
+		return
+	}
+	if s.send(ctx, Outbound{Type: "health_raid", HealthRaid: r}) == nil {
+		healthRaidReported.Store(len(r.Arrays) > 0)
+	}
 }
 
 func (s *session) healthSmart(ctx context.Context) {

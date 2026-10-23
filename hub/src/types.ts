@@ -86,19 +86,45 @@ export interface HealthSmart {
   disks: HealthSmartDisk[];
 }
 
+export interface HealthRaidMember {
+  device: string;
+  state: string; // in_sync, faulty, spare... (comma-separated md flags)
+  slot?: number; // none for a spare or a failed member
+  errors: number; // read errors md corrected, never reset
+}
+
+// Linux software RAID (mdadm), read from /sys/block/mdX/md
+export interface HealthRaidArray {
+  name: string;
+  level: string;
+  state: string; // array_state: clean, active, inactive, read-auto...
+  raidDisks: number;
+  degraded: number;
+  syncAction: string; // idle, check, repair, resync, recover, reshape, frozen
+  syncPercent?: number;
+  mismatchCount: number;
+  members: HealthRaidMember[];
+}
+
+export interface HealthRaid {
+  checkedAt: number;
+  arrays: HealthRaidArray[];
+}
+
 export interface HealthSnapshot {
   system?: HealthSystem;
   disks?: HealthDisks;
   smart?: HealthSmart;
+  raid?: HealthRaid;
   alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[];
 }
 
 export interface HealthMetricDoc {
   _id?: ObjectId;
   hostId: ObjectId;
-  category: 'system' | 'disks' | 'smart';
+  category: 'system' | 'disks' | 'smart' | 'raid';
   sampledAt: Date;
-  report: HealthSystem | HealthDisks | HealthSmart;
+  report: HealthSystem | HealthDisks | HealthSmart | HealthRaid;
 }
 
 export interface HealthSettings {
