@@ -49,6 +49,8 @@ Le hub publie deux ports : `3000` pour l'interface et `3443` pour les agents (TL
 
 Ouvre `http://<ip-du-hub>:3000`, connecte-toi en `superadmin` avec ce mot de passe et crée les comptes (page **Comptes**). Chaque compte reçoit un mot de passe temporaire, à changer à la première connexion.
 
+Sur Home Assistant OS, le dépôt d'applications [Homelab Manager HAOS](https://github.com/Mamath2000/homelab-manager-haos) propose aussi un add-on autonome avec MongoDB intégrée et données persistantes.
+
 Gestion des comptes, rôles et récupération d'accès : voir [docs/comptes.md](docs/comptes.md).
 
 ### 2. Les agents
