@@ -116,8 +116,8 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                       <p className="truncate font-mono text-[10px] text-muted" title={v.device}>{v.device} · {v.fstype} · {formatBytes(v.used)} / {formatBytes(v.total)}</p>
                     </div>
                     <div className="flex items-center gap-1">
+                      <span className="flex w-8 shrink-0 justify-center"><SilenceButton hostId={host.id} alerts={alertsOf(`disks:volume:${v.mountpoint}`)} canManage={canManage} /></span>
                       <div className="min-w-0 flex-1"><Percent value={v.percent} tone="indigo" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} /></div>
-                      <SilenceButton hostId={host.id} alerts={alertsOf(`disks:volume:${v.mountpoint}`)} canManage={canManage} />
                     </div>
                   </div>
                 ))}
