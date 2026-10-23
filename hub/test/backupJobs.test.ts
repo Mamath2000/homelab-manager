@@ -351,3 +351,15 @@ test('a job run on connection: no schedule, held back from an agent that does no
   assert.equal(spec.jobs[1].schedule, '');
   assert.equal('connectEveryDays' in spec.jobs[0], false, 'hash of the other jobs unchanged');
 });
+
+test('second pass of a failed backup: only for an agent that knows it', () => {
+  const caps = ['backup_setup', 'backup_retry'];
+  const spec = buildSpec({ pbsCredential: cred, capabilities: caps }, [job], pbs) as { retryAfterMin?: number; hash: string };
+  assert.equal(spec.retryAfterMin, 240); // default: 4 hours
+  assert.equal(buildSpec({ pbsCredential: cred, capabilities: caps }, [job], { ...pbs, retryAfterHours: 1.5 } as PbsSettings).retryAfterMin, 90);
+  // disabled, or agent too old: absent, the hash of the others does not change
+  const plain = buildSpec({ pbsCredential: cred }, [job], pbs);
+  assert.equal('retryAfterMin' in plain, false);
+  assert.equal('retryAfterMin' in buildSpec({ pbsCredential: cred, capabilities: caps }, [job], { ...pbs, retryAfterHours: 0 } as PbsSettings), false);
+  assert.equal(buildSpec({ pbsCredential: cred, capabilities: caps }, [job], { ...pbs, retryAfterHours: 0 } as PbsSettings).hash, plain.hash);
+});

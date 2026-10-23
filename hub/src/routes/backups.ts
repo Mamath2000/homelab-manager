@@ -8,6 +8,7 @@ import {
   backupDto,
   orphanDto,
   fetchFingerprint,
+  MAX_RETRY_HOURS,
   loadPbsSettings,
   normalizeFingerprint,
   pbsConnected,
@@ -22,7 +23,7 @@ import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
-import { loadRemoteSettings, pollOffsite, remoteReady, seriesView } from '../offsite.js';
+import { loadRemoteSettings, pollOffsite, remoteReady, seriesView, syncOffsiteAgent } from '../offsite.js';
 import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
@@ -49,6 +50,7 @@ interface SettingsBody {
   tailscaleUrl?: string;
   clientImage?: string;
   mountRoot?: string;
+  retryAfterHours?: number;
 }
 
 const agentLinkSchema = {
@@ -69,6 +71,7 @@ const settingsBody = {
     clientImage: { type: 'string', maxLength: 256 },
     tailscaleUrl: { type: 'string', maxLength: 256 },
     mountRoot: { type: 'string', maxLength: 256 },
+    retryAfterHours: { type: 'number', minimum: 0, maximum: MAX_RETRY_HOURS },
   },
 } as const;
 
@@ -94,6 +97,7 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
     if (bad) return bad;
     if (next.agent.mode === 'native') delete next.agent.container;
   }
+  if (next.retryAfterHours !== undefined && !(Number.isFinite(next.retryAfterHours) && next.retryAfterHours >= 0 && next.retryAfterHours <= MAX_RETRY_HOURS)) return `rejeu : 0 à ${MAX_RETRY_HOURS} heures`;
   if (next.clientImage) next.clientImage = next.clientImage.trim();
   if (next.clientImage && !IMAGE_RE.test(next.clientImage)) return 'image du client invalide (dépôt/nom:tag)';
   return next;
@@ -113,6 +117,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
     refreshManaged()
       .then(syncAll)
       .catch((err) => req.log.warn({ err }, 'backup sync failed'));
+    // the second pass of the copies is part of the definition of the agent of the secondary
+    syncOffsiteAgent().catch((err) => req.log.warn({ err }, 'offsite series definition not sent'));
     return settingsDto(next);
   });
 

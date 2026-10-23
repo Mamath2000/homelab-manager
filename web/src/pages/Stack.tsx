@@ -266,6 +266,7 @@ function HistoryTab({ host, stack, jobId, setJobId }: { host: Host; stack: Docke
                     <span className="text-xs text-muted">
                       {timeAgo(j.createdAt)}
                       {j.trigger === 'schedule' && ' · planifiée'}
+                      {j.trigger === 'retry' && ' · rejeu'}
                       {j.trigger === 'homeassistant' && ' · Home Assistant'}
                     </span>
                   </span>

@@ -5,7 +5,7 @@ import { sha256 } from './crypto.js';
 import { backupJobs, backups, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { jobDto } from './jobs.js';
-import { groupKey, loadPbsSettings, pollPbs } from './pbs.js';
+import { groupKey, loadPbsSettings, pollPbs, retryAfterMin } from './pbs.js';
 import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo, HostDoc, JobDoc, PbsSettings } from './types.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
@@ -213,6 +213,8 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
     image: pbs.clientImage || DEFAULT_CLIENT_IMAGE,
     // Windows: the CLI installed by hand; only when set, so that the hashes of the other hosts do not change
     ...(host.backupClientPath ? { clientPath: host.backupClientPath } : {}),
+    // second pass of a failed run; only when set and known to the agent, so that the other hashes do not change
+    ...(usable && retryAfterMin(pbs) > 0 && (host.capabilities ?? []).includes('backup_retry') ? { retryAfterMin: retryAfterMin(pbs) } : {}),
     jobs: usable
       ? list.filter((j) => !heldBack(host, j)).map((j) => {
           const kind = jobKind(j);
@@ -361,7 +363,7 @@ export async function onResult(host: HostDoc, r: AgentResult) {
       packages: [],
       backupJobId: bj._id,
       backupJobName: bj.name,
-      trigger: 'schedule',
+      trigger: r.trigger === 'retry' ? 'retry' : 'schedule',
       status,
       createdAt: new Date(r.start),
       finishedAt: new Date(r.end),

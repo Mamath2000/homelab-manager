@@ -186,3 +186,58 @@ func TestBackupDueOnConnect(t *testing.T) {
 		t.Fatal("not due after the delay")
 	}
 }
+
+func TestBackupRetryPass(t *testing.T) {
+	b := newBackupModule(t.TempDir())
+	s := testSpec()
+	s.RetryAfterMin = 240
+	if err := b.apply(s); err != nil {
+		t.Fatal(err)
+	}
+	id := s.Jobs[0].ID
+	j := s.Jobs[0]
+	paris, _ := time.LoadLocation("Europe/Paris")
+	b.state.FirstSeen[id] = time.Date(2026, 10, 10, 12, 0, 0, 0, paris).UnixMilli()
+	at := time.Date(2026, 10, 12, 3, 0, 0, 0, paris)
+	// the 03:00 run failed
+	b.state.LastRun[id] = at.Add(time.Minute).UnixMilli()
+	b.state.LastOK[id] = at.Add(-24 * time.Hour).UnixMilli()
+	if len(b.due(at.Add(3*time.Hour))) != 0 {
+		t.Fatal("retried before its delay")
+	}
+	now := at.Add(4*time.Hour + time.Minute)
+	if len(b.due(now)) != 1 || !b.isRetry(j, now) {
+		t.Fatal("failed run not retried")
+	}
+	// the retry ran (failed again): no third pass
+	b.state.LastRun[id] = now.UnixMilli()
+	if len(b.due(now.Add(2*time.Hour))) != 0 {
+		t.Fatal("retried twice")
+	}
+	// the 03:00 run succeeded: nothing to retry
+	b.state.LastRun[id] = at.Add(time.Minute).UnixMilli()
+	b.state.LastOK[id] = at.Add(time.Minute).UnixMilli()
+	if len(b.due(now)) != 0 {
+		t.Fatal("successful run retried")
+	}
+	// disabled by the hub
+	b.state.LastOK[id] = at.Add(-24 * time.Hour).UnixMilli()
+	s.RetryAfterMin = 0
+	_ = b.apply(s)
+	if len(b.due(now)) != 0 {
+		t.Fatal("retry without delay set")
+	}
+	// a delay running past the next scheduled time: that one takes over, not a retry of the old one
+	s.RetryAfterMin = 1440
+	_ = b.apply(s)
+	if late := at.Add(25 * time.Hour); b.isRetry(j, late) {
+		t.Fatal("retry past the next scheduled time")
+	}
+	// job on connection: no second pass
+	s.RetryAfterMin = 240
+	s.Jobs[0].ConnectEveryDays = 1
+	_ = b.apply(s)
+	if len(b.due(now)) != 0 {
+		t.Fatal("connect job retried")
+	}
+}

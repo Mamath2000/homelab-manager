@@ -6,7 +6,7 @@ import { sha256 } from './crypto.js';
 import { backups, hosts, parseId, settings } from './db.js';
 import { publish } from './events.js';
 import { appendJobLog, finishJob, startHubJob } from './jobs.js';
-import { HISTORY, loadPbsSettings, pbsCall } from './pbs.js';
+import { HISTORY, loadPbsSettings, pbsCall, retryAfterMin } from './pbs.js';
 import { recordUsage } from './pbsStats.js';
 import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, OffsiteSeriesReport, PbsRemoteSettings } from './types.js';
 
@@ -275,15 +275,18 @@ export interface OffsiteSpec {
   jobs: string[];
   start: string;
   tz: string;
+  retryAfterMin?: number; // second pass of the jobs that did not end well; absent: none
 }
 
 // Definition of the series for the agent; no job when the copy is disabled (the agent empties its series).
-export function offsiteSpec(r: PbsRemoteSettings, groups: JobGroup[], tz = DEFAULT_TIMEZONE): OffsiteSpec {
+export function offsiteSpec(r: PbsRemoteSettings, groups: JobGroup[], tz = DEFAULT_TIMEZONE, retryMin = 0): OffsiteSpec {
   const body = {
     container: r.agent?.mode === 'container' ? (r.agent.container ?? '') : '',
     jobs: remoteReady(r) ? [...new Set(groups.filter((g) => g.type && g.backupId).map((g) => syncJobId(g.store, g.ns)))].sort() : [],
     start: startOf(r),
     tz,
+    // only when set: the hash of the others does not change
+    ...(retryMin > 0 ? { retryAfterMin: retryMin } : {}),
   };
   return { hash: sha256(JSON.stringify(body)), ...body };
 }
@@ -294,7 +297,7 @@ export async function syncOffsiteAgent(force = false) {
   const r = await loadRemoteSettings();
   const host = await seriesHost(r);
   if (!host || !isOnline(host._id.toHexString())) return false;
-  const spec = offsiteSpec(r, await enabledGroups());
+  const spec = offsiteSpec(r, await enabledGroups(), DEFAULT_TIMEZONE, retryAfterMin(await loadPbsSettings()));
   if (!force && spec.hash === r.agentAck) return false;
   return sendToAgent(host._id.toHexString(), { type: 'offsite_sync', offsite: spec });
 }
@@ -367,7 +370,7 @@ export async function onOffsiteReport(hostId: ObjectId, report: OffsiteSeriesRep
   await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agentReport: { ...report, receivedAt: new Date() } } });
   const t = report.running;
   if (remoteReady(r) && t?.jobId && !following.has(t.upid)) {
-    followTask(r, t.jobId, t.upid, 'schedule', log).catch((err) => log?.warn({ err, upid: t.upid }, 'offsite copy not followed'));
+    followTask(r, t.jobId, t.upid, report.retry ? 'retry' : 'schedule', log).catch((err) => log?.warn({ err, upid: t.upid }, 'offsite copy not followed'));
   }
   publish('backups', {});
 }

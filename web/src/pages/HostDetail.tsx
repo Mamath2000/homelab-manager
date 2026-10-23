@@ -636,7 +636,7 @@ function HostDetailPage({ id }: { id: string }) {
                     <JobStatusIcon status={j.status} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-zinc-200">{jobTitle(j)}{j.packages.length > 0 && ` (${j.packages.length})`}</span>
-                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'homeassistant' && ' · Home Assistant'}{j.trigger === 'enroll' && " · à l'ajout"}</span>
+                      <span className="text-xs text-muted">{timeAgo(j.createdAt)}{j.trigger === 'schedule' && ' · planifiée'}{j.trigger === 'retry' && ' · rejeu'}{j.trigger === 'homeassistant' && ' · Home Assistant'}{j.trigger === 'enroll' && " · à l'ajout"}</span>
                     </span>
                   </button>
                 </li>

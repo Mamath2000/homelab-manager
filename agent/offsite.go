@@ -30,6 +30,9 @@ type OffsiteSpec struct {
 	Jobs      []string `json:"jobs"`      // sync jobs, in the order they run
 	Start     string   `json:"start"`     // HH:MM, daily start of the series
 	TZ        string   `json:"tz"`
+	// second pass: minutes after Start at which the jobs of the day that did not end well run again,
+	// once the series is over (0: none)
+	RetryAfterMin int `json:"retryAfterMin,omitempty"`
 }
 
 type OffsiteRunning struct {
@@ -47,6 +50,7 @@ type OffsiteReport struct {
 	Running   *OffsiteRunning `json:"running,omitempty"` // sync task running on the PBS
 	NextStart int64           `json:"nextStart"`         // next series (unix ms), 0: nothing to copy
 	Error     string          `json:"error,omitempty"`   // last read or launch failed
+	Retry     bool            `json:"retry,omitempty"`   // the series in progress is the second pass of the day
 }
 
 var (
@@ -61,6 +65,9 @@ func validateOffsiteSpec(s *OffsiteSpec) error {
 	}
 	if len(s.Jobs) == 0 {
 		return nil // nothing to copy: the series is emptied
+	}
+	if s.RetryAfterMin < 0 || s.RetryAfterMin > 1440 {
+		return fmt.Errorf("invalid retry delay %d", s.RetryAfterMin)
 	}
 	if !hhmmRe.MatchString(s.Start) {
 		return fmt.Errorf("invalid start %q", s.Start)
@@ -125,6 +132,9 @@ type offsiteState struct {
 	Day     string       `json:"day"`     // last series started
 	Total   int          `json:"total"`   // jobs of that series
 	Pending []string     `json:"pending"` // jobs of that series not started yet
+	// day of the second pass (done or decided), and whether the series in progress is that pass
+	RetryDay string `json:"retryDay,omitempty"`
+	Retrying bool   `json:"retrying,omitempty"`
 }
 
 type offsiteModule struct {
@@ -188,17 +198,17 @@ func (o *offsiteModule) apply(s *OffsiteSpec) error {
 			pending = append(pending, j)
 		}
 	}
-	day := o.state.Day
+	day, retryDay := o.state.Day, o.state.RetryDay
 	// First definition, or a new start time: a start already passed today waits for tomorrow, one still to
 	// come today fires today (the series of the day already done must not block it)
 	if prev := o.state.Spec; len(s.Jobs) > 0 && (prev == nil && day == "" || prev != nil && prev.Start != s.Start) {
 		loc, _ := time.LoadLocation(s.TZ)
-		day = ""
+		day, retryDay = "", ""
 		if now := time.Now(); !now.Before(startOf(now, loc, s.Start)) {
 			day = now.In(loc).Format(time.DateOnly)
 		}
 	}
-	o.state = offsiteState{Spec: s, Day: day, Total: o.state.Total, Pending: pending}
+	o.state = offsiteState{Spec: s, Day: day, Total: o.state.Total, Pending: pending, RetryDay: retryDay, Retrying: o.state.Retrying}
 	o.saveLocked()
 	o.mu.Unlock()
 	o.wake()
@@ -306,12 +316,20 @@ func (o *offsiteModule) step(ctx context.Context, now time.Time) {
 		o.state.Day = now.In(loc).Format(time.DateOnly)
 		o.state.Pending = append([]string{}, s.Jobs...)
 		o.state.Total = len(s.Jobs)
+		o.state.Retrying = false
 		o.lastErr = ""
 		o.saveLocked()
 		log.Printf("offsite: series of %d sync job(s) started", len(s.Jobs))
 	}
 	idle := len(o.state.Pending) == 0 && o.running == nil
+	retryDue := idle && s.RetryAfterMin > 0 && o.state.Day == now.In(loc).Format(time.DateOnly) && o.state.RetryDay != o.state.Day &&
+		!now.Before(startOf(now, loc, s.Start).Add(time.Duration(s.RetryAfterMin)*time.Minute))
 	o.mu.Unlock()
+	if retryDue {
+		o.startRetry(ctx, s, now)
+		o.report()
+		return
+	}
 	if idle {
 		o.report()
 		return
@@ -375,6 +393,66 @@ func (o *offsiteModule) step(ctx context.Context, now time.Time) {
 	o.report()
 }
 
+// syncStatus: the fields of a sync job that tell how its last run ended.
+type syncStatus struct {
+	ID       string `json:"id"`
+	State    string `json:"last-run-state"`
+	EndTime  int64  `json:"last-run-endtime"` // unix seconds
+	LastUPID string `json:"last-run-upid"`
+}
+
+// failedJobs: the jobs of the series whose last run, since the start of the day's series, did not end
+// well, or that did not run at all (launch refused). A warning is a success.
+func failedJobs(jobs []string, status []syncStatus, since time.Time) []string {
+	byID := map[string]syncStatus{}
+	for _, st := range status {
+		byID[st.ID] = st
+	}
+	out := []string{}
+	for _, id := range jobs {
+		st, ok := byID[id]
+		ran := ok && st.EndTime*1000 >= since.UnixMilli()
+		okEnd := st.State == "OK" || strings.HasPrefix(st.State, "WARNINGS")
+		if !ran || !okEnd {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// startRetry decides the second pass of the day, once: the jobs that did not end well go again. A
+// failed read leaves the decision for the next tick.
+func (o *offsiteModule) startRetry(ctx context.Context, s *OffsiteSpec, now time.Time) {
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	raw, err := o.tool(s.Container)(cctx, "api", "get", "/admin/sync", "--output-format", "json")
+	var status []syncStatus
+	if err == nil {
+		if e := json.Unmarshal([]byte(strings.TrimSpace(raw)), &status); e != nil {
+			err = fmt.Errorf("sync jobs: answer not understood: %v", e)
+		}
+	}
+	if err != nil {
+		o.mu.Lock()
+		o.lastErr = err.Error()
+		o.mu.Unlock()
+		return
+	}
+	loc, _ := time.LoadLocation(s.TZ)
+	failed := failedJobs(s.Jobs, status, startOf(now, loc, s.Start))
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.state.RetryDay = now.In(loc).Format(time.DateOnly)
+	if len(failed) > 0 {
+		o.state.Pending = failed
+		o.state.Total = len(failed)
+		o.state.Retrying = true
+		log.Printf("offsite: second pass of %d sync job(s)", len(failed))
+	}
+	o.lastErr = ""
+	o.saveLocked()
+}
+
 // pop takes the next job of the series.
 func (o *offsiteModule) pop() string {
 	o.mu.Lock()
@@ -406,7 +484,7 @@ func (o *offsiteModule) loop(ctx context.Context) {
 func (o *offsiteModule) snapshot(now time.Time) OffsiteReport {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	r := OffsiteReport{Day: o.state.Day, Total: o.state.Total, Pending: append([]string{}, o.state.Pending...), Running: o.running, Error: o.lastErr}
+	r := OffsiteReport{Day: o.state.Day, Total: o.state.Total, Pending: append([]string{}, o.state.Pending...), Running: o.running, Error: o.lastErr, Retry: o.state.Retrying}
 	if s := o.state.Spec; s != nil {
 		r.Hash = s.Hash
 		if len(s.Jobs) > 0 {

@@ -179,6 +179,11 @@ test('definition of the series for the agent of the secondary', () => {
   assert.deepEqual(s.jobs, ['hlm-ds0-Hosts', 'hlm-ds1', 'hlm-ds3-Hosts']);
   assert.equal(s.start, '04:00');
   assert.equal(s.tz, 'Europe/Paris');
+  // second pass: only when set (the hash of the others does not change)
+  assert.equal('retryAfterMin' in s, false);
+  const withRetry = offsiteSpec(r, groups, 'Europe/Paris', 240);
+  assert.equal(withRetry.retryAfterMin, 240);
+  assert.notEqual(withRetry.hash, s.hash);
   // stable: the same groups in another order give the same definition
   assert.equal(offsiteSpec(r, [...groups].reverse(), 'Europe/Paris').hash, s.hash);
   // another start: a new definition

@@ -143,6 +143,8 @@ func (s *session) hello(ctx context.Context) error {
 	caps = append(caps, "backup_nextcloud")
 	// jobs run on connection to the hub (connectEveryDays, backup.go)
 	caps = append(caps, "backup_connect")
+	// second pass of a failed job (retryAfterMin, backup.go)
+	caps = append(caps, "backup_retry")
 	// UPS monitored by NUT (ups.go), re-evaluated at each hello
 	if hasUps(ctx) {
 		caps = append(caps, "ups")

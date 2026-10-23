@@ -478,7 +478,7 @@ export interface JobDoc {
   backupJobName?: string;
   // backup_install: apt | docker
   method?: 'apt' | 'docker';
-  trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
+  trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;
   finishedAt?: Date;
@@ -598,6 +598,9 @@ export interface PbsSettings {
   // time zone of their jobs is the TZ of the hub, see backupJobs.ts)
   clientImage?: string;
   mountRoot: string; // root directory for read-only PBS snapshot mounts on destination hosts
+  // second pass of the backups that failed (hosts and secondary): delay after the scheduled time, in
+  // hours; 0: none; absent: DEFAULT_RETRY_HOURS
+  retryAfterHours?: number;
 }
 
 // One backup group of the PBS: datastore + namespace + type + id.
@@ -717,6 +720,7 @@ export interface OffsiteSeriesReport {
   running?: { jobId?: string; upid: string; start: number } | null; // sync task running (jobId: one of ours)
   nextStart: number; // unix ms, 0: nothing to copy
   error?: string;
+  retry?: boolean; // the series in progress is the second pass of the day
 }
 
 // One snapshot of the history of a group: its date and its verification; size and note when known
@@ -823,7 +827,7 @@ export interface BackupRun {
   end: number;
   ok: boolean;
   error?: string | null;
-  trigger: string; // schedule | catchup | connect | manual
+  trigger: string; // schedule | catchup | connect | retry | manual
   jobId?: ObjectId | null; // JobDoc of the run
   dumps?: DumpInfo[]; // database job: the dumps of the run
 }

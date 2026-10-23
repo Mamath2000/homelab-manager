@@ -444,7 +444,7 @@ export interface Job {
   modules: SetupOption[] | null;
   backupJobName?: string | null;
   method?: 'apt' | 'docker' | null;
-  trigger: 'manual' | 'schedule' | 'homeassistant' | 'enroll';
+  trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: string;
   finishedAt: string | null;
@@ -858,6 +858,7 @@ export interface PbsSettings {
   hasSecret: boolean;
   clientImage?: string;
   mountRoot: string;
+  retryAfterHours?: number; // second pass of the failed backups, 0: none (absent: 4)
   tailscaleUrl?: string; // PBS address for the hosts of the Tailscale access network
   polledAt?: string;
   pollError?: string | null;
@@ -954,6 +955,7 @@ export interface PbsSettingsInput {
   agent?: PbsAgentLink;
   clientImage?: string;
   mountRoot: string;
+  retryAfterHours?: number;
   tailscaleUrl?: string;
 }
 

@@ -19,6 +19,11 @@ export const DEFAULT_PBS: PbsSettings = {
   mountRoot: '/srv/pbs-restore',
 };
 
+// Second pass of a failed backup: hours after its scheduled time (agents: retryAfterMin).
+export const DEFAULT_RETRY_HOURS = 4;
+export const MAX_RETRY_HOURS = 24;
+export const retryAfterMin = (pbs: Pick<PbsSettings, 'retryAfterHours'>) => Math.round((pbs.retryAfterHours ?? DEFAULT_RETRY_HOURS) * 60);
+
 export const PBS_URL_RE = SERVER_URL_RE;
 export { ApiError as PbsError, FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint };
 

@@ -206,7 +206,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// backups: backup_setup (the hub may send definitions), backup_connect (jobs run on connection),
 	// "backup" and backup:cli once the CLI named by the definition is there
-	caps := []string{"refresh", "session", "health", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect"}
+	caps := []string{"refresh", "session", "health", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect", "backup_retry"}
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}

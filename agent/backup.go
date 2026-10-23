@@ -74,15 +74,18 @@ type BackupSpec struct {
 	TokenSecret string `json:"tokenSecret"`
 	Image       string `json:"image"` // client image, when the client is not installed
 	// Windows: path of the directory CLI (proxmoxbackup-directory.exe), installed by hand
-	ClientPath string      `json:"clientPath,omitempty"`
-	Jobs       []BackupJob `json:"jobs"`
+	ClientPath string `json:"clientPath,omitempty"`
+	// second pass: minutes after a scheduled time at which a job whose run did not succeed runs again
+	// (0: none); jobs on connection are not concerned
+	RetryAfterMin int         `json:"retryAfterMin,omitempty"`
+	Jobs          []BackupJob `json:"jobs"`
 }
 
 type BackupResult struct {
 	ID      string `json:"id"`
 	JobID   string `json:"jobId"`           // backup job
 	RunID   string `json:"runId,omitempty"` // hub job of a run on demand
-	Trigger string `json:"trigger"`         // schedule | catchup | connect | manual
+	Trigger string `json:"trigger"`         // schedule | catchup | connect | retry | manual
 	Start   int64  `json:"start"`           // unix ms
 	End     int64  `json:"end"`
 	OK      bool   `json:"ok"`
@@ -109,6 +112,9 @@ func validateBackupSpec(s *BackupSpec) error {
 	}
 	if s.ClientPath != "" && (!filepath.IsAbs(s.ClientPath) || len(s.ClientPath) > 260 || strings.ContainsAny(s.ClientPath, "\n\x00")) {
 		return fmt.Errorf("invalid client path %q", s.ClientPath)
+	}
+	if s.RetryAfterMin < 0 || s.RetryAfterMin > 1440 {
+		return fmt.Errorf("invalid retry delay %d", s.RetryAfterMin)
 	}
 	if len(s.Jobs) == 0 {
 		return nil // nothing to run: credentials may be absent
@@ -295,21 +301,60 @@ func (b *backupModule) due(now time.Time) []BackupJob {
 			}
 			continue
 		}
-		spec, err := parseCalendar(j.Schedule)
-		if err != nil {
-			continue
-		}
-		loc, err := time.LoadLocation(j.TZ)
-		if err != nil {
-			continue
-		}
-		prev := spec.previous(now, loc)
-		since := max(b.state.FirstSeen[j.ID], b.state.LastRun[j.ID])
-		if !prev.IsZero() && prev.UnixMilli() > since {
+		if b.scheduledDueLocked(j, now) || b.retryDueLocked(j, now) {
 			out = append(out, j)
 		}
 	}
 	return out
+}
+
+// scheduledDueLocked: the last scheduled time of the job is after its last run (and after it appeared).
+func (b *backupModule) scheduledDueLocked(j BackupJob, now time.Time) bool {
+	spec, err := parseCalendar(j.Schedule)
+	if err != nil {
+		return false
+	}
+	loc, err := time.LoadLocation(j.TZ)
+	if err != nil {
+		return false
+	}
+	prev := spec.previous(now, loc)
+	since := max(b.state.FirstSeen[j.ID], b.state.LastRun[j.ID])
+	return !prev.IsZero() && prev.UnixMilli() > since
+}
+
+// retryDueLocked: second pass of a job whose last scheduled time was run without success. Due once
+// the delay has passed, as long as no later scheduled time came in between, and only if nothing ran
+// since the delay (a run, successful or not, closes the pass). A job that appeared after the
+// scheduled time has nothing to retry.
+func (b *backupModule) retryDueLocked(j BackupJob, now time.Time) bool {
+	if b.state.Spec == nil || b.state.Spec.RetryAfterMin <= 0 || j.ConnectEveryDays > 0 {
+		return false
+	}
+	spec, err := parseCalendar(j.Schedule)
+	if err != nil {
+		return false
+	}
+	loc, err := time.LoadLocation(j.TZ)
+	if err != nil {
+		return false
+	}
+	prev := spec.previous(now, loc)
+	if prev.IsZero() || prev.UnixMilli() <= b.state.FirstSeen[j.ID] {
+		return false
+	}
+	at := prev.Add(time.Duration(b.state.Spec.RetryAfterMin) * time.Minute)
+	if now.Before(at) || !spec.previous(at, loc).Equal(prev) {
+		return false
+	}
+	return b.state.LastOK[j.ID] < prev.UnixMilli() && b.state.LastRun[j.ID] < at.UnixMilli()
+}
+
+// isRetry: the job is due only for its second pass.
+func (b *backupModule) isRetry(j BackupJob, now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return j.ConnectEveryDays == 0 && !b.scheduledDueLocked(j, now) && b.retryDueLocked(j, now)
 }
 
 func (b *backupModule) job(id string) (BackupJob, *BackupSpec, bool) {
@@ -333,10 +378,13 @@ func (b *backupModule) loop(ctx context.Context) {
 	defer t.Stop()
 	first := true
 	for {
-		for _, j := range b.due(time.Now()) {
+		now := time.Now()
+		for _, j := range b.due(now) {
 			trigger := "schedule"
 			if j.ConnectEveryDays > 0 {
 				trigger = "connect"
+			} else if b.isRetry(j, now) {
+				trigger = "retry"
 			} else if first {
 				trigger = "catchup"
 			}

@@ -29,6 +29,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
     ...(data.agent ? { agent: data.agent } : {}),
     clientImage: data.clientImage ?? '',
     mountRoot: data.mountRoot ?? '/srv/pbs-restore',
+    retryAfterHours: data.retryAfterHours ?? 4,
     tailscaleUrl: data.tailscaleUrl ?? '',
   }));
   const [form, setForm] = useState<PbsSettingsInput>(initial);
@@ -91,6 +92,10 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
               <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Répertoire racine des snapshots montés en lecture seule sur les hôtes de destination">
                 <span className="shrink-0">Racine des montages</span>
                 <input className="input h-8 w-56 py-1 font-mono text-xs" value={form.mountRoot} onChange={(e) => set({ mountRoot: e.target.value.trim() })} placeholder="/srv/pbs-restore" spellCheck={false} />
+              </label>
+              <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Une sauvegarde (ou une copie vers le PBS de secours) qui n'a pas réussi repart une fois, ce nombre d'heures après son heure prévue ; 0 : pas de rejeu">
+                <span className="shrink-0">Rejeu après échec (h)</span>
+                <input className="input h-8 w-16 py-1 text-xs" type="number" min={0} max={24} step={0.5} value={form.retryAfterHours ?? 4} onChange={(e) => set({ retryAfterHours: Math.min(24, Math.max(0, Number(e.target.value) || 0)) })} />
               </label>
               <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Image Docker du client PBS, pour les hôtes sans client installé">
                 <span className="shrink-0">Image du client</span>

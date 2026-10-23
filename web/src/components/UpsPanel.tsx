@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { BatteryCharging, TriangleAlert } from 'lucide-react';
+import { BatteryCharging, Bell, BellOff, TriangleAlert, VolumeX } from 'lucide-react';
 import { api, type UpsCommand, type UpsReport } from '../lib/api';
 import { useToast } from '../lib/toast';
 import { timeAgo } from '../lib/format';
 import { toneText, type Tone } from '../lib/status';
-import { Badge, Button, ConfirmModal, Panel } from './ui';
+import { Badge, ConfirmModal, IconGroup, Panel } from './ui';
 
 // Failed self-test: same rule as the hub (alerts of the UPS domain).
 const testFailed = (t?: string) => !!t && /(error|fail|warning)/i.test(t) && !/passed/i.test(t);
@@ -82,7 +82,41 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
     <Panel
       title="Onduleur"
       icon={BatteryCharging}
-      actions={<span className="text-xs text-muted" title={`driver ${ups.driver}`}>NUT · {timeAgo(ups.checkedAt)}</span>}
+      actions={
+        <>
+          {canControl && (
+            <IconGroup
+              actions={[
+                {
+                  icon: VolumeX,
+                  title: 'Couper le bip',
+                  onClick: () => run('beeper.mute', 'Alarme sonore coupée temporairement'),
+                  disabled: !!busy,
+                  loading: busy === 'beeper.mute',
+                },
+                {
+                  icon: ups.beeper === 'enabled' ? BellOff : Bell,
+                  title: ups.beeper === 'enabled' ? "Désactiver l'alarme" : "Activer l'alarme",
+                  onClick: () => run(
+                    ups.beeper === 'enabled' ? 'beeper.disable' : 'beeper.enable',
+                    ups.beeper === 'enabled' ? 'Alarme sonore désactivée' : 'Alarme sonore activée',
+                  ),
+                  disabled: !!busy,
+                  loading: busy === 'beeper.disable' || busy === 'beeper.enable',
+                },
+                {
+                  icon: BatteryCharging,
+                  title: 'Test batterie rapide',
+                  onClick: () => setConfirmTest(true),
+                  disabled: !!busy,
+                  loading: busy === 'test.battery.start.quick',
+                },
+              ]}
+            />
+          )}
+          <span className="text-xs text-muted" title={`driver ${ups.driver}`}>NUT · {timeAgo(ups.checkedAt)}</span>
+        </>
+      }
       className={clsx(crit && 'border-red-500/50')}
       bodyClassName="flex flex-col gap-4 p-4"
     >
@@ -118,7 +152,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
         </div>
       )}
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-x-5 gap-y-4">
+      <div className="grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-4">
         <Metric label="Charge batterie" value={ups.charge !== undefined ? fr(ups.charge) : null} unit="%">
           {ups.charge !== undefined && <Gauge pct={ups.charge} tone={chargeTone} mark={ups.chargeWarning} />}
         </Metric>
@@ -129,44 +163,24 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
           {ups.load !== undefined && <Gauge pct={ups.load} tone={ups.load >= 80 ? 'warn' : 'info'} />}
         </Metric>
         <Metric label="Tension d'entrée" value={ups.inputVoltage !== undefined ? fr(ups.inputVoltage) : null} unit="V" hint={ups.inputNominal !== undefined ? `nominale ${fr(ups.inputNominal)} V` : undefined} />
+        {(ups.testResult || ups.beeper) && (
+          <div className="col-span-2 flex flex-wrap content-end items-end justify-end gap-x-5 gap-y-1 self-end pb-1 text-right text-xs text-muted md:col-span-3">
+            {ups.testResult && (
+              <span>
+                Dernier auto-test : <span className={clsx('font-mono', failedTest ? toneText.warn : 'text-zinc-200')}>{ups.testResult}</span>
+              </span>
+            )}
+            {ups.beeper && (
+              <span>
+                Alarme sonore : <span className="font-mono text-zinc-200">{ups.beeper}</span>
+              </span>
+            )}
+          </div>
+        )}
         <Metric label="Tension batterie" value={ups.batteryVoltage !== undefined ? fr(ups.batteryVoltage) : null} unit="V" hint={ups.batteryNominal !== undefined ? `nominale ${fr(ups.batteryNominal)} V` : undefined} />
       </div>
 
-      {canControl && (
-        <div className="flex flex-wrap gap-2 border-t border-line pt-3">
-          <Button size="sm" loading={busy === 'beeper.mute'} disabled={!!busy} onClick={() => run('beeper.mute', 'Alarme sonore coupée temporairement')}>
-            Couper le bip
-          </Button>
-          {ups.beeper === 'enabled' ? (
-            <Button size="sm" loading={busy === 'beeper.disable'} disabled={!!busy} onClick={() => run('beeper.disable', 'Alarme sonore désactivée')}>
-              Désactiver l'alarme
-            </Button>
-          ) : (
-            <Button size="sm" loading={busy === 'beeper.enable'} disabled={!!busy} onClick={() => run('beeper.enable', 'Alarme sonore activée')}>
-              Activer l'alarme
-            </Button>
-          )}
-          <Button size="sm" disabled={!!busy} onClick={() => setConfirmTest(true)}>
-            Test batterie rapide
-          </Button>
-        </div>
-      )}
-
-      {(ups.testResult || ups.beeper) && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-3 text-xs text-muted">
-          {ups.testResult && (
-            <span>
-              Dernier auto-test : <span className={clsx('font-mono', failedTest ? toneText.warn : 'text-zinc-200')}>{ups.testResult}</span>
-            </span>
-          )}
-          {ups.beeper && (
-            <span>
-              Alarme sonore : <span className="font-mono text-zinc-200">{ups.beeper}</span>
-            </span>
-          )}
-        </div>
-      )}
-    <ConfirmModal
+      <ConfirmModal
         open={confirmTest}
         onClose={() => setConfirmTest(false)}
         title="Test batterie rapide"

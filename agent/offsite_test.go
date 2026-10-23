@@ -87,6 +87,7 @@ func TestValidateOffsiteSpec(t *testing.T) {
 type fakeDebug struct {
 	tasks   []apiTask
 	failRun map[string]bool
+	status  []syncStatus // answer of /admin/sync
 	calls   []string
 	started []string
 }
@@ -97,6 +98,9 @@ func (f *fakeDebug) run(_ context.Context, args ...string) (string, error) {
 	switch {
 	case strings.HasPrefix(cmd, "api get /nodes/localhost/tasks"):
 		raw, _ := json.Marshal(f.tasks)
+		return string(raw), nil
+	case strings.HasPrefix(cmd, "api get /admin/sync"):
+		raw, _ := json.Marshal(f.status)
 		return string(raw), nil
 	case strings.HasPrefix(cmd, "api create /admin/sync/"):
 		id := strings.TrimSuffix(strings.TrimPrefix(args[2], "/admin/sync/"), "/run")
@@ -277,5 +281,72 @@ func TestOffsiteNewStartRearmsToday(t *testing.T) {
 	}
 	if o.state.Day != "" {
 		t.Fatalf("same start re-armed: %q", o.state.Day)
+	}
+}
+
+func TestOffsiteRetryPass(t *testing.T) {
+	f := &fakeDebug{}
+	o := newTestOffsite(t, f)
+	s := validOffsiteSpec()
+	s.RetryAfterMin = 240
+	if err := o.apply(s); err != nil {
+		t.Fatal(err)
+	}
+	<-o.kick
+	ctx := context.Background()
+	// the series: three jobs one after the other
+	for _, hm := range []string{"04:00", "04:20", "04:40", "05:00"} {
+		f.tasks = nil
+		o.step(ctx, at("2026-10-18", hm))
+	}
+	f.tasks = nil
+	if len(f.started) != 3 {
+		t.Fatalf("series: %v", f.started)
+	}
+	n := len(f.calls)
+	// before the delay: nothing
+	o.step(ctx, at("2026-10-18", "07:59"))
+	if len(f.calls) != n {
+		t.Fatal("retry before its delay")
+	}
+	// the second job failed, the third warned, the first is fine
+	end := at("2026-10-18", "05:00").Unix()
+	f.status = []syncStatus{
+		{ID: "hlm-ds0-Hosts", State: "OK", EndTime: end},
+		{ID: "hlm-ds0", State: "sync group ct/105 failed", EndTime: end},
+		{ID: "hlm-ds3-Sites.Jarsay", State: "WARNINGS: 1", EndTime: end},
+	}
+	f.started = nil
+	o.step(ctx, at("2026-10-18", "08:00"))
+	o.step(ctx, at("2026-10-18", "08:01"))
+	r := o.snapshot(at("2026-10-18", "08:01"))
+	if strings.Join(f.started, ",") != "hlm-ds0" || !r.Retry || r.Total != 1 {
+		t.Fatalf("retry: %v %+v", f.started, r)
+	}
+	// once only, even if it failed again
+	f.tasks = nil
+	o.step(ctx, at("2026-10-18", "08:30"))
+	f.tasks = nil
+	n = len(f.calls)
+	o.step(ctx, at("2026-10-18", "12:00"))
+	if len(f.calls) != n || len(f.started) != 1 {
+		t.Fatalf("second retry: %v", f.started)
+	}
+	// next day: a new series, retry allowed again
+	o.step(ctx, at("2026-10-19", "04:00"))
+	if o.snapshot(at("2026-10-19", "04:00")).Retry || len(f.started) != 2 {
+		t.Fatalf("next day: %v", f.started)
+	}
+}
+
+func TestFailedJobs(t *testing.T) {
+	since := at("2026-10-18", "04:00")
+	jobs := []string{"hlm-a", "hlm-b", "hlm-c"}
+	got := failedJobs(jobs, []syncStatus{
+		{ID: "hlm-a", State: "OK", EndTime: since.Unix() + 60},
+		{ID: "hlm-b", State: "OK", EndTime: since.Unix() - 3600}, // yesterday's run: did not run today
+	}, since)
+	if strings.Join(got, ",") != "hlm-b,hlm-c" {
+		t.Fatalf("failed: %v", got)
 	}
 }
