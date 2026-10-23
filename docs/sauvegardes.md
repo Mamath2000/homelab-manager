@@ -13,7 +13,7 @@ Homelab Manager suit les sauvegardes d'un **Proxmox Backup Server** (PBS) et les
 | **image PVE** | job de sauvegarde (vzdump) d'un cluster Proxmox VE : image complète du CT ou de la VM | automatique : l'hôte est le guest qui porte une de ses adresses MAC | la planification du job |
 | **répertoires** | sauvegarde définie dans Homelab Manager et lancée par l'agent de l'hôte | automatique : le hub a créé le job, il connaît son groupe | la planification du job |
 | **base PostgreSQL / MongoDB** | dump de bases défini dans Homelab Manager, fait et envoyé par l'agent de l'hôte ([détail](#sauvegardes-de-bases-de-données)) | automatique, comme les répertoires | la planification du job |
-| **externe** | faite hors Homelab Manager (`backup_pbs_scripts` par cron, ElkarBackup…) | à la main, depuis la fiche hôte | le rythme appris de ses snapshots |
+| **externe** | faite hors Homelab Manager (script ou cron maison, outil tiers…) | à la main, depuis la fiche hôte | le rythme appris de ses snapshots |
 | **Home Assistant** | sauvegarde faite par Home Assistant (Paramètres › Système › Sauvegardes), une ligne par destination | automatique : l'agent HAOS de l'hôte | la planification des sauvegardes automatiques de HA |
 
 Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur le PBS. Exception : les sauvegardes Home Assistant, dont la référence est Home Assistant lui-même.
@@ -353,7 +353,7 @@ La capacité `ha_backups` n'apparaît sur l'hôte qu'après une première lectur
 
 ## Sauvegardes externes : rattachement manuel
 
-Pour les sauvegardes faites ailleurs (`backup_pbs_scripts`, ElkarBackup…) :
+Pour les sauvegardes faites ailleurs (script ou cron maison, outil tiers…) :
 - **Fiche hôte**, carte **Sauvegardes** › **Rattacher** : la fenêtre liste les sauvegardes externes de l'hôte et celles du PBS rattachées à aucun hôte ; cocher celles qui lui appartiennent (administrateurs).
 - **Détacher** : l'icône de la ligne. **Page Sauvegardes**, colonne **Hôte** : déplacer ou détacher.
 - **Orphelines** (page Sauvegardes) : les sauvegardes du PBS rattachées à aucun hôte ; une orpheline disparue du PBS peut y être oubliée.
