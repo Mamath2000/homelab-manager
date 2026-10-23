@@ -152,7 +152,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-5">
         <Metric label="Charge batterie" value={ups.charge !== undefined ? fr(ups.charge) : null} unit="%">
           {ups.charge !== undefined && <Gauge pct={ups.charge} tone={chargeTone} mark={ups.chargeWarning} />}
         </Metric>
@@ -163,22 +163,23 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
           {ups.load !== undefined && <Gauge pct={ups.load} tone={ups.load >= 80 ? 'warn' : 'info'} />}
         </Metric>
         <Metric label="Tension d'entrée" value={ups.inputVoltage !== undefined ? fr(ups.inputVoltage) : null} unit="V" hint={ups.inputNominal !== undefined ? `nominale ${fr(ups.inputNominal)} V` : undefined} />
-        {(ups.testResult || ups.beeper) && (
-          <div className="col-span-2 flex flex-wrap content-end items-end justify-end gap-x-5 gap-y-1 self-end pb-1 text-right text-xs text-muted md:col-span-3">
-            {ups.testResult && (
-              <span>
-                Dernier auto-test : <span className={clsx('font-mono', failedTest ? toneText.warn : 'text-zinc-200')}>{ups.testResult}</span>
-              </span>
-            )}
-            {ups.beeper && (
-              <span>
-                Alarme sonore : <span className="font-mono text-zinc-200">{ups.beeper}</span>
-              </span>
-            )}
-          </div>
-        )}
         <Metric label="Tension batterie" value={ups.batteryVoltage !== undefined ? fr(ups.batteryVoltage) : null} unit="V" hint={ups.batteryNominal !== undefined ? `nominale ${fr(ups.batteryNominal)} V` : undefined} />
       </div>
+
+      {(ups.testResult || ups.beeper) && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+          {ups.testResult && (
+            <span>
+              Dernier auto-test : <span className={clsx('font-mono', failedTest ? toneText.warn : 'text-zinc-200')}>{ups.testResult}</span>
+            </span>
+          )}
+          {ups.beeper && (
+            <span>
+              Alarme sonore : <span className="font-mono text-zinc-200">{ups.beeper}</span>
+            </span>
+          )}
+        </div>
+      )}
 
       <ConfirmModal
         open={confirmTest}
