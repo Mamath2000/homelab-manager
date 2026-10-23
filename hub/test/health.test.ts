@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks } from '../src/health.js';
 import type { HostInfo } from '../src/types.js';
+import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
 const now = Date.now();
 
@@ -70,4 +71,12 @@ test('WSL hosts have no health disks', () => {
   assert.equal(hasNoHealthDisks({ info: info('wsl') }), true);
   assert.equal(hasNoHealthDisks({ info: info('kvm') }), false);
   assert.equal(hasNoHealthDisks({}), false);
+});
+
+test('a silenced alert is reported again when it gets worse', () => {
+  const silenced = [{ key: 'disks:volume:/mnt/disk1', level: 'warn' as const }];
+  assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk1', level: 'warn' }, silenced), true);
+  assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk1', level: 'alert' }, silenced), false);
+  assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk2', level: 'warn' }, silenced), false);
+  assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk1', level: 'warn' }, undefined), false);
 });

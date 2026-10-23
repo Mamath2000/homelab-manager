@@ -15,7 +15,7 @@ const MAX_ALERTS = 8;
 
 // Risk of a host from 0 (nothing to report) to 1 (several alerts): a warning weighs 0.3, an alert 0.6.
 function healthRisk(h: HealthOverviewHost): number {
-  const alerts = h.health?.alerts ?? [];
+  const alerts = (h.health?.alerts ?? []).filter((a) => !a.silenced);
   return Math.min(1, alerts.reduce((sum, a) => sum + (a.level === 'alert' ? 0.6 : 0.3), 0));
 }
 
@@ -40,7 +40,7 @@ export function HealthOverviewHeader({ items, sites, site, kind, onSiteKind }: P
   const alerts = useMemo(
     () =>
       items
-        .flatMap((i) => (i.health.health?.alerts ?? []).map((a) => ({ ...a, hostId: i.host.id, hostName: i.host.name })))
+        .flatMap((i) => (i.health.health?.alerts ?? []).filter((a) => !a.silenced).map((a) => ({ ...a, hostId: i.host.id, hostName: i.host.name })))
         .sort((a, b) => Number(b.level === 'alert') - Number(a.level === 'alert') || a.hostName.localeCompare(b.hostName)),
     [items],
   );

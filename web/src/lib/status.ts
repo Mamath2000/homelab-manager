@@ -132,3 +132,10 @@ export const stackPath = (hostId: string, stack: string) => `/docker/${hostId}/$
 // APT is not everywhere (Unraid): only agents that announce it. Hosts that never connected are
 // counted as APT hosts whose state is unknown.
 export const hasApt = (h: Host) => h.capabilities.length === 0 || h.capabilities.includes('apt_update');
+
+// Bar of a health metric: its own colour below the warning threshold, amber from the warning, red from the alert.
+export function thresholdBg(value: number, base: string, warning?: number, alert?: number): string {
+  if (alert !== undefined && value >= alert) return 'bg-red-500';
+  if (warning !== undefined && value >= warning) return 'bg-amber-400';
+  return base;
+}

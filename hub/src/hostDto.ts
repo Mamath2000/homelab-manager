@@ -4,6 +4,7 @@ import { needsReboot } from './reboot.js';
 import { INSTALLED_TTL_MS } from './installed.js';
 import { agentOutdated, hostBinary, hostOs } from './agentBinaries.js';
 import { dockerSummary, dockerView } from './docker.js';
+import { healthWithSilenced } from './healthSilence.js';
 import { sessionSummary } from './sessions.js';
 
 export function summarize(report: AptReport): AptSummary {
@@ -67,7 +68,7 @@ export function hostDto(h: HostDoc) {
     dockerSummary: dockerSummary(docker),
     // UPS monitored by NUT on the host (null: none)
     ups: h.ups ?? null,
-    health: h.health ?? null,
+    health: healthWithSilenced(h.health, h.healthSilenced),
     smartDevices: h.smartDevices ?? [],
     setupOverrides: h.setupOverrides ?? {},
     setup: setupDto(h),

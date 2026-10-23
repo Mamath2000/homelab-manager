@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, ChartLine, Clock3, Server } from 'lucide-react
 import { Link } from 'react-router';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, Panel, Spinner } from '../components/ui';
+import { thresholdBg } from '../lib/status';
 import { HealthDetailModal } from '../components/HealthDetailModal';
 import { HealthOverviewHeader } from '../components/HealthOverviewHeader';
 import { inColumn, kindColumns } from '../lib/hostOverview';
@@ -22,7 +23,7 @@ function Metric({ label, value, color, warning, alert, durationMinutes }: { labe
     <div className="min-w-0">
       <div className="mb-1 flex justify-between text-xs"><span className="text-muted">{label}</span><span className="font-mono text-zinc-200">{value.toFixed(1)} %</span></div>
       <div className="relative h-1.5 overflow-hidden rounded-full bg-black/30">
-        <div className={`h-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+        <div className={`h-full ${thresholdBg(value, color, warning, alert)}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
         {warning !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-amber-300" style={{ left: `${warning}%` }} title={`Warning ${warning}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
         {alert !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-red-400" style={{ left: `${alert}%` }} title={`Alerte ${alert}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
       </div>
@@ -33,7 +34,7 @@ function Metric({ label, value, color, warning, alert, durationMinutes }: { labe
 
 function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings?: HealthSettings }) {
   const [chartOpen, setChartOpen] = useState(false);
-  const alerts = host.health?.alerts ?? [];
+  const alerts = (host.health?.alerts ?? []).filter((a) => !a.silenced);
   const hasCriticalAlert = alerts.some((alert) => alert.level === 'alert');
   const system = host.health?.system;
   const maxDisk = Math.max(0, ...visibleHealthVolumes(host.health?.disks?.volumes ?? []).map((v) => v.percent));
@@ -54,7 +55,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
           <div className="grid grid-cols-2 gap-3">
             <Metric label="CPU" value={system.cpuPercent} color="bg-emerald-400" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
             <Metric label="Mémoire" value={system.memPercent} color="bg-sky-400" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
-            {!host.noDisks && host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-amber-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />}
+            {!host.noDisks && host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-indigo-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />}
             {system.load1 !== undefined && (
               <div className="text-right text-xs text-muted">
                 Charge 1 / 5 / 15 min<br /><span className="font-mono">
@@ -94,7 +95,7 @@ export function Health() {
     return !site && !kind ? list : list.filter((h) => ids.has(h.id));
   }, [items, list, site, kind]);
   const supported = list;
-  const alerts = supported.reduce((count, h) => count + (h.health?.alerts?.length ?? 0), 0);
+  const alerts = supported.reduce((count, h) => count + (h.health?.alerts?.filter((a) => !a.silenced).length ?? 0), 0);
   const measured = supported.filter((h) => h.health?.system).length;
   return (
     <>

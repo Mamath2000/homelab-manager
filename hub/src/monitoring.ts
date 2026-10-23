@@ -4,6 +4,7 @@ import { dockerView } from './docker.js';
 import { backupState } from './pbs.js';
 import { offsiteState } from './offsite.js';
 import { upsProblems } from './ups.js';
+import { isHealthAlertSilenced } from './healthSilence.js';
 import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostDoc } from './types.js';
 
 // What the hub monitors, in two levels:
@@ -188,10 +189,10 @@ export function mountStatus(h: Pick<HostDoc, 'pbsMount'>): DomainReport {
   return known([check('mount', 'Montage', 'warn', `Sauvegarde ${what} montée sous ${m.path ?? '/srv/pbs-restore'}`)]);
 }
 
-export function healthStatus(h: Pick<HostDoc, 'health'>, ctx: Pick<Context, 'online'>): DomainReport {
+export function healthStatus(h: Pick<HostDoc, 'health' | 'healthSilenced'>, ctx: Pick<Context, 'online'>): DomainReport {
   if (!h.health) return null;
   if (!ctx.online) return unknown('Hôte hors ligne');
-  const alerts = h.health.alerts ?? [];
+  const alerts = (h.health.alerts ?? []).filter((a) => !isHealthAlertSilenced(a, h.healthSilenced));
   return known(alerts.length
     ? alerts.map((a) => check(a.key, a.label, a.level, a.reason))
     : [check('health', 'Santé', 'ok')]);

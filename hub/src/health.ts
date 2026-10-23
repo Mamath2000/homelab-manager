@@ -4,6 +4,9 @@ import { healthMetrics, hosts, settings } from './db.js';
 import type { HealthDisks, HealthMetricDoc, HealthSettings, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
 import { parseId } from './db.js';
 import { isOnline, sendToAgent } from './agents.js';
+import { healthWithSilenced } from './healthSilence.js';
+import { hostDto } from './hostDto.js';
+import { publish } from './events.js';
 
 export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   _id: 'health',
@@ -330,11 +333,45 @@ export function registerHealthRoutes(app: FastifyInstance) {
         supported: host.capabilities?.includes('health') ?? false,
         virtualized: isVirtualizedHealthHost(host),
         noDisks: hasNoHealthDisks(host),
-        health: host.health ?? null,
+        health: healthWithSilenced(host.health, host.healthSilenced),
         samples: (byHost.get(host._id.toHexString()) ?? []).map(({ sampledAt, report }) => ({ sampledAt, report })),
       })),
     };
   });
+
+  // Accept ("silence") or watch again alerts of a host: they stop counting for its state, the bars keep their colours.
+  app.put<{ Params: { id: string }; Body: { keys: string[]; silenced: boolean } }>(
+    '/api/hosts/:id/health/silenced',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['keys', 'silenced'],
+          additionalProperties: false,
+          properties: {
+            keys: { type: 'array', maxItems: 64, items: { type: 'string', minLength: 1, maxLength: 512 } },
+            silenced: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const hostId = parseId(req.params.id);
+      const host = hostId && (await hosts.findOne({ _id: hostId }, { projection: { health: 1, healthSilenced: 1 } }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      const current = new Map((host.health?.alerts ?? []).map((a) => [a.key, a.level]));
+      const keys = new Set(req.body.keys);
+      let next = (host.healthSilenced ?? []).filter((s) => !keys.has(s.key));
+      if (req.body.silenced) {
+        const unknown = req.body.keys.filter((k) => !current.has(k));
+        if (unknown.length) return reply.code(409).send({ error: `alerte inactive : ${unknown.join(', ')}` });
+        next = [...next, ...req.body.keys.map((key) => ({ key, level: current.get(key)! }))];
+      }
+      const updated = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { healthSilenced: next } }, { returnDocument: 'after' });
+      if (updated) publish('host', hostDto(updated));
+      return { healthSilenced: next };
+    },
+  );
 
   app.put<{ Params: { id: string }; Body: { devices: string[] } }>(
     '/api/hosts/:id/health/smart',

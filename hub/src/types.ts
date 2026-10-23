@@ -223,6 +223,8 @@ export interface HostDoc {
   ups?: UpsReport;
   health?: HealthSnapshot;
   smartDevices?: string[];
+  // health alerts accepted by the user (see healthSilence.ts)
+  healthSilenced?: { key: string; level: 'warn' | 'alert' }[];
   // Windows: user sessions (agent session_report)
   sessions?: SessionReport;
   dockerUpdates?: DockerUpdates;

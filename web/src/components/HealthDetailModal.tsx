@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChartLine, HardDrive, Thermometer } from 'lucide-react';
 import { formatBytes } from '../lib/backups';
 import { visibleHealthVolumes, type HealthSettings, type HealthSnapshot, type HealthSystem } from '../lib/api';
@@ -85,7 +85,7 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
   );
 }
 
-export function HealthDetailModal({ open, onClose, hostName, health, samples, settings, historyError, virtualized = false, noDisks = false }: {
+export function HealthDetailModal({ open, onClose, hostName, health, samples, settings, historyError, virtualized = false, noDisks = false, smartSetup }: {
   open: boolean;
   onClose: () => void;
   hostName: string;
@@ -95,6 +95,7 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
   historyError?: string;
   virtualized?: boolean;
   noDisks?: boolean;
+  smartSetup?: ReactNode;
 }) {
   const system = health?.system;
   const volumes = visibleHealthVolumes(health?.disks?.volumes ?? []);
@@ -156,6 +157,7 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
 
         {!virtualized && <section>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><Thermometer className="h-4 w-4 text-violet-300" />Disques SMART ({smartDisks.length})</h3>
+          {smartSetup}
           {settings && <p className="mb-3 text-xs text-muted">Température : warning {settings.smartTemperatureWarningThreshold} °C / alerte {settings.smartTemperatureAlertThreshold} °C · usure NVMe : warning {settings.smartWearWarningThreshold}% / alerte {settings.smartWearAlertThreshold}% · {settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'}</p>}
           {!smartDisks.length ? <p className="rounded-md border border-line p-4 text-sm text-muted">Aucune mesure SMART disponible ou aucun disque configuré.</p> : (
             <div className="grid gap-3 lg:grid-cols-2">

@@ -87,7 +87,7 @@ export interface HealthSnapshot {
   system?: HealthSystem;
   disks?: HealthDisks;
   smart?: HealthSmart;
-  alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[];
+  alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string; silenced?: boolean }[];
 }
 
 export interface HealthSettings {
@@ -1125,6 +1125,7 @@ export const api = {
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),
+  silenceHealthAlerts: (id: string, keys: string[], silenced: boolean) => request<{ healthSilenced: { key: string; level: 'warn' | 'alert' }[] }>('PUT', `/api/hosts/${id}/health/silenced`, { keys, silenced }),
   hostSmartCandidates: (id: string) => request<{ candidates: SmartCandidate[] }>('GET', `/api/hosts/${id}/health/smart/candidates`),
   healthSettings: () => request<HealthSettings>('GET', '/api/settings/health'),
   saveHealthSettings: (s: Omit<HealthSettings, 'retentionHours'>) => request<HealthSettings>('PUT', '/api/settings/health', s),
