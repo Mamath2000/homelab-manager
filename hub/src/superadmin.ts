@@ -28,9 +28,29 @@ export function hasAccounts() {
   return users.countDocuments({ role: { $ne: SUPERADMIN } }).then((n) => n > 0);
 }
 
-// Fresh install: no account yet, so the superadmin gets a password printed in the logs; it is
-// used once to create the first accounts. Re-issued at every start until an account exists.
+export function shouldResetSuperadminPassword(value = process.env.HM_RESET_SUPERADMIN_PASSWORD) {
+  return value === 'true';
+}
+
+// On HAOS, the recovery option requests a fresh one-time password at startup.
+// Otherwise, a fresh install gets one until its first regular account is created.
 export async function bootstrapSuperadmin() {
+  if (shouldResetSuperadminPassword()) {
+    const password = await issueSuperadminPassword(15);
+    const lines = [
+      '',
+      '================================================================',
+      '  Homelab Manager : réinitialisation demandée',
+      `  Connexion :      ${SUPERADMIN}`,
+      `  Mot de passe :   ${password}`,
+      '  Usage unique, valable 15 min : désactive ensuite la demande dans la configuration HAOS.',
+      '================================================================',
+      '',
+    ];
+    process.stdout.write(lines.join('\n'));
+    return;
+  }
+
   if (await hasAccounts()) return;
   const password = await issueSuperadminPassword(24 * 60);
   const lines = [

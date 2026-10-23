@@ -78,3 +78,7 @@ docker compose exec hub hm-admin superadmin
 
 Le mot de passe affiché est valable 15 minutes ; relancer la commande invalide le précédent et ferme une éventuelle
 session `superadmin` en cours.
+
+Dans l'application HAOS **Homelab Manager**, tu peux aussi activer **Réinitialiser le mot de passe superadmin au
+démarrage**, enregistrer puis redémarrer l'application. Le nouveau mot de passe apparaît dans son journal et est valable
+15 minutes. Désactive ensuite l'option pour éviter de régénérer le mot de passe au prochain redémarrage.
