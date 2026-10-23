@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -80,9 +81,84 @@ type HealthRaidArray struct {
 	Members       []HealthRaidMember `json:"members"`
 }
 
+// HealthUnraidDisk: a slot of the Unraid array or a device of a pool; empty slots are left out.
+type HealthUnraidDisk struct {
+	Name     string  `json:"name"` // parity, disk1, speed2...
+	Type     string  `json:"type"` // Parity, Data, Cache
+	Device   string  `json:"device,omitempty"`
+	Status   string  `json:"status"`             // DISK_OK, DISK_DSBL, DISK_INVALID...
+	Errors   uint64  `json:"errors"`             // read/write errors of the md driver since the array started
+	FsErrors *uint64 `json:"fsErrors,omitempty"` // btrfs device stats of a pool device, never reset
+}
+
+type HealthUnraidPool struct {
+	Name            string             `json:"name"`
+	FsType          string             `json:"fsType"`
+	Profile         string             `json:"profile,omitempty"` // raid1, single...
+	Devices         int                `json:"devices"`
+	DevicesExpected int                `json:"devicesExpected"`
+	Health          string             `json:"health,omitempty"` // zpool health (ONLINE, DEGRADED...)
+	Disks           []HealthUnraidDisk `json:"disks"`
+}
+
+// HealthUnraidCheck: the last parity check (or sync), times in milliseconds.
+type HealthUnraidCheck struct {
+	StartedAt  int64  `json:"startedAt"`
+	FinishedAt int64  `json:"finishedAt,omitempty"`
+	Errors     uint64 `json:"errors"`
+	Exit       int    `json:"exit"` // 0: completed, otherwise aborted (-4: cancelled)
+}
+
+type HealthUnraid struct {
+	State       string             `json:"state"`                // mdState: STARTED, STOPPED...
+	SyncAction  string             `json:"syncAction,omitempty"` // while a sync runs: "check P", "recon D5", "clear"...
+	SyncPercent *float64           `json:"syncPercent,omitempty"`
+	LastCheck   *HealthUnraidCheck `json:"lastCheck,omitempty"`
+	Disks       []HealthUnraidDisk `json:"disks"`
+	Pools       []HealthUnraidPool `json:"pools"`
+}
+
+type HealthCephCheck struct {
+	Code     string   `json:"code"`
+	Severity string   `json:"severity"` // HEALTH_WARN, HEALTH_ERR
+	Message  string   `json:"message"`
+	Detail   []string `json:"detail"`
+	Muted    bool     `json:"muted"`
+}
+
+// HealthCephOsd: an OSD of this node.
+type HealthCephOsd struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Up   bool   `json:"up"`
+	In   bool   `json:"in"`
+}
+
+// HealthCeph: state of the whole Ceph cluster as one of its nodes sees it, plus the OSDs it hosts.
+type HealthCeph struct {
+	Fsid       string            `json:"fsid,omitempty"`
+	Status     string            `json:"status,omitempty"` // HEALTH_OK, HEALTH_WARN, HEALTH_ERR
+	Error      string            `json:"error,omitempty"`  // ceph did not answer (no quorum, timeout...)
+	Checks     []HealthCephCheck `json:"checks"`
+	OsdsTotal  int               `json:"osdsTotal"`
+	OsdsUp     int               `json:"osdsUp"`
+	OsdsIn     int               `json:"osdsIn"`
+	Pgs        int               `json:"pgs"`
+	PgsClean   int               `json:"pgsClean"`
+	UsedBytes  uint64            `json:"usedBytes"`
+	TotalBytes uint64            `json:"totalBytes"`
+	Osds       []HealthCephOsd   `json:"osds"`
+}
+
 type HealthRaid struct {
 	CheckedAt int64             `json:"checkedAt"`
 	Arrays    []HealthRaidArray `json:"arrays"`
+	Unraid    *HealthUnraid     `json:"unraid,omitempty"`
+	Ceph      *HealthCeph       `json:"ceph,omitempty"`
+}
+
+func (r *HealthRaid) empty() bool {
+	return len(r.Arrays) == 0 && r.Unraid == nil && r.Ceph == nil
 }
 
 type HealthConfig struct {
@@ -218,7 +294,7 @@ func (s *session) healthLoop(ctx context.Context) {
 
 	s.healthSystem(ctx)
 	s.healthDisks(ctx)
-	s.healthRaid(ctx)
+	go s.healthRaid(ctx)
 	s.healthSmart(ctx)
 
 	for {
@@ -229,7 +305,7 @@ func (s *session) healthLoop(ctx context.Context) {
 			s.healthSystem(ctx)
 		case <-diskTicker.C:
 			s.healthDisks(ctx)
-			s.healthRaid(ctx)
+			go s.healthRaid(ctx)
 		case <-smartTicker.C:
 			if len(s.healthConfig().SmartDevices) > 0 {
 				go s.healthSmart(ctx)
@@ -262,21 +338,24 @@ func (s *session) healthDisks(ctx context.Context) {
 	_ = s.send(ctx, Outbound{Type: "health_disks", HealthDisks: r})
 }
 
-// healthRaidReported: a host without md arrays sends nothing; one whose arrays went away sends an empty report once,
-// so the hub drops them.
-var healthRaidReported atomic.Bool
-
-func hasHealthRaid() bool {
-	return len(collectHealthRaid().Arrays) > 0
-}
+// healthRaidReported: a host without md arrays, Unraid array or Ceph sends nothing; one whose arrays went away sends an
+// empty report once, so the hub drops them.
+var (
+	healthRaidReported atomic.Bool
+	healthRaidMu       sync.Mutex // ceph can hang (no quorum): one collection at a time, out of the health loop
+)
 
 func (s *session) healthRaid(ctx context.Context) {
-	r := collectHealthRaid()
-	if len(r.Arrays) == 0 && !healthRaidReported.Load() {
+	if !healthRaidMu.TryLock() {
+		return
+	}
+	defer healthRaidMu.Unlock()
+	r := collectHealthRaid(ctx)
+	if r.empty() && !healthRaidReported.Load() {
 		return
 	}
 	if s.send(ctx, Outbound{Type: "health_raid", HealthRaid: r}) == nil {
-		healthRaidReported.Store(len(r.Arrays) > 0)
+		healthRaidReported.Store(!r.empty())
 	}
 }
 

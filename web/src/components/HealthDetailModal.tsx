@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ChartLine, HardDrive, Layers, Thermometer } from 'lucide-react';
 import { formatBytes } from '../lib/backups';
-import { visibleHealthVolumes, type HealthSettings, type HealthSnapshot, type HealthSystem } from '../lib/api';
+import { hasHealthRaid, visibleHealthVolumes, type HealthSettings, type HealthSnapshot, type HealthSystem } from '../lib/api';
 import { dateTime } from '../lib/format';
 import { RaidArrays } from './RaidArrays';
 import { Badge, Modal } from './ui';
@@ -86,10 +86,11 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
   );
 }
 
-export function HealthDetailModal({ open, onClose, hostName, health, samples, settings, historyError, virtualized = false, noDisks = false, smartSetup }: {
+export function HealthDetailModal({ open, onClose, hostName, cluster, health, samples, settings, historyError, virtualized = false, noDisks = false, smartSetup }: {
   open: boolean;
   onClose: () => void;
   hostName: string;
+  cluster?: string; // corosync cluster of a Proxmox node, shown with its Ceph state
   health?: HealthSnapshot | null;
   samples: Sample[];
   settings?: HealthSettings;
@@ -101,7 +102,8 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
   const system = health?.system;
   const volumes = visibleHealthVolumes(health?.disks?.volumes ?? []);
   const smartDisks = health?.smart?.disks ?? [];
-  const raidArrays = health?.raid?.arrays ?? [];
+  const raid = health?.raid;
+  const raidCount = raid ? raid.arrays.length + (raid.unraid ? 1 : 0) + (raid.ceph ? 1 : 0) : 0;
   return (
     <Modal open={open} onClose={onClose} title={`Détail Santé · ${hostName}`} wide="screen-wide" scroll>
       <div className="space-y-5">
@@ -157,10 +159,10 @@ export function HealthDetailModal({ open, onClose, hostName, health, samples, se
           )}
         </section>}
 
-        {raidArrays.length > 0 && <section>
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><Layers className="h-4 w-4 text-sky-300" />RAID ({raidArrays.length})</h3>
-          <p className="mb-3 text-xs text-muted">Alerte : array dégradé, disque en échec ou arrêté · warning : reconstruction ou resynchro en cours, incohérences après contrôle, erreurs de lecture corrigées (à chaque nouvelle valeur) · le contrôle périodique n'alerte pas · déclenchement immédiat</p>
-          <RaidArrays arrays={raidArrays} />
+        {hasHealthRaid(raid) && <section>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><Layers className="h-4 w-4 text-sky-300" />RAID ({raidCount})</h3>
+          <p className="mb-3 text-xs text-muted">Alerte : array dégradé ou arrêté, disque en échec ou émulé, disque de pool manquant, erreurs de parité, Ceph HEALTH_ERR, OSD down ou Ceph injoignable · warning : reconstruction ou resynchro en cours, incohérences après contrôle, erreurs de disque (à chaque nouvelle valeur), contrôle de parité interrompu, Ceph HEALTH_WARN, OSD out · le contrôle périodique n'alerte pas · déclenchement immédiat</p>
+          <RaidArrays raid={raid} cluster={cluster} />
         </section>}
 
         {!virtualized && <section>

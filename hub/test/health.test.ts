@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey } from '../src/health.js';
 import type { HostInfo } from '../src/types.js';
 import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
@@ -125,4 +125,64 @@ test('RAID arrays of a container are its host\'s', () => {
   assert.equal(isContainerHealthHost(host('lxc')), true);
   assert.equal(isContainerHealthHost(host('kvm')), false);
   assert.equal(isContainerHealthHost(host('none')), false);
+});
+
+const unraid = {
+  state: 'STARTED', lastCheck: { startedAt: 1792720727000, finishedAt: 1792761028000, errors: 0, exit: 0 },
+  disks: [{ name: 'parity', type: 'Parity', device: 'sdg', status: 'DISK_OK', errors: 0 }, { name: 'disk1', type: 'Data', device: 'sdc', status: 'DISK_OK', errors: 0 }],
+  pools: [{ name: 'speed', fsType: 'btrfs', profile: 'raid1', devices: 2, devicesExpected: 2, disks: [
+    { name: 'speed', type: 'Cache', device: 'nvme0n1', status: 'DISK_OK', errors: 0, fsErrors: 0 },
+    { name: 'speed2', type: 'Cache', device: 'nvme1n1', status: 'DISK_OK', errors: 0, fsErrors: 0 },
+  ] }],
+};
+
+const ceph = {
+  fsid: 'f1', status: 'HEALTH_OK', checks: [], osdsTotal: 3, osdsUp: 3, osdsIn: 3, pgs: 33, pgsClean: 33, usedBytes: 1, totalBytes: 2,
+  osds: [{ id: 2, name: 'osd.2', up: true, in: true }],
+};
+
+test('RAID reports carry an Unraid array and a Ceph cluster', () => {
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [], unraid, ceph }), true);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [], ceph: { ...ceph, fsid: undefined, status: undefined, error: 'timeout' } }), true);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [], unraid: { ...unraid, disks: [{ name: 'disk1', status: 'DISK_OK' }] } }), false);
+  assert.equal(isHealthRaid({ checkedAt: now, arrays: [], ceph: { ...ceph, checks: [{ code: 'X', severity: 'HEALTH_WARN', message: 'm', detail: [] }] } }), false);
+});
+
+test('Unraid alerts: disabled disk, missing pool device and parity errors alert, rebuild and errors warn, check silent', () => {
+  const keys = (u: object) => unraidAlerts({ ...unraid, ...u }).map((x) => `${x.key}=${x.level}`);
+  assert.deepEqual(keys({}), []);
+  assert.deepEqual(keys({ syncAction: 'check P', syncPercent: 40 }), []);
+  assert.deepEqual(keys({ state: 'STOPPED' }), ['raid:unraid:state=alert']);
+  assert.deepEqual(
+    keys({ disks: [{ name: 'disk1', type: 'Data', status: 'DISK_DSBL', errors: 12 }], syncAction: 'recon D1', syncPercent: 10 }),
+    ['raid:unraid:disk:disk1:status=alert', 'raid:unraid:disk:disk1:errors:12=warn', 'raid:unraid:sync=warn'],
+  );
+  assert.deepEqual(
+    keys({ pools: [{ ...unraid.pools[0], devices: 1, disks: [{ ...unraid.pools[0].disks[0], fsErrors: 3 }] }] }),
+    ['raid:unraid:pool:speed:missing=alert', 'raid:unraid:disk:speed:fserrors:3=warn'],
+  );
+  assert.deepEqual(keys({ lastCheck: { ...unraid.lastCheck, errors: 5 } }), ['raid:unraid:lastcheck:1792720727000:errors=alert']);
+  assert.deepEqual(keys({ lastCheck: { ...unraid.lastCheck, exit: -4 } }), ['raid:unraid:lastcheck:1792720727000:exit=warn']);
+});
+
+test('Ceph alerts: checks by severity (muted ones left out), OSDs of the node, no answer', () => {
+  const keys = (c: object) => cephAlerts({ ...ceph, ...c }).map((x) => `${x.key}=${x.level}`);
+  assert.deepEqual(keys({}), []);
+  assert.deepEqual(keys({ status: 'HEALTH_WARN', checks: [
+    { code: 'BLUESTORE_SLOW_OP_ALERT', severity: 'HEALTH_WARN', message: '2 OSD(s)', detail: ['osd.2', 'osd.3'], muted: false },
+    { code: 'PG_DEGRADED', severity: 'HEALTH_ERR', message: 'pgs', detail: [], muted: false },
+    { code: 'MON_CLOCK_SKEW', severity: 'HEALTH_WARN', message: 'skew', detail: [], muted: true },
+  ] }), ['raid:ceph:check:BLUESTORE_SLOW_OP_ALERT=warn', 'raid:ceph:check:PG_DEGRADED=alert']);
+  assert.deepEqual(keys({ osds: [{ id: 2, name: 'osd.2', up: false, in: true }, { id: 3, name: 'osd.3', up: true, in: false }] }), ['raid:ceph:osd.2:down=alert', 'raid:ceph:osd.3:out=warn']);
+  assert.deepEqual(keys({ error: 'timeout' }), ['raid:ceph:unreachable=alert']);
+  assert.equal(isCephClusterKey('raid:ceph:check:PG_DEGRADED'), true);
+  assert.equal(isCephClusterKey('raid:ceph:unreachable'), true);
+  assert.equal(isCephClusterKey('raid:ceph:osd.2:down'), false);
+});
+
+test('a shared acceptance only covers the active alerts of each node', () => {
+  const alerts = [{ key: 'raid:ceph:check:A', label: 'Ceph', level: 'warn' as const, reason: '' }];
+  const kept = [{ key: 'volume:/', level: 'warn' as const }];
+  assert.deepEqual(applySilence(kept, alerts, ['raid:ceph:check:A', 'raid:ceph:check:B'], true), [...kept, { key: 'raid:ceph:check:A', level: 'warn' }]);
+  assert.deepEqual(applySilence([...kept, { key: 'raid:ceph:check:A', level: 'warn' }], alerts, ['raid:ceph:check:A'], false), kept);
 });

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,9 @@ import (
 // Linux software RAID (mdadm) as the kernel exposes it under /sys/block/mdX/md: read-only, no package nor privilege needed.
 // Unraid's own md driver has no md/ directory there and is left out.
 var healthRaidSysRoot = "/sys/block"
+
+// healthRaidRun runs btrfs, zpool and ceph (replaced in tests).
+var healthRaidRun pveRun = pveExec
 
 func readSysValue(dir, name string) string {
 	b, err := os.ReadFile(filepath.Join(dir, name))
@@ -31,10 +35,27 @@ func readSysInt(dir, name string) *int64 {
 	return &n
 }
 
-func collectHealthRaid() *HealthRaid {
+// hasHealthRaid: md arrays, an Unraid array or a Ceph cluster to report on (capability raid). Cheap: ceph is not run.
+func hasHealthRaid() bool {
+	dirs, _ := filepath.Glob(filepath.Join(healthRaidSysRoot, "md*", "md"))
+	return len(dirs) > 0 || isUnraidHealth() || hasCephHealth()
+}
+
+func collectHealthRaid(ctx context.Context) *HealthRaid {
+	r := &HealthRaid{CheckedAt: time.Now().UnixMilli(), Arrays: collectMdArrays()}
+	if isUnraidHealth() {
+		r.Unraid = collectHealthUnraid(ctx, healthRaidRun)
+	}
+	if hasCephHealth() {
+		r.Ceph = collectHealthCeph(ctx, healthRaidRun, localNodeName())
+	}
+	return r
+}
+
+func collectMdArrays() []HealthRaidArray {
 	dirs, _ := filepath.Glob(filepath.Join(healthRaidSysRoot, "md*", "md"))
 	sort.Strings(dirs)
-	r := &HealthRaid{CheckedAt: time.Now().UnixMilli(), Arrays: []HealthRaidArray{}}
+	arrays := []HealthRaidArray{}
 	for _, dir := range dirs {
 		a := HealthRaidArray{
 			Name:       filepath.Base(filepath.Dir(dir)),
@@ -77,7 +98,7 @@ func collectHealthRaid() *HealthRaid {
 			}
 			a.Members = append(a.Members, member)
 		}
-		r.Arrays = append(r.Arrays, a)
+		arrays = append(arrays, a)
 	}
-	return r
+	return arrays
 }

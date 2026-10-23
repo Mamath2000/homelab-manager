@@ -2,8 +2,11 @@
 
 package main
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
-func collectHealthRaid() *HealthRaid {
+func collectHealthRaid(context.Context) *HealthRaid {
 	return &HealthRaid{CheckedAt: time.Now().UnixMilli(), Arrays: []HealthRaidArray{}}
 }

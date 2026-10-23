@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Activity, AlertTriangle, ChartLine, Cpu, EyeOff, HardDrive, Layers, Thermometer } from 'lucide-react';
-import { api, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
+import { api, hasHealthRaid, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { thresholdBg } from '../lib/status';
@@ -73,7 +73,8 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
   const alertsOf = (...keys: string[]) => allAlerts.filter((a) => keys.some((k) => a.key === k || a.key.startsWith(`${k}:`)));
   const hasCriticalAlert = alerts.some((alert) => alert.level === 'alert');
   const smartDisks = !virtualized ? smart?.disks ?? [] : [];
-  const raidArrays = health?.raid?.arrays ?? [];
+  const raid = health?.raid;
+  const cluster = host.capabilities.find((c) => c.startsWith('pve_cluster:'))?.slice('pve_cluster:'.length);
 
   return (
     <Panel
@@ -127,10 +128,10 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
             )}
           </section>)}
 
-        {raidArrays.length > 0 && (
+        {hasHealthRaid(raid) && (
           <section>
             <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-100"><Layers className="h-4 w-4 text-sky-300" />RAID</h3>
-            <RaidArrays arrays={raidArrays} actions={(a) => <SilenceButton hostId={host.id} alerts={alertsOf(`raid:${a.name}`)} canManage={canManage} />} />
+            <RaidArrays raid={raid} cluster={cluster} actions={(prefix) => <SilenceButton hostId={host.id} alerts={alertsOf(prefix)} canManage={canManage} />} />
           </section>
         )}
 
@@ -160,6 +161,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
         open={chartOpen}
         onClose={() => setChartOpen(false)}
         hostName={host.name}
+        cluster={cluster}
         health={health}
         samples={systemSamples}
         settings={settings}

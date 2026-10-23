@@ -104,10 +104,59 @@ export interface HealthRaidArray {
   members: HealthRaidMember[];
 }
 
+// Unraid array slot or pool device
+export interface HealthUnraidDisk {
+  name: string;
+  type: string;
+  device?: string;
+  status: string;
+  errors: number;
+  fsErrors?: number;
+}
+
+export interface HealthUnraidPool {
+  name: string;
+  fsType: string;
+  profile?: string;
+  devices: number;
+  devicesExpected: number;
+  health?: string;
+  disks: HealthUnraidDisk[];
+}
+
+export interface HealthUnraid {
+  state: string;
+  syncAction?: string;
+  syncPercent?: number;
+  lastCheck?: { startedAt: number; finishedAt?: number; errors: number; exit: number };
+  disks: HealthUnraidDisk[];
+  pools: HealthUnraidPool[];
+}
+
+// Ceph cluster as a node sees it, with the OSDs it hosts
+export interface HealthCeph {
+  fsid?: string;
+  status?: string;
+  error?: string;
+  checks: { code: string; severity: string; message: string; detail: string[]; muted: boolean }[];
+  osdsTotal: number;
+  osdsUp: number;
+  osdsIn: number;
+  pgs: number;
+  pgsClean: number;
+  usedBytes: number;
+  totalBytes: number;
+  osds: { id: number; name: string; up: boolean; in: boolean }[];
+}
+
 export interface HealthRaid {
   checkedAt: number;
   arrays: HealthRaidArray[];
+  unraid?: HealthUnraid;
+  ceph?: HealthCeph;
 }
+
+export const hasHealthRaid = (r: HealthRaid | undefined): r is HealthRaid => !!r && (r.arrays.length > 0 || !!r.unraid || !!r.ceph);
 
 export interface HealthSnapshot {
   system?: HealthSystem;

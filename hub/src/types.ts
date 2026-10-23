@@ -106,9 +106,56 @@ export interface HealthRaidArray {
   members: HealthRaidMember[];
 }
 
+// Unraid array slot or pool device (emhttp disks.ini); empty slots are left out by the agent
+export interface HealthUnraidDisk {
+  name: string; // parity, disk1, speed2...
+  type: string; // Parity, Data, Cache
+  device?: string;
+  status: string; // DISK_OK, DISK_DSBL, DISK_INVALID...
+  errors: number; // md driver errors since the array started
+  fsErrors?: number; // btrfs device stats of a pool device, never reset
+}
+
+export interface HealthUnraidPool {
+  name: string;
+  fsType: string;
+  profile?: string;
+  devices: number;
+  devicesExpected: number;
+  health?: string; // zpool health
+  disks: HealthUnraidDisk[];
+}
+
+export interface HealthUnraid {
+  state: string; // mdState: STARTED, STOPPED...
+  syncAction?: string; // while a sync runs: "check P", "recon D5", "clear"...
+  syncPercent?: number;
+  lastCheck?: { startedAt: number; finishedAt?: number; errors: number; exit: number };
+  disks: HealthUnraidDisk[];
+  pools: HealthUnraidPool[];
+}
+
+// Ceph cluster as one of its nodes sees it, with the OSDs that node hosts
+export interface HealthCeph {
+  fsid?: string;
+  status?: string; // HEALTH_OK, HEALTH_WARN, HEALTH_ERR
+  error?: string; // ceph did not answer
+  checks: { code: string; severity: string; message: string; detail: string[]; muted: boolean }[];
+  osdsTotal: number;
+  osdsUp: number;
+  osdsIn: number;
+  pgs: number;
+  pgsClean: number;
+  usedBytes: number;
+  totalBytes: number;
+  osds: { id: number; name: string; up: boolean; in: boolean }[];
+}
+
 export interface HealthRaid {
   checkedAt: number;
   arrays: HealthRaidArray[];
+  unraid?: HealthUnraid;
+  ceph?: HealthCeph;
 }
 
 export interface HealthSnapshot {

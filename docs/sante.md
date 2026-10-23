@@ -1,6 +1,6 @@
 ---
 title: Santé
-description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID logiciel mdadm), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
+description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID : mdadm, array et pools Unraid, Ceph), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
 sidebar_position: 3.6
 ---
 
@@ -16,7 +16,7 @@ Les agents Linux, Windows et Home Assistant OS envoient des rapports typés, cha
 |---|---|---|
 | CPU, mémoire, charge Unix | 30 s | 10 s – 1 h |
 | Usage des volumes | 5 min | 1 min – 24 h |
-| RAID logiciel (mdadm) | avec les volumes | — |
+| RAID (mdadm, Unraid, Ceph) | avec les volumes | — |
 | SMART | 24 h | 10 min – 30 jours |
 
 Les fréquences se règlent globalement dans **Paramètres › Santé**.
@@ -37,9 +37,13 @@ SMART est volontairement **opt-in, hôte par hôte**.
 
 Les rapports affichent l'état global, la température, les secteurs réalloués et l'usure NVMe quand le disque les fournit. Les VM et LXC sans accès au périphérique physique, et les contrôleurs RAID que `smartctl` n'expose pas, ne remontent pas ces détails.
 
-## RAID logiciel (mdadm)
+## RAID
 
-Sur Linux, l'agent lit l'état des arrays `md` dans `/sys/block/mdX/md/` (lecture passive, sans paquet ni droit particulier), au rythme des volumes. Rien à activer : la capacité `raid` n'est annoncée, et le bloc **RAID** n'apparaît, que sur un hôte qui a au moins un array. Les conteneurs (LXC, Docker…) voient les arrays de leur hôte : leurs rapports sont ignorés. Le driver md propre à Unraid n'est pas concerné.
+Le bloc **RAID** de la fiche regroupe trois sources, collectées au rythme des volumes. Rien à activer : la capacité `raid` n'est annoncée, et le bloc n'apparaît, que sur un hôte qui a au moins un array mdadm, un array Unraid ou un cluster Ceph. Les conteneurs (LXC, Docker…) voient les arrays de leur hôte : leurs rapports sont ignorés. Tous les niveaux RAID sont immédiats et sans seuil réglable.
+
+### RAID logiciel (mdadm)
+
+Sur Linux, l'agent lit l'état des arrays `md` dans `/sys/block/mdX/md/` (lecture passive, sans paquet ni droit particulier). Le driver md propre à Unraid n'y apparaît pas : il a sa propre section.
 
 Par array : niveau, état, disques actifs / attendus, synchronisation en cours avec sa progression, incohérences (`mismatch_cnt`) et, par membre, état et erreurs de lecture corrigées par md.
 
@@ -52,7 +56,43 @@ Par array : niveau, état, disques actifs / attendus, synchronisation en cours a
 | Erreurs de lecture corrigées sur un membre | avertissement |
 | Contrôle périodique (`check` / `repair`, timers `mdcheck`) | affiché, sans alerte |
 
-Le compteur d'erreurs corrigées n'est jamais remis à zéro par le noyau : l'avertissement porte sa valeur. Une fois accepté, il ne compte plus ; si le compteur augmente, un nouvel avertissement apparaît. Tous les niveaux RAID sont immédiats et sans seuil réglable.
+Le compteur d'erreurs corrigées n'est jamais remis à zéro par le noyau : l'avertissement porte sa valeur. Une fois accepté, il ne compte plus ; si le compteur augmente, un nouvel avertissement apparaît.
+
+### Unraid (array et pools)
+
+Sur Unraid, l'agent lit les fichiers d'état d'emhttp, `/var/local/emhttp/var.ini` et `disks.ini` (lecture passive), et `btrfs device stats` pour les pools btrfs (`zpool list` pour un pool ZFS). Il remonte l'état de l'array, chaque disque de parité et de données avec son statut et ses erreurs, le contrôle de parité en cours et le dernier contrôle (date, durée, erreurs), et chaque pool avec ses disques et leurs erreurs.
+
+Les emplacements vides (data sans disque, seconde parité non assignée) sont ignorés : les compteurs globaux d'Unraid (`mdNumDisabled`, `mdNumInvalid`) les comptent, ils ne servent donc pas aux alertes.
+
+| Situation | Niveau |
+|---|---|
+| Array non démarré | alerte |
+| Disque désactivé ou émulé, manquant, invalide, mauvais disque | alerte |
+| Pool avec un disque manquant, pool ZFS non `ONLINE` | alerte |
+| Erreurs au dernier contrôle de parité | alerte |
+| Reconstruction en cours | avertissement |
+| Erreurs d'entrée-sortie d'un disque, erreurs btrfs d'un disque de pool | avertissement |
+| Dernier contrôle de parité interrompu | avertissement |
+| Nouveau disque pas encore intégré | avertissement |
+| Contrôle de parité en cours | affiché, sans alerte |
+
+Comme pour mdadm, les compteurs d'erreurs font partie de l'avertissement : une hausse le fait réapparaître après acceptation. L'avertissement du dernier contrôle porte sur ce contrôle-là : le suivant repart de zéro.
+
+### Ceph
+
+Sur un nœud Proxmox VE avec Ceph (`/etc/pve/ceph.conf` et la commande `ceph`), l'agent interroge le cluster avec le trousseau admin de root : `ceph status`, `ceph health detail` et `ceph osd tree`, bornés à 20 s. Sans réponse dans ce délai (perte du quorum des moniteurs, par exemple), Ceph est signalé injoignable.
+
+Chaque nœud remonte l'état du **cluster entier** (santé, checks, OSD up/in, PG `active+clean`, remplissage) et les **OSD qu'il héberge**. Le bloc Ceph affiche le nom du cluster Proxmox du nœud.
+
+| Situation | Niveau | Où |
+|---|---|---|
+| `HEALTH_ERR` (par check) | alerte | tous les nœuds |
+| `HEALTH_WARN` (par check) | avertissement | tous les nœuds |
+| Ceph injoignable | alerte | nœud concerné |
+| OSD `down` | alerte | nœud qui l'héberge |
+| OSD `out` | avertissement | nœud qui l'héberge |
+
+Les checks mis en sourdine dans Ceph (`ceph health mute`) sont affichés sans alerter. Un check du cluster porte la même alerte sur chaque nœud : l'accepter sur un nœud l'accepte sur tous les nœuds du même cluster Ceph (même `fsid`) où il est actif.
 
 ## Alertes
 
@@ -68,7 +108,7 @@ Seuils par défaut, réglables dans **Paramètres › Santé** (avertissement / 
 | Température SMART | 60 °C | 70 °C |
 | Usure NVMe | 70 % | 85 % |
 
-Un secteur réalloué est signalé immédiatement, quels que soient les seuils. Les niveaux RAID sont décrits [plus haut](#raid-logiciel-mdadm).
+Un secteur réalloué est signalé immédiatement, quels que soient les seuils. Les niveaux RAID sont décrits [plus haut](#raid).
 
 ### Durée avant déclenchement
 
@@ -91,7 +131,7 @@ Avec l'[intégration Home Assistant](home-assistant.md), les alertes du domaine 
 
 ## Limites de plateforme
 
-- **Windows** collecte CPU, mémoire et volumes ; la charge Unix, SMART et le RAID mdadm ne s'appliquent pas.
+- **Windows** collecte CPU, mémoire et volumes ; la charge Unix, SMART et le RAID ne s'appliquent pas.
 - **Home Assistant OS** s'appuie sur les statistiques Linux visibles dans l'add-on pour CPU, mémoire et charge, et sur `/host/info` de l'API Supervisor pour l'occupation du disque de données. SMART n'y est pas activé par défaut.
 - **Unix** : la charge `load 1/5/15` n'existe que sur ces plateformes.
 - Une métrique absente d'une plateforme ou d'un agent reste vide, jamais remplacée par zéro.

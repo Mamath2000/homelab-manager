@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import type { FastifyInstance } from 'fastify';
 import { healthMetrics, hosts, settings } from './db.js';
-import type { HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthSettings, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
+import type { HealthCeph, HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthUnraid, HealthUnraidDisk, HealthUnraidPool, HealthSettings, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
 import { parseId } from './db.js';
 import { isOnline, sendToAgent } from './agents.js';
 import { healthWithSilenced } from './healthSilence.js';
@@ -144,10 +144,50 @@ function isHealthRaidArray(v: unknown): v is HealthRaidArray {
     Array.isArray(a.members) && a.members.length <= 64 && a.members.every(isHealthRaidMember);
 }
 
+const optional = <T>(v: T | undefined, ok: (v: T) => boolean) => v === undefined || ok(v);
+const percent = (v: unknown) => finite(v) && v >= 0 && v <= 100;
+
+function isHealthUnraidDisk(v: unknown): v is HealthUnraidDisk {
+  if (!v || typeof v !== 'object') return false;
+  const d = v as HealthUnraidDisk;
+  return shortText(d.name) && d.name.length > 0 && shortText(d.type) && optional(d.device, (x) => shortText(x)) && shortText(d.status) &&
+    count(d.errors) && optional(d.fsErrors, count);
+}
+
+function isHealthUnraidPool(v: unknown): v is HealthUnraidPool {
+  if (!v || typeof v !== 'object') return false;
+  const p = v as HealthUnraidPool;
+  return shortText(p.name) && p.name.length > 0 && shortText(p.fsType) && optional(p.profile, (x) => shortText(x)) && optional(p.health, (x) => shortText(x)) &&
+    count(p.devices) && count(p.devicesExpected) && Array.isArray(p.disks) && p.disks.length <= 64 && p.disks.every(isHealthUnraidDisk);
+}
+
+function isHealthUnraid(v: unknown): v is HealthUnraid {
+  if (!v || typeof v !== 'object') return false;
+  const u = v as HealthUnraid;
+  const c = u.lastCheck;
+  return shortText(u.state) && optional(u.syncAction, (x) => shortText(x)) && optional(u.syncPercent, percent) &&
+    optional(c, (x) => !!x && typeof x === 'object' && count(x.startedAt) && optional(x.finishedAt, count) && count(x.errors) && finite(x.exit) && Number.isInteger(x.exit)) &&
+    Array.isArray(u.disks) && u.disks.length <= 64 && u.disks.every(isHealthUnraidDisk) &&
+    Array.isArray(u.pools) && u.pools.length <= 32 && u.pools.every(isHealthUnraidPool);
+}
+
+function isHealthCeph(v: unknown): v is HealthCeph {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as HealthCeph;
+  return optional(c.fsid, (x) => shortText(x)) && optional(c.status, (x) => shortText(x)) && optional(c.error, (x) => shortText(x, 512)) &&
+    Array.isArray(c.checks) && c.checks.length <= 64 && c.checks.every((x) => !!x && typeof x === 'object' && shortText(x.code) && x.code.length > 0 &&
+      shortText(x.severity) && shortText(x.message, 512) && typeof x.muted === 'boolean' &&
+      Array.isArray(x.detail) && x.detail.length <= 10 && x.detail.every((d) => shortText(d, 512))) &&
+    [c.osdsTotal, c.osdsUp, c.osdsIn, c.pgs, c.pgsClean, c.usedBytes, c.totalBytes].every(count) &&
+    Array.isArray(c.osds) && c.osds.length <= 64 &&
+    c.osds.every((o) => !!o && typeof o === 'object' && count(o.id) && shortText(o.name) && typeof o.up === 'boolean' && typeof o.in === 'boolean');
+}
+
 export function isHealthRaid(v: unknown): v is HealthRaid {
   if (!v || typeof v !== 'object') return false;
   const r = v as HealthRaid;
-  return checkedAt(r.checkedAt) && Array.isArray(r.arrays) && r.arrays.length <= 32 && r.arrays.every(isHealthRaidArray);
+  return checkedAt(r.checkedAt) && Array.isArray(r.arrays) && r.arrays.length <= 32 && r.arrays.every(isHealthRaidArray) &&
+    optional(r.unraid, isHealthUnraid) && optional(r.ceph, isHealthCeph);
 }
 
 // md states where the array no longer serves its data normally
@@ -170,6 +210,72 @@ export function raidAlerts(report: HealthRaid) {
     if (['resync', 'recover', 'reshape'].includes(a.syncAction)) add('sync', 'warn', `${a.syncAction} en cours${progress}`);
     // check / repair: the periodic scrub, shown but not alerted on; its mismatches are, once it is over
     else if (a.mismatchCount > 0 && a.syncAction === 'idle') add('mismatch', 'warn', `${a.mismatchCount} secteur(s) incohérent(s) au dernier contrôle`);
+  }
+  if (report.unraid) list.push(...unraidAlerts(report.unraid));
+  if (report.ceph) list.push(...cephAlerts(report.ceph));
+  return list;
+}
+
+// Unraid disk states other than DISK_OK (empty slots are left out by the agent)
+const UNRAID_DISK_STATES: Record<string, string> = {
+  DISK_DSBL: 'désactivé (émulé)', DISK_NP_DSBL: 'absent (émulé)', DISK_NP_MISSING: 'manquant', DISK_INVALID: 'invalide',
+  DISK_WRONG: 'mauvais disque', DISK_DSBL_NEW: 'remplacé, à reconstruire', DISK_NEW: 'nouveau, pas encore intégré',
+};
+
+// Unraid array and pools. As for md, error counts are in the keys: an accepted warning comes back when the count rises.
+// The last parity check is keyed by its start: accepting it accepts that check only.
+export function unraidAlerts(u: HealthUnraid) {
+  const list: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[] = [];
+  const add = (key: string, level: 'warn' | 'alert', reason: string) => list.push({ key: `raid:unraid:${key}`, label: 'Unraid', level, reason: `Unraid : ${reason}` });
+  if (u.state !== 'STARTED') add('state', 'alert', `array ${u.state || 'inconnu'}`);
+  const disk = (d: HealthUnraidDisk, where: string) => {
+    if (d.status !== 'DISK_OK') add(`disk:${d.name}:status`, d.status === 'DISK_NEW' ? 'warn' : 'alert', `${where}${d.name} ${UNRAID_DISK_STATES[d.status] ?? d.status}`);
+    if (d.errors > 0) add(`disk:${d.name}:errors:${d.errors}`, 'warn', `${where}${d.name} : ${d.errors} erreur(s) d'entrée-sortie`);
+    if (d.fsErrors) add(`disk:${d.name}:fserrors:${d.fsErrors}`, 'warn', `${where}${d.name} : ${d.fsErrors} erreur(s) btrfs`);
+  };
+  for (const d of u.disks) disk(d, '');
+  for (const p of u.pools) {
+    if (p.devices < p.devicesExpected) add(`pool:${p.name}:missing`, 'alert', `pool ${p.name}, ${p.devicesExpected - p.devices} disque(s) manquant(s) sur ${p.devicesExpected}`);
+    if (p.health && p.health !== 'ONLINE') add(`pool:${p.name}:health`, 'alert', `pool ${p.name} ${p.health}`);
+    for (const d of p.disks) disk(d, `pool ${p.name}, `);
+  }
+  const progress = u.syncPercent !== undefined ? ` (${u.syncPercent.toFixed(1)} %)` : '';
+  // the monthly parity check is shown, not alerted on; a rebuild is
+  if (u.syncAction?.startsWith('recon')) add('sync', 'warn', `reconstruction en cours${progress}`);
+  const c = u.lastCheck;
+  if (c && !u.syncAction) {
+    if (c.errors > 0) add(`lastcheck:${c.startedAt}:errors`, 'alert', `${c.errors} erreur(s) de parité au dernier contrôle`);
+    else if (c.exit !== 0) add(`lastcheck:${c.startedAt}:exit`, 'warn', `dernier contrôle de parité interrompu (code ${c.exit})`);
+  }
+  return list;
+}
+
+// Ceph: the cluster-wide checks have the same keys on every node (acceptance shared by fsid), an OSD's on its node only.
+export const isCephClusterKey = (key: string) => key === 'raid:ceph:unreachable' || key.startsWith('raid:ceph:check:');
+
+// Acceptances of a host after (un)accepting keys; only the keys of its active alerts are accepted.
+export function applySilence(current: HostDoc['healthSilenced'], alerts: NonNullable<HostDoc['health']>['alerts'], keys: string[], silenced: boolean) {
+  const levels = new Map((alerts ?? []).map((a) => [a.key, a.level]));
+  const next = (current ?? []).filter((s) => !keys.includes(s.key));
+  if (silenced) for (const key of keys) if (levels.has(key)) next.push({ key, level: levels.get(key)! });
+  return next;
+}
+
+export function cephAlerts(c: HealthCeph) {
+  const list: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[] = [];
+  const add = (key: string, level: 'warn' | 'alert', reason: string) => list.push({ key: `raid:ceph:${key}`, label: 'Ceph', level, reason: `Ceph : ${reason}` });
+  if (c.error) {
+    add('unreachable', 'alert', `pas de réponse (${c.error})`);
+    return list;
+  }
+  for (const x of c.checks) {
+    if (x.muted || (x.severity !== 'HEALTH_WARN' && x.severity !== 'HEALTH_ERR')) continue;
+    const detail = x.detail.length ? ` (${x.detail.join(' ; ')})` : '';
+    add(`check:${x.code}`, x.severity === 'HEALTH_ERR' ? 'alert' : 'warn', `${x.message}${detail}`);
+  }
+  for (const o of c.osds) {
+    if (!o.up) add(`${o.name}:down`, 'alert', `${o.name} arrêté (down)`);
+    else if (!o.in) add(`${o.name}:out`, 'warn', `${o.name} sorti du cluster (out)`);
   }
   return list;
 }
@@ -443,6 +549,16 @@ export function registerHealthRoutes(app: FastifyInstance) {
       }
       const updated = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { healthSilenced: next } }, { returnDocument: 'after' });
       if (updated) publish('host', hostDto(updated));
+      // a cluster-wide Ceph check is accepted (or not) on all the nodes of the cluster
+      const shared = req.body.keys.filter(isCephClusterKey);
+      const fsid = host.health?.raid?.ceph?.fsid;
+      if (shared.length && fsid) {
+        for (const other of await hosts.find({ _id: { $ne: hostId }, 'health.raid.ceph.fsid': fsid }, { projection: { health: 1, healthSilenced: 1 } }).toArray()) {
+          const silenced = applySilence(other.healthSilenced, other.health?.alerts, shared, req.body.silenced);
+          const done = await hosts.findOneAndUpdate({ _id: other._id }, { $set: { healthSilenced: silenced } }, { returnDocument: 'after' });
+          if (done) publish('host', hostDto(done));
+        }
+      }
       return { healthSilenced: next };
     },
   );

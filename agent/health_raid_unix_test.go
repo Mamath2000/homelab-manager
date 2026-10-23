@@ -42,11 +42,11 @@ func TestCollectHealthRaid(t *testing.T) {
 	healthRaidSysRoot = root
 	defer func() { healthRaidSysRoot = previous }()
 
-	r := collectHealthRaid()
-	if len(r.Arrays) != 2 {
-		t.Fatalf("arrays = %+v", r.Arrays)
+	arrays := collectMdArrays()
+	if len(arrays) != 2 {
+		t.Fatalf("arrays = %+v", arrays)
 	}
-	md0, md1 := r.Arrays[0], r.Arrays[1]
+	md0, md1 := arrays[0], arrays[1]
 	if md0.Name != "md0" || md0.Level != "raid5" || md0.State != "clean" || md0.RaidDisks != 4 || md0.Degraded != 0 || md0.SyncAction != "idle" || md0.SyncPercent != nil {
 		t.Fatalf("md0 = %+v", md0)
 	}
@@ -65,7 +65,7 @@ func TestCollectHealthRaidWithoutArrays(t *testing.T) {
 	previous := healthRaidSysRoot
 	healthRaidSysRoot = t.TempDir()
 	defer func() { healthRaidSysRoot = previous }()
-	if r := collectHealthRaid(); r.Arrays == nil || len(r.Arrays) != 0 {
-		t.Fatalf("arrays = %+v", r.Arrays)
+	if arrays := collectMdArrays(); arrays == nil || len(arrays) != 0 {
+		t.Fatalf("arrays = %+v", arrays)
 	}
 }
