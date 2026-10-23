@@ -1,6 +1,6 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
-        docker-build release-key \
+        docker-build docker-prune release-key \
         docker-release docker-release-minor docker-release-major docker-direct publish
 .DEFAULT_GOAL := help
 
@@ -119,13 +119,16 @@ release-key: ## Crée la clé de signature des agents (une fois) : clé privée 
 docker-build: ## Construit l'image locale homelab-manager:latest (sans push ; agents signés si la clé de release est présente)
 	bash docker-release.sh build
 
-docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git, push et synchro HAOS
+docker-prune: ## Libère le disque : dist, anciennes images locales (garde latest + version courante), images orphelines, cache buildx > 7 j
+	bash docker-release.sh prune
+
+docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git, push, synchro HAOS (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release
 
-docker-release-minor: check ## Release : mineur +1, build remis à 0 (X.Y+1.0), commit, build et push, tag git, push et synchro HAOS
+docker-release-minor: check ## Release : mineur +1, build remis à 0 (X.Y+1.0), commit, build et push, tag git, push, synchro HAOS (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release-minor
 
-docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push, tag git, push et synchro HAOS
+docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push, tag git, push, synchro HAOS (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release-major
 
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]

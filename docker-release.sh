@@ -7,6 +7,9 @@
 #                   l'application HAOS lancée (gh workflow run, homelab-manager-haos)
 #   release-minor : mineur +1, build remis à 0 (X.Y+1.0)
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
+#   prune         : libère le disque : agent/hub/web dist, anciennes images locales de homelab-manager et
+#                   homelab-agent-haos (reste latest et la version courante), images orphelines, cache buildx > 7 j
+#                   (lancé aussi en fin de release)
 #   direct        : contournement de Docker Hub : build amd64 sans identifiants (config Docker vide), image
 #                   transférée par ssh dans le CT du hub (docker save | docker load), puis compose up du service.
 #                   Rien n'est publié ni commité ; tags locaux latest et X.Y.Z-<ref git>.
@@ -37,6 +40,22 @@ next_version() {
     esac
 }
 
+# prune_old : supprime les anciens artefacts de build (les erreurs sont ignorées : image en cours d'utilisation…)
+prune_old() {
+    echo "🧹 Nettoyage des anciens artefacts de build"
+    rm -rf agent/dist hub/dist web/dist
+    local keep
+    keep=$(cat VERSION)
+    docker images --format '{{.Repository}}:{{.Tag}}' \
+        | grep -E "^($DOCKER_USER/$APP_NAME|$APP_NAME|homelab-agent-haos)(:|$)" \
+        | grep -Ev ":(latest|local|$keep|$keep-[0-9a-f]+)$" \
+        | xargs -r docker rmi 2>/dev/null || true
+    docker image prune -f >/dev/null 2>&1 || true
+    docker buildx prune -f --filter until=168h >/dev/null 2>&1 || true
+    docker buildx prune -f --builder "$BUILDER" --filter until=168h >/dev/null 2>&1 || true
+    docker system df
+}
+
 for cmd in docker git npm; do
     command -v $cmd >/dev/null 2>&1 || { echo "❌ $cmd est requis mais non installé."; exit 1; }
 done
@@ -64,6 +83,11 @@ signing_args() {
     }
     SIGNING=(--secret "id=release_key,src=$RELEASE_KEY" --build-arg "RELEASE_PUB=$pub")
 }
+
+if [ "$action" = "prune" ]; then
+    prune_old
+    exit 0
+fi
 
 if [ "$action" = "build" ]; then
     SIGNING=()
@@ -135,7 +159,7 @@ fi
 
 case "$action" in
     release|release-minor|release-major) ;;
-    *) echo "Usage: $0 [build|release|release-minor|release-major|direct]"; exit 1 ;;
+    *) echo "Usage: $0 [build|prune|release|release-minor|release-major|direct]"; exit 1 ;;
 esac
 
 command -v go >/dev/null 2>&1 || { echo "❌ go est requis (vérification de la clé de release)."; exit 1; }
@@ -199,3 +223,4 @@ git push -q origin "$BRANCH" --tags \
 gh workflow run sync.yaml -R "$HAOS_REPO" \
     && echo "✅ Synchro de l'application HAOS lancée : gh run list -R $HAOS_REPO" \
     || echo "⚠️  Synchro HAOS non lancée : make -C ../homelab-manager-haos sync (sinon cron quotidien)"
+prune_old
