@@ -134,7 +134,8 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="truncate font-medium text-zinc-100" title={d.device}>{d.model || d.device}</span>
                     {d.healthy === undefined ? <Badge>SMART inconnu</Badge> : <Badge tone={d.healthy ? 'ok' : 'bad'}>{d.healthy ? 'Sain' : 'Échec SMART'}</Badge>}
-                    {d.temperatureC !== undefined && <span className="text-zinc-300">{d.temperatureC} °C</span>}
+                    {d.standby && <Badge tone="info">En veille</Badge>}
+                    {d.temperatureC !== undefined && <span className="text-zinc-300" title={d.standby ? 'Dernière mesure connue' : undefined}>{d.temperatureC} °C</span>}
                     {d.reallocated !== undefined && <span className="text-zinc-300">{d.reallocated} réalloués</span>}
                     {d.nvmeWearPercent !== undefined && <span className="text-zinc-300">Usure {d.nvmeWearPercent} %</span>}
                     <span className="ml-auto"><SilenceButton hostId={host.id} alerts={alertsOf(`smart:${d.device}`)} canManage={canManage} /></span>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isHealthDisks, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks } from '../src/health.js';
 import type { HostInfo } from '../src/types.js';
 import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
@@ -14,7 +14,7 @@ test('health defaults use distinct system, volume, and SMART frequencies with sh
       DEFAULT_HEALTH_SETTINGS.smartIntervalSeconds,
       DEFAULT_HEALTH_SETTINGS.retentionHours,
     ],
-    [30, 300, 7 * 86400, 48],
+    [30, 300, 600, 48],
   );
   assert.deepEqual(
     [
@@ -79,4 +79,13 @@ test('a silenced alert is reported again when it gets worse', () => {
   assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk1', level: 'alert' }, silenced), false);
   assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk2', level: 'warn' }, silenced), false);
   assert.equal(isHealthAlertSilenced({ key: 'disks:volume:/mnt/disk1', level: 'warn' }, undefined), false);
+});
+
+test('a disk asleep keeps its last known values', () => {
+  const previous = { checkedAt: 1, disks: [{ device: '/dev/sde', model: 'WD', temperatureC: 34, healthy: true }, { device: '/dev/sdf', temperatureC: 31 }] };
+  const report = { checkedAt: 2, disks: [{ device: '/dev/sde', standby: true }, { device: '/dev/sdf', temperatureC: 33 }, { device: '/dev/sdg', standby: true }] };
+  const kept = keepStandbyDisks(report, previous);
+  assert.deepEqual(kept.disks[0], { device: '/dev/sde', model: 'WD', temperatureC: 34, healthy: true, standby: true });
+  assert.deepEqual(kept.disks[1], { device: '/dev/sdf', temperatureC: 33 });
+  assert.deepEqual(kept.disks[2], { device: '/dev/sdg', standby: true });
 });

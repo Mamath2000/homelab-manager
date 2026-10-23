@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -31,6 +32,9 @@ func findSmartctl() (string, error) {
 }
 
 type smartctlReport struct {
+	PowerMode *struct {
+		Name string `json:"name"`
+	} `json:"power_mode"`
 	Device struct {
 		Model  string `json:"model_name"`
 		Serial string `json:"serial_number"`
@@ -69,7 +73,7 @@ func collectHealthSmart(ctx context.Context, devices []string) *HealthSmart {
 			continue
 		}
 		cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		out, err := exec.CommandContext(cmdCtx, smartctl, "--json", "--all", "--", device).Output()
+		out, err := exec.CommandContext(cmdCtx, smartctl, "--json", "--all", "-n", "standby", "--", device).Output()
 		cancel()
 		var report smartctlReport
 		if jsonErr := json.Unmarshal(out, &report); jsonErr != nil {
@@ -78,6 +82,12 @@ func collectHealthSmart(ctx context.Context, devices []string) *HealthSmart {
 			} else {
 				d.Error = fmt.Sprintf("invalid smartctl response: %v", jsonErr)
 			}
+			r.Disks = append(r.Disks, d)
+			continue
+		}
+		// -n standby: a sleeping disk is not woken (smartctl answers with its power mode only); the hub keeps its last values
+		if report.PowerMode != nil && strings.EqualFold(report.PowerMode.Name, "standby") {
+			d.Standby = true
 			r.Disks = append(r.Disks, d)
 			continue
 		}

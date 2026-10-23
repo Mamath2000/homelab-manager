@@ -76,6 +76,8 @@ export interface HealthSmartDisk {
   temperatureC?: number;
   reallocated?: number;
   nvmeWearPercent?: number;
+  // asleep when read: the values are the last ones known
+  standby?: boolean;
   error?: string;
 }
 

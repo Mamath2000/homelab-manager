@@ -12,7 +12,7 @@ export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   _id: 'health',
   systemIntervalSeconds: 30,
   diskIntervalSeconds: 5 * 60,
-  smartIntervalSeconds: 7 * 24 * 3600,
+  smartIntervalSeconds: 10 * 60,
   retentionHours: 48,
   cpuWarningThreshold: 75,
   cpuAlertThreshold: 90,
@@ -110,6 +110,7 @@ function isHealthSmartDisk(v: unknown): v is HealthSmartDisk {
     (d.temperatureC === undefined || (finite(d.temperatureC) && d.temperatureC >= -50 && d.temperatureC <= 250)) &&
     (d.reallocated === undefined || (finite(d.reallocated) && d.reallocated >= 0)) &&
     (d.nvmeWearPercent === undefined || (finite(d.nvmeWearPercent) && d.nvmeWearPercent >= 0 && d.nvmeWearPercent <= 1000)) &&
+    (d.standby === undefined || typeof d.standby === 'boolean') &&
     (d.error === undefined || (typeof d.error === 'string' && d.error.length <= 1024));
 }
 
@@ -211,6 +212,14 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
   return [...retained, ...next];
 }
 
+// A disk asleep at the time of the reading has no values: it keeps the last ones known, flagged as asleep.
+export function keepStandbyDisks(report: HealthSmart, previous: HealthSmart | undefined): HealthSmart {
+  return {
+    ...report,
+    disks: report.disks.map((d) => (d.standby ? { ...(previous?.disks.find((p) => p.device === d.device) ?? {}), ...d } : d)),
+  };
+}
+
 async function persistReport(hostId: ObjectId, category: HealthCategory, report: HealthReport) {
   const sampledAt = new Date(report.checkedAt);
   const host = await hosts.findOne({ _id: hostId });
@@ -226,9 +235,10 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'disks' ? s.diskIntervalSeconds : s.smartIntervalSeconds;
   const since = new Date(Date.now() - durationMinutes * 60_000 - intervalSeconds * 2_000);
   const docs = await healthMetrics.find({ hostId, category, sampledAt: { $gte: since } }).sort({ sampledAt: 1 }).limit(5000).toArray();
-  const alerts = reportAlerts(host, category, report, s, docs.map((d) => d.report));
+  const stored = category === 'smart' ? keepStandbyDisks(report as HealthSmart, host.health?.smart) : report;
+  const alerts = reportAlerts(host, category, stored, s, docs.map((d) => d.report));
   const field = category === 'system' ? 'health.system' : category === 'disks' ? 'health.disks' : 'health.smart';
-  await hosts.updateOne({ _id: hostId }, { $set: { [field]: report, 'health.alerts': alerts } });
+  await hosts.updateOne({ _id: hostId }, { $set: { [field]: stored, 'health.alerts': alerts } });
 }
 
 async function saveReport(hostId: ObjectId, category: HealthCategory, report: HealthReport) {

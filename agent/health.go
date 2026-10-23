@@ -51,6 +51,7 @@ type HealthSmartDisk struct {
 	TemperatureC    *float64 `json:"temperatureC,omitempty"`
 	Reallocated     *uint64  `json:"reallocated,omitempty"`
 	NvmeWearPercent *float64 `json:"nvmeWearPercent,omitempty"`
+	Standby         bool     `json:"standby,omitempty"` // asleep: not read, so not woken
 	Error           string   `json:"error,omitempty"`
 }
 

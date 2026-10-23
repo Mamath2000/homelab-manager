@@ -75,6 +75,7 @@ export interface HealthSmartDisk {
   temperatureC?: number;
   reallocated?: number;
   nvmeWearPercent?: number;
+  standby?: boolean;
   error?: string;
 }
 
