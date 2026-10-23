@@ -1,6 +1,6 @@
 ---
 title: Santé
-description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID : mdadm, array et pools Unraid, Ceph), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
+description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID mdadm, array et pools Unraid, Ceph), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
 sidebar_position: 3.6
 ---
 
