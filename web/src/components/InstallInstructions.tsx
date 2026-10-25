@@ -12,19 +12,21 @@ export const WINDOWS_UNINSTALL = '& "C:\\Program Files\\homelab-agent\\homelab-a
 // Same rule as install.sh: absolute path, no space or shell character.
 const DIR_RE = /^\/[A-Za-z0-9._/-]*[A-Za-z0-9._-]$/;
 
-export function InstallInstructions({ install }: { install: InstallInfo }) {
-  const [platform, setPlatform] = useState<'linux' | 'haos' | 'windows'>('linux');
+export type Platform = 'linux' | 'haos' | 'windows';
+
+export const PLATFORMS = [
+  { id: 'linux', label: 'Linux / Unraid', icon: Terminal, hint: 'Debian / Ubuntu avec systemd, WSL2, Unraid' },
+  { id: 'haos', label: 'Home Assistant OS', icon: Home, hint: 'Application (add-on) de la boutique HA' },
+  { id: 'windows', label: 'Windows', icon: Monitor, hint: 'Windows 10 / 11, 64 bits, service' },
+] as const satisfies readonly { id: Platform; label: string; icon: unknown; hint: string }[];
+
+// platform given: that system only, chosen elsewhere (add-host dialog); otherwise tabs
+export function InstallInstructions({ install, platform: fixed }: { install: InstallInfo; platform?: Platform }) {
+  const [tab, setTab] = useState<Platform>('linux');
+  const platform = fixed ?? tab;
   return (
     <div className="text-sm">
-      <Tabs
-        tabs={[
-          { id: 'linux', label: 'Linux / Unraid', icon: Terminal },
-          { id: 'haos', label: 'Home Assistant OS', icon: Home },
-          { id: 'windows', label: 'Windows', icon: Monitor },
-        ]}
-        value={platform}
-        onChange={setPlatform}
-      />
+      {!fixed && <Tabs tabs={PLATFORMS.map(({ id, label, icon }) => ({ id, label, icon }))} value={tab} onChange={setTab} />}
       {platform === 'linux' ? <LinuxInstall install={install} /> : platform === 'haos' ? <HaosInstall install={install} /> : <WindowsInstall install={install} />}
     </div>
   );

@@ -9,10 +9,10 @@ import type { StepState } from '../lib/steps';
 // never as a field to type in.
 
 // fill: the steps take the whole height of a fixed window (Modal fixed), their lists scroll inside
-// threeCols: three steps, the last one wider (add host)
-export function Steps({ children, fill, threeCols }: { children: ReactNode; fill?: boolean; threeCols?: boolean }) {
+// lastWide: the last step wider (add host)
+export function Steps({ children, fill, lastWide }: { children: ReactNode; fill?: boolean; lastWide?: boolean }) {
   return (
-    <div className={clsx('grid gap-3 sm:grid-cols-2', threeCols ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.7fr)]' : 'lg:grid-cols-4', fill ? 'lg:h-full lg:grid-rows-[minmax(0,1fr)]' : 'lg:min-h-full')}>{children}</div>
+    <div className={clsx('grid gap-3 sm:grid-cols-2', lastWide ? 'lg:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)]' : 'lg:grid-cols-4', fill ? 'lg:h-full lg:grid-rows-[minmax(0,1fr)]' : 'lg:min-h-full')}>{children}</div>
   );
 }
 
