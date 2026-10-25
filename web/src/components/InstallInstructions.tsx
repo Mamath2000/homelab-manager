@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Download, Home, Monitor, Terminal } from 'lucide-react';
+import { Download } from 'lucide-react';
 import type { InstallInfo } from '../lib/api';
 import { dateTime } from '../lib/format';
+import { PLATFORMS, type Platform } from '../lib/platforms';
 import { CopyField, Tabs } from './ui';
 
 // Add-on repository of the agent for Home Assistant OS (Settings > Add-ons > Add-on store > Repositories)
@@ -11,14 +12,6 @@ export const WINDOWS_UNINSTALL = '& "C:\\Program Files\\homelab-agent\\homelab-a
 
 // Same rule as install.sh: absolute path, no space or shell character.
 const DIR_RE = /^\/[A-Za-z0-9._/-]*[A-Za-z0-9._-]$/;
-
-export type Platform = 'linux' | 'haos' | 'windows';
-
-export const PLATFORMS = [
-  { id: 'linux', label: 'Linux / Unraid', icon: Terminal, hint: 'Debian / Ubuntu avec systemd, WSL2, Unraid' },
-  { id: 'haos', label: 'Home Assistant OS', icon: Home, hint: 'Application (add-on) de la boutique HA' },
-  { id: 'windows', label: 'Windows', icon: Monitor, hint: 'Windows 10 / 11, 64 bits, service' },
-] as const satisfies readonly { id: Platform; label: string; icon: unknown; hint: string }[];
 
 // platform given: that system only, chosen elsewhere (add-host dialog); otherwise tabs
 export function InstallInstructions({ install, platform: fixed }: { install: InstallInfo; platform?: Platform }) {
