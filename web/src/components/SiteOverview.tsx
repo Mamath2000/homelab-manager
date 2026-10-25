@@ -5,6 +5,7 @@ import type { DomainMeta, Host, StatusView } from '../lib/api';
 import { cellCls, cellLabel, cellOf, domainCells, domainText, hostsDomains, levelTone, worstLevel, type Cell } from '../lib/monitoring';
 import { useMe } from '../lib/auth';
 import { useRunBulk, useStatus } from '../lib/queries';
+import { inColumn, kindColumns } from '../lib/hostOverview';
 import { count, siteKindMeta, type Site } from '../lib/sites';
 import { hasApt, toneStroke, type Tone } from '../lib/status';
 import { Badge, Button, Panel } from './ui';
@@ -96,9 +97,26 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <SiteHeader site={site} status={status} />
-      <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
-        {site.hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
-      </div>
+      {site.kind === 'main' ? (
+        // main site: tiles grouped by host type, as in the matrix of the Hosts page
+        <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
+          {kindColumns(site.hosts).map((c) => {
+            const hosts = site.hosts.filter((h) => inColumn(h, c));
+            return (
+              <div key={c.key} className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted">{c.label} · {hosts.length}</span>
+                <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
+                  {hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
+          {site.hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
+        </div>
+      )}
       <Meters site={site} status={status} domains={domains} stacked={small} />
     </div>
   );
