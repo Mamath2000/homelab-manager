@@ -238,7 +238,7 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
 // open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, wide, wider, fixed, scroll }: {
+export function Modal({ open, onClose, title, children, footer, wide, wider, fixed, scroll, dismissable = true }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -253,9 +253,11 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   fixed?: boolean;
   // long content: the body scrolls inside the window, header and footer stay visible
   scroll?: boolean;
+  // false: a true modal, neither a click outside, Escape nor the cross closes it (the footer does)
+  dismissable?: boolean;
 }) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || !dismissable) return;
     const me = Symbol('modal');
     modalStack.push(me);
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && modalStack[modalStack.length - 1] === me && onClose();
@@ -264,13 +266,13 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
       window.removeEventListener('keydown', onKey);
       modalStack.splice(modalStack.indexOf(me), 1);
     };
-  }, [open, onClose]);
+  }, [open, onClose, dismissable]);
   if (!open) return null;
   // every window is centered on the page (my-auto: still reachable from the top when taller than the screen);
   const screenWide = wide === 'screen' || wide === 'screen-wide';
   // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
   return (
-    <div data-modal className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={onClose}>
+    <div data-modal className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={dismissable ? onClose : undefined}>
       <div
         className={clsx(
           'panel my-auto w-full min-w-0 bg-panel shadow-2xl shadow-black/60',
@@ -284,9 +286,9 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-5 py-3.5">
           <h3 className="min-w-0 flex-1 text-base font-medium text-zinc-100 break-words">{title}</h3>
-          <button onClick={onClose} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-zinc-200 md:h-6 md:w-6 md:p-1">
+          {dismissable && <button onClick={onClose} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-raised hover:text-zinc-200 md:h-6 md:w-6 md:p-1">
             <X className="h-4 w-4" />
-          </button>
+          </button>}
         </header>
         <div className={clsx('min-w-0 px-5 py-4', (scroll || screenWide) && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
         {footer && <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}

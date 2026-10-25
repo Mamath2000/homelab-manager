@@ -1,12 +1,31 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { isOnline } from './agents.js';
-import { hosts } from './db.js';
+import { healthMetrics, hosts, jobs } from './db.js';
+import { publish } from './events.js';
 import { loadAgentSettings, maybeAutoUpdate } from './agentUpdate.js';
 import { createJob, hasRunningJob } from './jobs.js';
+
+// Hosts created by the add-host dialog whose agent never connected (dialog closed, page reloaded) and
+// whose install code has expired: ghosts, removed.
+async function removeGhostHosts(log: FastifyBaseLogger) {
+  const ghosts = await hosts
+    .find({ enrolledAt: { $exists: false }, certFingerprint: { $exists: false }, tokenHash: { $exists: false }, enrollExpiresAt: { $lt: new Date() } })
+    .toArray();
+  for (const h of ghosts) {
+    // re-checked in the filter: an enrollment may have landed since the read
+    const res = await hosts.deleteOne({ _id: h._id, enrolledAt: { $exists: false }, certFingerprint: { $exists: false } });
+    if (!res.deletedCount) continue;
+    await jobs.deleteMany({ hostId: h._id });
+    await healthMetrics.deleteMany({ hostId: h._id });
+    publish('host.deleted', { id: h._id.toHexString() });
+    log.info({ host: h.name }, 'removed never-enrolled host (install code expired)');
+  }
+}
 
 // Asks every online agent to refresh its package lists, and to check its Docker images, when
 // they are older than the interval.
 async function tick(log: FastifyBaseLogger) {
+  await removeGhostHosts(log);
   for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) {
     if (await maybeAutoUpdate(h._id)) log.info({ host: h._id.toHexString() }, 'automatic agent update');
   }
