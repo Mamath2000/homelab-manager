@@ -97,8 +97,8 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <SiteHeader site={site} status={status} />
-      {site.kind === 'main' ? (
-        // main site: tiles grouped by host type, as in the matrix of the Hosts page
+      {site.kind === 'main' || site.kind === 'vpn' ? (
+        // main and VPN sites: tiles grouped by host type, as in the matrix of the Hosts page
         <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
           {kindColumns(site.hosts).map((c) => {
             const hosts = site.hosts.filter((h) => inColumn(h, c));
