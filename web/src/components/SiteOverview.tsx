@@ -103,8 +103,10 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
           {kindColumns(site.hosts).map((c) => {
             const hosts = site.hosts.filter((h) => inColumn(h, c));
             return (
-              <div key={c.key} className="flex flex-col gap-1.5">
-                <span className="text-[11px] text-muted">{c.label} · {hosts.length}</span>
+              <div key={c.key} className="flex flex-col gap-1">
+                <span className="text-[11px] text-muted">{c.label} · <b className="font-medium tabular-nums text-zinc-300">{hosts.length}</b></span>
+                {/* bracket spanning the group: a line with ticks pointing down at both ends */}
+                <span aria-hidden className="mb-0.5 h-1.5 rounded-t-[2px] border-x border-t border-zinc-600" />
                 <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
                   {hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
                 </div>
