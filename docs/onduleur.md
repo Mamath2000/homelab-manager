@@ -13,6 +13,13 @@ Homelab Manager suit l'**onduleur (UPS) branché sur un hôte**, tel que le publ
 - NUT installé et configuré sur l'hôte, avec `upsd` qui répond en local : `upsc -l` liste l'onduleur et `upsc NOM` renvoie ses valeurs.
 - Un agent Homelab Manager récent sur l'hôte. L'agent annonce la capacité `ups` au hub dès que `upsc` trouve un onduleur ; sans NUT ou sans onduleur, l'hôte n'a ni panneau ni alerte d'onduleur.
 
+**Hôtes Windows** : pas de NUT. L'agent lit l'onduleur en lecture seule via WMI (`Win32_Battery`) et annonce la capacité `ups` quand il en détecte un : nom contenant « UPS », ou châssis non portable (aucun panneau sur les laptops). Le mapping est plus pauvre que NUT :
+
+- `BatteryStatus` donne l'état (`OL`, `OB`, `LB`, `CHRG`), plus la charge, l'autonomie et la tension nominale de la batterie ;
+- les champs que WMI n'expose pas (tensions d'entrée, charge de l'onduleur, auto-test, alarme sonore) sont affichés « — » ;
+- les actions (bip, test batterie) ne sont pas disponibles ;
+- les alertes et l'intégration Home Assistant reposent sur les mêmes drapeaux de statut (`OB`, `LB`).
+
 L'agent relève l'onduleur toutes les minutes et ne transmet au hub que ce qui change, avec un envoi au moins toutes les 5 minutes.
 
 ## Panneau de la fiche hôte
