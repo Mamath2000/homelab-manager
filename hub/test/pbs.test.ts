@@ -142,16 +142,16 @@ test('Home Assistant: one backup sub-device per host, root counts and datastore 
   });
   const sub = devices.find((d) => d.id === `hm_${hid}_backup`)!;
   assert.ok(sub);
-  const state = (dev: typeof sub, key: string) => dev.states.find(([t]) => t === `hm/${dev.id}/${key}/state`)?.[1];
+  const state = (dev: typeof sub, key: string) => dev.states.find(([t]) => t === `hm/${dev.key}/${key}/state`)?.[1];
   assert.equal(state(sub, 'late'), '1');
   assert.equal(state(sub, 'last_backup'), new Date(Date.UTC(2026, 9, 8)).toISOString());
   // the host rolls up its backup alert
   const hostDev = devices.find((d) => d.id === `hm_${hid}`)!;
-  assert.match(hostDev.states.find(([t]) => t === `hm/hm_${hid}/alerts/attributes`)![1], /docker : en retard/);
+  assert.match(hostDev.states.find(([t]) => t === `hm/${hostDev.key}/alerts/attributes`)![1], /docker : en retard/);
   const root = devices.find((d) => d.id === ROOT_ID)!;
   assert.equal(state(root, 'backups_late'), '1');
   assert.equal(state(root, 'datastore_ds3'), '25');
-  assert.doesNotMatch(root.states.find(([t]) => t === `hm/${ROOT_ID}/alerts/attributes`)![1], /nextcloud/);
+  assert.doesNotMatch(root.states.find(([t]) => t === `hm/manager/alerts/attributes`)![1], /nextcloud/);
   // without PBS: nothing about backups
   const none = build([{ host, online: true, busy: false }], { topic: 'hm', discoveryPrefix: 'homeassistant', version: '1' });
   assert.ok(!none.devices.some((d) => d.id.endsWith('_backup')));

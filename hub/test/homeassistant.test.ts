@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { Aedes } from 'aedes';
 import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
-import { build, INSTALL, PRESS, ROOT_ID, parseDiscoveryTopic, type HostState } from '../src/homeassistant/discovery.js';
+import { build, deviceOf, INSTALL, PRESS, ROOT_ID, ROOT_KEY, parseDiscoveryTopic, topicKeys, type Device, type HostState } from '../src/homeassistant/discovery.js';
 import type { HostDoc } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -32,6 +32,9 @@ function host(name: string, apt?: Partial<NonNullable<HostDoc['apt']>>): HostDoc
   };
 }
 
+// topic prefix of a device: its key (host name as a slug), not its id
+const at = (devices: Device[], id: string) => `hm/${devices.find((d) => d.id === id)!.key}`;
+
 const pkg = (name: string, security = false) => ({ name, current: '1', candidate: '2', repo: 'trixie', security });
 
 test('devices are nested root > host > sub-component', () => {
@@ -43,14 +46,32 @@ test('devices are nested root > host > sub-component', () => {
   assert.equal(byId.get(hid)!.via_device, ROOT_ID);
   assert.equal(byId.get(`${hid}_apt`)!.via_device, hid);
   assert.equal(byId.get(ROOT_ID)!.via_device, undefined);
+  // topics by host name, unique ids by host id
+  assert.deepEqual(devices.map((d) => d.discoveryTopic).sort(), [
+    'homeassistant/device/homelab/manager/config', 'homeassistant/device/homelab/pve1/config', 'homeassistant/device/homelab/pve1_apt/config',
+  ]);
   for (const d of devices) {
-    assert.equal(d.discoveryTopic, d.id === ROOT_ID ? 'homeassistant/device/homelab/manager/config' : `homeassistant/device/homelab/${d.id}/config`);
-    assert.deepEqual(parseDiscoveryTopic('homeassistant', d.discoveryTopic), { id: d.id, legacy: false });
+    assert.deepEqual(parseDiscoveryTopic('homeassistant', d.discoveryTopic), { legacy: false });
+    assert.equal(deviceOf(JSON.stringify(d.discovery)), d.id);
+    for (const [t] of d.states) assert.ok(t.startsWith(`hm/${d.key}/`));
   }
+  assert.ok(devices.find((d) => d.id === hid)!.states.some(([t]) => t === 'hm/pve1/alerts/state'));
   // topics of 0.1.6 and earlier are recognised, other integrations are left alone
-  assert.deepEqual(parseDiscoveryTopic('homeassistant', `homeassistant/device/${hid}_apt/config`), { id: `${hid}_apt`, legacy: true });
-  assert.deepEqual(parseDiscoveryTopic('homeassistant', 'homeassistant/device/homelab_manager/config'), { id: ROOT_ID, legacy: true });
+  assert.deepEqual(parseDiscoveryTopic('homeassistant', `homeassistant/device/${hid}_apt/config`), { legacy: true });
+  assert.deepEqual(parseDiscoveryTopic('homeassistant', 'homeassistant/device/homelab_manager/config'), { legacy: true });
+  assert.equal(deviceOf(''), null);
   assert.equal(parseDiscoveryTopic('homeassistant', 'homeassistant/device/komodo/config'), null);
+});
+
+test('topic keys: host name as a slug, the oldest host keeps a shared name', () => {
+  const first = { _id: new ObjectId('000000000000000000000001'), name: 'Pve 1' };
+  const twin = { _id: new ObjectId('0000000000000000000abc02'), name: 'pve-1' };
+  const keys = topicKeys([twin, first, { _id: new ObjectId(), name: 'Électricité/Garage' }, { _id: new ObjectId('0000000000000000000def03'), name: 'Manager' }]);
+  assert.equal(keys.get(first._id.toHexString()), 'pve_1');
+  assert.equal(keys.get(twin._id.toHexString()), 'pve_1_0abc02');
+  assert.ok([...keys.values()].includes('electricite_garage'));
+  // the root device keeps its topic
+  assert.equal(keys.get('0000000000000000000def03'), 'manager_0def03');
 });
 
 test('alerts roll up from the sub-component to the host and the root', () => {
@@ -63,7 +84,7 @@ test('alerts roll up from the sub-component to the host and the root', () => {
     { host: off, online: false, busy: false },
   ], opts);
   const state = (id: string, key: string, suffix = 'state') =>
-    devices.flatMap((d) => d.states).find(([t]) => t === `hm/${id}/${key}/${suffix}`)?.[1];
+    devices.flatMap((d) => d.states).find(([t]) => t === `${at(devices, id)}/${key}/${suffix}`)?.[1];
   const id = (h: HostDoc) => `hm_${h._id.toHexString()}`;
 
   assert.equal(state(`${id(bad)}_apt`, 'alerts'), '2');
@@ -88,7 +109,7 @@ test('a roaming host offline is neither an alert nor counted offline', () => {
   const away = { ...host('laptop', { listsUpdatedAt: Date.now() - 10 * 24 * 3600 * 1000 }), roaming: true };
   const { devices } = build([{ host: away, online: false, busy: false }], opts);
   const state = (id: string, key: string, suffix = 'state') =>
-    devices.flatMap((d) => d.states).find(([t]) => t === `hm/${id}/${key}/${suffix}`)?.[1];
+    devices.flatMap((d) => d.states).find(([t]) => t === `${at(devices, id)}/${key}/${suffix}`)?.[1];
   const id = `hm_${away._id.toHexString()}`;
 
   assert.equal(state(id, 'agent'), 'OFF');
@@ -117,7 +138,7 @@ test('session entities are unavailable when their agent is offline', () => {
   >;
 
   for (const key of ['users_logged_in', 'interactive', 'session_locked', 'session_changed', 'logged_users', 'users']) {
-    assert.deepEqual(components[key].availability?.map(({ topic }) => topic), ['hm/lwt', `hm/${id}/agent/state`]);
+    assert.deepEqual(components[key].availability?.map(({ topic }) => topic), ['hm/lwt', `${at(devices, id)}/agent/state`]);
     assert.equal(components[key].availability_mode, 'all');
   }
 });
@@ -129,7 +150,7 @@ test('a host excluded from Home Assistant has no device and is left out of the t
   const { devices } = build([{ host: kept, online: true, busy: false }, { host: hidden, online: false, busy: false }], {
     ...opts, backups: { groups, datastores: [] },
   });
-  const state = (key: string) => devices.flatMap((d) => d.states).find(([t]) => t === `hm/${ROOT_ID}/${key}/state`)?.[1];
+  const state = (key: string) => devices.flatMap((d) => d.states).find(([t]) => t === `hm/${ROOT_KEY}/${key}/state`)?.[1];
 
   assert.equal(devices.some((d) => d.id.startsWith(`hm_${hidden._id.toHexString()}`)), false);
   assert.equal(state('hosts'), '1');
@@ -144,7 +165,7 @@ test('update entity and commands map to jobs', () => {
   const states: HostState[] = [{ host: h, online: true, busy: true }, { host: offline, online: false, busy: false }];
   const { devices, commands } = build(states, opts);
   const hid = h._id.toHexString();
-  const upd = devices.flatMap((d) => d.states).find(([t]) => t === `hm/hm_${hid}_apt/system/state`)!;
+  const upd = devices.flatMap((d) => d.states).find(([t]) => t === `${at(devices, `hm_${hid}_apt`)}/system/state`)!;
   const u = JSON.parse(upd[1]);
   assert.notEqual(u.installed_version, u.latest_version);
   assert.equal(u.in_progress, true);
@@ -156,17 +177,17 @@ test('update entity and commands map to jobs', () => {
   // APT entities follow the agent connectivity
   const apt = devices.find((d) => d.id === `hm_${hid}_apt`)!.discovery;
   assert.equal(apt.availability_mode, 'all');
-  assert.deepEqual((apt.availability as { topic: string }[]).map((a) => a.topic), ['hm/lwt', `hm/hm_${hid}/agent/state`]);
+  assert.deepEqual((apt.availability as { topic: string }[]).map((a) => a.topic), ['hm/lwt', `${at(devices, `hm_${hid}`)}/agent/state`]);
 
-  assert.deepEqual(commands.get(`hm/hm_${hid}_apt/system/set`), { payload: INSTALL, action: 'apt_upgrade', hostIds: [hid] });
-  assert.deepEqual(commands.get(`hm/hm_${hid}_apt/check/set`), { payload: PRESS, action: 'apt_update', hostIds: [hid] });
+  assert.deepEqual(commands.get(`${at(devices, `hm_${hid}_apt`)}/system/set`), { payload: INSTALL, action: 'apt_upgrade', hostIds: [hid] });
+  assert.deepEqual(commands.get(`${at(devices, `hm_${hid}_apt`)}/check/set`), { payload: PRESS, action: 'apt_update', hostIds: [hid] });
   // root buttons only target online hosts
-  assert.equal(commands.get(`hm/${ROOT_ID}/update_all/set`), undefined);
-  assert.deepEqual(commands.get(`hm/${ROOT_ID}/check_all/set`)!.hostIds, [hid]);
+  assert.equal(commands.get(`hm/${ROOT_KEY}/update_all/set`), undefined);
+  assert.deepEqual(commands.get(`hm/${ROOT_KEY}/check_all/set`)!.hostIds, [hid]);
   // a host without APT (Unraid) is left out of "Tout vérifier"
   const unraid = { ...host('nas'), capabilities: ['agent_update', 'docker'] };
   const built = build([{ host: h, online: true, busy: false }, { host: unraid, online: true, busy: false }], opts);
-  assert.deepEqual(built.commands.get(`hm/${ROOT_ID}/check_all/set`)!.hostIds, [hid]);
+  assert.deepEqual(built.commands.get(`hm/${ROOT_KEY}/check_all/set`)!.hostIds, [hid]);
 });
 
 test('autoremove entities appear only when the agent reports them', () => {
@@ -177,11 +198,11 @@ test('autoremove entities appear only when the agent reports them', () => {
   assert.ok(comps(recent).autoremovable && comps(recent).autoremove);
   assert.equal(comps(old).autoremovable, undefined);
   const rid = recent._id.toHexString();
-  assert.deepEqual(commands.get(`hm/hm_${rid}_apt/autoremove/set`), { payload: PRESS, action: 'apt_autoremove', hostIds: [rid] });
+  assert.deepEqual(commands.get(`${at(devices, `hm_${rid}_apt`)}/autoremove/set`), { payload: PRESS, action: 'apt_autoremove', hostIds: [rid] });
   const states = new Map(devices.flatMap((d) => d.states));
-  assert.equal(states.get(`hm/hm_${rid}_apt/autoremovable/state`), '2');
-  assert.deepEqual(JSON.parse(states.get(`hm/hm_${rid}_apt/autoremovable/attributes`)!).packages.length, 2);
-  assert.equal(states.get(`hm/${ROOT_ID}/hosts_to_clean/state`), '1');
+  assert.equal(states.get(`${at(devices, `hm_${rid}_apt`)}/autoremovable/state`), '2');
+  assert.deepEqual(JSON.parse(states.get(`${at(devices, `hm_${rid}_apt`)}/autoremovable/attributes`)!).packages.length, 2);
+  assert.equal(states.get(`hm/${ROOT_KEY}/hosts_to_clean/state`), '1');
 });
 
 test('reboot button only for agents able to reboot', () => {
@@ -192,7 +213,7 @@ test('reboot button only for agents able to reboot', () => {
   assert.equal(comps(able).reboot.device_class, 'restart');
   assert.equal(comps(old).reboot, undefined);
   const id = able._id.toHexString();
-  assert.deepEqual(commands.get(`hm/hm_${id}/reboot/set`), { payload: PRESS, action: 'reboot', hostIds: [id] });
+  assert.deepEqual(commands.get(`${at(devices, `hm_${id}`)}/reboot/set`), { payload: PRESS, action: 'reboot', hostIds: [id] });
 });
 
 test('outdated agents: update entity, alert and root counter', () => {
@@ -204,19 +225,19 @@ test('outdated agents: update entity, alert and root counter', () => {
   ], opts);
   const states = new Map(devices.flatMap((d) => d.states));
   const id = h._id.toHexString();
-  const u = JSON.parse(states.get(`hm/hm_${id}/agent_update/state`)!);
+  const u = JSON.parse(states.get(`${at(devices, `hm_${id}`)}/agent_update/state`)!);
   assert.deepEqual([u.installed_version, u.latest_version], ['0.1.1', '0.1.2']);
   // the agent update follows the agent connectivity; the connectivity sensor itself stays available
   const comps = devices.find((d) => d.id === `hm_${id}`)!.discovery.components as Record<string, { availability?: { topic: string }[]; availability_mode?: string }>;
   assert.equal(comps.agent_update.availability_mode, 'all');
-  assert.deepEqual(comps.agent_update.availability!.map((a) => a.topic), ['hm/lwt', `hm/hm_${id}/agent/state`]);
+  assert.deepEqual(comps.agent_update.availability!.map((a) => a.topic), ['hm/lwt', `${at(devices, `hm_${id}`)}/agent/state`]);
   assert.equal(comps.agent.availability, undefined);
   // an agent unable to update itself gets the alert but no update entity
-  assert.equal(states.get(`hm/hm_${old._id.toHexString()}/agent_update/state`), undefined);
-  assert.equal(states.get(`hm/hm_${old._id.toHexString()}/alerts/state`), '1');
-  assert.equal(states.get(`hm/${ROOT_ID}/agents_outdated/state`), '2');
+  assert.equal(states.get(`${at(devices, `hm_${old._id.toHexString()}`)}/agent_update/state`), undefined);
+  assert.equal(states.get(`${at(devices, `hm_${old._id.toHexString()}`)}/alerts/state`), '1');
+  assert.equal(states.get(`hm/${ROOT_KEY}/agents_outdated/state`), '2');
   // agents update themselves: no root button
-  assert.equal(commands.get(`hm/${ROOT_ID}/update_agents/set`), undefined);
+  assert.equal(commands.get(`hm/${ROOT_KEY}/update_agents/set`), undefined);
 });
 
 test('testConnection reports broker availability and authentication', async () => {
@@ -258,18 +279,18 @@ test('one sub-component per docker stack, with its update and actions', () => {
   const dev = devices.find((d) => d.id === id)!;
   assert.equal((dev.discovery.device as Record<string, unknown>).via_device, `hm_${hid}`);
   const states = new Map(devices.flatMap((d) => d.states));
-  assert.equal(states.get(`hm/${id}/status/state`), 'Partielle');
-  assert.equal(states.get(`hm/${id}/containers/state`), '1/2');
-  const update = JSON.parse(states.get(`hm/${id}/images/state`)!);
+  assert.equal(states.get(`${at(devices, id)}/status/state`), 'Partielle');
+  assert.equal(states.get(`${at(devices, id)}/containers/state`), '1/2');
+  const update = JSON.parse(states.get(`${at(devices, id)}/images/state`)!);
   assert.equal(update.latest_version, '1 mise(s) à jour');
   assert.match(update.release_summary, /app \(nginx\)/);
-  assert.deepEqual(commands.get(`hm/${id}/images/set`), { payload: INSTALL, action: 'docker_update', hostIds: [hid], target: { stack: 'web' } });
-  assert.deepEqual(commands.get(`hm/${id}/restart/set`), { payload: PRESS, action: 'docker_restart', hostIds: [hid], target: { stack: 'web' } });
+  assert.deepEqual(commands.get(`${at(devices, id)}/images/set`), { payload: INSTALL, action: 'docker_update', hostIds: [hid], target: { stack: 'web' } });
+  assert.deepEqual(commands.get(`${at(devices, id)}/restart/set`), { payload: PRESS, action: 'docker_restart', hostIds: [hid], target: { stack: 'web' } });
   // the partial stack is an alert of the stack, the host and the root
-  assert.equal(states.get(`hm/${id}/alerts/state`), '1');
-  assert.equal(states.get(`hm/hm_${hid}/alerts/state`), '1');
-  assert.equal(states.get(`hm/${ROOT_ID}/stacks_to_update/state`), '1');
-  assert.deepEqual(commands.get(`hm/hm_${hid}/docker_check/set`), { payload: PRESS, action: 'docker_check', hostIds: [hid] });
+  assert.equal(states.get(`${at(devices, id)}/alerts/state`), '1');
+  assert.equal(states.get(`${at(devices, `hm_${hid}`)}/alerts/state`), '1');
+  assert.equal(states.get(`hm/${ROOT_KEY}/stacks_to_update/state`), '1');
+  assert.deepEqual(commands.get(`${at(devices, `hm_${hid}`)}/docker_check/set`), { payload: PRESS, action: 'docker_check', hostIds: [hid] });
 });
 
 test('unmanaged stacks are not published', () => {
@@ -289,8 +310,8 @@ test('unmanaged stacks are not published', () => {
   assert.ok(!devices.some((d) => d.id === `hm_${hid}_docker_web`));
   assert.ok(![...commands.keys()].some((k) => k.includes('_docker_web/')));
   const states = new Map(devices.flatMap((d) => d.states));
-  assert.equal(states.get(`hm/hm_${hid}/alerts/state`), '0');
-  assert.equal(states.get(`hm/${ROOT_ID}/stacks/state`), '0');
+  assert.equal(states.get(`${at(devices, `hm_${hid}`)}/alerts/state`), '0');
+  assert.equal(states.get(`hm/${ROOT_KEY}/stacks/state`), '0');
 });
 
 test('UPS: sub-device with its sensors, battery to replace rolls up as a critical alert', () => {
@@ -302,10 +323,10 @@ test('UPS: sub-device with its sensors, battery to replace rolls up as a critica
   assert.ok(ups);
   assert.equal((ups.discovery.device as Record<string, unknown>).via_device, hostId);
   const states = new Map(ups.states);
-  assert.equal(states.get(`hm/${hostId}_ups/battery/state`), '100');
-  assert.equal(states.get(`hm/${hostId}_ups/runtime/state`), '528');
-  assert.equal(states.get(`hm/${hostId}_ups/replace_battery/state`), 'ON');
-  assert.equal(states.get(`hm/${hostId}_ups/on_battery/state`), 'OFF');
+  assert.equal(states.get(`${at(devices, `${hostId}_ups`)}/battery/state`), '100');
+  assert.equal(states.get(`${at(devices, `${hostId}_ups`)}/runtime/state`), '528');
+  assert.equal(states.get(`${at(devices, `${hostId}_ups`)}/replace_battery/state`), 'ON');
+  assert.equal(states.get(`${at(devices, `${hostId}_ups`)}/on_battery/state`), 'OFF');
   const rolled = JSON.parse(devices.find((d) => d.id === hostId)!.states.find(([t]) => t.endsWith('/alerts/attributes'))![1]);
   assert.ok(rolled.critical >= 1);
   // a host without UPS gets no such device
@@ -322,7 +343,7 @@ const withLoad = (h: HostDoc, cpu: number, mem: number, volumes: { mountpoint: s
   },
 });
 const find = (devices: ReturnType<typeof build>['devices'], id: string, key: string, suffix = 'state') =>
-  devices.flatMap((d) => d.states).find(([t]) => t === `hm/${id}/${key}/${suffix}`)?.[1];
+  devices.flatMap((d) => d.states).find(([t]) => t === `${at(devices, id)}/${key}/${suffix}`)?.[1];
 
 test('minimal level: host device with connectivity and alerts only, totals still count every host', () => {
   const a = host('a', { upgradable: [pkg('openssl', true)] });

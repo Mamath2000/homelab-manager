@@ -5,7 +5,8 @@
 //   Homelab Manager (root)
 //   └── one device per host: agent connectivity, alerts rolled up from its sub-components
 //       └── one device per sub-component, with the details: APT, one per Docker compose stack, UPS
-// Retained topics: <topic>/lwt, <topic>/<device>/<key>/state, <topic>/<device>/<key>/set (commands).
+// Retained topics: <topic>/lwt, <topic>/<device>/<entity>/state, <topic>/<device>/<entity>/set (commands);
+// <device>: the host name as a slug (topicKeys), `manager` for the root.
 import { hasApt, type HaDetail, type HaSection, type HostDoc, type JobAction } from '../types.js';
 import { needsReboot } from '../reboot.js';
 import { alertsOf, hostAlerts as rolledUp, type Alert } from './alerts.js';
@@ -21,18 +22,51 @@ export const ROOT_ID = 'homelab_manager';
 // all the hub's configs under one node id: <prefix>/device/homelab/<object id>/config
 export const NODE_ID = 'homelab';
 
-export function discoveryTopic(prefix: string, id: string) {
-  return `${prefix}/device/${NODE_ID}/${id === ROOT_ID ? 'manager' : id}/config`;
+// topic segment of the root device; no host gets it
+export const ROOT_KEY = 'manager';
+
+// key: the device's segment in the topics (topicKeys), its id stays in the unique ids
+export function discoveryTopic(prefix: string, key: string) {
+  return `${prefix}/device/${NODE_ID}/${key}/config`;
 }
 
-// Device id behind a discovery topic of the hub, current or legacy (<prefix>/device/<id>/config, up to 0.1.6).
-export function parseDiscoveryTopic(prefix: string, topic: string): { id: string; legacy: boolean } | null {
+// Whether a topic is a discovery config of the hub, current (<prefix>/device/homelab/<key>/config) or legacy
+// (<prefix>/device/<id>/config, up to 0.1.6). The device it belongs to is in its payload (deviceOf).
+export function parseDiscoveryTopic(prefix: string, topic: string): { legacy: boolean } | null {
   const base = `${prefix}/device/`;
   if (!topic.startsWith(base) || !topic.endsWith('/config')) return null;
   const path = topic.slice(base.length, -'/config'.length).split('/');
-  if (path.length === 2 && path[0] === NODE_ID) return { id: path[1] === 'manager' ? ROOT_ID : path[1], legacy: false };
-  if (path.length === 1 && /^(homelab_manager|hm_[0-9a-f]{24}(_[a-z]+)?)$/.test(path[0])) return { id: path[0], legacy: true };
+  if (path.length === 2 && path[0] === NODE_ID) return { legacy: false };
+  if (path.length === 1 && /^(homelab_manager|hm_[0-9a-f]{24}(_[a-z]+)?)$/.test(path[0])) return { legacy: true };
   return null;
+}
+
+// Device id of a retained discovery config (its first identifier), null when it is not one.
+export function deviceOf(payload: string): string | null {
+  try {
+    const id = (JSON.parse(payload) as { device?: { identifiers?: unknown[] } }).device?.identifiers?.[0];
+    return typeof id === 'string' ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+const slug = (name: string) =>
+  name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+// Readable topic segment of each host (by id): its name as a slug. On a clash the oldest host keeps it,
+// the others get the end of their id; renaming a host moves its topics (the bridge moves the devices).
+export function topicKeys(all: Pick<HostDoc, '_id' | 'name'>[]) {
+  const keys = new Map<string, string>();
+  const taken = new Set([ROOT_KEY]);
+  for (const h of [...all].sort((a, b) => a._id.toHexString().localeCompare(b._id.toHexString()))) {
+    const hid = h._id.toHexString();
+    const base = slug(h.name) || 'host';
+    const key = taken.has(base) ? `${base}_${hid.slice(-6)}` : base;
+    taken.add(key);
+    keys.set(hid, key);
+  }
+  return keys;
 }
 
 export interface HostState {
@@ -54,6 +88,7 @@ export interface Command {
 
 export interface Device {
   id: string;
+  key: string; // segment of its topics
   discoveryTopic: string;
   discovery: Record<string, unknown>;
   states: [string, string][];
@@ -84,6 +119,8 @@ export function build(all: HostState[], opts: BuildOptions) {
   const excluded = new Set(all.filter((h) => hostLevel(h.host) === 'none').map((h) => h.host._id.toHexString()));
   // followed: groups attached to a published host (gone ones are reported as alerts only)
   const tracked = (backups?.groups ?? []).filter((g) => g.hostId && !excluded.has(g.hostId));
+  // from every host, published or not: changing the level of one does not move the topics of another
+  const keys = topicKeys(all.map((h) => h.host));
   const devices: Device[] = [];
   const commands = new Map<string, Command>();
   const availability = [{ topic: `${topic}/lwt` }];
@@ -94,11 +131,12 @@ export function build(all: HostState[], opts: BuildOptions) {
   // sec: sections published for this device; without 'diagnostics' / 'actions' those entities are left out
   function device(
     id: string,
+    key: string,
     info: Record<string, unknown>,
     extra: { topic: string; payload_available: string; payload_not_available: string }[] = [],
     sec: Set<HaSection> = global,
   ) {
-    const t = (key: string, suffix = 'state') => `${topic}/${id}/${key}/${suffix}`;
+    const t = (entity: string, suffix = 'state') => `${topic}/${key}/${entity}/${suffix}`;
     const hidden = (c: Component) => c.entity_category === 'diagnostic' && !sec.has('diagnostics');
     const components: Record<string, Component> = {};
     const states: [string, string][] = [];
@@ -148,7 +186,8 @@ export function build(all: HostState[], opts: BuildOptions) {
       finish() {
         devices.push({
           id,
-          discoveryTopic: discoveryTopic(discoveryPrefix, id),
+          key,
+          discoveryTopic: discoveryTopic(discoveryPrefix, key),
           discovery: {
             device: { identifiers: [id], manufacturer: 'Homelab Manager', ...info },
             origin,
@@ -181,6 +220,8 @@ export function build(all: HostState[], opts: BuildOptions) {
   for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion, status: given } of hosts) {
     const hid = host._id.toHexString();
     const hostId = `hm_${hid}`;
+    const hostKey = keys.get(hid)!;
+    const hostTopic = `${topic}/${hostKey}`;
     const sec = hostSections(host, global);
     const r = host.apt;
     const status = given ?? evaluate(host, { online: isOnline, groups: [], now: Date.now(), agentOutdated });
@@ -200,9 +241,9 @@ export function build(all: HostState[], opts: BuildOptions) {
       const rebootPending = r.upgradable.filter((p) => needsReboot(p.name)).length;
 
       // unavailable while the agent is offline: its last report may be stale and commands would not run
-      const d = device(`${hostId}_apt`, {
+      const d = device(`${hostId}_apt`, `${hostKey}_apt`, {
         name: `${host.name} · APT`, model: 'Paquets APT', via_device: hostId,
-      }, [{ topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
+      }, [{ topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
       const os = host.info?.osName || 'Système';
       const names = r.upgradable.map((p) => p.name);
       const summary = names.length
@@ -223,7 +264,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       });
       if (r.autoremovable) {
         d.sensor('autoremovable', 'Paquets à nettoyer', r.autoremovable.length, {
-          icon: 'mdi:broom', json_attributes_topic: `${topic}/${hostId}_apt/autoremovable/attributes`,
+          icon: 'mdi:broom', json_attributes_topic: `${hostTopic}_apt/autoremovable/attributes`,
         });
         d.attributes('autoremovable', { packages: r.autoremovable });
         d.button('autoremove', 'Nettoyer les paquets', { action: 'apt_autoremove', hostIds: [hid] }, { icon: 'mdi:broom' });
@@ -244,12 +285,12 @@ export function build(all: HostState[], opts: BuildOptions) {
       const alerts = alertsOf(status.domains.docker, 'docker', (c) => c.key === st.name);
       const id = `${hostId}_docker_${st.name}`;
       const target = { stack: st.name };
-      const d = device(id, {
+      const d = device(id, `${hostKey}_docker_${st.name}`, {
         name: `${host.name} · ${st.name}`, model: 'Stack Docker', via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/docker/${hid}/${st.name}` } : {}),
-      }, [{ topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
+      }, [{ topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
       d.sensor('status', 'État', stackLabel[st.status] ?? st.status, {
-        icon: 'mdi:docker', json_attributes_topic: `${topic}/${id}/status/attributes`,
+        icon: 'mdi:docker', json_attributes_topic: `${hostTopic}_docker_${st.name}/status/attributes`,
       });
       d.attributes('status', {
         services: st.services.map((s) => ({
@@ -282,14 +323,14 @@ export function build(all: HostState[], opts: BuildOptions) {
         ...(mine.some((g) => g.source !== 'haos') ? ['Proxmox Backup Server'] : []),
         ...(mine.some((g) => g.source === 'haos') ? ['Home Assistant'] : []),
       ].join(' · ');
-      const d = device(`${hostId}_backup`, {
+      const d = device(`${hostId}_backup`, `${hostKey}_backup`, {
         name: `${host.name} · Sauvegardes`, model, via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/backups?host=${hid}` } : {}),
       }, [], sec);
       const last = Math.max(...mine.map((g) => g.lastBackup));
       // placeholders of PVE jobs never backed up have no date
       d.sensor('last_backup', 'Dernière sauvegarde', last ? new Date(last).toISOString() : null, {
-        device_class: 'timestamp', json_attributes_topic: `${topic}/${hostId}_backup/last_backup/attributes`,
+        device_class: 'timestamp', json_attributes_topic: `${hostTopic}_backup/last_backup/attributes`,
       });
       d.attributes('last_backup', {
         groups: mine.map((g) => ({ id: g.backupId, state: g.state, last: g.lastBackup ? new Date(g.lastBackup).toISOString() : null })),
@@ -304,10 +345,10 @@ export function build(all: HostState[], opts: BuildOptions) {
     const u = host.ups;
     if (u && sec.has('ups')) {
       const flags = upsFlags(u.status);
-      const d = device(`${hostId}_ups`, {
+      const d = device(`${hostId}_ups`, `${hostKey}_ups`, {
         name: `${host.name} · Onduleur`, model: u.model || 'Onduleur', via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
-      }, [{ topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
+      }, [{ topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
       d.sensor('status', 'État', u.status, { icon: 'mdi:power-plug-battery' });
       d.sensor('battery', 'Charge batterie', u.charge ?? null, {
         device_class: 'battery', unit_of_measurement: '%', state_class: 'measurement',
@@ -333,7 +374,7 @@ export function build(all: HostState[], opts: BuildOptions) {
     const selfUpdate = !!host.capabilities?.includes('agent_update');
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
 
-    const d = device(hostId, {
+    const d = device(hostId, hostKey, {
       name: host.name,
       model: host.info?.osName || 'Hôte',
       via_device: ROOT_ID,
@@ -345,7 +386,7 @@ export function build(all: HostState[], opts: BuildOptions) {
     const sessions = sec.has('sessions') && host.capabilities?.includes('session') ? sessionSummary(host.sessions) : null;
     if (sessions) {
       const whileOnline = {
-        availability: [...availability, { topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
+        availability: [...availability, { topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
         availability_mode: 'all',
       };
       d.binary('users_logged_in', 'Utilisateur connecté', sessions.loggedIn, { device_class: 'occupancy', ...whileOnline });
@@ -356,7 +397,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       });
       d.sensor('logged_users', 'Utilisateurs connectés', sessions.users.join(', ') || null, { icon: 'mdi:account-details', ...whileOnline });
       d.sensor('users', 'Utilisateurs', sessions.users.length, {
-        icon: 'mdi:account-multiple', json_attributes_topic: `${topic}/${hostId}/users/attributes`, ...whileOnline,
+        icon: 'mdi:account-multiple', json_attributes_topic: `${hostTopic}/users/attributes`, ...whileOnline,
       });
       d.attributes('users', { users: sessions.users, sessions: host.sessions?.sessions ?? [] });
     }
@@ -372,7 +413,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       }, { action: 'agent_update', hostIds: [hid] }, {
         entity_category: 'config',
         // unavailable while the agent is offline (no phantom update); the connectivity sensor above stays available
-        availability: [...availability, { topic: `${topic}/${hostId}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
+        availability: [...availability, { topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
         availability_mode: 'all',
       });
     }
@@ -399,7 +440,7 @@ export function build(all: HostState[], opts: BuildOptions) {
   }
 
   // --- root
-  const root = device(ROOT_ID, {
+  const root = device(ROOT_ID, ROOT_KEY, {
     name: 'Homelab Manager', model: 'Hub', sw_version: version, ...(hubUrl ? { configuration_url: hubUrl } : {}),
   }, [], global);
   const ids = (list: HostState[]) => list.map((h) => h.host._id.toHexString());
