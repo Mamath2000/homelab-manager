@@ -38,6 +38,7 @@ export interface HealthSystem {
   load1?: number;
   load5?: number;
   load15?: number;
+  cpuCount?: number;
 }
 
 export interface HealthVolume {
@@ -52,6 +53,13 @@ export interface HealthVolume {
 export function visibleHealthVolumes(volumes: HealthVolume[]): HealthVolume[] {
   // same exclusions as the agent, for what older agents still report
   return volumes.filter((v) => v.mountpoint !== '/boot/efi' && !/^\/var\/lib\/(docker|containerd)(\/|$)/.test(v.mountpoint));
+}
+
+// Colour of a Unix load average: load / CPU count against the load thresholds. Neutral without cpuCount (older agent) or settings.
+export function loadTextClass(load: number, cpuCount: number | undefined, settings: Pick<HealthSettings, 'loadWarningThreshold' | 'loadAlertThreshold'> | undefined, neutral = 'text-zinc-300'): string {
+  if (!cpuCount || !settings) return neutral;
+  const ratio = load / cpuCount;
+  return ratio >= settings.loadAlertThreshold ? 'text-red-400' : ratio >= settings.loadWarningThreshold ? 'text-amber-300' : neutral;
 }
 
 // A physical disk smartctl can read on the host (agent smart_scan).
@@ -183,6 +191,9 @@ export interface HealthSettings {
   smartWearAlertThreshold: number;
   systemSustainedMinutes: number;
   smartSustainedMinutes: number;
+  loadWarningThreshold: number;
+  loadAlertThreshold: number;
+  loadSustainedMinutes: number;
 }
 
 export interface HealthOverviewHost {

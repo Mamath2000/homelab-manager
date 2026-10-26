@@ -52,6 +52,8 @@ export interface HealthSystem {
   load1?: number;
   load5?: number;
   load15?: number;
+  // usable CPUs (cgroup quota applied, may be fractional); absent from older agents
+  cpuCount?: number;
 }
 
 export interface HealthVolume {
@@ -192,6 +194,10 @@ export interface HealthSettings {
   smartWearAlertThreshold: number;
   systemSustainedMinutes: number;
   smartSustainedMinutes: number;
+  // Unix load: thresholds apply to load5 / cpuCount
+  loadWarningThreshold: number;
+  loadAlertThreshold: number;
+  loadSustainedMinutes: number;
 }
 
 export interface AptSummary {

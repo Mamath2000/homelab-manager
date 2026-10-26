@@ -513,6 +513,7 @@ function HostDetailPage({ id }: { id: string }) {
             <StripItem label="OS">{osLabel(host) ?? '—'}</StripItem>
             <StripItem label={isWindows(host) ? 'Version' : 'Noyau'}><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>
             <StripItem label="Architecture">{host.info?.arch ?? '—'}</StripItem>
+            {host.health?.system?.cpuCount !== undefined && <StripItem label="CPU">{Number(host.health.system.cpuCount.toFixed(1))}</StripItem>}
             {!isWindows(host) && <StripItem label="Virtualisation">{host.info?.virt ?? '—'}</StripItem>}
             <StripItem label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</StripItem>
             <StripItem label="Agent">{host.agentVersion ?? '—'}</StripItem>

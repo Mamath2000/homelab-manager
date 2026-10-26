@@ -29,6 +29,8 @@ type HealthSystem struct {
 	Load1      *float64 `json:"load1,omitempty"`
 	Load5      *float64 `json:"load5,omitempty"`
 	Load15     *float64 `json:"load15,omitempty"`
+	// CPUCount: usable CPUs (cgroup quota applied, may be fractional); absent from older agents
+	CPUCount float64 `json:"cpuCount,omitempty"`
 }
 
 type HealthVolume struct {
@@ -215,6 +217,7 @@ func collectHealthSystem() (*HealthSystem, error) {
 		MemPercent: memory.UsedPercent,
 		MemUsed:    memory.Used,
 		MemTotal:   memory.Total,
+		CPUCount:   collectCPUCount(),
 	}
 	load, err := collectHealthLoad()
 	if err != nil {

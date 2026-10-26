@@ -9,7 +9,7 @@ import { HealthDetailModal } from '../components/HealthDetailModal';
 import { HealthOverviewHeader } from '../components/HealthOverviewHeader';
 import { inColumn, kindColumns } from '../lib/hostOverview';
 import { useHosts, useSites } from '../lib/queries';
-import { api, visibleHealthVolumes, type HealthOverviewHost, type HealthSettings } from '../lib/api';
+import { api, loadTextClass, visibleHealthVolumes, type HealthOverviewHost, type HealthSettings } from '../lib/api';
 
 // 604800 → « tous les 7 j », 86400 → « toutes les 24 h »
 function smartEvery(seconds = 7 * 86400) {
@@ -59,7 +59,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
             {system.load1 !== undefined && (
               <div className="text-right text-xs text-muted">
                 Charge 1 / 5 / 15 min<br /><span className="font-mono">
-                  {([['1', system.load1], ['5', system.load5], ['15', system.load15]] as const).map(([period, value]) => value !== undefined && <span key={period} className={value > 1 ? 'text-red-400' : 'text-zinc-300'}>{value.toFixed(2)} </span>)}
+                  {([['1', system.load1], ['5', system.load5], ['15', system.load15]] as const).map(([period, value]) => value !== undefined && <span key={period} className={loadTextClass(value, system.cpuCount, settings)}>{value.toFixed(2)} </span>)}
                 </span>
               </div>
             )}

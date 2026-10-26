@@ -1,23 +1,43 @@
 import { useState, type ReactNode } from 'react';
 import { ChartLine, HardDrive, Layers, Thermometer } from 'lucide-react';
 import { formatBytes } from '../lib/backups';
-import { hasHealthRaid, visibleHealthVolumes, type HealthSettings, type HealthSnapshot, type HealthSystem } from '../lib/api';
+import { hasHealthRaid, loadTextClass, visibleHealthVolumes, type HealthSettings, type HealthSnapshot, type HealthSystem } from '../lib/api';
 import { dateTime } from '../lib/format';
 import { RaidArrays } from './RaidArrays';
 import { Badge, Modal } from './ui';
 
 type Sample = { sampledAt: string; report: HealthSystem };
 
-function MetricChart({ samples, settings, field, label, color, warning, alert }: {
+type Series = { label: string; color: string; width?: number; pick: (report: HealthSystem) => number | undefined };
+type Metric = { series: Series[]; unit: string; digits: number; max?: number };
+const percentMetric = (field: 'cpuPercent' | 'memPercent', label: string, color: string): Metric => ({ series: [{ label, color, pick: (report) => report[field] }], unit: ' %', digits: 1, max: 100 });
+// load / CPU count (1 = every CPU busy); the scale follows the data and the thresholds. load5, the alert's basis, is the thick curve.
+const ratio = (load: number | undefined, report: HealthSystem) => (load !== undefined && report.cpuCount ? load / report.cpuCount : undefined);
+const loadMetric: Metric = {
+  series: [
+    { label: '1 min', color: '#fb923c', pick: (r) => ratio(r.load1, r) },
+    { label: '5 min', color: '#fbbf24', width: 3, pick: (r) => ratio(r.load5, r) },
+    { label: '15 min', color: '#a78bfa', pick: (r) => ratio(r.load15, r) },
+  ],
+  unit: '',
+  digits: 2,
+};
+
+function MetricChart({ samples: allSamples, settings, metric, label, color, warning, alert }: {
   samples: Sample[];
   settings?: HealthSettings;
-  field: 'cpuPercent' | 'memPercent';
+  metric: Metric;
   label: string;
   color: string;
   warning?: number;
   alert?: number;
 }) {
   const [hover, setHover] = useState<{ index: number; x: number } | null>(null);
+  const samples = allSamples.filter((sample) => metric.series.some((s) => s.pick(sample.report) !== undefined));
+  const valuesOf = (sample: Sample) => metric.series.map((s) => s.pick(sample.report));
+  const top = metric.max ?? Math.max(1.5, Math.ceil(Math.max(alert ?? 0, ...samples.flatMap((sample) => valuesOf(sample).filter((v): v is number => v !== undefined))) * 4) / 4);
+  const ticks = metric.max ? [0, 25, 50, 75, 100] : [0, 0.25, 0.5, 0.75, 1].map((f) => Number((f * top).toFixed(2)));
+  const format = (n: number | undefined) => (n === undefined ? '—' : `${n.toFixed(metric.digits)}${metric.unit}`);
   if (samples.length < 2) return <div className="flex h-64 items-center justify-center text-sm text-muted">En attente de mesures.</div>;
 
   const plot = { left: 44, right: 480, top: 20, bottom: 268 };
@@ -25,8 +45,11 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
   const lastAt = new Date(samples[samples.length - 1].sampledAt).getTime();
   const span = Math.max(1, lastAt - firstAt);
   const x = (time: number) => plot.left + ((time - firstAt) / span) * (plot.right - plot.left);
-  const y = (value: number) => plot.bottom - (Math.max(0, Math.min(100, value)) / 100) * (plot.bottom - plot.top);
-  const points = samples.map((sample) => `${x(new Date(sample.sampledAt).getTime())},${y(sample.report[field])}`).join(' ');
+  const y = (value: number) => plot.bottom - (Math.max(0, Math.min(top, value)) / top) * (plot.bottom - plot.top);
+  const pointsOf = (index: number) => samples.flatMap((sample) => {
+    const v = valuesOf(sample)[index];
+    return v === undefined ? [] : [`${x(new Date(sample.sampledAt).getTime())},${y(v)}`];
+  }).join(' ');
   const current = samples[samples.length - 1];
   const hovered = hover ? samples[hover.index] : null;
   const handlePointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -44,12 +67,14 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
     <div className="min-w-0 rounded-md border border-line bg-raised/20 p-3 sm:p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium" style={{ color }}>{label}</span>
-        <span className="font-mono text-sm text-zinc-100">{current.report[field].toFixed(1)} %</span>
+        <span className="flex gap-2 font-mono text-sm text-zinc-100">
+          {metric.series.map((s, i) => <span key={s.label} style={metric.series.length > 1 ? { color: s.color } : undefined}>{format(valuesOf(current)[i])}</span>)}
+        </span>
       </div>
       <div className="relative">
       {hovered && hover && <div className="pointer-events-none absolute top-2 z-10 min-w-32 rounded-md border border-line bg-panel/95 px-2.5 py-2 text-xs shadow-lg" style={{ left: `${Math.min(hover.x * 100, 72)}%` }}>
         <strong className="mb-1 block text-zinc-100">{dateTime(hovered.sampledAt)}</strong>
-        <span className="text-muted">{label}</span><span className="ml-2 font-mono text-zinc-100">{hovered.report[field].toFixed(1)} %</span>
+        {metric.series.map((s, i) => <span key={s.label} className="block"><span className="text-muted">{metric.series.length > 1 ? s.label : label}</span><span className="ml-2 font-mono" style={{ color: metric.series.length > 1 ? s.color : undefined }}>{format(valuesOf(hovered)[i])}</span></span>)}
       </div>}
       <svg
         viewBox="0 0 500 300"
@@ -59,18 +84,18 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setHover(null)}
       >
-        {[0, 25, 50, 75, 100].map((value) => (
-          <g key={value}>
-            <line x1={plot.left} x2={plot.right} y1={y(value)} y2={y(value)} stroke="currentColor" className="text-line" strokeDasharray={value === 0 ? undefined : '4 6'} />
-            <text x="4" y={y(value) + 4} fill="currentColor" className="text-muted" fontSize="12">{value}%</text>
+        {ticks.map((tick) => (
+          <g key={tick}>
+            <line x1={plot.left} x2={plot.right} y1={y(tick)} y2={y(tick)} stroke="currentColor" className="text-line" strokeDasharray={tick === 0 ? undefined : '4 6'} />
+            <text x="4" y={y(tick) + 4} fill="currentColor" className="text-muted" fontSize="12">{tick}{metric.unit.trim()}</text>
           </g>
         ))}
         {warning !== undefined && <line x1={plot.left} x2={plot.right} y1={y(warning)} y2={y(warning)} stroke="#fbbf24" strokeWidth="1.25" strokeDasharray="8 5" opacity="0.8" />}
         {alert !== undefined && <line x1={plot.left} x2={plot.right} y1={y(alert)} y2={y(alert)} stroke="#f87171" strokeWidth="1.25" strokeDasharray="8 5" opacity="0.8" />}
-        <polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {metric.series.map((s, i) => <polyline key={s.label} points={pointsOf(i)} fill="none" stroke={s.color} strokeWidth={s.width ?? (metric.series.length > 1 ? 1.75 : 3)} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />)}
         {hovered && hover && <>
           <line x1={x(new Date(hovered.sampledAt).getTime())} x2={x(new Date(hovered.sampledAt).getTime())} y1={plot.top} y2={plot.bottom} stroke="currentColor" className="text-zinc-400" strokeDasharray="3 4" />
-          <circle cx={x(new Date(hovered.sampledAt).getTime())} cy={y(hovered.report[field])} r="4" fill={color} stroke="#18181b" strokeWidth="2" />
+          {metric.series.map((s, i) => { const v = valuesOf(hovered)[i]; return v === undefined ? null : <circle key={s.label} cx={x(new Date(hovered.sampledAt).getTime())} cy={y(v)} r="4" fill={s.color} stroke="#18181b" strokeWidth="2" />; })}
         </>}
       </svg>
       </div>
@@ -78,8 +103,8 @@ function MetricChart({ samples, settings, field, label, color, warning, alert }:
         <span>{dateTime(firstAt)}</span><span>{dateTime(lastAt)}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-        {warning !== undefined && <span className="text-amber-300">┄ Warning {warning}%</span>}
-        {alert !== undefined && <span className="text-red-300">┄ Alerte {alert}%</span>}
+        {warning !== undefined && <span className="text-amber-300">┄ Warning {warning}{metric.unit.trim()}</span>}
+        {alert !== undefined && <span className="text-red-300">┄ Alerte {alert}{metric.unit.trim()}</span>}
         <span className="ml-auto text-muted">{samples.length} mesures · {settings?.systemIntervalSeconds ?? 30} s</span>
       </div>
     </div>
@@ -108,12 +133,15 @@ export function HealthDetailModal({ open, onClose, hostName, cluster, health, sa
     <Modal open={open} onClose={onClose} title={`Détail Santé · ${hostName}`} wide="screen-wide" scroll>
       <div className="space-y-5">
         <section>
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><ChartLine className="h-4 w-4 text-emerald-300" />CPU et mémoire · dernière heure</div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <MetricChart samples={samples} settings={settings} field="cpuPercent" label="CPU" color="#34d399" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} />
-            <MetricChart samples={samples} settings={settings} field="memPercent" label="Mémoire" color="#38bdf8" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} />
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><ChartLine className="h-4 w-4 text-emerald-300" />CPU, mémoire et charge · dernière heure</div>
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            <MetricChart samples={samples} settings={settings} metric={percentMetric('cpuPercent', 'CPU', '#34d399')} label="CPU" color="#34d399" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} />
+            <MetricChart samples={samples} settings={settings} metric={percentMetric('memPercent', 'Mémoire', '#38bdf8')} label="Mémoire" color="#38bdf8" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} />
+            {samples.some((sample) => loadMetric.series.some((series) => series.pick(sample.report) !== undefined)) && (
+              <MetricChart samples={samples} settings={settings} metric={loadMetric} label="Charge / CPU" color="#fbbf24" warning={settings?.loadWarningThreshold} alert={settings?.loadAlertThreshold} />
+            )}
           </div>
-          {settings && <p className="mt-2 text-right text-[11px] text-muted">Seuils maintenus {settings.systemSustainedMinutes ? `${settings.systemSustainedMinutes} min` : 'sans temporisation'} · collecte toutes les {settings.systemIntervalSeconds} s</p>}
+          {settings && <p className="mt-2 text-right text-[11px] text-muted">Seuils maintenus {settings.systemSustainedMinutes ? `${settings.systemSustainedMinutes} min` : 'sans temporisation'} (charge : {settings.loadSustainedMinutes ? `${settings.loadSustainedMinutes} min` : 'sans temporisation'}) · collecte toutes les {settings.systemIntervalSeconds} s</p>}
           {historyError && <p className="mt-2 text-xs text-amber-300">Historique indisponible : {historyError}</p>}
         </section>
 
@@ -127,7 +155,7 @@ export function HealthDetailModal({ open, onClose, hostName, cluster, health, sa
             </div>
             {system.load1 !== undefined && (
               <div className="rounded-md border border-line bg-raised/20 p-3">
-                <p className="text-xs text-muted">Charge Unix · 1 / 5 / 15 min</p><p className="mt-1 flex flex-wrap gap-2 font-mono text-lg">{[system.load1, system.load5, system.load15].map((load, index) => load !== undefined && <span key={index} className={load > 1 ? 'text-red-400' : 'text-zinc-200'}>{load.toFixed(2)}</span>)}</p>
+                <p className="text-xs text-muted">Charge Unix · 1 / 5 / 15 min</p><p className="mt-1 flex flex-wrap gap-2 font-mono text-lg">{[system.load1, system.load5, system.load15].map((load, index) => load !== undefined && <span key={index} className={loadTextClass(load, system.cpuCount, settings, 'text-zinc-200')}>{load.toFixed(2)}</span>)}</p>
               </div>
             )}
             <div className="rounded-md border border-line bg-raised/20 p-3">

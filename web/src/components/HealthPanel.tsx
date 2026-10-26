@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Activity, AlertTriangle, ChartLine, ChevronDown, EyeOff, HardDrive, Layers, Thermometer, type LucideIcon } from 'lucide-react';
-import { api, hasHealthRaid, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
+import { api, hasHealthRaid, loadTextClass, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { thresholdBg, toneBg, toneText, type Tone } from '../lib/status';
@@ -188,9 +188,10 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                 {system.load1 !== undefined && (
                   <p className="mt-2 text-center text-xs text-muted">
                     Charge Unix : <span className="font-mono">
-                      {([['1', system.load1], ['5', system.load5], ['15', system.load15]] as const).map(([period, value]) => value !== undefined && <span key={period} className={value > 1 ? 'text-red-400' : 'text-zinc-300'}>{value.toFixed(2)} </span>)}
+                      {([['1', system.load1], ['5', system.load5], ['15', system.load15]] as const).map(([period, value]) => value !== undefined && <span key={period} className={loadTextClass(value, system.cpuCount, settings)}>{value.toFixed(2)} </span>)}
                     </span>
                     <span className="ml-1">(1 / 5 / 15 min)</span>
+                    <SilenceButton hostId={host.id} alerts={alertsOf('system:load')} canManage={canManage} />
                   </p>
                 )}
               </>

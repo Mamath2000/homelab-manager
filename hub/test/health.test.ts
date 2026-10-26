@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey } from '../src/health.js';
-import type { HostInfo } from '../src/types.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey, reportAlerts } from '../src/health.js';
+import type { HealthSettings, HostDoc, HostInfo } from '../src/types.js';
 import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
 const now = Date.now();
@@ -32,6 +32,9 @@ test('system measurements validate finite percentages, bytes, and optional Unix 
   assert.equal(isHealthSystem(report), true);
   assert.equal(isHealthSystem({ ...report, cpuPercent: 101 }), false);
   assert.equal(isHealthSystem({ ...report, load5: Number.NaN }), false);
+  assert.equal(isHealthSystem({ ...report, cpuCount: 1.5 }), true);
+  assert.equal(isHealthSystem({ ...report, cpuCount: 0 }), false);
+  assert.equal(isHealthSystem({ ...report, cpuCount: Number.NaN }), false);
   assert.equal(isHealthSystem({ ...report, checkedAt: now - 11 * 60_000 }), false);
 });
 
@@ -185,4 +188,23 @@ test('a shared acceptance only covers the active alerts of each node', () => {
   const kept = [{ key: 'volume:/', level: 'warn' as const }];
   assert.deepEqual(applySilence(kept, alerts, ['raid:ceph:check:A', 'raid:ceph:check:B'], true), [...kept, { key: 'raid:ceph:check:A', level: 'warn' }]);
   assert.deepEqual(applySilence([...kept, { key: 'raid:ceph:check:A', level: 'warn' }], alerts, ['raid:ceph:check:A'], false), kept);
+});
+
+test('health metric hysteresis is configurable (load ratio keeps its level only 0.1 under the threshold)', () => {
+  assert.equal(healthMetricLevel(1.15, [], 0.95, 1.2, 0, 60, 'alert', 1_000_000, 0.1), 'alert');
+  assert.equal(healthMetricLevel(1.05, [], 0.95, 1.2, 0, 60, 'alert', 1_000_000, 0.1), 'warn');
+  assert.equal(healthMetricLevel(0.8, [], 0.95, 1.2, 0, 60, 'warn', 1_000_000, 0.1), undefined);
+});
+
+test('load alerts compare load5 to the CPU count, and skip containers and agents without cpuCount', () => {
+  const host = (virt: string): HostDoc => ({ info: { hostname: 'h', osId: 'linux', osName: 'Linux', kernel: '6', arch: 'amd64', uptime: 1, ips: [], virt } }) as HostDoc;
+  const settings: HealthSettings = { ...DEFAULT_HEALTH_SETTINGS, loadSustainedMinutes: 0 };
+  const report = { checkedAt: Date.now(), cpuPercent: 10, memPercent: 10, memUsed: 1, memTotal: 10, load1: 5, load5: 4, load15: 3, cpuCount: 4 };
+  const load = (h: HostDoc, r: typeof report | Omit<typeof report, 'cpuCount'>) => reportAlerts(h, 'system', r, settings).find((a) => a.key === 'system:load');
+  assert.equal(load(host('none'), report)?.level, 'warn');
+  assert.equal(load(host('none'), { ...report, load5: 5 })?.level, 'alert');
+  assert.equal(load(host('none'), { ...report, load5: 3 }), undefined);
+  assert.equal(load(host('lxc'), report), undefined);
+  const { cpuCount: _cpuCount, ...old } = report;
+  assert.equal(load(host('none'), old), undefined);
 });

@@ -26,6 +26,9 @@ export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   smartWearAlertThreshold: 85,
   systemSustainedMinutes: 5,
   smartSustainedMinutes: 0,
+  loadWarningThreshold: 0.95,
+  loadAlertThreshold: 1.2,
+  loadSustainedMinutes: 10,
 };
 
 export async function loadHealthSettings(): Promise<HealthSettings> {
@@ -87,7 +90,8 @@ export function isHealthSystem(v: unknown): v is HealthSystem {
   return checkedAt(r.checkedAt) && finite(r.cpuPercent) && r.cpuPercent >= 0 && r.cpuPercent <= 100 &&
     finite(r.memPercent) && r.memPercent >= 0 && r.memPercent <= 100 &&
     finite(r.memUsed) && r.memUsed >= 0 && finite(r.memTotal) && r.memTotal > 0 &&
-    [r.load1, r.load5, r.load15].every((n) => n === undefined || (finite(n) && n >= 0));
+    [r.load1, r.load5, r.load15].every((n) => n === undefined || (finite(n) && n >= 0)) &&
+    (r.cpuCount === undefined || (finite(r.cpuCount) && r.cpuCount > 0 && r.cpuCount <= 4096));
 }
 
 function isHealthVolume(v: unknown): v is HealthVolume {
@@ -293,6 +297,8 @@ export function healthMetricLevel(
   intervalSeconds: number,
   previous: 'warn' | 'alert' | undefined,
   now = Date.now(),
+  // a level already reached is kept until the value falls this far under its threshold
+  hysteresis = 5,
 ): 'warn' | 'alert' | undefined {
   const sustained = (threshold: number) => {
     if (durationMinutes === 0) return current >= threshold;
@@ -310,12 +316,12 @@ export function healthMetricLevel(
     }
     return true;
   };
-  if (sustained(alert) || (previous === 'alert' && current >= alert - 5)) return 'alert';
-  if (sustained(warning) || (previous === 'warn' && current >= warning - 5)) return 'warn';
+  if (sustained(alert) || (previous === 'alert' && current >= alert - hysteresis)) return 'alert';
+  if (sustained(warning) || (previous === 'warn' && current >= warning - hysteresis)) return 'warn';
   return undefined;
 }
 
-function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings, samples: HealthReport[] = []) {
+export function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings, samples: HealthReport[] = []) {
   const old = h.health?.alerts ?? [];
   const retained = old.filter((a) => !a.key.startsWith(`${category}:`));
   const next: NonNullable<HostDoc['health']>['alerts'] = [];
@@ -338,6 +344,16 @@ function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport
     };
     addSystemMetric('cpu', 'CPU', 'cpuPercent', r.cpuPercent, settings.cpuWarningThreshold, settings.cpuAlertThreshold);
     addSystemMetric('memory', 'Mémoire', 'memPercent', r.memPercent, settings.memoryWarningThreshold, settings.memoryAlertThreshold);
+    // A container reads its host's load average: the ratio to its own CPUs says nothing, so it is only coloured, never alerted.
+    if (r.load5 !== undefined && r.cpuCount && !isContainerHealthHost(h)) {
+      const ratio = r.load5 / r.cpuCount;
+      const values = samples
+        .filter((sample): sample is HealthSystem => 'cpuPercent' in sample && sample.load5 !== undefined && !!sample.cpuCount)
+        .map((sample) => ({ checkedAt: sample.checkedAt, value: sample.load5! / sample.cpuCount! }));
+      const { loadWarningThreshold: warning, loadAlertThreshold: critical, loadSustainedMinutes: minutes } = settings;
+      const level = healthMetricLevel(ratio, values, warning, critical, minutes, settings.systemIntervalSeconds, previous('load'), Date.now(), 0.1);
+      if (level) alert('load', 'Charge', `Charge 5 min ${r.load5.toFixed(2)} pour ${Number(r.cpuCount.toFixed(1))} CPU (ratio ${ratio.toFixed(2)} ; warning ${warning}, alerte ${critical}, ${minutes ? `durée ${minutes} min` : 'déclenchement immédiat'})`, level);
+    }
   } else if (category === 'disks') {
     const previous = new Map(old.map((a) => [a.key, a.level]));
     for (const v of (report as HealthDisks).volumes) {
@@ -397,7 +413,7 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   await healthMetrics.insertOne({ hostId, category, sampledAt, report });
 
   const s = await loadHealthSettings();
-  const durationMinutes = category === 'system' ? s.systemSustainedMinutes : category === 'smart' ? s.smartSustainedMinutes : 0;
+  const durationMinutes = category === 'system' ? Math.max(s.systemSustainedMinutes, s.loadSustainedMinutes) : category === 'smart' ? s.smartSustainedMinutes : 0;
   const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'smart' ? s.smartIntervalSeconds : s.diskIntervalSeconds;
   const since = new Date(Date.now() - durationMinutes * 60_000 - intervalSeconds * 2_000);
   const docs = await healthMetrics.find({ hostId, category, sampledAt: { $gte: since } }).sort({ sampledAt: 1 }).limit(5000).toArray();
@@ -438,6 +454,7 @@ const healthSettingsBody = {
     'cpuWarningThreshold', 'cpuAlertThreshold', 'memoryWarningThreshold', 'memoryAlertThreshold',
     'diskWarningThreshold', 'diskAlertThreshold', 'smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold',
     'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'smartSustainedMinutes',
+    'loadWarningThreshold', 'loadAlertThreshold', 'loadSustainedMinutes',
   ],
   additionalProperties: false,
   properties: {
@@ -456,6 +473,9 @@ const healthSettingsBody = {
     smartWearAlertThreshold: { type: 'number', minimum: 2, maximum: 1000 },
     systemSustainedMinutes: { type: 'integer', minimum: 0, maximum: 60 },
     smartSustainedMinutes: { type: 'integer', minimum: 0, maximum: 2880 },
+    loadWarningThreshold: { type: 'number', minimum: 0.1, maximum: 9.9 },
+    loadAlertThreshold: { type: 'number', minimum: 0.2, maximum: 10 },
+    loadSustainedMinutes: { type: 'integer', minimum: 0, maximum: 60 },
   },
 } as const;
 
@@ -471,6 +491,7 @@ export function registerHealthRoutes(app: FastifyInstance) {
         [req.body.diskWarningThreshold, req.body.diskAlertThreshold],
         [req.body.smartTemperatureWarningThreshold, req.body.smartTemperatureAlertThreshold],
         [req.body.smartWearWarningThreshold, req.body.smartWearAlertThreshold],
+        [req.body.loadWarningThreshold, req.body.loadAlertThreshold],
       ];
       if (pairs.some(([warning, alert]) => warning >= alert)) {
         return reply.code(400).send({ error: 'Le seuil warning doit être inférieur au seuil alerte.' });

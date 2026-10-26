@@ -20,9 +20,12 @@ const thresholds: {
   max: number;
   suffix: string;
   durationMax?: number;
+  step?: number;
+  min?: number;
 }[] = [
   { label: 'CPU', warning: 'cpuWarningThreshold', alert: 'cpuAlertThreshold', duration: 'systemSustainedMinutes', max: 100, suffix: '%', durationMax: 60 },
   { label: 'Mémoire', warning: 'memoryWarningThreshold', alert: 'memoryAlertThreshold', duration: 'systemSustainedMinutes', max: 100, suffix: '%', durationMax: 60 },
+  { label: 'Charge Unix (load5 / CPU)', warning: 'loadWarningThreshold', alert: 'loadAlertThreshold', duration: 'loadSustainedMinutes', max: 10, suffix: '× CPU', durationMax: 60, step: 0.05, min: 0.1 },
   { label: 'Volumes', warning: 'diskWarningThreshold', alert: 'diskAlertThreshold', max: 100, suffix: '%' },
   { label: 'Température SMART', warning: 'smartTemperatureWarningThreshold', alert: 'smartTemperatureAlertThreshold', duration: 'smartSustainedMinutes', max: 150, suffix: '°C', durationMax: 2880 },
   { label: 'Usure NVMe SMART', warning: 'smartWearWarningThreshold', alert: 'smartWearAlertThreshold', duration: 'smartSustainedMinutes', max: 1000, suffix: '%', durationMax: 2880 },
@@ -45,6 +48,9 @@ function formOf(s: HealthSettingsValues): Form {
     smartWearAlertThreshold: s.smartWearAlertThreshold,
     systemSustainedMinutes: s.systemSustainedMinutes,
     smartSustainedMinutes: s.smartSustainedMinutes,
+    loadWarningThreshold: s.loadWarningThreshold,
+    loadAlertThreshold: s.loadAlertThreshold,
+    loadSustainedMinutes: s.loadSustainedMinutes,
   };
 }
 
@@ -104,7 +110,7 @@ export function HealthSettings() {
         <div>
           <h3 className="mb-2 text-sm font-medium text-zinc-100">Seuils et temporisations</h3>
           <div className="space-y-2">
-            {thresholds.map(({ label, warning, alert, duration, max, suffix, durationMax }) => (
+            {thresholds.map(({ label, warning, alert, duration, max, suffix, durationMax, step, min }) => (
               <div key={label} className={`grid gap-3 rounded-md border border-line bg-raised/30 p-3 sm:items-end ${duration ? 'sm:grid-cols-[minmax(8rem,1fr)_repeat(3,minmax(6rem,auto))]' : 'sm:grid-cols-[minmax(8rem,1fr)_repeat(2,minmax(6rem,auto))]'}`}>
                 <span className="text-sm font-medium text-zinc-100">{label}</span>
                 {([
@@ -118,7 +124,8 @@ export function HealthSettings() {
                       <input
                         className="input w-24"
                         type="number"
-                        min={title === 'Durée' ? 0 : 1}
+                        min={title === 'Durée' ? 0 : min ?? 1}
+                        step={title === 'Durée' ? 1 : step}
                         max={maxValue}
                         value={form[key]}
                         onChange={(event) => setDraft({ ...form, [key]: Number(event.target.value) })}
@@ -129,7 +136,7 @@ export function HealthSettings() {
                 ))}
               </div>
             ))}
-            <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. La durée est partagée entre CPU et mémoire, ainsi qu’entre les mesures SMART. Les seuils de volume sont toujours immédiats.</p>
+            <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. La durée est partagée entre CPU et mémoire, ainsi qu’entre les mesures SMART ; la charge Unix (load5 rapporté au nombre de CPU, sans alerte sur les conteneurs) a la sienne. Les seuils de volume sont toujours immédiats.</p>
           </div>
         </div>
         <div className="flex justify-end gap-2">
