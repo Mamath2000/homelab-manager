@@ -106,11 +106,18 @@ Seuils par défaut, réglables dans **Paramètres › Santé** (avertissement / 
 |---|---:|---:|
 | CPU | 75 % | 90 % |
 | Mémoire | 80 % | 90 % |
+| Charge (load5 / nombre de CPU) | 0,95 | 1,2 |
 | Volume | 75 % | 90 % |
 | Température SMART | 60 °C | 70 °C |
 | Usure NVMe | 70 % | 85 % |
 
 Un secteur réalloué est signalé immédiatement, quels que soient les seuils. Les niveaux RAID sont décrits [plus haut](#raid).
+
+### Charge Unix
+
+La charge n'a de sens que rapportée au nombre de CPU : l'agent remonte `cpuCount` (CPU logiques, plafonné par le quota cgroup `cpu.max` dans un conteneur ; fractionnaire possible), affiché dans le détail de l'hôte, et le hub colore load 1 / 5 / 15 selon le ratio `load / cpuCount` : neutre sous le seuil warning, orange au-delà, rouge à partir du seuil alerte. Les couleurs suivent les seuils réglés (global ou par hôte). Sans `cpuCount` (agent ancien) ou sans charge (Windows), aucune coloration.
+
+L'alerte **Charge** repose sur load5 et sur la durée dédiée (10 min par défaut, 0 = immédiat), distincte de celle de CPU et mémoire ; son hystérésis est de 0,1. Les conteneurs (LXC, Docker…) lisent en général la charge de leur hôte : ils sont colorés mais n'émettent pas d'alerte de charge. La fiche de l'hôte trace la courbe du ratio.
 
 ### Seuils par hôte
 
@@ -126,9 +133,10 @@ L'écran **Seuils et alertes** s'ouvre par l'icône à côté du bouton graphiqu
 
 ### Durée avant déclenchement
 
-La durée se règle séparément pour les mesures système (CPU, mémoire) et pour SMART. Par défaut :
+La durée se règle séparément pour les mesures système (CPU, mémoire), la charge et SMART. Par défaut :
 
 - CPU et mémoire : 5 minutes continues au-dessus du seuil ;
+- charge : 10 minutes ;
 - volumes : immédiat dès le franchissement du seuil ;
 - SMART : immédiat ;
 - RAID : immédiat.
