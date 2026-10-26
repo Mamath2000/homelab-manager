@@ -19,7 +19,7 @@ curl -H "Authorization: Bearer hm_…" http://HUB:PORT/api/summary
 ## `GET /api/summary`
 
 Compteurs à plat du homelab, prévus pour un tableau de bord. Mêmes règles que l'appareil *Homelab Manager* de
-[Home Assistant](home-assistant.md#homelab-manager) : les hôtes exclus de Home Assistant ne sont pas comptés, un hôte
+[Home Assistant](home-assistant.md#homelab-manager) : les hôtes au niveau *Aucun* dans Home Assistant ne sont pas comptés, un hôte
 itinérant n'est pas « hors ligne » quand il est absent. Tous les rôles peuvent le lire.
 
 | Champ | Contenu |

@@ -243,7 +243,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       // unavailable while the agent is offline: its last report may be stale and commands would not run
       const d = device(`${hostId}_apt`, `${hostKey}_apt`, {
         name: `${host.name} · APT`, model: 'Paquets APT', via_device: hostId,
-      }, [{ topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
+      }, [{ topic: `${hostTopic}/etat/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
       const os = host.info?.osName || 'Système';
       const names = r.upgradable.map((p) => p.name);
       const summary = names.length
@@ -288,7 +288,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       const d = device(id, `${hostKey}_docker_${st.name}`, {
         name: `${host.name} · ${st.name}`, model: 'Stack Docker', via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/docker/${hid}/${st.name}` } : {}),
-      }, [{ topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
+      }, [{ topic: `${hostTopic}/etat/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
       d.sensor('status', 'État', stackLabel[st.status] ?? st.status, {
         icon: 'mdi:docker', json_attributes_topic: `${hostTopic}_docker_${st.name}/status/attributes`,
       });
@@ -348,7 +348,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       const d = device(`${hostId}_ups`, `${hostKey}_ups`, {
         name: `${host.name} · Onduleur`, model: u.model || 'Onduleur', via_device: hostId,
         ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
-      }, [{ topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
+      }, [{ topic: `${hostTopic}/etat/state`, payload_available: 'ON', payload_not_available: 'OFF' }], sec);
       d.sensor('status', 'État', u.status, { icon: 'mdi:power-plug-battery' });
       d.sensor('battery', 'Charge batterie', u.charge ?? null, {
         device_class: 'battery', unit_of_measurement: '%', state_class: 'measurement',
@@ -381,12 +381,12 @@ export function build(all: HostState[], opts: BuildOptions) {
       ...(host.agentVersion ? { sw_version: host.agentVersion } : {}),
       ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
     }, [], sec);
-    d.binary('agent', 'État', isOnline, { device_class: 'connectivity' });
+    d.binary('etat', 'État', isOnline, { device_class: 'connectivity', default_entity_id: `binary_sensor.${hostKey}_etat` });
     // Windows: the sessions, unavailable while the agent is offline (the computer is off: nobody on it)
     const sessions = sec.has('sessions') && host.capabilities?.includes('session') ? sessionSummary(host.sessions) : null;
     if (sessions) {
       const whileOnline = {
-        availability: [...availability, { topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
+        availability: [...availability, { topic: `${hostTopic}/etat/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
         availability_mode: 'all',
       };
       d.binary('users_logged_in', 'Utilisateur connecté', sessions.loggedIn, { device_class: 'occupancy', ...whileOnline });
@@ -413,7 +413,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       }, { action: 'agent_update', hostIds: [hid] }, {
         entity_category: 'config',
         // unavailable while the agent is offline (no phantom update); the connectivity sensor above stays available
-        availability: [...availability, { topic: `${hostTopic}/agent/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
+        availability: [...availability, { topic: `${hostTopic}/etat/state`, payload_available: 'ON', payload_not_available: 'OFF' }],
         availability_mode: 'all',
       });
     }
@@ -476,7 +476,7 @@ export function build(all: HostState[], opts: BuildOptions) {
         .filter((l) => l[metric] !== null)
         .sort((x, y) => (y[metric] as number) - (x[metric] as number))
         .slice(0, 5);
-      root.sensor(key, name, ranked[0]?.name ?? null, { icon, json_attributes_topic: `${topic}/${ROOT_ID}/${key}/attributes` });
+      root.sensor(key, name, ranked[0]?.name ?? null, { icon, json_attributes_topic: `${topic}/${ROOT_KEY}/${key}/attributes` });
       const attrs: Record<string, string | number | null> = {};
       for (let i = 0; i < 5; i++) {
         const r = ranked[i];

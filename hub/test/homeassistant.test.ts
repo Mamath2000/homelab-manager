@@ -56,6 +56,10 @@ test('devices are nested root > host > sub-component', () => {
     for (const [t] of d.states) assert.ok(t.startsWith(`hm/${d.key}/`));
   }
   assert.ok(devices.find((d) => d.id === hid)!.states.some(([t]) => t === 'hm/pve1/alerts/state'));
+  // connectivity: readable unique id and entity id
+  const etat = (devices.find((d) => d.id === hid)!.discovery.components as Record<string, Record<string, unknown>>).etat;
+  assert.equal(etat.unique_id, `${hid}_etat`);
+  assert.equal(etat.default_entity_id, 'binary_sensor.pve1_etat');
   // topics of 0.1.6 and earlier are recognised, other integrations are left alone
   assert.deepEqual(parseDiscoveryTopic('homeassistant', `homeassistant/device/${hid}_apt/config`), { legacy: true });
   assert.deepEqual(parseDiscoveryTopic('homeassistant', 'homeassistant/device/homelab_manager/config'), { legacy: true });
@@ -93,7 +97,7 @@ test('alerts roll up from the sub-component to the host and the root', () => {
   // a pending package is a warning of the registry
   assert.equal(state(id(ok), 'alerts'), '1');
   assert.equal(state(id(ok), 'problem'), 'ON');
-  assert.equal(state(id(off), 'agent'), 'OFF');
+  assert.equal(state(id(off), 'etat'), 'OFF');
   assert.equal(state(id(off), 'problem'), 'ON');
   assert.equal(state(ROOT_ID, 'hosts_offline'), '1');
   assert.equal(state(ROOT_ID, 'alerts'), '4');
@@ -112,7 +116,7 @@ test('a roaming host offline is neither an alert nor counted offline', () => {
     devices.flatMap((d) => d.states).find(([t]) => t === `${at(devices, id)}/${key}/${suffix}`)?.[1];
   const id = `hm_${away._id.toHexString()}`;
 
-  assert.equal(state(id, 'agent'), 'OFF');
+  assert.equal(state(id, 'etat'), 'OFF');
   assert.equal(state(id, 'problem'), 'OFF');
   assert.equal(state(id, 'alerts'), '0');
   // stale package lists are expected while away
@@ -138,7 +142,7 @@ test('session entities are unavailable when their agent is offline', () => {
   >;
 
   for (const key of ['users_logged_in', 'interactive', 'session_locked', 'session_changed', 'logged_users', 'users']) {
-    assert.deepEqual(components[key].availability?.map(({ topic }) => topic), ['hm/lwt', `${at(devices, id)}/agent/state`]);
+    assert.deepEqual(components[key].availability?.map(({ topic }) => topic), ['hm/lwt', `${at(devices, id)}/etat/state`]);
     assert.equal(components[key].availability_mode, 'all');
   }
 });
@@ -177,7 +181,7 @@ test('update entity and commands map to jobs', () => {
   // APT entities follow the agent connectivity
   const apt = devices.find((d) => d.id === `hm_${hid}_apt`)!.discovery;
   assert.equal(apt.availability_mode, 'all');
-  assert.deepEqual((apt.availability as { topic: string }[]).map((a) => a.topic), ['hm/lwt', `${at(devices, `hm_${hid}`)}/agent/state`]);
+  assert.deepEqual((apt.availability as { topic: string }[]).map((a) => a.topic), ['hm/lwt', `${at(devices, `hm_${hid}`)}/etat/state`]);
 
   assert.deepEqual(commands.get(`${at(devices, `hm_${hid}_apt`)}/system/set`), { payload: INSTALL, action: 'apt_upgrade', hostIds: [hid] });
   assert.deepEqual(commands.get(`${at(devices, `hm_${hid}_apt`)}/check/set`), { payload: PRESS, action: 'apt_update', hostIds: [hid] });
@@ -230,8 +234,8 @@ test('outdated agents: update entity, alert and root counter', () => {
   // the agent update follows the agent connectivity; the connectivity sensor itself stays available
   const comps = devices.find((d) => d.id === `hm_${id}`)!.discovery.components as Record<string, { availability?: { topic: string }[]; availability_mode?: string }>;
   assert.equal(comps.agent_update.availability_mode, 'all');
-  assert.deepEqual(comps.agent_update.availability!.map((a) => a.topic), ['hm/lwt', `${at(devices, `hm_${id}`)}/agent/state`]);
-  assert.equal(comps.agent.availability, undefined);
+  assert.deepEqual(comps.agent_update.availability!.map((a) => a.topic), ['hm/lwt', `${at(devices, `hm_${id}`)}/etat/state`]);
+  assert.equal(comps.etat.availability, undefined);
   // an agent unable to update itself gets the alert but no update entity
   assert.equal(states.get(`${at(devices, `hm_${old._id.toHexString()}`)}/agent_update/state`), undefined);
   assert.equal(states.get(`${at(devices, `hm_${old._id.toHexString()}`)}/alerts/state`), '1');
@@ -355,7 +359,7 @@ test('minimal level: host device with connectivity and alerts only, totals still
   const comps = (id: string) => Object.keys(devices.find((d) => d.id === id)!.discovery.components as object).sort();
 
   // global minimal: no APT sub-device, no buttons, no diagnostics
-  assert.deepEqual(comps(ida), ['agent', 'alerts', 'problem']);
+  assert.deepEqual(comps(ida), ['alerts', 'etat', 'problem']);
   assert.equal(devices.some((d) => d.id === `${ida}_apt`), false);
   // the alert of the sub-component still rolls up
   assert.equal(find(devices, ida, 'alerts'), '1');
@@ -407,4 +411,21 @@ test('tops rank online hosts that are not roaming; disk = worst volume', () => {
   assert.deepEqual([cpu.top1_name, cpu.top1_cpu, cpu.top2_name, cpu.top2_cpu, cpu.top3_name], ['b', 55.6, 'a', 10, null]);
   const disk = JSON.parse(find(devices, ROOT_ID, 'top_disk', 'attributes')!);
   assert.deepEqual([disk.top1_disk, disk.top1_volume, disk.top2_disk, disk.top2_volume], [91.3, '/data', 60, '/']);
+});
+
+test('every attributes topic of a config is one the hub publishes', () => {
+  const a = withLoad({ ...host('pve1', { upgradable: [pkg('curl')], autoremovable: ['libx'] }), capabilities: ['session'] }, 50, 40, [{ mountpoint: '/', percent: 70 }]);
+  a.sessions = { checkedAt: Date.now(), sessions: [{ id: 1, user: 'u', state: 'active', interactive: true }] };
+  a.ups = { checkedAt: Date.now(), name: 'ups', model: 'X', driver: 'usbhid-ups', status: 'OL', charge: 100, runtime: 500, load: 10, inputVoltage: 230 };
+  const { devices } = build([{ host: a, online: true, busy: false }], { ...opts, detail: { level: 'full', sections: [] } });
+  const published = new Set(devices.flatMap((d) => d.states.map(([t]) => t)));
+  let checked = 0;
+  for (const d of devices) {
+    for (const c of Object.values(d.discovery.components as Record<string, { json_attributes_topic?: string }>)) {
+      if (!c.json_attributes_topic) continue;
+      checked++;
+      assert.ok(published.has(c.json_attributes_topic), c.json_attributes_topic);
+    }
+  }
+  assert.ok(checked >= 5);
 });

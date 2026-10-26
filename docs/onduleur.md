@@ -98,7 +98,7 @@ Les seuils viennent de NUT : ils se règlent sur l'onduleur ou dans la configura
 
 ## Home Assistant
 
-Avec l'[intégration Home Assistant](home-assistant.md), chaque hôte qui a un onduleur reçoit un sous-composant **« hôte · Onduleur »** (identifiant `hm_ID_ups`). Ses alertes remontent à l'appareil de l'hôte puis à Homelab Manager.
+Avec l'[intégration Home Assistant](home-assistant.md), chaque hôte qui a un onduleur reçoit un sous-composant **« hôte · Onduleur »** (topics `PREFIXE/HOTE_ups/…`, au niveau de détail *Standard* ou plus). Ses alertes remontent à l'appareil de l'hôte puis à Homelab Manager.
 
 | Entité | Type |
 |---|---|

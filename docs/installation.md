@@ -115,7 +115,7 @@ Par défaut, l'agent joint le hub à l'adresse de **Paramètres → Agent → UR
 
 Le réseau est choisi **par agent, à la création**, et ne se change pas ensuite : pour passer un hôte d'un réseau à l'autre, le supprimer et le réinstaller. La nouvelle commande d'installation d'un hôte existant (**Options** › **Agent**) garde son réseau ; la fiche et la liste affichent un badge **Tailscale**. Le certificat du hub ne change pas : l'agent épingle sa clé, pas son nom.
 
-Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée) et **exclu de [Home Assistant](home-assistant.md)**. Les deux restent modifiables sur la fiche de l'hôte.
+Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée) et au niveau *Aucun* dans [Home Assistant](home-assistant.md#niveau-de-détail) (non publié). Les deux restent modifiables sur la fiche de l'hôte.
 
 ### Ce que l'installation met en place
 
@@ -263,7 +263,7 @@ curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh
 
 L'engrenage **Options** (administrateurs), dans l'en-tête de la fiche et à droite de chaque ligne de la liste, ouvre une fenêtre à menu de sections :
 
-- **Identité et comportement** : nom, site, tags, itinérance et exclusion de Home Assistant. Un seul bouton **Enregistrer** ; ces réglages restent modifiables hôte hors ligne.
+- **Identité et comportement** : nom, site, tags, itinérance et niveau de détail dans Home Assistant. Un seul bouton **Enregistrer** ; ces réglages restent modifiables hôte hors ligne.
 - **Éléments de l'hôte** : capacités et services signalés par l'agent (APT, Docker, redémarrage, mise à jour de l'agent, standardisation…).
 - **Agent** : version, authentification et **Nouvelle commande d'installation** (appliquée immédiatement).
 - **Danger** (fiche uniquement) : redémarrer, révoquer l'agent, supprimer l'hôte, chacun avec sa confirmation.
