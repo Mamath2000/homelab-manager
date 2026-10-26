@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Home, PlugZap, RefreshCw } from 'lucide-react';
+import { Check, Home, Minus, PlugZap, Radio, RefreshCw, Wand2 } from 'lucide-react';
 import { api, type HaDetail, type HaSection, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
 import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
+
+type HaTab = 'mqtt' | 'discovery';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
 import { SettingsFormActions } from './SettingsForm';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, Panel, Spinner, StatusDot } from './ui';
+import { Button, Panel, Spinner, StatusDot, Tabs } from './ui';
 
 const stateMeta: Record<HomeAssistantSettings['status']['state'], { label: string; tone: Tone }> = {
   disabled: { label: 'Désactivée', tone: 'neutral' },
@@ -37,6 +39,7 @@ export function HomeAssistantPanel() {
   const [password, setPassword] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState<'save' | 'test' | 'republish' | null>(null);
+  const [tab, setTab] = useState<HaTab>('mqtt');
 
   const initial: HomeAssistantInput = {
     enabled: data?.enabled ?? false,
@@ -62,14 +65,17 @@ export function HomeAssistantPanel() {
     enabled: !!data,
     placeholderData: (prev) => prev,
   });
+  // sections ticked in the table: those of the level, or the picked ones in custom mode
+  const ticked = (id: HaSection) =>
+    form.detail.level === 'custom' ? form.detail.sections.includes(id) : !!data?.presets[form.detail.level].includes(id);
   const pickLevel = (level: HaDetail['level']) => {
     if (level !== 'custom') return setDetail({ level, sections: [] });
     // custom starts from the sections of the current level
-    const from = form.detail.level === 'custom' ? form.detail.sections : data?.presets[form.detail.level] ?? [];
-    setDetail({ level, sections: [...from] });
+    setDetail({ level, sections: HA_SECTIONS.map((s) => s.id).filter(ticked) });
   };
+  // ticking a box of the custom column switches to custom mode
   const toggleSection = (id: HaSection, on: boolean) =>
-    setDetail({ level: 'custom', sections: HA_SECTIONS.map((s) => s.id).filter((s) => (s === id ? on : form.detail.sections.includes(s))) });
+    setDetail({ level: 'custom', sections: HA_SECTIONS.map((s) => s.id).filter((s) => (s === id ? on : ticked(s))) });
 
   const save = async () => {
     if (!data) return false;
@@ -128,12 +134,35 @@ export function HomeAssistantPanel() {
   };
 
   const st = data.status;
+  const columns = [...HA_LEVELS, { id: 'custom' as const, label: 'Personnalisé', hint: 'Catégories au choix' }];
+  const selected = form.detail.level;
+
   return (
     <Panel title="Home Assistant (MQTT)" icon={Home}>
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <form onSubmit={(e) => { e.preventDefault(); void save(); }} className="space-y-4">
-          <div className="flex flex-wrap justify-end gap-2">
+      <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-line bg-raised/40 px-4 py-2.5 text-sm">
+        <span className="flex items-center gap-2.5">
+          <StatusDot tone={stateMeta[st.state].tone} pulse={st.state === 'connecting'} />
+          <span className="font-medium text-zinc-100">{stateMeta[st.state].label}</span>
+        </span>
+        {st.state === 'connected' && (
+          <span className="text-xs text-muted">
+            {st.devices} appareil(s) publié(s){st.lastPublishAt && ` · dernière publication ${timeAgo(st.lastPublishAt)}`}
+          </span>
+        )}
+        {st.error && <span className="text-xs text-red-300">{st.error}</span>}
+      </div>
+
+      <Tabs
+        tabs={[
+          { id: 'mqtt' as const, label: 'Connexion MQTT', icon: Radio },
+          { id: 'discovery' as const, label: 'Autodiscovery', icon: Wand2 },
+        ]}
+        value={tab}
+        onChange={setTab}
+        actions={
+          tab === 'mqtt' ? (
             <Button type="button" icon={PlugZap} loading={busy === 'test'} disabled={!form.broker || !!busy} onClick={test}>Tester la connexion</Button>
+          ) : (
             <Button
               type="button"
               icon={RefreshCw}
@@ -144,7 +173,12 @@ export function HomeAssistantPanel() {
             >
               Republier la découverte
             </Button>
-          </div>
+          )
+        }
+      />
+
+      {tab === 'mqtt' && (
+        <form onSubmit={(e) => { e.preventDefault(); void save(); }} className="space-y-4">
           <label className="flex cursor-pointer items-center gap-3">
             <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
             <span className="text-sm font-medium text-zinc-100">Publier le homelab dans Home Assistant</span>
@@ -184,78 +218,78 @@ export function HomeAssistantPanel() {
               <input className="input" value={form.publicUrl} onChange={(e) => set({ publicUrl: e.target.value })} placeholder="https://homelab-manager.example.org" />
             </Field>
           </div>
-
-          <fieldset className="space-y-3 border-t border-line pt-4">
-            <legend className="text-sm font-medium text-zinc-100">Niveau de détail</legend>
-            <p className="text-xs text-muted">
-              Entités créées dans Home Assistant. Les alertes et la connectivité des hôtes sont toujours publiées ;
-              chaque hôte peut avoir son propre niveau (options de l'hôte, ou sélection dans la liste des hôtes).
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {[...HA_LEVELS, { id: 'custom' as const, label: 'Personnalisé', hint: 'Choisir les catégories une par une' }].map((l) => (
-                <label
-                  key={l.id}
-                  className={`flex cursor-pointer items-start gap-2.5 rounded-md border p-3 ${form.detail.level === l.id ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-line'}`}
-                >
-                  <input type="radio" name="ha-level" className="mt-0.5 accent-emerald-500" checked={form.detail.level === l.id} onChange={() => pickLevel(l.id)} />
-                  <span>
-                    <span className="block text-sm text-zinc-200">{l.label}</span>
-                    <span className="block text-xs text-muted">{l.hint}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-            {form.detail.level === 'custom' && (
-              <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-                {HA_SECTIONS.map((s) => (
-                  <label key={s.id} className="flex cursor-pointer items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 accent-emerald-500"
-                      checked={form.detail.sections.includes(s.id)}
-                      onChange={(e) => toggleSection(s.id, e.target.checked)}
-                    />
-                    <span>
-                      <span className="block text-sm text-zinc-200">{s.label}</span>
-                      <span className="block text-xs text-muted">{s.hint}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-            {preview && (
-              <p className="text-xs text-muted">
-                Avec ce niveau et les niveaux propres à chaque hôte : <span className="text-zinc-200">{preview.entities} entité(s)</span> sur{' '}
-                <span className="text-zinc-200">{preview.devices} appareil(s)</span>.
-              </p>
-            )}
-          </fieldset>
+          <p className="text-xs text-muted">Désactiver l'intégration, ou changer de préfixe, retire les appareils de Home Assistant.</p>
         </form>
+      )}
 
-        <div className="space-y-4 text-sm">
-          <div className="rounded-md border border-line bg-raised/40 p-4">
-            <div className="flex items-center gap-2.5">
-              <StatusDot tone={stateMeta[st.state].tone} pulse={st.state === 'connecting'} />
-              <span className="font-medium text-zinc-100">{stateMeta[st.state].label}</span>
-            </div>
-            {st.error && <p className="mt-2 text-xs text-red-300">{st.error}</p>}
-            {st.state === 'connected' && (
-              <p className="mt-2 text-xs text-muted">
-                {st.devices} appareil(s) publié(s){st.lastPublishAt && ` · dernière publication ${timeAgo(st.lastPublishAt)}`}
-              </p>
-            )}
+      {tab === 'discovery' && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted">
+            Entités créées dans Home Assistant par la découverte automatique. Chaque hôte peut avoir son propre niveau
+            (options de l'hôte, ou sélection dans la liste des hôtes) ; sans réglage, il suit le niveau choisi ici.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-line">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-muted">Catégorie</th>
+                  {columns.map((c) => (
+                    <th key={c.id} className={`px-3 py-2 text-center ${selected === c.id ? 'bg-emerald-500/5' : ''}`}>
+                      <label className="flex cursor-pointer flex-col items-center gap-1" title={c.hint}>
+                        <input type="radio" name="ha-level" className="accent-emerald-500" checked={selected === c.id} onChange={() => pickLevel(c.id)} />
+                        <span className={`text-xs font-medium ${selected === c.id ? 'text-emerald-300' : 'text-zinc-300'}`}>{c.label}</span>
+                      </label>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-line/60">
+                  <td className="px-3 py-2">
+                    <span className="block text-zinc-200">Alertes et connectivité des hôtes</span>
+                    <span className="block text-xs text-muted">Toujours publiées, sauf pour un hôte réglé sur « Aucun »</span>
+                  </td>
+                  {columns.map((c) => (
+                    <td key={c.id} className={`px-3 py-2 text-center ${selected === c.id ? 'bg-emerald-500/5' : ''}`}><Check className="mx-auto h-4 w-4 text-zinc-500" /></td>
+                  ))}
+                </tr>
+                {HA_SECTIONS.map((sec) => (
+                  <tr key={sec.id} className="border-b border-line/60">
+                    <td className="px-3 py-2">
+                      <span className="block text-zinc-200">{sec.label}</span>
+                      <span className="block text-xs text-muted">{sec.hint}</span>
+                    </td>
+                    {columns.map((c) => (
+                      <td key={c.id} className={`px-3 py-2 text-center ${selected === c.id ? 'bg-emerald-500/5' : ''}`}>
+                        {c.id === 'custom' ? (
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-emerald-500"
+                            aria-label={`${sec.label} (personnalisé)`}
+                            checked={ticked(sec.id)}
+                            onChange={(e) => toggleSection(sec.id, e.target.checked)}
+                          />
+                        ) : data.presets[c.id].includes(sec.id) ? (
+                          <Check className="mx-auto h-4 w-4 text-emerald-400" />
+                        ) : (
+                          <Minus className="mx-auto h-4 w-4 text-zinc-600" />
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="text-xs leading-relaxed text-muted">
-            <p className="mb-2 text-zinc-300">Appareils créés dans Home Assistant (découverte automatique) :</p>
-            <ul className="space-y-1.5">
-              <li><span className="text-zinc-200">Homelab Manager</span> : totaux, alertes de tout le homelab, « Tout vérifier ».</li>
-              <li className="pl-4">└ <span className="text-zinc-200">un appareil par hôte</span> : agent connecté, redémarrage requis, alertes de ses composants, infos système.</li>
-              <li className="pl-8">└ <span className="text-zinc-200">hôte · APT</span> : mise à jour installable, compteurs, bouton de vérification ; indisponible si l'agent est hors ligne.</li>
-            </ul>
-            <p className="mt-2">Désactiver l'intégration retire ces appareils de Home Assistant.</p>
-          </div>
+          {preview && (
+            <p className="text-xs text-muted">
+              Avec ce niveau et les niveaux propres à chaque hôte : <span className="text-zinc-200">{preview.entities} entité(s)</span> sur{' '}
+              <span className="text-zinc-200">{preview.devices} appareil(s)</span>.
+            </p>
+          )}
         </div>
-      </div>
+      )}
+
       <SettingsFormActions
         dirty={dirty}
         saving={busy === 'save'}
