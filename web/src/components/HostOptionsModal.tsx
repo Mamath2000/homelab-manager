@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Archive, Cpu, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Activity, Archive, Cpu, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib/status';
@@ -11,6 +11,8 @@ import { HaExcludedField } from './HaExcludedField';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
+import { HostHealthFooter, HostHealthThresholds } from './HostHealthThresholds';
+import { useHostHealthEditor } from '../lib/useHostHealthEditor';
 import { Badge, Button, Checkbox, Modal } from './ui';
 
 // Actions of the « Danger » zone, owned by the caller (its confirmations); no zone without them (host list).
@@ -23,12 +25,14 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'settings' | 'host' | 'agent' | 'backup' | 'danger';
+type SectionId = 'settings' | 'host' | 'health' | 'agent' | 'backup' | 'danger';
 
 // Identity and behavior are saved together; agent, backup and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Identité et comportement', icon: Tag },
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
+  // thresholds and alerts of the Health screen, for health-capable agents; applies immediately
+  { id: 'health', label: 'Santé : seuils et alertes', icon: Activity },
   { id: 'agent', label: 'Agent', icon: Cpu },
   // agents able to back up (the HAOS add-on is not): client, PBS token; Windows: path of the CLI
   { id: 'backup', label: 'Sauvegardes', icon: Archive },
@@ -116,6 +120,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   const [enrolling, setEnrolling] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [section, setSection] = useState<SectionId>('settings');
+  const healthEditor = useHostHealthEditor(host.id, { canManage: true, enabled: host.capabilities.includes('health') });
   const upsert = useUpdateHostCache();
   const toast = useToast();
 
@@ -145,7 +150,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
     }
   };
 
-  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
+  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'health' || host.capabilities.includes('health')) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
   const isForm = section === 'settings';
 
   if (install) {
@@ -174,6 +179,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
             <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
             <Button type="submit" form="host-options-form" variant="primary" loading={busy}>Enregistrer</Button>
           </>
+        ) : section === 'health' ? (
+          <HostHealthFooter editor={healthEditor} onClose={onClose} />
         ) : (
           <Button type="button" variant="ghost" onClick={onClose}>Fermer</Button>
         )
@@ -265,6 +272,17 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
             </div>
           )}
 
+          {section === 'health' && (() => {
+            const virt = host.info?.virt.trim().toLowerCase();
+            return (
+              <HostHealthThresholds
+                editor={healthEditor}
+                hostId={host.id}
+                alerts={host.health?.alerts ?? []}
+                hide={{ disks: virt === 'wsl', smart: !!virt && virt !== 'none' && virt !== 'unknown' }}
+              />
+            );
+          })()}
           {section === 'backup' && <BackupAgentSection host={host} windowsClient={<BackupClientSection host={host} />} />}
 
           {section === 'host' && (

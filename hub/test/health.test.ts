@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey, reportAlerts } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey, reportAlerts, resolveHealthSettings, thresholdsInvalid } from '../src/health.js';
 import type { HealthSettings, HostDoc, HostInfo } from '../src/types.js';
 import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
@@ -207,4 +207,38 @@ test('load alerts compare load5 to the CPU count, and skip containers and agents
   assert.equal(load(host('lxc'), report), undefined);
   const { cpuCount: _cpuCount, ...old } = report;
   assert.equal(load(host('none'), old), undefined);
+});
+
+test('resolveHealthSettings merges the overrides field by field and enables every indicator by default', () => {
+  const effective = resolveHealthSettings(DEFAULT_HEALTH_SETTINGS, { cpuAlertThreshold: 95, memoryEnabled: false });
+  assert.equal(effective.cpuAlertThreshold, 95);
+  assert.equal(effective.cpuWarningThreshold, DEFAULT_HEALTH_SETTINGS.cpuWarningThreshold);
+  assert.equal(effective.memoryEnabled, false);
+  assert.equal(effective.cpuEnabled, true);
+  assert.equal(resolveHealthSettings(DEFAULT_HEALTH_SETTINGS).diskEnabled, true);
+});
+
+test('thresholdsInvalid checks warning < alert on the effective values', () => {
+  assert.equal(thresholdsInvalid(DEFAULT_HEALTH_SETTINGS), false);
+  // alert lowered under the inherited warning (75)
+  assert.equal(thresholdsInvalid(resolveHealthSettings(DEFAULT_HEALTH_SETTINGS, { cpuAlertThreshold: 60 })), true);
+  assert.equal(thresholdsInvalid(resolveHealthSettings(DEFAULT_HEALTH_SETTINGS, { cpuWarningThreshold: 50, cpuAlertThreshold: 60 })), false);
+});
+
+test('a disabled indicator raises no alert, the others still do', () => {
+  const host = { info: { hostname: 'h', osId: 'linux', osName: 'Linux', kernel: '6', arch: 'amd64', uptime: 1, ips: [], virt: 'none' } } as HostDoc;
+  const system = { checkedAt: Date.now(), cpuPercent: 99, memPercent: 99, memUsed: 1, memTotal: 10, load1: 9, load5: 9, load15: 9, cpuCount: 4 };
+  const base = { ...DEFAULT_HEALTH_SETTINGS, systemSustainedMinutes: 0, loadSustainedMinutes: 0 };
+  const keys = (o: Parameters<typeof resolveHealthSettings>[1]) => reportAlerts(host, 'system', system, resolveHealthSettings(base, o)).map((a) => a.key).sort();
+  assert.deepEqual(keys({}), ['system:cpu', 'system:load', 'system:memory']);
+  assert.deepEqual(keys({ cpuEnabled: false, loadEnabled: false }), ['system:memory']);
+
+  const disks = { checkedAt: Date.now(), volumes: [{ device: '/dev/sda1', mountpoint: '/', fstype: 'ext4', total: 10, used: 10, percent: 99 }] };
+  assert.equal(reportAlerts(host, 'disks', disks, resolveHealthSettings(base)).length, 1);
+  assert.equal(reportAlerts(host, 'disks', disks, resolveHealthSettings(base, { diskEnabled: false })).length, 0);
+
+  const smart = { checkedAt: Date.now(), disks: [{ device: '/dev/nvme0', temperatureC: 90, nvmeWearPercent: 99 }] };
+  const smartKeys = (o: Parameters<typeof resolveHealthSettings>[1]) => reportAlerts(host, 'smart', smart as never, resolveHealthSettings(base, o)).map((a) => a.key).sort();
+  assert.equal(smartKeys({}).length, 2);
+  assert.deepEqual(smartKeys({ smartWearEnabled: false }), ['smart:smart:/dev/nvme0:temperature']);
 });

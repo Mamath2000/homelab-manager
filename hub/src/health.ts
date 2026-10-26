@@ -1,7 +1,8 @@
 import { ObjectId } from 'mongodb';
+import { HEALTH_OVERRIDE_ENABLED_KEYS, HEALTH_OVERRIDE_NUMBER_KEYS } from './types.js';
 import type { FastifyInstance } from 'fastify';
 import { healthMetrics, hosts, settings } from './db.js';
-import type { HealthCeph, HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthUnraid, HealthUnraidDisk, HealthUnraidPool, HealthSettings, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
+import type { HealthCeph, HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthUnraid, HealthUnraidDisk, HealthUnraidPool, HealthSettings, HealthEnabled, HealthOverrides, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
 import { parseId } from './db.js';
 import { isOnline, sendToAgent } from './agents.js';
 import { healthWithSilenced } from './healthSilence.js';
@@ -50,6 +51,29 @@ export async function loadHealthSettings(): Promise<HealthSettings> {
     smartWearAlertThreshold: stored?.smartWearAlertThreshold ?? legacyAlert('smartWearThreshold', DEFAULT_HEALTH_SETTINGS.smartWearAlertThreshold),
     systemSustainedMinutes: stored?.systemSustainedMinutes ?? legacyNumber('sustainedMinutes') ?? DEFAULT_HEALTH_SETTINGS.systemSustainedMinutes,
   };
+}
+
+// Effective settings of a host: the global ones, with the fields it overrides.
+export function resolveHealthSettings(global: HealthSettings, overrides?: HealthOverrides): HealthSettings & Required<HealthEnabled> {
+  return {
+    ...global,
+    cpuEnabled: true, memoryEnabled: true, loadEnabled: true, diskEnabled: true, smartTemperatureEnabled: true, smartWearEnabled: true,
+    ...overrides,
+  };
+}
+
+const THRESHOLD_PAIRS = [
+  ['cpuWarningThreshold', 'cpuAlertThreshold'],
+  ['memoryWarningThreshold', 'memoryAlertThreshold'],
+  ['diskWarningThreshold', 'diskAlertThreshold'],
+  ['smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold'],
+  ['smartWearWarningThreshold', 'smartWearAlertThreshold'],
+  ['loadWarningThreshold', 'loadAlertThreshold'],
+] as const;
+
+export const THRESHOLD_ORDER_ERROR = 'Le seuil warning doit être inférieur au seuil alerte.';
+export function thresholdsInvalid(s: HealthSettings): boolean {
+  return THRESHOLD_PAIRS.some(([warning, alert]) => s[warning] >= s[alert]);
 }
 
 export function isVirtualizedHealthHost(host: Pick<HostDoc, 'info'>): boolean {
@@ -321,7 +345,7 @@ export function healthMetricLevel(
   return undefined;
 }
 
-export function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings, samples: HealthReport[] = []) {
+export function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings & HealthEnabled, samples: HealthReport[] = []) {
   const old = h.health?.alerts ?? [];
   const retained = old.filter((a) => !a.key.startsWith(`${category}:`));
   const next: NonNullable<HostDoc['health']>['alerts'] = [];
@@ -342,10 +366,10 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
       );
       if (level) alert(key, label, `${label} à ${value.toFixed(1)} % (warning ${warning} %, alerte ${critical} %, durée ${settings.systemSustainedMinutes} min)`, level);
     };
-    addSystemMetric('cpu', 'CPU', 'cpuPercent', r.cpuPercent, settings.cpuWarningThreshold, settings.cpuAlertThreshold);
-    addSystemMetric('memory', 'Mémoire', 'memPercent', r.memPercent, settings.memoryWarningThreshold, settings.memoryAlertThreshold);
+    if (settings.cpuEnabled !== false) addSystemMetric('cpu', 'CPU', 'cpuPercent', r.cpuPercent, settings.cpuWarningThreshold, settings.cpuAlertThreshold);
+    if (settings.memoryEnabled !== false) addSystemMetric('memory', 'Mémoire', 'memPercent', r.memPercent, settings.memoryWarningThreshold, settings.memoryAlertThreshold);
     // A container reads its host's load average: the ratio to its own CPUs says nothing, so it is only coloured, never alerted.
-    if (r.load5 !== undefined && r.cpuCount && !isContainerHealthHost(h)) {
+    if (settings.loadEnabled !== false && r.load5 !== undefined && r.cpuCount && !isContainerHealthHost(h)) {
       const ratio = r.load5 / r.cpuCount;
       const values = samples
         .filter((sample): sample is HealthSystem => 'cpuPercent' in sample && sample.load5 !== undefined && !!sample.cpuCount)
@@ -356,7 +380,7 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
     }
   } else if (category === 'disks') {
     const previous = new Map(old.map((a) => [a.key, a.level]));
-    for (const v of (report as HealthDisks).volumes) {
+    if (settings.diskEnabled !== false) for (const v of (report as HealthDisks).volumes) {
       const key = `disks:volume:${v.mountpoint}`;
       const values = samples.filter((sample): sample is HealthDisks => 'volumes' in sample)
         .flatMap((sample) => sample.volumes.filter((volume) => volume.mountpoint === v.mountpoint).map((volume) => ({ checkedAt: sample.checkedAt, value: volume.percent })));
@@ -369,7 +393,7 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
     const previous = new Map(old.map((a) => [a.key, a.level]));
     for (const d of (report as HealthSmart).disks) {
       if (d.healthy === false) alert(`smart:${d.device}:health`, d.device, `${d.device} : état SMART en échec`, 'alert');
-      if (d.temperatureC !== undefined) {
+      if (settings.smartTemperatureEnabled !== false && d.temperatureC !== undefined) {
         const key = `smart:smart:${d.device}:temperature`;
         const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
           .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.temperatureC !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.temperatureC! })));
@@ -377,7 +401,7 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
           if (level) alert(`smart:${d.device}:temperature`, d.device, `${d.device} : température ${d.temperatureC} °C (warning ${settings.smartTemperatureWarningThreshold} °C, alerte ${settings.smartTemperatureAlertThreshold} °C, ${settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'})`, level);
       }
       if (d.reallocated !== undefined && d.reallocated > 0) alert(`smart:${d.device}:reallocated`, d.device, `${d.device} : ${d.reallocated} secteur(s) réalloué(s)`, 'alert');
-      if (d.nvmeWearPercent !== undefined) {
+      if (settings.smartWearEnabled !== false && d.nvmeWearPercent !== undefined) {
         const key = `smart:smart:${d.device}:wear`;
         const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
           .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.nvmeWearPercent !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.nvmeWearPercent! })));
@@ -412,7 +436,7 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   }
   await healthMetrics.insertOne({ hostId, category, sampledAt, report });
 
-  const s = await loadHealthSettings();
+  const s = resolveHealthSettings(await loadHealthSettings(), host.healthOverrides);
   const durationMinutes = category === 'system' ? Math.max(s.systemSustainedMinutes, s.loadSustainedMinutes) : category === 'smart' ? s.smartSustainedMinutes : 0;
   const intervalSeconds = category === 'system' ? s.systemIntervalSeconds : category === 'smart' ? s.smartIntervalSeconds : s.diskIntervalSeconds;
   const since = new Date(Date.now() - durationMinutes * 60_000 - intervalSeconds * 2_000);
@@ -479,23 +503,23 @@ const healthSettingsBody = {
   },
 } as const;
 
+// Same bounds as the global settings, every field optional.
+const healthOverridesBody = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    ...Object.fromEntries(HEALTH_OVERRIDE_NUMBER_KEYS.map((k) => [k, healthSettingsBody.properties[k]])),
+    ...Object.fromEntries(HEALTH_OVERRIDE_ENABLED_KEYS.map((k) => [k, { type: 'boolean' }])),
+  },
+} as const;
+
 export function registerHealthRoutes(app: FastifyInstance) {
   app.get('/api/settings/health', loadHealthSettings);
   app.put<{ Body: Omit<HealthSettings, '_id' | 'retentionHours'> }>(
     '/api/settings/health',
     { schema: { body: healthSettingsBody } },
     async (req, reply) => {
-      const pairs = [
-        [req.body.cpuWarningThreshold, req.body.cpuAlertThreshold],
-        [req.body.memoryWarningThreshold, req.body.memoryAlertThreshold],
-        [req.body.diskWarningThreshold, req.body.diskAlertThreshold],
-        [req.body.smartTemperatureWarningThreshold, req.body.smartTemperatureAlertThreshold],
-        [req.body.smartWearWarningThreshold, req.body.smartWearAlertThreshold],
-        [req.body.loadWarningThreshold, req.body.loadAlertThreshold],
-      ];
-      if (pairs.some(([warning, alert]) => warning >= alert)) {
-        return reply.code(400).send({ error: 'Le seuil warning doit être inférieur au seuil alerte.' });
-      }
+      if (thresholdsInvalid({ ...DEFAULT_HEALTH_SETTINGS, ...req.body })) return reply.code(400).send({ error: THRESHOLD_ORDER_ERROR });
       const next: HealthSettings = { ...DEFAULT_HEALTH_SETTINGS, ...req.body, retentionHours: 48 };
       await settings.replaceOne({ _id: 'health' }, next, { upsert: true });
       for (const host of await hosts.find({}).toArray()) {
@@ -504,6 +528,41 @@ export function registerHealthRoutes(app: FastifyInstance) {
       return next;
     },
   );
+
+  // Per-host overrides: only the fields set differ from the global settings; DELETE restores the defaults.
+  app.get<{ Params: { id: string } }>('/api/hosts/:id/health/overrides', async (req, reply) => {
+    const hostId = parseId(req.params.id);
+    const host = hostId && (await hosts.findOne({ _id: hostId }, { projection: { healthOverrides: 1 } }));
+    if (!host) return reply.code(404).send({ error: 'host not found' });
+    const overrides = host.healthOverrides ?? {};
+    return { overrides, effective: resolveHealthSettings(await loadHealthSettings(), overrides) };
+  });
+
+  app.put<{ Params: { id: string }; Body: HealthOverrides }>(
+    '/api/hosts/:id/health/overrides',
+    { schema: { body: healthOverridesBody } },
+    async (req, reply) => {
+      const hostId = parseId(req.params.id);
+      if (!hostId || !(await hosts.countDocuments({ _id: hostId }, { limit: 1 }))) return reply.code(404).send({ error: 'host not found' });
+      const global = await loadHealthSettings();
+      const effective = resolveHealthSettings(global, req.body);
+      if (thresholdsInvalid(effective)) return reply.code(400).send({ error: THRESHOLD_ORDER_ERROR });
+      const overrides = req.body;
+      const updated = Object.keys(overrides).length
+        ? await hosts.findOneAndUpdate({ _id: hostId }, { $set: { healthOverrides: overrides } }, { returnDocument: 'after' })
+        : await hosts.findOneAndUpdate({ _id: hostId }, { $unset: { healthOverrides: '' } }, { returnDocument: 'after' });
+      if (updated) publish('host', hostDto(updated));
+      return { overrides, effective };
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>('/api/hosts/:id/health/overrides', async (req, reply) => {
+    const hostId = parseId(req.params.id);
+    const updated = hostId && (await hosts.findOneAndUpdate({ _id: hostId }, { $unset: { healthOverrides: '' } }, { returnDocument: 'after' }));
+    if (!updated) return reply.code(404).send({ error: 'host not found' });
+    publish('host', hostDto(updated));
+    return { overrides: {}, effective: resolveHealthSettings(await loadHealthSettings()) };
+  });
 
   app.get<{ Params: { id: string }; Querystring: { hours?: string } }>('/api/hosts/:id/health', async (req, reply) => {
     const hostId = parseId(req.params.id);
@@ -521,6 +580,7 @@ export function registerHealthRoutes(app: FastifyInstance) {
       ? await healthMetrics.find({ hostId: { $in: hostIds }, category: 'system', sampledAt: { $gte: new Date(Date.now() - 3600_000) } })
         .sort({ sampledAt: 1 }).limit(20_000).toArray()
       : [];
+    const global = await loadHealthSettings();
     const byHost = new Map<string, typeof samples>();
     for (const sample of samples) {
       const key = sample.hostId.toHexString();
@@ -535,6 +595,8 @@ export function registerHealthRoutes(app: FastifyInstance) {
         virtualized: isVirtualizedHealthHost(host),
         noDisks: hasNoHealthDisks(host),
         health: healthWithSilenced(host.health, host.healthSilenced),
+        settings: resolveHealthSettings(global, host.healthOverrides),
+        customized: Object.keys(host.healthOverrides ?? {}).length > 0,
         samples: (byHost.get(host._id.toHexString()) ?? []).map(({ sampledAt, report }) => ({ sampledAt, report })),
       })),
     };

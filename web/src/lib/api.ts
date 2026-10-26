@@ -196,6 +196,13 @@ export interface HealthSettings {
   loadSustainedMinutes: number;
 }
 
+// Per-host overrides (only the fields that differ from the global settings) and the settings they give.
+export type HealthEnabledKey = 'cpuEnabled' | 'memoryEnabled' | 'loadEnabled' | 'diskEnabled' | 'smartTemperatureEnabled' | 'smartWearEnabled';
+export type HealthEnabled = Record<HealthEnabledKey, boolean>;
+export type HealthEffectiveSettings = HealthSettings & HealthEnabled;
+export type HealthOverrides = Partial<Omit<HealthSettings, 'systemIntervalSeconds' | 'diskIntervalSeconds' | 'smartIntervalSeconds' | 'retentionHours'> & HealthEnabled>;
+export interface HealthOverridesResponse { overrides: HealthOverrides; effective: HealthEffectiveSettings }
+
 export interface HealthOverviewHost {
   id: string;
   name: string;
@@ -204,6 +211,9 @@ export interface HealthOverviewHost {
   virtualized: boolean;
   noDisks: boolean;
   health: HealthSnapshot | null;
+  // thresholds of this host (global + its overrides)
+  settings: HealthEffectiveSettings;
+  customized: boolean;
   samples: { sampledAt: string; report: HealthSystem }[];
 }
 
@@ -1218,6 +1228,9 @@ export const api = {
   hostSmartCandidates: (id: string) => request<{ candidates: SmartCandidate[] }>('GET', `/api/hosts/${id}/health/smart/candidates`),
   healthSettings: () => request<HealthSettings>('GET', '/api/settings/health'),
   saveHealthSettings: (s: Omit<HealthSettings, 'retentionHours'>) => request<HealthSettings>('PUT', '/api/settings/health', s),
+  hostHealthOverrides: (id: string) => request<HealthOverridesResponse>('GET', `/api/hosts/${id}/health/overrides`),
+  saveHostHealthOverrides: (id: string, overrides: HealthOverrides) => request<HealthOverridesResponse>('PUT', `/api/hosts/${id}/health/overrides`, overrides),
+  resetHostHealthOverrides: (id: string) => request<HealthOverridesResponse>('DELETE', `/api/hosts/${id}/health/overrides`),
   healthOverview: () => request<{ hosts: HealthOverviewHost[] }>('GET', '/api/health/overview'),
   alerts: () => request<{ days: (HostAlertDay & { hostId: string })[] }>('GET', '/api/alerts'),
   status: () => request<StatusView>('GET', '/api/status'),

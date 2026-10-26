@@ -5,6 +5,7 @@ import { api, type HealthSettings as HealthSettingsValues } from '../lib/api';
 import { useToast } from '../lib/toast';
 import { Button, Panel, Spinner } from './ui';
 import { useSettingsDraft } from './settingsDraft';
+import { ThresholdFields } from './HealthThresholdsForm';
 
 type Form = Omit<HealthSettingsValues, 'retentionHours'>;
 const intervals: { key: keyof Form; label: string; min: number; max: number; suffix: string; help: string }[] = [
@@ -12,25 +13,6 @@ const intervals: { key: keyof Form; label: string; min: number; max: number; suf
   { key: 'diskIntervalSeconds', label: 'Utilisation des volumes', min: 60, max: 86400, suffix: 'secondes', help: 'Fréquence de vérification de l’espace utilisé par volume.' },
   { key: 'smartIntervalSeconds', label: 'SMART', min: 600, max: 2592000, suffix: 'secondes', help: 'Fréquence des requêtes smartctl sur les disques explicitement activés dans chaque fiche hôte.' },
 ];
-const thresholds: {
-  label: string;
-  warning: keyof Form;
-  alert: keyof Form;
-  duration?: keyof Form;
-  max: number;
-  suffix: string;
-  durationMax?: number;
-  step?: number;
-  min?: number;
-}[] = [
-  { label: 'CPU', warning: 'cpuWarningThreshold', alert: 'cpuAlertThreshold', duration: 'systemSustainedMinutes', max: 100, suffix: '%', durationMax: 60 },
-  { label: 'Mémoire', warning: 'memoryWarningThreshold', alert: 'memoryAlertThreshold', duration: 'systemSustainedMinutes', max: 100, suffix: '%', durationMax: 60 },
-  { label: 'Charge Unix (load5 / CPU)', warning: 'loadWarningThreshold', alert: 'loadAlertThreshold', duration: 'loadSustainedMinutes', max: 10, suffix: '× CPU', durationMax: 60, step: 0.05, min: 0.1 },
-  { label: 'Volumes', warning: 'diskWarningThreshold', alert: 'diskAlertThreshold', max: 100, suffix: '%' },
-  { label: 'Température SMART', warning: 'smartTemperatureWarningThreshold', alert: 'smartTemperatureAlertThreshold', duration: 'smartSustainedMinutes', max: 150, suffix: '°C', durationMax: 2880 },
-  { label: 'Usure NVMe SMART', warning: 'smartWearWarningThreshold', alert: 'smartWearAlertThreshold', duration: 'smartSustainedMinutes', max: 1000, suffix: '%', durationMax: 2880 },
-];
-
 function formOf(s: HealthSettingsValues): Form {
   return {
     systemIntervalSeconds: s.systemIntervalSeconds,
@@ -110,32 +92,7 @@ export function HealthSettings() {
         <div>
           <h3 className="mb-2 text-sm font-medium text-zinc-100">Seuils et temporisations</h3>
           <div className="space-y-2">
-            {thresholds.map(({ label, warning, alert, duration, max, suffix, durationMax, step, min }) => (
-              <div key={label} className={`grid gap-3 rounded-md border border-line bg-raised/30 p-3 sm:items-end ${duration ? 'sm:grid-cols-[minmax(8rem,1fr)_repeat(3,minmax(6rem,auto))]' : 'sm:grid-cols-[minmax(8rem,1fr)_repeat(2,minmax(6rem,auto))]'}`}>
-                <span className="text-sm font-medium text-zinc-100">{label}</span>
-                {([
-                  [warning, 'Warning', max, suffix],
-                  [alert, 'Alerte', max, suffix],
-                  ...(duration ? [[duration, 'Durée', durationMax ?? 2880, 'minutes'] as const] : []),
-                ] as const).map(([key, title, maxValue, unit]) => (
-                  <label key={`${label}-${key}`} className="text-xs text-muted">
-                    <span className="mb-1 block">{title}</span>
-                    <span className="flex items-center gap-1.5">
-                      <input
-                        className="input w-24"
-                        type="number"
-                        min={title === 'Durée' ? 0 : min ?? 1}
-                        step={title === 'Durée' ? 1 : step}
-                        max={maxValue}
-                        value={form[key]}
-                        onChange={(event) => setDraft({ ...form, [key]: Number(event.target.value) })}
-                      />
-                      <span>{unit}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            ))}
+            <ThresholdFields form={form} onChange={(key, value) => setDraft({ ...form, [key]: value })} />
             <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. La durée est partagée entre CPU et mémoire, ainsi qu’entre les mesures SMART ; la charge Unix (load5 rapporté au nombre de CPU, sans alerte sur les conteneurs) a la sienne. Les seuils de volume sont toujours immédiats.</p>
           </div>
         </div>
