@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -106,6 +107,8 @@ func logToFile(dir string) {
 	}
 	if f, err := os.OpenFile(path, flags, 0o600); err == nil {
 		log.SetOutput(f)
+		// panics and fatal errors of the runtime go to stderr: keep them in the log
+		_ = windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(f.Fd()))
 	}
 }
 
