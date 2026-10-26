@@ -9,7 +9,7 @@
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
 #   prune         : libère le disque : agent/hub/web dist, anciennes images locales de homelab-manager et
 #                   homelab-agent-haos (reste latest et la version courante), images orphelines, cache buildx > 7 j
-#                   (lancé aussi en fin de release)
+#                   (proposé aussi en fin de release, avec confirmation ; YES=1 l'accepte d'office)
 #   direct        : contournement de Docker Hub : build amd64 sans identifiants (config Docker vide), image
 #                   transférée par ssh dans le CT du hub (docker save | docker load), puis compose up du service.
 #                   Rien n'est publié ni commité ; tags locaux latest et X.Y.Z-<ref git>.
@@ -54,6 +54,16 @@ prune_old() {
     docker buildx prune -f --filter until=168h >/dev/null 2>&1 || true
     docker buildx prune -f --builder "$BUILDER" --filter until=168h >/dev/null 2>&1 || true
     docker system df
+}
+
+# ask_prune : fin de release, nettoyage après confirmation (sans terminal et sans YES=1 : ignoré)
+ask_prune() {
+    if [ "${YES:-}" != "1" ]; then
+        [ -t 0 ] || { echo "⏸️  Nettoyage non lancé (pas de terminal) : bash docker-release.sh prune"; return 0; }
+        read -r -p "Nettoyer les anciens artefacts de build (dist, anciennes images, cache buildx) ? [o/N] " answer
+        case "$answer" in o|O|oui|y|Y) ;; *) echo "⏸️  Nettoyage ignoré (bash docker-release.sh prune)"; return 0 ;; esac
+    fi
+    prune_old
 }
 
 for cmd in docker git npm; do
@@ -223,4 +233,4 @@ git push -q origin "$BRANCH" --tags \
 gh workflow run sync.yaml -R "$HAOS_REPO" \
     && echo "✅ Synchro de l'application HAOS lancée : gh run list -R $HAOS_REPO" \
     || echo "⚠️  Synchro HAOS non lancée : make -C ../homelab-manager-haos sync (sinon cron quotidien)"
-prune_old
+ask_prune
