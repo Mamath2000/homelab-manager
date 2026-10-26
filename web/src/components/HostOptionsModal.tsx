@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Archive, Cpu, Home, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib/status';
@@ -11,6 +11,8 @@ import { HostHaDetail } from './HostHaDetail';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
+import { HostHealthFooter, HostHealthThresholds } from './HostHealthThresholds';
+import { useHostHealthEditor } from '../lib/useHostHealthEditor';
 import { Badge, Button, Checkbox, Modal } from './ui';
 
 // Actions of the « Danger » zone, owned by the caller (its confirmations); no zone without them (host list).
@@ -23,13 +25,15 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'settings' | 'ha' | 'host' | 'agent' | 'backup' | 'danger';
+type SectionId = 'settings' | 'ha' | 'host' | 'health' | 'agent' | 'backup' | 'danger';
 
 // Identity, behavior and Home Assistant are saved together; agent, backup and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Identité et comportement', icon: Tag },
   { id: 'ha', label: 'Home Assistant', icon: Home },
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
+  // thresholds and alerts of the Health screen, for health-capable agents; applies immediately
+  { id: 'health', label: 'Santé : seuils et alertes', icon: Activity },
   { id: 'agent', label: 'Agent', icon: Cpu },
   // agents able to back up (the HAOS add-on is not): client, PBS token; Windows: path of the CLI
   { id: 'backup', label: 'Sauvegardes', icon: Archive },
@@ -48,6 +52,15 @@ function Capability({ label, enabled, detail }: { label: string; enabled: boolea
       </div>
       <Badge tone={enabled ? 'ok' : 'neutral'}>{enabled ? 'Oui' : 'Non'}</Badge>
     </div>
+  );
+}
+
+function CapabilityGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h5>
+      <div className="flex flex-col gap-2.5">{children}</div>
+    </section>
   );
 }
 
@@ -117,6 +130,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   const [enrolling, setEnrolling] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [section, setSection] = useState<SectionId>('settings');
+  const healthEditor = useHostHealthEditor(host.id, { canManage: true, enabled: host.capabilities.includes('health') });
   const upsert = useUpdateHostCache();
   const toast = useToast();
 
@@ -146,7 +160,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
     }
   };
 
-  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
+  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'health' || host.capabilities.includes('health')) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
   const isForm = section === 'settings' || section === 'ha';
 
   if (install) {
@@ -160,8 +174,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   return (
     <Modal
       open
-      scroll
-      wide="xl"
+      wide="screen-wide"
+      fixed
       onClose={onClose}
       title={
         <>
@@ -175,6 +189,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
             <Button type="button" variant="ghost" onClick={onClose}>Annuler</Button>
             <Button type="submit" form="host-options-form" variant="primary" loading={busy}>Enregistrer</Button>
           </>
+        ) : section === 'health' ? (
+          <HostHealthFooter editor={healthEditor} onClose={onClose} />
         ) : (
           <Button type="button" variant="ghost" onClick={onClose}>Fermer</Button>
         )
@@ -275,6 +291,17 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
             </div>
           )}
 
+          {section === 'health' && (() => {
+            const virt = host.info?.virt.trim().toLowerCase();
+            return (
+              <HostHealthThresholds
+                editor={healthEditor}
+                hostId={host.id}
+                alerts={host.health?.alerts ?? []}
+                hide={{ disks: virt === 'wsl', smart: !!virt && virt !== 'none' && virt !== 'unknown' }}
+              />
+            );
+          })()}
           {section === 'backup' && <BackupAgentSection host={host} windowsClient={<BackupClientSection host={host} />} />}
 
           {section === 'host' && (
@@ -283,15 +310,26 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                 <h4 className="text-sm font-semibold text-zinc-100">Éléments détectés</h4>
                 <p className="mt-1 text-xs text-muted">Capacités et services signalés par l’agent lors de son dernier rapport.</p>
               </div>
-              <div className="grid gap-2.5 sm:grid-cols-2">
+              <div className="grid items-start gap-5 md:grid-cols-3">
+              <CapabilityGroup title="Supervision">
+                <Capability label="Mesures système" enabled={host.capabilities.includes('health')} detail="CPU, mémoire, charge Unix et volumes (seuils : section Santé)" />
+                <Capability label="SMART" enabled={host.capabilities.includes('smart')} detail={host.capabilities.includes('smart') ? `Disques physiques suivis : ${host.smartDevices.length || 'aucun choisi'}` : 'Indisponible : smartmontools absent, hôte virtualisé ou agent ancien'} />
+                <Capability label="RAID" enabled={host.capabilities.includes('raid')} detail="Arrays mdadm, Unraid ou Ceph détectés sur l’hôte" />
+                <Capability label="Onduleur (UPS)" enabled={host.capabilities.includes('ups')} detail={host.capabilities.includes('ups_control') ? 'Suivi NUT, bip et test batterie' : 'Suivi NUT de l’onduleur branché sur l’hôte'} />
+                <Capability label="Sauvegardes Home Assistant" enabled={host.capabilities.includes('ha_backups')} detail="Remontée des sauvegardes Home Assistant" />
+              </CapabilityGroup>
+              <CapabilityGroup title="Gestion">
                 <Capability label="Mises à jour APT" enabled={hasApt(host)} detail="Gestion des paquets système" />
                 <Capability label="Docker" enabled={!!host.docker} detail={host.docker ? `${host.docker.engine} · Compose ${host.docker.compose}` : 'Aucun moteur Docker détecté'} />
+                <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
+              </CapabilityGroup>
+              <CapabilityGroup title="Actions à distance">
                 <Capability label="Redémarrage" enabled={host.capabilities.includes('reboot')} detail="Redémarrage à distance de l’hôte" />
                 <Capability label="Extinction" enabled={host.capabilities.includes('shutdown')} detail="Extinction à distance de l’hôte" />
                 {isWindows(host) && <Capability label="Verrouillage" enabled={host.capabilities.includes('lock')} detail="Verrouillage d’une session utilisateur" />}
+                <Capability label="Actualisation à la demande" enabled={host.capabilities.includes('refresh')} detail="L’agent relit ses mesures et son état sur demande" />
                 <Capability label="Mise à jour de l’agent" enabled={host.capabilities.includes('agent_update')} detail="L’agent peut se mettre à jour lui-même" />
-                <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
-                <Capability label="Sauvegardes Home Assistant" enabled={host.capabilities.includes('ha_backups')} detail="Remontée des sauvegardes Home Assistant" />
+              </CapabilityGroup>
               </div>
               {host.info && (
                 <dl className="grid gap-x-6 gap-y-2 border-t border-line pt-4 text-sm sm:grid-cols-2">

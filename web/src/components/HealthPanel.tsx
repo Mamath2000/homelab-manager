@@ -1,17 +1,17 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Activity, AlertTriangle, ChartLine, ChevronDown, EyeOff, HardDrive, Layers, Thermometer, type LucideIcon } from 'lucide-react';
+import { Activity, AlertTriangle, ChartLine, ChevronDown, HardDrive, Layers, SlidersHorizontal, Thermometer, type LucideIcon } from 'lucide-react';
 import { api, hasHealthRaid, loadTextClass, visibleHealthVolumes, type HealthSystem, type Host } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { thresholdBg, toneBg, toneText, type Tone } from '../lib/status';
-import { useToast } from '../lib/toast';
 import { Gauge } from './Gauge';
 import { HealthDetailModal } from './HealthDetailModal';
 import { RaidArrays } from './RaidArrays';
 import { SmartSetup } from './SmartSetup';
 import { Badge, Button, Panel } from './ui';
+import { HostHealthModal } from './HostHealthThresholds';
 
 function Percent({ value, tone = 'emerald', warning, alert, durationMinutes }: { value: number; tone?: 'emerald' | 'sky' | 'indigo'; warning?: number; alert?: number; durationMinutes?: number }) {
   const colors = { emerald: 'bg-emerald-400', sky: 'bg-sky-400', indigo: 'bg-indigo-400' };
@@ -42,22 +42,6 @@ function alertReason(alerts: PanelAlert[]): string | undefined {
   return live.length > 1 ? `${live[0].reason} (+${live.length - 1})` : live[0].reason;
 }
 
-// Accept the alerts of a row (or watch them again): they stop counting for the state of the host, the bar keeps its colour.
-function SilenceButton({ hostId, alerts, canManage }: { hostId: string; alerts: PanelAlert[]; canManage: boolean }) {
-  const toast = useToast();
-  const silenced = alerts.length > 0 && alerts.every((a) => a.silenced);
-  const toggle = useMutation({
-    mutationFn: () => api.silenceHealthAlerts(hostId, alerts.map((a) => a.key), !silenced),
-    onError: (err: Error) => toast.error(err.message),
-  });
-  if (!alerts.length || !canManage) return null;
-  const title = silenced ? 'Alerte masquée : ne compte plus pour l\'état de l\'hôte. Cliquer pour la réactiver.' : 'Accepter le risque : masquer cette alerte de l\'état de l\'hôte';
-  return (
-    <Button size="sm" variant="ghost" title={title} aria-label={title} aria-pressed={silenced} loading={toggle.isPending} onClick={() => toggle.mutate()}>
-      <EyeOff className={`h-4 w-4 ${silenced ? 'text-zinc-500' : 'text-amber-300'}`} />
-    </Button>
-  );
-}
 
 // One line of the summary column: what it is, the verdict in a few words, a small chart, and the details on click.
 function SummaryRow({ id, icon: Icon, label, sub, head, tone, mini, open, onToggle, children }: {
@@ -84,6 +68,7 @@ function SummaryRow({ id, icon: Icon, label, sub, head, tone, mini, open, onTogg
 
 export function HealthPanel({ host, canManage }: { host: Host; canManage: boolean }) {
   const [chartOpen, setChartOpen] = useState(false);
+  const [thresholdsOpen, setThresholdsOpen] = useState(false);
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({});
   const toggleRow = (id: string) => setOpenRows((rows) => ({ ...rows, [id]: !rows[id] }));
   const { data, isError, error } = useQuery({
@@ -91,7 +76,10 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
     queryFn: () => api.hostHealth(host.id, 1),
     refetchInterval: 30_000,
   });
-  const { data: settings } = useQuery({ queryKey: ['settings', 'health'], queryFn: api.healthSettings });
+  // thresholds of this host (global + its overrides)
+  const { data: overrides } = useQuery({ queryKey: ['health', 'overrides', host.id], queryFn: () => api.hostHealthOverrides(host.id) });
+  const settings = overrides?.effective;
+  const customized = !!overrides && Object.keys(overrides.overrides).length > 0;
   const systemSamples = useMemo(
     () => (data?.samples ?? []).filter((s): s is typeof s & { report: HealthSystem } => s.category === 'system'),
     [data],
@@ -160,7 +148,6 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
         <Gauge value={value} base={key === 'cpu' ? 'ok' : 'info'} warning={warning} alert={alert} label={key === 'cpu' ? 'CPU' : 'Mémoire'} />
         <div className="-mt-1 flex items-center justify-center gap-1">
           <span className={clsx('text-sm', tone === 'ok' ? 'text-zinc-200' : toneText[tone])}>{key === 'cpu' ? 'CPU' : 'Mémoire'}</span>
-          <SilenceButton hostId={host.id} alerts={alertsOf(key === 'cpu' ? 'system:cpu' : 'system:memory')} canManage={canManage} />
         </div>
         <p className={clsx('text-[11px]', tone === 'ok' ? 'text-muted' : toneText[tone])}>{sub}</p>
       </div>
@@ -174,6 +161,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
       actions={
         <>
           {alerts.length > 0 && <Badge tone={hasCriticalAlert ? 'bad' : 'warn'}><span title={alerts.map((a) => a.reason).join('\n')} className="flex items-center"><AlertTriangle className="mr-1 h-3 w-3" />{alerts.length}</span></Badge>}
+          <Button size="sm" variant="ghost" title={customized ? 'Seuils personnalisés de l\'hôte' : 'Seuils et alertes de l\'hôte'} aria-label="Seuils et alertes de l'hôte" onClick={() => setThresholdsOpen(true)}><SlidersHorizontal className={`h-4 w-4 ${customized ? 'text-amber-300' : ''}`} /></Button>
           <Button size="sm" variant="ghost" title="Détail de la santé" aria-label="Détail de la santé" onClick={() => setChartOpen(true)}><ChartLine className="h-4 w-4" /></Button>
         </>
       }
@@ -191,7 +179,6 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                       {([['1', system.load1], ['5', system.load5], ['15', system.load15]] as const).map(([period, value]) => value !== undefined && <span key={period} className={loadTextClass(value, system.cpuCount, settings)}>{value.toFixed(2)} </span>)}
                     </span>
                     <span className="ml-1">(1 / 5 / 15 min)</span>
-                    <SilenceButton hostId={host.id} alerts={alertsOf('system:load')} canManage={canManage} />
                   </p>
                 )}
               </>
@@ -223,7 +210,6 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                         <p className="truncate font-mono text-[10px] text-muted" title={v.device}>{v.device} · {v.fstype} · {formatBytes(v.used)} / {formatBytes(v.total)}</p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="flex w-8 shrink-0 justify-center"><SilenceButton hostId={host.id} alerts={alertsOf(`disks:volume:${v.mountpoint}`)} canManage={canManage} /></span>
                         <div className="min-w-0 flex-1"><Percent value={v.percent} tone="indigo" warning={diskWarning} alert={diskAlert} /></div>
                       </div>
                     </div>
@@ -247,7 +233,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                 }
                 open={!!openRows.raid} onToggle={() => toggleRow('raid')}
               >
-                <RaidArrays raid={raid} cluster={cluster} actions={(prefix) => <SilenceButton hostId={host.id} alerts={alertsOf(prefix)} canManage={canManage} />} />
+                <RaidArrays raid={raid} cluster={cluster} />
               </SummaryRow>
             )}
 
@@ -272,7 +258,6 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
                         {d.temperatureC !== undefined && <span className="text-zinc-300" title={d.standby ? 'Dernière mesure connue' : undefined}>{d.temperatureC} °C</span>}
                         {d.reallocated !== undefined && <span className="text-zinc-300">{d.reallocated} réalloués</span>}
                         {d.nvmeWearPercent !== undefined && <span className="text-zinc-300">Usure {d.nvmeWearPercent} %</span>}
-                        <span className="ml-auto"><SilenceButton hostId={host.id} alerts={alertsOf(`smart:${d.device}`)} canManage={canManage} /></span>
                       </div>
                       {d.error && <p className="mt-1 text-amber-300">{d.error}</p>}
                     </div>
@@ -283,6 +268,7 @@ export function HealthPanel({ host, canManage }: { host: Host; canManage: boolea
           </div>
         </div>
       </div>
+      <HostHealthModal open={thresholdsOpen} onClose={() => setThresholdsOpen(false)} hostId={host.id} hostName={host.name} alerts={allAlerts} hide={{ disks: noDisks, smart: virtualized }} canManage={canManage} />
       <HealthDetailModal
         open={chartOpen}
         onClose={() => setChartOpen(false)}

@@ -25,7 +25,7 @@ func TestHealthConfigDefaultsAndNormalization(t *testing.T) {
 }
 
 func TestHealthSystemCollection(t *testing.T) {
-	report, err := collectHealthSystem()
+	report, err := collectHealthSystem(0)
 	if err != nil {
 		t.Fatal(err)
 	}

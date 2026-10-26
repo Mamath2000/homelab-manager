@@ -210,6 +210,10 @@ func (s *session) hello(ctx context.Context) error {
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
+	// UPS seen as a battery by Windows (ups_windows.go), re-evaluated at each hello; read only
+	if hasUps(ctx) {
+		caps = append(caps, "ups")
+	}
 	client := backups.clientPresent()
 	if client {
 		caps = append(caps, "backup", "backup:cli")
@@ -269,6 +273,7 @@ func (s *session) loop(ctx context.Context) error {
 	}
 	s.setHealthConfig(defaultHealthConfig())
 	go s.healthLoop(ctx)
+	go s.upsLoop(ctx)
 	// pending backup results go to this connection
 	backups.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer backups.detach()
@@ -315,7 +320,13 @@ func (s *session) loop(ctx context.Context) error {
 			if in.Op == "refresh" {
 				_ = s.hello(ctx)
 				s.sessions(ctx, true)
-				out.Result = map[string][]string{"scopes": {"info", "session"}}
+				s.refreshHealth(ctx)
+				scopes := []string{"info", "session", "health"}
+				if r := collectUps(ctx); r != nil {
+					_ = s.send(ctx, Outbound{Type: "ups_report", Ups: r})
+					scopes = append(scopes, "ups")
+				}
+				out.Result = map[string][]string{"scopes": scopes}
 			} else if in.Op == "smart_scan" {
 				if list, err := listSmartCandidates(ctx); err != nil {
 					out.Error = err.Error()

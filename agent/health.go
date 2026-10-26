@@ -199,8 +199,10 @@ func (s *session) healthConfigChanged() <-chan struct{} {
 	return s.healthChanged
 }
 
-func collectHealthSystem() (*HealthSystem, error) {
-	cpuPercents, err := cpu.Percent(0, false)
+// window: 0 measures CPU since the previous call (the health loop); a refresh on request passes a real window, as
+// the previous call may be only a few milliseconds old.
+func collectHealthSystem(window time.Duration) (*HealthSystem, error) {
+	cpuPercents, err := cpu.Percent(window, false)
 	if err != nil {
 		return nil, err
 	}
@@ -323,13 +325,23 @@ func (s *session) healthLoop(ctx context.Context) {
 	}
 }
 
-func (s *session) healthSystem(ctx context.Context) {
-	r, err := collectHealthSystem()
+func (s *session) healthSystem(ctx context.Context) { s.healthSystemOver(ctx, 0) }
+
+func (s *session) healthSystemOver(ctx context.Context, window time.Duration) {
+	r, err := collectHealthSystem(window)
 	if err != nil {
 		log.Printf("health system collection failed: %v", err)
 		return
 	}
 	_ = s.send(ctx, Outbound{Type: "health_system", HealthSystem: r})
+}
+
+// refreshHealth: the measures of the health loop, on request (scope "health" of the refresh rpc). SMART is left to its
+// own schedule: reading it can wake sleeping disks.
+func (s *session) refreshHealth(ctx context.Context) {
+	s.healthSystemOver(ctx, time.Second)
+	s.healthDisks(ctx)
+	go s.healthRaid(ctx)
 }
 
 func (s *session) healthDisks(ctx context.Context) {

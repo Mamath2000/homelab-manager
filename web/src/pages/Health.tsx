@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, AlertTriangle, ChartLine, Clock3, Server } from 'lucide-react';
+import { Activity, AlertTriangle, ChartLine, Clock3, Server, SlidersHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, Panel, Spinner } from '../components/ui';
+import { HostHealthModal } from '../components/HostHealthThresholds';
 import { thresholdBg } from '../lib/status';
 import { HealthDetailModal } from '../components/HealthDetailModal';
 import { HealthOverviewHeader } from '../components/HealthOverviewHeader';
 import { inColumn, kindColumns } from '../lib/hostOverview';
 import { useHosts, useSites } from '../lib/queries';
-import { api, loadTextClass, visibleHealthVolumes, type HealthOverviewHost, type HealthSettings } from '../lib/api';
+import { useMe } from '../lib/auth';
+import { api, loadTextClass, visibleHealthVolumes, type HealthOverviewHost } from '../lib/api';
 
 // 604800 → « tous les 7 j », 86400 → « toutes les 24 h »
 function smartEvery(seconds = 7 * 86400) {
@@ -18,22 +20,25 @@ function smartEvery(seconds = 7 * 86400) {
   return `toutes les ${Math.round(seconds / 60)} min`;
 }
 
-function Metric({ label, value, color, warning, alert, durationMinutes }: { label: string; value: number; color: string; warning?: number; alert?: number; durationMinutes?: number }) {
+function Metric({ label, value, color, warning, alert, durationMinutes, off }: { label: string; value: number; color: string; warning?: number; alert?: number; durationMinutes?: number; off?: boolean }) {
   return (
     <div className="min-w-0">
       <div className="mb-1 flex justify-between text-xs"><span className="text-muted">{label}</span><span className="font-mono text-zinc-200">{value.toFixed(1)} %</span></div>
       <div className="relative h-1.5 overflow-hidden rounded-full bg-black/30">
         <div className={`h-full ${thresholdBg(value, color, warning, alert)}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
-        {warning !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-amber-300" style={{ left: `${warning}%` }} title={`Warning ${warning}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
-        {alert !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-red-400" style={{ left: `${alert}%` }} title={`Alerte ${alert}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
+        {!off && warning !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-amber-300" style={{ left: `${warning}%` }} title={`Warning ${warning}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
+        {!off && alert !== undefined && <span className="absolute -top-0.5 h-2.5 w-px bg-red-400" style={{ left: `${alert}%` }} title={`Alerte ${alert}%${durationMinutes === undefined ? '' : ` · ${durationMinutes} min`}`} />}
       </div>
-      {warning !== undefined && alert !== undefined && <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-[10px] text-muted"><span>Warning {warning}%</span><span>Alerte {alert}%</span>{durationMinutes !== undefined && <span>{durationMinutes ? `après ${durationMinutes} min` : 'immédiat'}</span>}</div>}
+      {off && <div className="mt-1 text-[10px] text-muted">alertes désactivées</div>}
+      {!off && warning !== undefined && alert !== undefined && <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-[10px] text-muted"><span>Warning {warning}%</span><span>Alerte {alert}%</span>{durationMinutes !== undefined && <span>{durationMinutes ? `après ${durationMinutes} min` : 'immédiat'}</span>}</div>}
     </div>
   );
 }
 
-function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings?: HealthSettings }) {
+function HostHealthCard({ host, canManage }: { host: HealthOverviewHost; canManage: boolean }) {
   const [chartOpen, setChartOpen] = useState(false);
+  const [thresholdsOpen, setThresholdsOpen] = useState(false);
+  const settings = host.settings;
   const alerts = (host.health?.alerts ?? []).filter((a) => !a.silenced);
   const hasCriticalAlert = alerts.some((alert) => alert.level === 'alert');
   const system = host.health?.system;
@@ -44,6 +49,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
       icon={Server}
       actions={
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" title={host.customized ? `Seuils personnalisés de ${host.name}` : `Seuils et alertes de ${host.name}`} aria-label={`Seuils et alertes de ${host.name}`} onClick={() => setThresholdsOpen(true)}><SlidersHorizontal className={`h-4 w-4 ${host.customized ? 'text-amber-300' : ''}`} /></Button>
           {system && <Button size="sm" variant="ghost" title={`Afficher le graphique CPU et mémoire de ${host.name}`} aria-label={`Afficher le graphique CPU et mémoire de ${host.name}`} onClick={() => setChartOpen(true)}><ChartLine className="h-4 w-4" /></Button>}
           {alerts.length > 0 && <Badge tone={hasCriticalAlert ? 'bad' : 'warn'}><AlertTriangle className="mr-1 h-3 w-3" />{alerts.length}</Badge>}
           <span className={`h-2 w-2 rounded-full ${host.online ? 'bg-emerald-400' : 'bg-zinc-600'}`} title={host.online ? 'En ligne' : 'Hors ligne'} />
@@ -53,9 +59,9 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
       {system ? (
         <div className="space-y-3 p-4">
           <div className="grid grid-cols-2 gap-3">
-            <Metric label="CPU" value={system.cpuPercent} color="bg-emerald-400" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
-            <Metric label="Mémoire" value={system.memPercent} color="bg-sky-400" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} />
-            {!host.noDisks && host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-indigo-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} />}
+            <Metric label="CPU" value={system.cpuPercent} color="bg-emerald-400" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} off={settings?.cpuEnabled === false} />
+            <Metric label="Mémoire" value={system.memPercent} color="bg-sky-400" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} durationMinutes={settings?.systemSustainedMinutes} off={settings?.memoryEnabled === false} />
+            {!host.noDisks && host.health?.disks && <Metric label="Volume le plus chargé" value={maxDisk} color="bg-indigo-400" warning={settings?.diskWarningThreshold} alert={settings?.diskAlertThreshold} off={settings?.diskEnabled === false} />}
             {system.load1 !== undefined && (
               <div className="text-right text-xs text-muted">
                 Charge 1 / 5 / 15 min<br /><span className="font-mono">
@@ -76,6 +82,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
           {!host.supported ? 'Agent non compatible avec la collecte Santé.' : !host.online ? 'Hôte hors ligne.' : 'En attente de la première collecte.'}
         </div>
       )}
+      <HostHealthModal open={thresholdsOpen} onClose={() => setThresholdsOpen(false)} hostId={host.id} hostName={host.name} alerts={host.health?.alerts ?? []} hide={{ disks: host.noDisks, smart: host.virtualized }} canManage={canManage} />
       <HealthDetailModal open={chartOpen} onClose={() => setChartOpen(false)} hostName={host.name} health={host.health} samples={host.samples} settings={settings} virtualized={host.virtualized} noDisks={host.noDisks} />
     </Panel>
   );
@@ -84,6 +91,7 @@ function HostHealthCard({ host, settings }: { host: HealthOverviewHost; settings
 export function Health() {
   const { data, isLoading, error } = useQuery({ queryKey: ['health', 'overview'], queryFn: api.healthOverview, refetchInterval: 30_000 });
   const { data: settings } = useQuery({ queryKey: ['settings', 'health'], queryFn: api.healthSettings });
+  const { canManage } = useMe();
   const { data: hostList } = useHosts();
   const { data: siteConfig } = useSites();
   const [{ site, kind }, setSel] = useState({ site: '', kind: '' });
@@ -111,7 +119,7 @@ export function Health() {
           <HealthOverviewHeader items={items} sites={siteConfig ?? []} site={site} kind={kind} onSiteKind={(s, k) => setSel({ site: s, kind: k })} />
           <div className="mb-4 flex items-center gap-2 text-xs text-muted"><Clock3 className="h-4 w-4" />CPU et mémoire toutes les 30 s · volumes toutes les 5 min · SMART {smartEvery(settings?.smartIntervalSeconds)}, sur les seuls disques choisis pour chaque hôte.</div>
           <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-            {shown.map((host) => <HostHealthCard key={host.id} host={host} settings={settings} />)}
+            {shown.map((host) => <HostHealthCard key={host.id} host={host} canManage={canManage} />)}
           </div>
         </>
       )}

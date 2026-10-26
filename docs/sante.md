@@ -1,6 +1,6 @@
 ---
 title: Santé
-description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID mdadm, array et pools Unraid, Ceph), fréquences de collecte, rétention 48 h, seuils d'alerte réglables et acceptation d'une alerte, par plateforme
+description: Suivi de la santé des hôtes (CPU, mémoire, charge, volumes, disques SMART opt-in, RAID mdadm, array et pools Unraid, Ceph), fréquences de collecte, rétention 48 h, seuils d'alerte réglables globalement et par hôte, acceptation d'une alerte, actualisation à la demande, par plateforme
 sidebar_position: 3.6
 ---
 
@@ -20,6 +20,8 @@ Les agents Linux, Windows et Home Assistant OS envoient des rapports typés, cha
 | SMART | 24 h | 10 min – 30 jours |
 
 Les fréquences se règlent globalement dans **Paramètres › Santé**.
+
+Le bouton d'actualisation de la fiche d'un hôte demande aussi à l'agent (Linux, Windows et Home Assistant OS) de relever tout de suite CPU, mémoire, charge, volumes et RAID. SMART garde son rythme : le lire peut réveiller des disques en veille. Un agent ancien ignore ce scope jusqu'à sa mise à jour.
 
 MongoDB stocke les échantillons dans `healthMetrics`, indexés par hôte, catégorie et horodatage. Un index TTL supprime les mesures après **48 h**. La courbe de l'interface montre la dernière heure : il n'y a pas d'historique long terme.
 
@@ -104,17 +106,37 @@ Seuils par défaut, réglables dans **Paramètres › Santé** (avertissement / 
 |---|---:|---:|
 | CPU | 75 % | 90 % |
 | Mémoire | 80 % | 90 % |
+| Charge (load5 / nombre de CPU) | 0,95 | 1,2 |
 | Volume | 75 % | 90 % |
 | Température SMART | 60 °C | 70 °C |
 | Usure NVMe | 70 % | 85 % |
 
 Un secteur réalloué est signalé immédiatement, quels que soient les seuils. Les niveaux RAID sont décrits [plus haut](#raid).
 
+### Charge Unix
+
+La charge n'a de sens que rapportée au nombre de CPU : l'agent remonte `cpuCount` (CPU logiques, plafonné par le quota cgroup `cpu.max` dans un conteneur ; fractionnaire possible), affiché dans le détail de l'hôte, et le hub colore load 1 / 5 / 15 selon le ratio `load / cpuCount` : neutre sous le seuil warning, orange au-delà, rouge à partir du seuil alerte. Les couleurs suivent les seuils réglés (global ou par hôte). Sans `cpuCount` (agent ancien) ou sans charge (Windows), aucune coloration.
+
+L'alerte **Charge** repose sur load5 et sur la durée dédiée (10 min par défaut, 0 = immédiat), distincte de celle de CPU et mémoire ; son hystérésis est de 0,1. Les conteneurs (LXC, Docker…) lisent en général la charge de leur hôte : ils sont colorés mais n'émettent pas d'alerte de charge. La fiche de l'hôte trace la courbe du ratio.
+
+### Seuils par hôte
+
+Les seuils et durées de **Paramètres › Santé** sont les valeurs par défaut. Chaque hôte peut les surcharger, **champ par champ** : seules les valeurs qui diffèrent du global sont propres à l'hôte, les autres continuent de suivre les réglages globaux (un changement du global se propage donc aux hôtes qui ne l'ont pas surchargé).
+
+L'écran **Seuils et alertes** s'ouvre par l'icône à côté du bouton graphique, sur les cartes de l'écran Santé et sur le panneau Santé de la fiche de l'hôte, ou par la section **Santé : seuils et alertes** des options de l'hôte (même contenu). L'icône est ambre quand l'hôte a des réglages personnalisés.
+
+- Pour chaque indicateur (CPU, mémoire, charge, volumes, température SMART, usure NVMe) : warning, alerte, durée et un interrupteur **Actif**. Un indicateur désactivé n'émet ni avertissement ni alerte pour cet hôte, et la carte l'indique (« alertes désactivées »). Les alertes sans seuil (état SMART en échec, secteurs réalloués, RAID) ne sont pas concernées.
+- Le warning doit rester inférieur à l'alerte, vérifié sur les valeurs effectives (surcharge + global) : le hub refuse l'enregistrement sinon.
+- **Réappliquer les défauts** supprime toute la surcharge de l'hôte, qui suit de nouveau le global.
+- Les lignes SMART sont masquées pour un hôte virtualisé, celle des volumes pour WSL. Les intervalles de collecte restent globaux.
+- Le changement est pris en compte au prochain rapport de l'agent : une alerte déjà ouverte n'est pas réévaluée sur le champ.
+
 ### Durée avant déclenchement
 
-La durée se règle séparément pour les mesures système (CPU, mémoire) et pour SMART. Par défaut :
+La durée se règle séparément pour les mesures système (CPU, mémoire), la charge et SMART. Par défaut :
 
 - CPU et mémoire : 5 minutes continues au-dessus du seuil ;
+- charge : 10 minutes ;
 - volumes : immédiat dès le franchissement du seuil ;
 - SMART : immédiat ;
 - RAID : immédiat.
@@ -123,7 +145,7 @@ Une durée de 0 signifie immédiat pour les catégories temporisées. Une alerte
 
 ### Accepter une alerte
 
-Une alerte connue et assumée peut être **acceptée** depuis l'écran Santé : elle reste affichée, marquée comme acceptée, mais ne compte plus dans l'état de l'hôte. L'acceptation vaut pour le niveau où elle a été faite : un avertissement accepté qui passe en alerte est signalé de nouveau.
+Une alerte connue et assumée peut être **acceptée** dans la liste « Alertes en cours » de l'écran **Seuils et alertes** de l'hôte (plus de bouton sur les lignes de la fiche) : elle reste affichée, marquée comme acceptée, mais ne compte plus dans l'état de l'hôte. L'acceptation vaut pour le niveau où elle a été faite : un avertissement accepté qui passe en alerte est signalé de nouveau.
 
 ## Home Assistant
 

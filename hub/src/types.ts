@@ -200,6 +200,19 @@ export interface HealthSettings {
   loadSustainedMinutes: number;
 }
 
+// Per-host overrides of the global thresholds: only the fields set here differ, the others follow the global values.
+export const HEALTH_OVERRIDE_NUMBER_KEYS = [
+  'cpuWarningThreshold', 'cpuAlertThreshold', 'memoryWarningThreshold', 'memoryAlertThreshold',
+  'diskWarningThreshold', 'diskAlertThreshold', 'smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold',
+  'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'smartSustainedMinutes',
+  'loadWarningThreshold', 'loadAlertThreshold', 'loadSustainedMinutes',
+] as const satisfies readonly (keyof HealthSettings)[];
+// A disabled indicator raises neither warning nor alert (missing = enabled).
+export const HEALTH_OVERRIDE_ENABLED_KEYS = ['cpuEnabled', 'memoryEnabled', 'loadEnabled', 'diskEnabled', 'smartTemperatureEnabled', 'smartWearEnabled'] as const;
+export type HealthEnabledKey = (typeof HEALTH_OVERRIDE_ENABLED_KEYS)[number];
+export type HealthEnabled = Partial<Record<HealthEnabledKey, boolean>>;
+export type HealthOverrides = Partial<Pick<HealthSettings, (typeof HEALTH_OVERRIDE_NUMBER_KEYS)[number]>> & HealthEnabled;
+
 export interface AptSummary {
   upgradable: number;
   security: number;
@@ -306,6 +319,8 @@ export interface HostDoc {
   smartDevices?: string[];
   // health alerts accepted by the user (see healthSilence.ts)
   healthSilenced?: { key: string; level: 'warn' | 'alert' }[];
+  // per-host overrides of the global health thresholds
+  healthOverrides?: HealthOverrides;
   // Windows: user sessions (agent session_report)
   sessions?: SessionReport;
   dockerUpdates?: DockerUpdates;
