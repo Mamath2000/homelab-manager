@@ -39,7 +39,7 @@ export function BulkHaDetailModal({ hosts, open, onClose }: { hosts: Host[]; ope
       }
     >
       <div className="space-y-5">
-        {open && <HostHaDetail hostIds={hosts.map((h) => h.id)} value={level} onChange={setLevel} />}
+        {open && <HostHaDetail hosts={hosts} value={level} onChange={setLevel} />}
         <div className="border-t border-line pt-4">
           <p className="mb-2 text-sm">S'applique à :</p>
           <div className="flex flex-wrap gap-1.5">{hosts.map((h) => <Tag key={h.id}>{h.name}</Tag>)}</div>

@@ -261,7 +261,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                 <h4 className="text-sm font-semibold text-zinc-100">Entités publiées dans Home Assistant</h4>
                 <p className="mt-1 text-xs text-muted">Par défaut, l’hôte suit le niveau global ; enregistré avec le reste des options.</p>
               </div>
-              <HostHaDetail hostIds={[host.id]} value={haDetail} onChange={setHaDetail} />
+              <HostHaDetail hosts={[host]} value={haDetail} onChange={setHaDetail} />
             </div>
           )}
 

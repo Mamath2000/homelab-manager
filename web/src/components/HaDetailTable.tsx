@@ -16,12 +16,13 @@ const CUSTOM = { id: 'custom', label: 'Personnalisé', hint: 'Catégories au cho
 // Levels × categories of the entities published to Home Assistant (Paramètres > Home Assistant, host options,
 // group edit): a selector on top, the table below; the last column, « Personnalisé », is ticked by hand.
 // onChange: the column picked, with the sections of the custom column (those of the current column when switching to it).
-export function HaDetailTable({ title, columns, rows, value, custom, onChange, children }: {
+export function HaDetailTable({ title, columns, rows, value, custom, disabled, onChange, children }: {
   title: string;
   columns: HaColumn[];
   rows: HaSection[];
   value: string;
   custom: HaSection[];
+  disabled?: Partial<Record<HaSection, string>>; // rows that do not apply: reason, shown greyed with the custom box locked
   onChange: (id: string, custom: HaSection[]) => void;
   children?: ReactNode; // below the table: preview of the count
 }) {
@@ -80,7 +81,7 @@ export function HaDetailTable({ title, columns, rows, value, custom, onChange, c
               ))}
             </tr>
             {sections.map((sec) => (
-              <tr key={sec.id} className="border-b border-line/60">
+              <tr key={sec.id} className={`border-b border-line/60 ${disabled?.[sec.id] ? 'opacity-50' : ''}`} title={disabled?.[sec.id]}>
                 <td className="px-3 py-2">
                   <span className="block text-zinc-200">{sec.label}</span>
                   <span className="block text-xs text-muted">{sec.hint}</span>
@@ -92,7 +93,8 @@ export function HaDetailTable({ title, columns, rows, value, custom, onChange, c
                         type="checkbox"
                         className="h-4 w-4 accent-emerald-500"
                         aria-label={`${sec.label} (personnalisé)`}
-                        checked={(value === 'custom' ? custom : current).includes(sec.id)}
+                        disabled={!!disabled?.[sec.id]}
+                        checked={!disabled?.[sec.id] && (value === 'custom' ? custom : current).includes(sec.id)}
                         onChange={(e) => toggle(sec.id, e.target.checked)}
                       />
                     ) : c.sections?.includes(sec.id) ? (
