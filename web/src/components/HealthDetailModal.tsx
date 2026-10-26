@@ -199,7 +199,7 @@ export function HealthDetailModal({ open, onClose, hostName, cluster, health, sa
           {smartSetup}
           {settings && <p className="mb-3 text-xs text-muted">Température : warning {settings.smartTemperatureWarningThreshold} °C / alerte {settings.smartTemperatureAlertThreshold} °C · usure NVMe : warning {settings.smartWearWarningThreshold}% / alerte {settings.smartWearAlertThreshold}% · {settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'}</p>}
           {!smartDisks.length ? <p className="rounded-md border border-line p-4 text-sm text-muted">Aucune mesure SMART disponible ou aucun disque configuré.</p> : (
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className={`grid gap-3 ${smartDisks.length > 1 ? 'lg:grid-cols-2' : ''}`}>
               {smartDisks.map((disk) => (
                 <div key={disk.device} className="rounded-md border border-line bg-raised/20 p-3">
                   <div className="flex flex-wrap items-center gap-2">
