@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Check, Home, Minus, PlugZap, Radio, RefreshCw, Wand2 } from 'lucide-react';
 import { api, type HaDetail, type HaSection, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
 import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
@@ -32,6 +33,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export function HomeAssistantPanel() {
   const toast = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   // poll while the page is open to follow the connection state
   const { data } = useQuery({ queryKey: ['settings', 'homeassistant'], queryFn: api.homeAssistant, refetchInterval: 5000 });
   // local draft once edited, server values until then
@@ -94,6 +96,10 @@ export function HomeAssistantPanel() {
     } finally {
       setBusy(null);
     }
+  };
+  // the save button leaves the settings screen, back to where the user came from (home when opened directly)
+  const saveAndLeave = async () => {
+    if (await save()) navigate(window.history.state?.idx > 0 ? -1 : '/');
   };
   const discard = () => {
     setDraft(null);
@@ -178,7 +184,7 @@ export function HomeAssistantPanel() {
       />
 
       {tab === 'mqtt' && (
-        <form onSubmit={(e) => { e.preventDefault(); void save(); }} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); void saveAndLeave(); }} className="space-y-4">
           <label className="flex cursor-pointer items-center gap-3">
             <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="h-4 w-4 accent-emerald-500" />
             <span className="text-sm font-medium text-zinc-100">Publier le homelab dans Home Assistant</span>
@@ -293,7 +299,7 @@ export function HomeAssistantPanel() {
       <SettingsFormActions
         dirty={dirty}
         saving={busy === 'save'}
-        onSave={() => void save()}
+        onSave={() => void saveAndLeave()}
         onCancel={discard}
       />
     </Panel>
