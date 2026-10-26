@@ -381,7 +381,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       ...(host.agentVersion ? { sw_version: host.agentVersion } : {}),
       ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
     }, [], sec);
-    d.binary('agent', 'Agent', isOnline, { device_class: 'connectivity' });
+    d.binary('agent', 'État', isOnline, { device_class: 'connectivity' });
     // Windows: the sessions, unavailable while the agent is offline (the computer is off: nobody on it)
     const sessions = sec.has('sessions') && host.capabilities?.includes('session') ? sessionSummary(host.sessions) : null;
     if (sessions) {
