@@ -6,8 +6,8 @@ import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
 import { hosts } from '../db.js';
 import { SAFE_URL, TAILSCALE_HOST, agentCommands } from '../hubUrl.js';
 import { loadPki } from '../pkiStore.js';
-import type { HaDetail, HomeAssistantSettings } from '../types.js';
-import { DEFAULT_DETAIL, HA_PRESETS, HA_SECTIONS, normalizeDetail } from '../homeassistant/detail.js';
+import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
+import { DEFAULT_DETAIL, HA_PRESETS, HA_SECTIONS, haLevelSchema, normalizeDetail, normalizeHostDetail } from '../homeassistant/detail.js';
 
 const DEFAULTS: HomeAssistantSettings = {
   _id: 'homeassistant',
@@ -92,10 +92,31 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
   });
 
   // entities that a level of detail would publish, for the settings page
-  app.post<{ Body: { detail: HaDetail } }>(
+  app.post<{ Body: { detail?: HaDetail; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } } }>(
     '/api/settings/homeassistant/preview',
-    { schema: { body: { type: 'object', required: ['detail'], additionalProperties: false, properties: { detail: detailBody } } } },
-    async (req) => bridge.preview(normalizeDetail(req.body.detail), await loadHomeAssistantSettings()),
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            detail: detailBody,
+            // only these hosts, with this level for them when given (host options, group edit)
+            hosts: {
+              type: 'object',
+              required: ['ids'],
+              additionalProperties: false,
+              properties: { ids: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', maxLength: 24 } }, haDetail: haLevelSchema },
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const s = await loadHomeAssistantSettings();
+      const scope = req.body.hosts && { ids: req.body.hosts.ids, haDetail: req.body.hosts.haDetail === undefined ? undefined : normalizeHostDetail(req.body.hosts.haDetail) };
+      return bridge.preview(req.body.detail ? normalizeDetail(req.body.detail) : s.detail, s, scope);
+    },
   );
 
   app.post('/api/settings/homeassistant/republish', async (_req, reply) => {

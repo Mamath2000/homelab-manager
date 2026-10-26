@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
-import { Check, Home, Minus, Pencil, Plug, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
-import { api, type HaDetail, type HaSection, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
+import { Home, Pencil, Plug, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { api, type HaDetail, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
 import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
+import { HaDetailTable } from './HaDetailTable';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
 import { SettingsFormActions } from './SettingsForm';
@@ -226,21 +227,10 @@ export function HomeAssistantPanel() {
   const detailKey = JSON.stringify(detail);
   const { data: preview } = useQuery({
     queryKey: ['settings', 'homeassistant', 'preview', detailKey],
-    queryFn: () => api.previewHomeAssistant(detail),
+    queryFn: () => api.previewHomeAssistant({ detail }),
     enabled: !!data?.enabled,
     placeholderData: (prev) => prev,
   });
-  // sections ticked in the table: those of the level, or the picked ones in custom mode
-  const ticked = (id: HaSection) =>
-    detail.level === 'custom' ? detail.sections.includes(id) : !!data?.presets[detail.level].includes(id);
-  const pickLevel = (level: HaDetail['level']) => {
-    if (level !== 'custom') return setDraft({ level, sections: [] });
-    // custom starts from the sections of the current level
-    setDraft({ level, sections: HA_SECTIONS.map((s) => s.id).filter(ticked) });
-  };
-  // ticking a box of the custom column switches to custom mode
-  const toggleSection = (id: HaSection, on: boolean) =>
-    setDraft({ level: 'custom', sections: HA_SECTIONS.map((s) => s.id).filter((s) => (s === id ? on : ticked(s))) });
 
   const save = async () => {
     if (!data) return false;
@@ -299,8 +289,6 @@ export function HomeAssistantPanel() {
   };
 
   const st = data.status;
-  const columns = [...HA_LEVELS, { id: 'custom' as const, label: 'Personnalisé', hint: 'Catégories au choix' }];
-  const selected = detail.level;
   const modal = editing && <BrokerModal data={data} onClose={() => setEditing(false)} />;
 
   if (!data.enabled) {
@@ -366,84 +354,21 @@ export function HomeAssistantPanel() {
             (options de l'hôte, ou sélection dans la liste des hôtes) ; sans réglage, il suit le niveau choisi ici.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium text-zinc-100">Niveau global</span>
-          <div role="radiogroup" aria-label="Niveau global de publication" className="inline-flex overflow-hidden rounded-md border border-line">
-            {columns.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                role="radio"
-                aria-checked={selected === c.id}
-                title={c.hint}
-                onClick={() => pickLevel(c.id)}
-                className={`px-3 py-1.5 text-sm transition ${selected === c.id ? 'bg-emerald-500/15 font-medium text-emerald-300' : 'text-zinc-400 hover:bg-raised/60 hover:text-zinc-100'}`}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-muted">Appliqué aux hôtes sans niveau propre.</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-line">
-                <th className="px-3 py-2 text-left text-xs font-medium text-muted">Catégorie</th>
-                {columns.map((c) => (
-                  <th key={c.id} className={`px-3 py-2 text-center ${selected === c.id ? 'bg-emerald-500/5' : ''}`}>
-                    <label className="flex cursor-pointer flex-col items-center gap-1" title={c.hint}>
-                      <input type="radio" name="ha-level" className="accent-emerald-500" checked={selected === c.id} onChange={() => pickLevel(c.id)} />
-                      <span className={`text-xs font-medium ${selected === c.id ? 'text-emerald-300' : 'text-zinc-300'}`}>{c.label}</span>
-                    </label>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-line/60">
-                <td className="px-3 py-2">
-                  <span className="block text-zinc-200">Alertes et connectivité des hôtes</span>
-                  <span className="block text-xs text-muted">Toujours publiées, sauf pour un hôte réglé sur « Aucun »</span>
-                </td>
-                {columns.map((c) => (
-                  <td key={c.id} className={`px-3 py-2 text-center ${selected === c.id ? 'bg-emerald-500/5' : ''}`}><Check className="mx-auto h-4 w-4 text-zinc-500" /></td>
-                ))}
-              </tr>
-              {HA_SECTIONS.map((sec) => (
-                <tr key={sec.id} className="border-b border-line/60">
-                  <td className="px-3 py-2">
-                    <span className="block text-zinc-200">{sec.label}</span>
-                    <span className="block text-xs text-muted">{sec.hint}</span>
-                  </td>
-                  {columns.map((c) => (
-                    <td key={c.id} className={`px-3 py-2 text-center ${selected === c.id ? 'bg-emerald-500/5' : ''}`}>
-                      {c.id === 'custom' ? (
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-emerald-500"
-                          aria-label={`${sec.label} (personnalisé)`}
-                          checked={ticked(sec.id)}
-                          onChange={(e) => toggleSection(sec.id, e.target.checked)}
-                        />
-                      ) : data.presets[c.id].includes(sec.id) ? (
-                        <Check className="mx-auto h-4 w-4 text-emerald-400" />
-                      ) : (
-                        <Minus className="mx-auto h-4 w-4 text-zinc-600" />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {preview && (
-          <p className="text-xs text-muted">
-            Avec ce niveau et les niveaux propres à chaque hôte : <span className="text-zinc-200">{preview.entities} entité(s)</span> sur{' '}
-            <span className="text-zinc-200">{preview.devices} appareil(s)</span>.
-          </p>
-        )}
+        <HaDetailTable
+          title="Niveau global"
+          columns={HA_LEVELS.map((l) => ({ ...l, sections: data.presets[l.id] }))}
+          rows={HA_SECTIONS.map((x) => x.id)}
+          value={detail.level}
+          custom={detail.sections}
+          onChange={(id, sections) => setDraft(id === 'custom' ? { level: 'custom', sections } : { level: id as HaDetail['level'], sections: [] })}
+        >
+          {preview && (
+            <p className="text-xs text-muted">
+              Avec ce niveau et les niveaux propres à chaque hôte : <span className="text-zinc-200">{preview.entities} entité(s)</span> sur{' '}
+              <span className="text-zinc-200">{preview.devices} appareil(s)</span>.
+            </p>
+          )}
+        </HaDetailTable>
       </div>
 
       <SettingsFormActions

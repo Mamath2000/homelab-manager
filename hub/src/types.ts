@@ -326,7 +326,7 @@ export interface HostDoc {
   // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
   haExcluded?: boolean;
   // level of detail published to Home Assistant for this host; absent: the global level (see homeassistant/detail.ts)
-  haDetail?: HaHostLevel;
+  haDetail?: HaHostDetail;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
   // snapshot of a PBS mounted read-only on this host (pbsMount.ts); one in all the hub
@@ -558,6 +558,8 @@ export interface AgentSettings {
 
 export type HaLevel = 'minimal' | 'standard' | 'full';
 export type HaHostLevel = HaLevel | 'none';
+// level of a host: a preset, or its sections picked one by one (sections of a host only, see HA_HOST_SECTIONS)
+export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
 export type HaSection =
   | 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'sessions' | 'actions' | 'diagnostics';
 // custom: the sections are picked one by one

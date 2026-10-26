@@ -15,9 +15,8 @@ import { createJob, jobDto, validPackages } from '../jobs.js';
 import { forgetHost } from '../pbs.js';
 import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
-import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostLevel, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
-
-const haLevelSchema = { type: ['string', 'null'], enum: ['none', 'minimal', 'standard', 'full', null] } as const;
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostDetail, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
+import { haLevelSchema, normalizeHostDetail } from '../homeassistant/detail.js';
 
 const hostBody = {
   type: 'object',
@@ -153,7 +152,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; haDetail?: HaHostLevel | null } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -173,7 +172,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       }
       // haDetail replaces the old "excluded" flag
       if (req.body.haDetail) {
-        set.haDetail = req.body.haDetail;
+        set.haDetail = normalizeHostDetail(req.body.haDetail)!;
         unset.haExcluded = '';
         delete set.haExcluded;
       } else if (req.body.haDetail === null) {
@@ -191,7 +190,7 @@ export function registerHostRoutes(app: FastifyInstance) {
   );
 
   // several hosts at once (hosts list): same level of detail for all
-  app.post<{ Body: { ids: string[]; haDetail: HaHostLevel | null } }>(
+  app.post<{ Body: { ids: string[]; haDetail: HaHostDetail | null } }>(
     '/api/hosts/ha-detail',
     {
       schema: {
@@ -209,7 +208,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       const filter = { _id: { $in: _ids as ObjectId[] } };
       await hosts.updateMany(
         filter,
-        req.body.haDetail ? { $set: { haDetail: req.body.haDetail }, $unset: { haExcluded: '' } } : { $unset: { haDetail: '', haExcluded: '' } },
+        req.body.haDetail ? { $set: { haDetail: normalizeHostDetail(req.body.haDetail)! }, $unset: { haExcluded: '' } } : { $unset: { haDetail: '', haExcluded: '' } },
       );
       const list = await hosts.find(filter).toArray();
       for (const h of list) publish('host', hostDto(h));

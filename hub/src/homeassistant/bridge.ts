@@ -11,7 +11,7 @@ import { backups, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
 import { createJob, hasRunningJob } from '../jobs.js';
-import type { HaDetail, HomeAssistantSettings } from '../types.js';
+import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
 import { build, deviceOf, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
@@ -194,17 +194,24 @@ export class HomeAssistantBridge {
     return true;
   }
 
-  // what would be published with this level of detail (devices and entities), without publishing anything
-  async preview(detail: HaDetail, s: HomeAssistantSettings) {
-    const { devices } = await this.compute({ ...s, detail });
+  // what would be published with this level of detail (devices and entities), without publishing anything.
+  // hosts: only the devices of these hosts, with this level for them (undefined: their own)
+  async preview(detail: HaDetail, s: HomeAssistantSettings, hostsScope?: { ids: string[]; haDetail?: HaHostDetail | null }) {
+    const override = hostsScope && { ids: new Set(hostsScope.ids), haDetail: hostsScope.haDetail };
+    let { devices } = await this.compute({ ...s, detail }, override);
+    if (hostsScope) devices = devices.filter((d) => hostsScope.ids.some((id) => d.id === `hm_${id}` || d.id.startsWith(`hm_${id}_`)));
     return {
       devices: devices.length,
       entities: devices.reduce((n, d) => n + Object.keys(d.discovery.components as object).length, 0),
     };
   }
 
-  private async compute(s: HomeAssistantSettings) {
-    const list = await hosts.find().sort({ name: 1 }).toArray();
+  private async compute(s: HomeAssistantSettings, override?: { ids: Set<string>; haDetail?: HaHostDetail | null }) {
+    const list = (await hosts.find().sort({ name: 1 }).toArray()).map((h) => {
+      if (override?.haDetail === undefined || !override.ids.has(h._id.toHexString())) return h;
+      const { haDetail: _own, haExcluded: _legacy, ...rest } = h;
+      return override.haDetail === null ? rest : { ...rest, haDetail: override.haDetail };
+    });
     const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray());
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
     return build(

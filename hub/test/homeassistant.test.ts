@@ -429,3 +429,21 @@ test('every attributes topic of a config is one the hub publishes', () => {
   }
   assert.ok(checked >= 5);
 });
+
+test('custom level of a host: its own sections, kept to the host ones', async () => {
+  const { haLevelSchema, normalizeHostDetail } = await import('../src/homeassistant/detail.js');
+  const { Ajv } = await import('ajv');
+  const valid = new Ajv().compile(haLevelSchema);
+  assert.ok(valid(null) && valid('none') && valid({ level: 'custom', sections: ['apt', 'actions'] }));
+  assert.ok(!valid({ level: 'custom', sections: ['tops'] }) && !valid({ level: 'full', sections: [] }) && !valid('custom'));
+  assert.deepEqual(normalizeHostDetail({ level: 'custom', sections: ['actions', 'apt', 'tops'] }), { level: 'custom', sections: ['apt', 'actions'] });
+
+  const h = { ...host('pve1', { upgradable: [pkg('curl')] }), capabilities: ['apt_report', 'apt_update', 'reboot'], haDetail: { level: 'custom' as const, sections: ['actions' as const] } };
+  const { devices } = build([{ host: h, online: true, busy: false }], { ...opts, detail: { level: 'full', sections: [] } });
+  const hid = `hm_${h._id.toHexString()}`;
+  // actions without the APT sub-device, no diagnostics
+  assert.equal(devices.some((d) => d.id === `${hid}_apt`), false);
+  const comps = devices.find((d) => d.id === hid)!.discovery.components as Record<string, unknown>;
+  assert.ok(comps.reboot);
+  assert.equal(comps.os, undefined);
+});

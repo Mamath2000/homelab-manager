@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Archive, Cpu, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Archive, Cpu, Home, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useUpdateHostCache } from '../lib/queries';
 import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib/status';
 import { backupClient } from '../lib/backups';
 import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
-import { HaDetailField } from './HaDetailField';
+import { HostHaDetail } from './HostHaDetail';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
@@ -23,11 +23,12 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'settings' | 'host' | 'agent' | 'backup' | 'danger';
+type SectionId = 'settings' | 'ha' | 'host' | 'agent' | 'backup' | 'danger';
 
-// Identity and behavior are saved together; agent, backup and danger actions apply immediately.
+// Identity, behavior and Home Assistant are saved together; agent, backup and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Identité et comportement', icon: Tag },
+  { id: 'ha', label: 'Home Assistant', icon: Home },
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
   { id: 'agent', label: 'Agent', icon: Cpu },
   // agents able to back up (the HAOS add-on is not): client, PBS token; Windows: path of the CLI
@@ -146,7 +147,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   };
 
   const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
-  const isForm = section === 'settings';
+  const isForm = section === 'settings' || section === 'ha';
 
   if (install) {
     return (
@@ -201,7 +202,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
 
         <div className="min-w-0 flex-1">
           {/* One form keeps all editable options together. */}
-          <form id="host-options-form" onSubmit={save} className={clsx(!isForm && 'hidden')}>
+          <form id="host-options-form" onSubmit={save} className={clsx(section !== 'settings' && 'hidden')}>
             <div className="space-y-5">
               <section className="grid gap-5 md:grid-cols-2">
                 <div className="space-y-4 rounded-lg border border-line bg-black/10 p-4">
@@ -222,7 +223,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
               <section className="space-y-4 border-t border-line pt-5">
                 <div>
                   <h4 className="text-sm font-semibold text-zinc-100">Comportement</h4>
-                  <p className="mt-1 text-xs text-muted">Présence de l’hôte et intégration avec Home Assistant.</p>
+                  <p className="mt-1 text-xs text-muted">Présence de l’hôte et niveau d’alerte quand il est absent.</p>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <RoamingField checked={roaming} onChange={setRoaming} />
@@ -233,11 +234,20 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                       <span className="block text-xs text-muted">Hors ligne, il déclenche une alerte rouge, sauf s’il est aussi itinérant.</span>
                     </span>
                   </label>
-                  <HaDetailField value={haDetail} onChange={setHaDetail} />
                 </div>
               </section>
             </div>
           </form>
+
+          {section === 'ha' && (
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-semibold text-zinc-100">Entités publiées dans Home Assistant</h4>
+                <p className="mt-1 text-xs text-muted">Par défaut, l’hôte suit le niveau global ; enregistré avec le reste des options.</p>
+              </div>
+              <HostHaDetail hostIds={[host.id]} value={haDetail} onChange={setHaDetail} />
+            </div>
+          )}
 
           {section === 'agent' && (
             <div className="space-y-4">

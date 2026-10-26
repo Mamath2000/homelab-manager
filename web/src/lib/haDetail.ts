@@ -1,4 +1,4 @@
-import type { HaHostLevel, HaLevel, HaSection } from './api';
+import type { HaLevel, HaSection } from './api';
 
 export const HA_LEVELS: { id: HaLevel; label: string; hint: string }[] = [
   { id: 'minimal', label: 'Minimal', hint: 'Alertes, connectivité des hôtes et top 5 seulement' },
@@ -18,10 +18,5 @@ export const HA_SECTIONS: { id: HaSection; label: string; hint: string }[] = [
   { id: 'diagnostics', label: 'Diagnostics', hint: 'Système, noyau, IP, dernière vue, alertes des sous-composants' },
 ];
 
-export const HA_HOST_LEVELS: { id: HaHostLevel | ''; label: string }[] = [
-  { id: '', label: 'Niveau global (par défaut)' },
-  { id: 'none', label: 'Aucun : hôte non publié' },
-  { id: 'minimal', label: 'Minimal' },
-  { id: 'standard', label: 'Standard' },
-  { id: 'full', label: 'Complet' },
-];
+// sections published per host; counters and tops are on the hub's device and follow the global level only
+export const HA_HOST_SECTIONS: HaSection[] = ['apt', 'docker', 'ups', 'backup', 'sessions', 'actions', 'diagnostics'];
