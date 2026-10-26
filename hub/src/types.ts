@@ -338,8 +338,10 @@ export interface HostDoc {
   roaming?: boolean;
   // an offline host raises a critical alert instead of a warning
   critical?: boolean;
-  // not published to Home Assistant (no device, not counted in the totals)
+  // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
   haExcluded?: boolean;
+  // level of detail published to Home Assistant for this host; absent: the global level (see homeassistant/detail.ts)
+  haDetail?: HaHostDetail;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
   // snapshot of a PBS mounted read-only on this host (pbsMount.ts); one in all the hub
@@ -569,6 +571,18 @@ export interface AgentSettings {
   checkIntervalHours: number;
 }
 
+export type HaLevel = 'minimal' | 'standard' | 'full';
+export type HaHostLevel = HaLevel | 'none';
+// level of a host: a preset, or its sections picked one by one (sections of a host only, see HA_HOST_SECTIONS)
+export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
+export type HaSection =
+  | 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'sessions' | 'actions' | 'diagnostics';
+// custom: the sections are picked one by one
+export interface HaDetail {
+  level: HaLevel | 'custom';
+  sections: HaSection[];
+}
+
 export interface HomeAssistantSettings {
   _id: 'homeassistant';
   enabled: boolean;
@@ -578,6 +592,7 @@ export interface HomeAssistantSettings {
   topic: string; // prefix of the state / command topics
   discoveryPrefix: string;
   publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
+  detail: HaDetail; // entities published; absent from settings saved before 0.4: minimal
 }
 
 // --- Backups (Proxmox Backup Server, see pbs.ts) ------------------------------------------

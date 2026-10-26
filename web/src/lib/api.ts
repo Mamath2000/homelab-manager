@@ -334,6 +334,8 @@ export interface Host {
   critical: boolean;
   // not published to Home Assistant
   haExcluded: boolean;
+  // level of detail in Home Assistant; null: follows the global level
+  haDetail: HaHostDetail | null;
   // network the agent reaches the hub and the PBS through, fixed at creation
   accessNetwork: AccessNetwork;
   agentVersion: string | null;
@@ -578,6 +580,16 @@ export interface AccountSecret {
   apiKey?: string;
 }
 
+export type HaLevel = 'minimal' | 'standard' | 'full';
+export type HaHostLevel = HaLevel | 'none';
+// level of a host: a preset or its own sections (host sections only, HA_HOST_SECTIONS)
+export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
+export type HaSection = 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'sessions' | 'actions' | 'diagnostics';
+export interface HaDetail {
+  level: HaLevel | 'custom';
+  sections: HaSection[];
+}
+
 export interface HomeAssistantSettings {
   enabled: boolean;
   broker: string;
@@ -586,6 +598,9 @@ export interface HomeAssistantSettings {
   topic: string;
   discoveryPrefix: string;
   publicUrl: string;
+  detail: HaDetail;
+  // sections of each level
+  presets: Record<HaLevel, HaSection[]>;
   status: {
     state: 'disabled' | 'connecting' | 'connected' | 'error';
     error: string | null;
@@ -602,6 +617,7 @@ export interface HomeAssistantInput {
   topic: string;
   discoveryPrefix: string;
   publicUrl: string;
+  detail: HaDetail;
 }
 
 export interface AgentSettings {
@@ -1204,7 +1220,8 @@ export const api = {
   createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; critical?: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
     request<{ host: Host } & InstallInfo>('POST', '/api/hosts', h),
   // siteId '': no site
-  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  setHostsHaDetail: (ids: string[], haDetail: HaHostDetail | null) => request<Host[]>('POST', '/api/hosts/ha-detail', { ids, haDetail }),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),
@@ -1214,6 +1231,10 @@ export const api = {
   testHomeAssistant: (s: HomeAssistantInput) =>
     request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
   republishHomeAssistant: () => request<{ ok: boolean }>('POST', '/api/settings/homeassistant/republish'),
+  // devices and entities a level of detail would publish (detail: global level being edited, saved one otherwise);
+  // hosts: only the devices of these hosts, with this level for them when given
+  previewHomeAssistant: (body: { detail?: HaDetail; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } }) =>
+    request<{ devices: number; entities: number }>('POST', '/api/settings/homeassistant/preview', body),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
   saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours' | 'agentPort' | 'tailscaleHub'>>) =>

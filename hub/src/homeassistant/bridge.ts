@@ -11,8 +11,8 @@ import { backups, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
 import { createJob, hasRunningJob } from '../jobs.js';
-import type { HomeAssistantSettings } from '../types.js';
-import { build, discoveryTopic, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
+import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
+import { build, deviceOf, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
 
@@ -21,9 +21,12 @@ export class HomeAssistantBridge {
   private client: MqttClient | null = null;
   private settings: HomeAssistantSettings | null = null;
   private sent = new Map<string, string>(); // topic -> last published value
-  private known = new Set<string>(); // announced device ids
+  private known = new Map<string, string>(); // announced devices: id -> discovery topic
+  private states = new Set<string>(); // state topics of the current devices
   private rendered = false; // known reflects the current devices
-  private seen = new Set<string>(); // discovery topics of the hub found on the broker before the first publication
+  private seen = new Map<string, string | null>(); // discovery configs of the hub found on the broker before the first publication: topic -> device id
+  private seenStates = new Set<string>(); // retained states of the hub found on the broker before the first publication
+  private watching: NodeJS.Timeout | null = null;
   private commands = new Map<string, Command>();
   private timer: NodeJS.Timeout | null = null;
   private debounce: NodeJS.Timeout | null = null;
@@ -46,7 +49,7 @@ export class HomeAssistantBridge {
     if (same) {
       // only the link changed: republish the devices
       this.settings = next;
-      if (prev.publicUrl !== next.publicUrl) this.refresh();
+      if (prev.publicUrl !== next.publicUrl || JSON.stringify(prev.detail) !== JSON.stringify(next.detail)) this.refresh();
       return;
     }
     // devices are removed from Home Assistant when the integration is disabled or moved to other topics
@@ -103,19 +106,23 @@ export class HomeAssistantBridge {
     this.unsubscribe = null;
     if (this.timer) clearInterval(this.timer);
     if (this.debounce) clearTimeout(this.debounce);
-    this.timer = this.debounce = null;
+    if (this.watching) clearTimeout(this.watching);
+    this.timer = this.debounce = this.watching = null;
     const client = this.client;
     const s = this.settings;
     this.client = null;
     if (client && s) {
       if (removeDevices && client.connected) {
-        for (const id of this.known) client.publish(discoveryTopic(s.discoveryPrefix, id), '', { qos: 1, retain: true });
+        for (const topic of [...this.known.values(), ...this.states]) client.publish(topic, '', { qos: 1, retain: true });
         this.log.info({ devices: this.known.size }, 'Home Assistant: devices removed');
       }
       if (client.connected) client.publish(`${s.topic}/lwt`, 'offline', { qos: 1, retain: true });
       await new Promise<void>((resolve) => client.end(false, {}, () => resolve()));
     }
-    if (removeDevices) this.known.clear();
+    if (removeDevices) {
+      this.known.clear();
+      this.states.clear();
+    }
     this.sent.clear();
     this.state = 'disabled';
     this.error = null;
@@ -136,9 +143,16 @@ export class HomeAssistantBridge {
     return true;
   }
 
-  // (re)subscribing makes the broker send the retained discovery configs again: the stale ones get removed
+  // (re)subscribing makes the broker send the retained discovery configs and states again: the stale ones get
+  // removed. The states are only watched for that burst (our own publications would come back otherwise).
   private watchDiscovery(s: HomeAssistantSettings) {
-    this.client?.subscribe([`${s.discoveryPrefix}/device/${NODE_ID}/+/config`, `${s.discoveryPrefix}/device/+/config`]);
+    const states = [`${s.topic}/+/+/state`, `${s.topic}/+/+/attributes`];
+    this.client?.subscribe([`${s.discoveryPrefix}/device/${NODE_ID}/+/config`, `${s.discoveryPrefix}/device/+/config`, ...states]);
+    if (this.watching) clearTimeout(this.watching);
+    this.watching = setTimeout(() => {
+      this.watching = null;
+      this.client?.unsubscribe(states);
+    }, 15_000);
   }
 
   private clear(topic: string, why: string) {
@@ -147,20 +161,21 @@ export class HomeAssistantBridge {
     this.log.info({ topic }, `Home Assistant: ${why} discovery config removed`);
   }
 
-  // a retained discovery config of the hub: legacy topic, or a device that no longer exists
-  private sweep(s: HomeAssistantSettings, topic: string, legacy: boolean, id: string) {
-    if (legacy) {
-      this.clear(topic, 'legacy');
-      // the new config may have been refused (same unique ids) and Home Assistant drops the entities with the
-      // legacy one: reset the new topic too and announce the device again once it is done
-      const current = discoveryTopic(s.discoveryPrefix, id);
+  // a retained discovery config of the hub: legacy topic, device moved to another topic (renamed host) or gone
+  private sweep(topic: string, id: string | null, legacy: boolean) {
+    if (!this.rendered) {
+      this.seen.set(topic, id);
+      return;
+    }
+    const current = id ? this.known.get(id) : undefined;
+    if (current === topic) return;
+    this.clear(topic, legacy ? 'legacy' : current ? 'moved' : 'stale');
+    if (current) {
+      // the current config may have been refused (same unique ids) and Home Assistant drops the entities with the
+      // old one: reset the current topic too and announce the device again once it is done
       if (this.sent.has(current)) this.client?.publish(current, '', { qos: 1, retain: true });
       this.sent.delete(current);
       this.schedule(3000);
-    } else if (!this.rendered) {
-      this.seen.add(topic);
-    } else if (!this.known.has(id)) {
-      this.clear(topic, 'stale');
     }
   }
 
@@ -179,13 +194,27 @@ export class HomeAssistantBridge {
     return true;
   }
 
-  private async render() {
-    const s = this.settings;
-    if (!this.client?.connected || !s) return;
-    const list = await hosts.find().sort({ name: 1 }).toArray();
+  // what would be published with this level of detail (devices and entities), without publishing anything.
+  // hosts: only the devices of these hosts, with this level for them (undefined: their own)
+  async preview(detail: HaDetail, s: HomeAssistantSettings, hostsScope?: { ids: string[]; haDetail?: HaHostDetail | null }) {
+    const override = hostsScope && { ids: new Set(hostsScope.ids), haDetail: hostsScope.haDetail };
+    let { devices } = await this.compute({ ...s, detail }, override);
+    if (hostsScope) devices = devices.filter((d) => hostsScope.ids.some((id) => d.id === `hm_${id}` || d.id.startsWith(`hm_${id}_`)));
+    return {
+      devices: devices.length,
+      entities: devices.reduce((n, d) => n + Object.keys(d.discovery.components as object).length, 0),
+    };
+  }
+
+  private async compute(s: HomeAssistantSettings, override?: { ids: Set<string>; haDetail?: HaHostDetail | null }) {
+    const list = (await hosts.find().sort({ name: 1 }).toArray()).map((h) => {
+      if (override?.haDetail === undefined || !override.ids.has(h._id.toHexString())) return h;
+      const { haDetail: _own, haExcluded: _legacy, ...rest } = h;
+      return override.haDetail === null ? rest : { ...rest, haDetail: override.haDetail };
+    });
     const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray());
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
-    const built = build(
+    return build(
       list.map((host) => {
         const id = host._id.toHexString();
         const bin = hostBinary(host);
@@ -198,31 +227,55 @@ export class HomeAssistantBridge {
           status: status[id],
         };
       }),
-      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, backups: await backupsForHa() },
+      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, detail: s.detail, backups: await backupsForHa() },
     );
+  }
+
+  private async render() {
+    const s = this.settings;
+    if (!this.client?.connected || !s) return;
+    const built = await this.compute(s);
     this.commands = built.commands;
-    const ids = new Set(built.devices.map((d) => d.id));
-    const announced = built.devices.filter((d) => this.pub(d.discoveryTopic, JSON.stringify(d.discovery)));
-    for (const id of this.known) {
-      if (!ids.has(id)) {
-        this.pub(discoveryTopic(s.discoveryPrefix, id), '');
-        this.log.info({ device: id }, 'Home Assistant: device removed');
+    const current = new Map(built.devices.map((d) => [d.id, d.discoveryTopic]));
+    // a device whose topic changed (renamed host, or found under an older topic) is removed first and announced
+    // a bit later: Home Assistant refuses a new config while an old one holds its unique ids
+    const held = new Set<string>();
+    for (const [id, topic] of this.known) {
+      const next = current.get(id);
+      if (next === topic) continue;
+      this.pub(topic, '');
+      if (next) held.add(id);
+      this.log.info({ device: id }, next ? 'Home Assistant: device moved' : 'Home Assistant: device removed');
+    }
+    for (const [topic, id] of this.seen) {
+      const next = id ? current.get(id) : undefined;
+      if (next === topic) continue;
+      const legacy = parseDiscoveryTopic(s.discoveryPrefix, topic)?.legacy;
+      this.clear(topic, legacy ? 'legacy' : next ? 'moved' : 'stale');
+      if (next) held.add(id!);
+    }
+    this.seen.clear();
+    if (held.size) this.schedule(3000);
+    const announced = built.devices.filter((d) => !held.has(d.id) && this.pub(d.discoveryTopic, JSON.stringify(d.discovery)));
+    const states = new Set<string>();
+    for (const d of built.devices) {
+      for (const [t, v] of d.states) {
+        states.add(t);
+        this.pub(t, v);
       }
     }
-    for (const d of built.devices) for (const [t, v] of d.states) this.pub(t, v);
+    // retained states nothing reads any more: removed devices and entities, older topics
+    for (const t of new Set([...this.states, ...this.seenStates])) if (!states.has(t)) this.pub(t, '');
+    this.seenStates.clear();
+    this.states = states;
     // Home Assistant may miss the states of a device it is still setting up: send them again a bit later
     if (announced.length) {
       for (const d of announced) for (const [t] of d.states) this.sent.delete(t);
       this.schedule(5000);
     }
-    for (const id of ids) if (!this.known.has(id)) this.log.info({ device: id }, 'Home Assistant: device announced');
-    this.known = ids;
+    for (const id of current.keys()) if (!this.known.has(id)) this.log.info({ device: id }, 'Home Assistant: device announced');
+    this.known = current;
     this.rendered = true;
-    for (const topic of this.seen) {
-      const found = parseDiscoveryTopic(s.discoveryPrefix, topic);
-      if (found && !ids.has(found.id)) this.clear(topic, 'stale');
-    }
-    this.seen.clear();
     this.lastPublishAt = new Date();
   }
 
@@ -230,7 +283,14 @@ export class HomeAssistantBridge {
     const found = parseDiscoveryTopic(s.discoveryPrefix, topic);
     if (found) {
       // an empty payload is a removal; our own publications come back too
-      if (payload && retained) this.sweep(s, topic, found.legacy, found.id);
+      if (payload && retained) this.sweep(topic, deviceOf(payload), found.legacy);
+      return;
+    }
+    if (/\/(state|attributes)$/.test(topic)) {
+      // retained state of the hub (watchDiscovery): stale when no current device publishes it
+      if (!payload || !retained) return;
+      if (!this.rendered) this.seenStates.add(topic);
+      else if (!this.states.has(topic)) this.pub(topic, '');
       return;
     }
     if (topic === `${s.discoveryPrefix}/status`) {

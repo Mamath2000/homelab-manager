@@ -6,6 +6,7 @@ import { agentOutdated, hostBinary, hostOs } from './agentBinaries.js';
 import { dockerSummary, dockerView } from './docker.js';
 import { healthWithSilenced } from './healthSilence.js';
 import { sessionSummary } from './sessions.js';
+import { hostLevel } from './homeassistant/detail.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -39,7 +40,9 @@ export function hostDto(h: HostDoc) {
     online: isOnline(h._id.toHexString()),
     roaming: !!h.roaming,
     critical: !!h.critical,
-    haExcluded: !!h.haExcluded,
+    haExcluded: hostLevel(h) === 'none',
+    // null: follows the global level
+    haDetail: hostLevel(h),
     accessNetwork: h.accessNetwork ?? 'lan',
     agentVersion: h.agentVersion ?? null,
     // cert: TLS client certificate; legacy: plain-text token of the first versions, to reinstall

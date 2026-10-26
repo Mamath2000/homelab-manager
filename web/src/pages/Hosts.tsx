@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Plus, RefreshCw, Search, Server, Settings, Wand2 } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Home, Plus, RefreshCw, Search, Server, Settings, Wand2 } from 'lucide-react';
 import { hostBackups } from '../lib/backups';
 import { filterHosts, hostFilters, parseHostFilter } from '../lib/hostFilters';
 import { AddHostModal } from '../components/AddHostModal';
@@ -9,6 +9,7 @@ import { CleanupModal } from '../components/CleanupPanel';
 import { HostOptionsModal } from '../components/HostOptionsModal';
 import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
+import { BulkHaDetailModal } from '../components/BulkHaDetailModal';
 import { BulkSetupModal } from '../components/SetupPanel';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { HostsOverview } from '../components/HostsOverview';
@@ -38,6 +39,7 @@ export function Hosts() {
   const [agentModal, setAgentModal] = useState(false);
   const [allAgentsModal, setAllAgentsModal] = useState(false);
   const [setupModal, setSetupModal] = useState(false);
+  const [haModal, setHaModal] = useState(false);
   const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
   const [optionsHostId, setOptionsHostId] = useState<string | null>(null);
   const bulk = useRunBulk();
@@ -136,6 +138,7 @@ export function Hosts() {
           {visibleSelected.some((h) => h.agentOutdated) && (
             <Button size="sm" onClick={() => setAgentModal(true)}>Mettre à jour les agents</Button>
           )}
+          <Button size="sm" icon={Home} onClick={() => setHaModal(true)}>Niveau Home Assistant</Button>
           {visibleSelected.some((h) => h.capabilities.includes('setup')) && (
             <Button size="sm" icon={Wand2} onClick={() => setSetupModal(true)}>Standardisation</Button>
           )}
@@ -381,6 +384,7 @@ export function Hosts() {
         )}
         <p className="mt-3 text-xs text-muted">Les configurations locales modifiées sont conservées (--force-confold). Aucun redémarrage n'est effectué.</p>
       </ConfirmModal>
+      <BulkHaDetailModal hosts={visibleSelected} open={haModal} onClose={() => setHaModal(false)} />
       <BulkSetupModal hosts={visibleSelected} open={setupModal} onClose={() => setSetupModal(false)} />
       <AddHostModal open={adding} onClose={() => setAdding(false)} />
       <UpdateAgentsModal hosts={visibleSelected.filter((h) => h.agentOutdated)} open={agentModal} onClose={() => setAgentModal(false)} />

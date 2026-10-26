@@ -8,29 +8,51 @@ sidebar_position: 4
 
 Le hub peut publier l'état du homelab sur un broker MQTT, avec la **découverte automatique** de Home Assistant au format *device-based* : un seul message `homeassistant/device/homelab/OBJET/config` par appareil, qui décrit tous ses composants. Les mises à jour et les vérifications se déclenchent aussi depuis Home Assistant.
 
-## Activer l'intégration
+## Relier un broker
 
-Dans l'interface : **Paramètres → Home Assistant (MQTT)**.
+Dans l'interface : **Paramètres → Home Assistant**. Sans broker, rien n'est publié : l'écran explique l'intégration et propose **Ajouter un broker**, qui ouvre une fenêtre en quatre étapes.
 
-| Champ | Rôle |
+| Étape | Rôle |
 |---|---|
-| Publier le homelab dans Home Assistant | Active ou désactive l'intégration |
-| Broker MQTT | `mqtt://IP:1883`, `mqtts://…`, `ws://…` ou `wss://…` |
-| Utilisateur / Mot de passe | Identifiants du broker (le mot de passe n'est jamais renvoyé par l'API) |
-| Préfixe des topics | Préfixe des états et commandes, `homelab-manager` par défaut |
-| Préfixe de découverte | `homeassistant` par défaut |
-| URL de l'interface | Lien « Visiter » des appareils dans Home Assistant (l'URL publique, par exemple) ; vide : URL du hub des paramètres Agent |
+| Broker | `mqtt://IP:1883`, `mqtts://…`, `ws://…` ou `wss://…` |
+| Compte | Utilisateur / mot de passe du broker, facultatifs (broker anonyme) ; le mot de passe n'est jamais renvoyé par l'API |
+| Topics | Préfixe de découverte (`homeassistant` par défaut, celui de l'intégration MQTT de Home Assistant), préfixe des états et commandes du hub (`homelab-manager` par défaut), URL de l'interface : lien « Visiter » des appareils (l'URL publique, par exemple ; vide : URL du hub des paramètres Agent) |
+| Test de connexion | Vérifie que le broker accepte le compte, sans rien publier |
 
-**Tester la connexion** vérifie que le broker accepte les identifiants, sans rien publier. Une fois enregistrée, la carte d'état indique si le hub est connecté et combien d'appareils sont publiés.
+**Enregistrer** n'est possible qu'après un test réussi (tout changement de champ l'annule) et démarre la publication. Une fois le broker relié, le haut de l'écran résume le lien : état de la connexion, broker, compte, préfixes, nombre d'appareils publiés et dernière publication, avec **Modifier** (la même fenêtre) et **Retirer**.
 
-**Republier la découverte** (intégration connectée) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ». Les configurations obsolètes trouvées sur le broker (appareil disparu, ancien format de topic) sont supprimées au passage ; c'est aussi fait à chaque connexion au broker.
+**Republier la découverte** (en-tête du panneau, intégration connectée) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ». Les configurations et états obsolètes trouvés sur le broker (appareil disparu ou déplacé, ancien format de topic) sont supprimés au passage ; c'est aussi fait à chaque connexion au broker.
 
-:::info Désactivation
-Désactiver l'intégration, ou changer de préfixe, **retire les appareils** de Home Assistant (configurations de découverte vidées).
+:::info Retrait
+Retirer le broker, ou changer de préfixe, **retire les appareils** de Home Assistant (configurations de découverte et états vidés). Le niveau de détail est conservé pour un prochain broker.
 :::
 
 :::note Stockage
 Les paramètres, dont le mot de passe du broker, sont enregistrés dans la base MongoDB du hub.
+:::
+
+## Niveau de détail
+
+Sous le lien, **Paramètres de publication** règle ce qui est créé dans Home Assistant, pour limiter le nombre d'appareils et d'entités. Un tableau montre, par catégorie, ce que publie chaque niveau ; l'aperçu en dessous donne le nombre d'entités et d'appareils qui en résulte, niveaux propres aux hôtes compris.
+
+| Catégorie | Minimal | Standard | Complet |
+|---|:-:|:-:|:-:|
+| État (connectivité), alertes et problème de chaque hôte et de Homelab Manager | ✅ | ✅ | ✅ |
+| Top 5 CPU / mémoire / disque | ✅ | ✅ | ✅ |
+| Compteurs de Homelab Manager (hôtes, mises à jour, stacks, sauvegardes, datastores) | — | ✅ | ✅ |
+| Sous-composants APT, Docker, Onduleur, Sauvegardes | — | ✅ | ✅ |
+| Sessions Windows | — | — | ✅ |
+| Actions : boutons et entités `update` installables | — | — | ✅ |
+| Diagnostics : système, noyau, IP, dernière vue, alertes des sous-composants | — | — | ✅ |
+
+**Personnalisé** coche les catégories une à une (en partant du niveau courant). Les alertes ne dépendent pas du niveau : un sous-composant non publié fait toujours remonter ses alertes sur son hôte et sur Homelab Manager.
+
+**Par hôte**, le niveau global peut être remplacé : onglet **Home Assistant** des options de l'hôte, ou **Niveau Home Assistant** sur une sélection dans la liste des hôtes. Les deux présentent le même tableau, limité aux catégories d'un hôte (APT, Docker, Onduleur, Sauvegardes, Sessions Windows, Actions, Diagnostics), avec l'aperçu de ses entités : *Niveau global* (par défaut), *Aucun* (hôte non publié), *Minimal*, *Standard*, *Complet* ou *Personnalisé*. Compteurs et top 5, publiés sur Homelab Manager, ne suivent que le niveau global. Un hôte réglé sur *Aucun* n'a ni appareil, ni alertes, ni place dans les compteurs et les top 5 ; tous les autres comptent dans les totaux de Homelab Manager, quel que soit leur niveau. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés au niveau *Aucun*. L'ancienne case « exclu de Home Assistant » est lue comme *Aucun*.
+
+Changer de niveau retire de Home Assistant les appareils et entités qui ne sont plus publiés.
+
+:::warning Mise à jour
+Le niveau global par défaut est **Minimal**, y compris pour une installation existante sans réglage enregistré : à la mise à jour, les sous-composants, compteurs, actions et diagnostics disparaissent de Home Assistant jusqu'à ce qu'un niveau plus riche soit choisi.
 :::
 
 ## Appareils créés
@@ -61,14 +83,15 @@ Homelab Manager
 | Problème | capteur binaire, allumé dès qu'une alerte existe |
 | Tout vérifier | bouton : `apt-get update` sur les hôtes en ligne |
 | Stacks Docker, Stacks à mettre à jour | capteurs, présents dès qu'un hôte a Docker |
+| Top CPU, Top mémoire, Top disque | capteurs : nom de l'hôte le plus chargé ; attributs `top1_name` … `top5_name` et `top1_cpu` / `top1_mem` / `top1_disk` (%) ; pour le disque, le pire volume de chaque hôte et `topN_volume` |
 
-Un hôte peut être **exclu de Home Assistant** (case à l'ajout ou sur sa fiche) : ni appareil, ni alertes, ni compteurs. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés exclus ; la case se décoche ensuite hôte par hôte.
+Les top 5 classent les hôtes en ligne, hors hôtes itinérants (leurs dernières valeurs seraient périmées) et hors niveau *Aucun*.
 
 ### Un appareil par hôte
 
 | Entité | Type |
 |---|---|
-| Agent | capteur binaire de connectivité (agent connecté au hub) |
+| État | capteur binaire de connectivité (agent connecté au hub : en ligne / hors ligne) ; `unique_id` `hm_ID_etat`, entité `binary_sensor.HOTE_etat` à la création |
 | Redémarrage requis | capteur binaire (problème), dès que l'hôte a remonté son état APT |
 | Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
 | Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA ; indisponible quand l’agent est hors ligne |
@@ -100,7 +123,7 @@ Ni APT, ni Docker, ni bouton Redémarrer, ni entité de mise à jour de l'agent.
 | Alertes, Problème | diagnostic : alertes propres aux paquets |
 | Rechercher les mises à jour | bouton : `apt-get update` |
 
-Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la disponibilité combine la LWT du hub et l'état de l'agent (`PREFIXE/hm_ID/agent/state`, `availability_mode: all`). Le résumé de l'entité `update` signale toujours les paquets qui demanderont un redémarrage.
+Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la disponibilité combine la LWT du hub et l'état de l'agent (`PREFIXE/HOTE/etat/state`, `availability_mode: all`). Le résumé de l'entité `update` signale toujours les paquets qui demanderont un redémarrage.
 
 ### Sous-composant Docker (un par stack)
 
@@ -158,8 +181,10 @@ Une stack arrêtée volontairement ne déclenche pas d'alerte. Les prochains com
 | `PREFIXE/APPAREIL/alerts/attributes` | JSON : `critical` et les 20 premières alertes |
 | `PREFIXE/APPAREIL/ENTITE/set` | commande : `PRESS` (bouton), `INSTALL` (update) |
 
-Identifiants des appareils : `homelab_manager`, `hm_ID` (hôte), `hm_ID_apt`, `hm_ID_ups` et `hm_ID_docker_STACK`, où `ID` est l'identifiant interne de l'hôte : renommer un hôte ne crée pas de nouvel appareil dans Home Assistant.
+`APPAREIL` est le **nom de l'hôte** en minuscules, sans accents, les autres caractères remplacés par `_` : `pve1`, `pve1_apt`, `pve1_ups`, `pve1_backup`, `pve1_docker_STACK`, et `manager` pour Homelab Manager. Si deux hôtes donnent le même nom, le plus ancien le garde et l'autre reçoit en plus la fin de son identifiant (`pve1_0abc02`).
 
-Topics de découverte, tous sous le *node id* `homelab` : `homeassistant/device/homelab/manager/config` (Homelab Manager), `homeassistant/device/homelab/hm_ID/config`, `homeassistant/device/homelab/hm_ID_apt/config`. Jusqu'à la 0.1.6, ils étaient publiés directement sous `homeassistant/device/<identifiant>/config` : le hub vide ces anciens topics à sa connexion et republie les appareils au nouvel emplacement.
+Topics de découverte, tous sous le *node id* `homelab` : `homeassistant/device/homelab/manager/config` (Homelab Manager), `homeassistant/device/homelab/pve1/config`, `homeassistant/device/homelab/pve1_apt/config`…
+
+Les identifiants des appareils et des entités (`unique_id`) restent fondés sur l'identifiant interne de l'hôte (`hm_ID`, `hm_ID_apt`…). En revanche, un topic de découverte qui change (**hôte renommé**, ou passage des topics `hm_ID` aux noms) oblige le hub à vider l'ancienne configuration avant de publier la nouvelle : Home Assistant supprime puis recrée l'appareil, qui perd sa pièce et les personnalisations de ses entités. Jusqu'à la 0.1.6, les configurations étaient publiées directement sous `homeassistant/device/<identifiant>/config` ; ces anciens topics sont traités de la même façon.
 
 Les valeurs ne sont publiées que lorsqu'elles changent ; tout est republié quand Home Assistant redémarre (`homeassistant/status`) ou avec « Republier la découverte ». Les états d'un appareil dont la découverte vient d'être (re)publiée sont renvoyés une seconde fois quelques secondes plus tard, le temps que Home Assistant crée ses entités. Les tâches lancées depuis Home Assistant apparaissent dans l'activité avec la mention « Home Assistant ».
