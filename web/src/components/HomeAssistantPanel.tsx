@@ -97,9 +97,10 @@ export function HomeAssistantPanel() {
       setBusy(null);
     }
   };
-  // the save button leaves the settings screen, back to where the user came from (home when opened directly)
+  // save and cancel both leave the settings screen, back to where the user came from (home when opened directly)
+  const leave = () => navigate(window.history.state?.idx > 0 ? -1 : '/');
   const saveAndLeave = async () => {
-    if (await save()) navigate(window.history.state?.idx > 0 ? -1 : '/');
+    if (await save()) leave();
   };
   const discard = () => {
     setDraft(null);
@@ -300,7 +301,7 @@ export function HomeAssistantPanel() {
         dirty={dirty}
         saving={busy === 'save'}
         onSave={() => void saveAndLeave()}
-        onCancel={discard}
+        onCancel={() => { discard(); leave(); }}
       />
     </Panel>
   );
