@@ -7,7 +7,7 @@ import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib
 import { backupClient } from '../lib/backups';
 import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
-import { HaExcludedField } from './HaExcludedField';
+import { HaDetailField } from './HaDetailField';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
@@ -111,7 +111,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   const [tags, setTags] = useState(host.tags);
   const [roaming, setRoaming] = useState(host.roaming);
   const [critical, setCritical] = useState(host.critical);
-  const [haExcluded, setHaExcluded] = useState(host.haExcluded);
+  const [haDetail, setHaDetail] = useState(host.haDetail);
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
@@ -123,7 +123,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
     e.preventDefault();
     setBusy(true);
     try {
-      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, haExcluded }));
+      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, haDetail }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -233,7 +233,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                       <span className="block text-xs text-muted">Hors ligne, il déclenche une alerte rouge, sauf s’il est aussi itinérant.</span>
                     </span>
                   </label>
-                  <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
+                  <HaDetailField value={haDetail} onChange={setHaDetail} />
                 </div>
               </section>
             </div>

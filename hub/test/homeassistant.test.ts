@@ -311,3 +311,79 @@ test('UPS: sub-device with its sensors, battery to replace rolls up as a critica
   // a host without UPS gets no such device
   assert.ok(!build([{ host: host('pve2'), online: true, busy: false }], opts).devices.some((d) => d.id.endsWith('_ups')));
 });
+
+// --- level of detail ---------------------------------------------------------------------------------
+
+const withLoad = (h: HostDoc, cpu: number, mem: number, volumes: { mountpoint: string; percent: number }[]): HostDoc => ({
+  ...h,
+  health: {
+    system: { checkedAt: Date.now(), cpuPercent: cpu, memPercent: mem, memUsed: 0, memTotal: 0 },
+    disks: { checkedAt: Date.now(), volumes: volumes.map((v) => ({ device: 'x', fstype: 'ext4', used: 0, total: 0, ...v })) },
+  },
+});
+const find = (devices: ReturnType<typeof build>['devices'], id: string, key: string, suffix = 'state') =>
+  devices.flatMap((d) => d.states).find(([t]) => t === `hm/${id}/${key}/${suffix}`)?.[1];
+
+test('minimal level: host device with connectivity and alerts only, totals still count every host', () => {
+  const a = host('a', { upgradable: [pkg('openssl', true)] });
+  const b = { ...host('b', { upgradable: [pkg('curl')] }), haDetail: 'full' as const };
+  const states: HostState[] = [{ host: a, online: true, busy: false }, { host: b, online: true, busy: false }];
+  const { devices, commands } = build(states, { ...opts, detail: { level: 'minimal', sections: [] } });
+  const ida = `hm_${a._id.toHexString()}`;
+  const idb = `hm_${b._id.toHexString()}`;
+  const comps = (id: string) => Object.keys(devices.find((d) => d.id === id)!.discovery.components as object).sort();
+
+  // global minimal: no APT sub-device, no buttons, no diagnostics
+  assert.deepEqual(comps(ida), ['agent', 'alerts', 'problem']);
+  assert.equal(devices.some((d) => d.id === `${ida}_apt`), false);
+  // the alert of the sub-component still rolls up
+  assert.equal(find(devices, ida, 'alerts'), '1');
+  // a host set to full keeps its details
+  assert.equal(devices.some((d) => d.id === `${idb}_apt`), true);
+  assert.ok(comps(idb).includes('os'));
+  assert.deepEqual([...commands.keys()].filter((k) => k.includes(ida)), []);
+  // root: alerts and tops only, no counters
+  assert.deepEqual(comps(ROOT_ID), ['alerts', 'problem', 'top_cpu', 'top_disk', 'top_mem']);
+});
+
+test('counters section counts the hosts below the global level too', () => {
+  const a = { ...host('a', { upgradable: [pkg('openssl', true)] }), haDetail: 'minimal' as const };
+  const b = host('b', { upgradable: [pkg('curl')] });
+  const { devices } = build([{ host: a, online: true, busy: false }, { host: b, online: true, busy: false }], {
+    ...opts, detail: { level: 'custom', sections: ['counters'] },
+  });
+  assert.equal(find(devices, ROOT_ID, 'updates'), '2');
+  assert.equal(find(devices, ROOT_ID, 'security'), '1');
+  assert.equal(find(devices, ROOT_ID, 'hosts'), '2');
+});
+
+test('haDetail none behaves like the old exclusion, the legacy flag still works', () => {
+  const kept = host('kept');
+  const none = { ...host('none'), haDetail: 'none' as const };
+  const legacy = { ...host('legacy'), haExcluded: true };
+  const { devices } = build(
+    [kept, none, legacy].map((h) => ({ host: h, online: true, busy: false })),
+    opts,
+  );
+  assert.equal(find(devices, ROOT_ID, 'hosts'), '1');
+  assert.equal(devices.filter((d) => d.id.startsWith('hm_')).length, 1);
+});
+
+test('tops rank online hosts that are not roaming; disk = worst volume', () => {
+  const a = withLoad(host('a'), 10, 80, [{ mountpoint: '/', percent: 30 }, { mountpoint: '/data', percent: 91.26 }]);
+  const b = withLoad(host('b'), 55.55, 20, [{ mountpoint: '/', percent: 60 }]);
+  const away = { ...withLoad(host('away'), 99, 99, [{ mountpoint: '/', percent: 99 }]), roaming: true };
+  const off = withLoad(host('off'), 98, 98, [{ mountpoint: '/', percent: 98 }]);
+  const none = host('nodata');
+  const { devices } = build(
+    [a, b, away, off, none].map((h) => ({ host: h, online: h !== off, busy: false })),
+    { ...opts, detail: { level: 'minimal', sections: [] } },
+  );
+  assert.equal(find(devices, ROOT_ID, 'top_cpu'), 'b');
+  assert.equal(find(devices, ROOT_ID, 'top_mem'), 'a');
+  assert.equal(find(devices, ROOT_ID, 'top_disk'), 'a');
+  const cpu = JSON.parse(find(devices, ROOT_ID, 'top_cpu', 'attributes')!);
+  assert.deepEqual([cpu.top1_name, cpu.top1_cpu, cpu.top2_name, cpu.top2_cpu, cpu.top3_name], ['b', 55.6, 'a', 10, null]);
+  const disk = JSON.parse(find(devices, ROOT_ID, 'top_disk', 'attributes')!);
+  assert.deepEqual([disk.top1_disk, disk.top1_volume, disk.top2_disk, disk.top2_volume], [91.3, '/data', 60, '/']);
+});

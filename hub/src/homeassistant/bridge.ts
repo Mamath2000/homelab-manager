@@ -11,7 +11,7 @@ import { backups, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
 import { createJob, hasRunningJob } from '../jobs.js';
-import type { HomeAssistantSettings } from '../types.js';
+import type { HaDetail, HomeAssistantSettings } from '../types.js';
 import { build, discoveryTopic, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
@@ -46,7 +46,7 @@ export class HomeAssistantBridge {
     if (same) {
       // only the link changed: republish the devices
       this.settings = next;
-      if (prev.publicUrl !== next.publicUrl) this.refresh();
+      if (prev.publicUrl !== next.publicUrl || JSON.stringify(prev.detail) !== JSON.stringify(next.detail)) this.refresh();
       return;
     }
     // devices are removed from Home Assistant when the integration is disabled or moved to other topics
@@ -179,13 +179,20 @@ export class HomeAssistantBridge {
     return true;
   }
 
-  private async render() {
-    const s = this.settings;
-    if (!this.client?.connected || !s) return;
+  // what would be published with this level of detail (devices and entities), without publishing anything
+  async preview(detail: HaDetail, s: HomeAssistantSettings) {
+    const { devices } = await this.compute({ ...s, detail });
+    return {
+      devices: devices.length,
+      entities: devices.reduce((n, d) => n + Object.keys(d.discovery.components as object).length, 0),
+    };
+  }
+
+  private async compute(s: HomeAssistantSettings) {
     const list = await hosts.find().sort({ name: 1 }).toArray();
     const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray());
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
-    const built = build(
+    return build(
       list.map((host) => {
         const id = host._id.toHexString();
         const bin = hostBinary(host);
@@ -198,8 +205,14 @@ export class HomeAssistantBridge {
           status: status[id],
         };
       }),
-      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, backups: await backupsForHa() },
+      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, detail: s.detail, backups: await backupsForHa() },
     );
+  }
+
+  private async render() {
+    const s = this.settings;
+    if (!this.client?.connected || !s) return;
+    const built = await this.compute(s);
     this.commands = built.commands;
     const ids = new Set(built.devices.map((d) => d.id));
     const announced = built.devices.filter((d) => this.pub(d.discoveryTopic, JSON.stringify(d.discovery)));

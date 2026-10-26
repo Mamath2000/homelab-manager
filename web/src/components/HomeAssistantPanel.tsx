@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Home, PlugZap, RefreshCw } from 'lucide-react';
-import { api, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
+import { api, type HaDetail, type HaSection, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
+import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
@@ -44,6 +45,7 @@ export function HomeAssistantPanel() {
     topic: data?.topic ?? '',
     discoveryPrefix: data?.discoveryPrefix ?? '',
     publicUrl: data?.publicUrl ?? '',
+    detail: data?.detail ?? { level: 'minimal', sections: [] },
   };
   const form: HomeAssistantInput = draft ?? initial;
   const input = (): HomeAssistantInput => ({
@@ -51,6 +53,23 @@ export function HomeAssistantPanel() {
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
   });
   const set = (patch: Partial<HomeAssistantInput>) => setDraft({ ...form, ...patch });
+  const setDetail = (detail: HaDetail) => set({ detail });
+  // entities that the level being edited would publish
+  const detailKey = JSON.stringify(form.detail);
+  const { data: preview } = useQuery({
+    queryKey: ['settings', 'homeassistant', 'preview', detailKey],
+    queryFn: () => api.previewHomeAssistant(form.detail),
+    enabled: !!data,
+    placeholderData: (prev) => prev,
+  });
+  const pickLevel = (level: HaDetail['level']) => {
+    if (level !== 'custom') return setDetail({ level, sections: [] });
+    // custom starts from the sections of the current level
+    const from = form.detail.level === 'custom' ? form.detail.sections : data?.presets[form.detail.level] ?? [];
+    setDetail({ level, sections: [...from] });
+  };
+  const toggleSection = (id: HaSection, on: boolean) =>
+    setDetail({ level: 'custom', sections: HA_SECTIONS.map((s) => s.id).filter((s) => (s === id ? on : form.detail.sections.includes(s))) });
 
   const save = async () => {
     if (!data) return false;
@@ -165,6 +184,52 @@ export function HomeAssistantPanel() {
               <input className="input" value={form.publicUrl} onChange={(e) => set({ publicUrl: e.target.value })} placeholder="https://homelab-manager.example.org" />
             </Field>
           </div>
+
+          <fieldset className="space-y-3 border-t border-line pt-4">
+            <legend className="text-sm font-medium text-zinc-100">Niveau de détail</legend>
+            <p className="text-xs text-muted">
+              Entités créées dans Home Assistant. Les alertes et la connectivité des hôtes sont toujours publiées ;
+              chaque hôte peut avoir son propre niveau (options de l'hôte, ou sélection dans la liste des hôtes).
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[...HA_LEVELS, { id: 'custom' as const, label: 'Personnalisé', hint: 'Choisir les catégories une par une' }].map((l) => (
+                <label
+                  key={l.id}
+                  className={`flex cursor-pointer items-start gap-2.5 rounded-md border p-3 ${form.detail.level === l.id ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-line'}`}
+                >
+                  <input type="radio" name="ha-level" className="mt-0.5 accent-emerald-500" checked={form.detail.level === l.id} onChange={() => pickLevel(l.id)} />
+                  <span>
+                    <span className="block text-sm text-zinc-200">{l.label}</span>
+                    <span className="block text-xs text-muted">{l.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {form.detail.level === 'custom' && (
+              <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {HA_SECTIONS.map((s) => (
+                  <label key={s.id} className="flex cursor-pointer items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 accent-emerald-500"
+                      checked={form.detail.sections.includes(s.id)}
+                      onChange={(e) => toggleSection(s.id, e.target.checked)}
+                    />
+                    <span>
+                      <span className="block text-sm text-zinc-200">{s.label}</span>
+                      <span className="block text-xs text-muted">{s.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {preview && (
+              <p className="text-xs text-muted">
+                Avec ce niveau et les niveaux propres à chaque hôte : <span className="text-zinc-200">{preview.entities} entité(s)</span> sur{' '}
+                <span className="text-zinc-200">{preview.devices} appareil(s)</span>.
+              </p>
+            )}
+          </fieldset>
         </form>
 
         <div className="space-y-4 text-sm">

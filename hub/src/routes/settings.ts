@@ -6,7 +6,8 @@ import { loadAgentSettings, maybeAutoUpdate } from '../agentUpdate.js';
 import { hosts } from '../db.js';
 import { SAFE_URL, TAILSCALE_HOST, agentCommands } from '../hubUrl.js';
 import { loadPki } from '../pkiStore.js';
-import type { HomeAssistantSettings } from '../types.js';
+import type { HaDetail, HomeAssistantSettings } from '../types.js';
+import { DEFAULT_DETAIL, HA_PRESETS, HA_SECTIONS, normalizeDetail } from '../homeassistant/detail.js';
 
 const DEFAULTS: HomeAssistantSettings = {
   _id: 'homeassistant',
@@ -17,16 +18,19 @@ const DEFAULTS: HomeAssistantSettings = {
   topic: 'homelab-manager',
   discoveryPrefix: 'homeassistant',
   publicUrl: '',
+  detail: DEFAULT_DETAIL,
 };
 
 export async function loadHomeAssistantSettings() {
-  return { ...DEFAULTS, ...((await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null) };
+  const stored = (await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null;
+  return { ...DEFAULTS, ...stored, detail: normalizeDetail(stored?.detail) };
 }
 
 // the password never leaves the hub
 function dto(s: HomeAssistantSettings, bridge: HomeAssistantBridge) {
   const { password, _id, ...rest } = s;
-  return { ...rest, hasPassword: !!password, status: bridge.status() };
+  // presets: sections of each level, for the custom picker
+  return { ...rest, hasPassword: !!password, presets: HA_PRESETS, status: bridge.status() };
 }
 
 interface Body {
@@ -37,7 +41,18 @@ interface Body {
   topic: string;
   discoveryPrefix: string;
   publicUrl?: string;
+  detail?: HaDetail;
 }
+
+const detailBody = {
+  type: 'object',
+  required: ['level'],
+  additionalProperties: false,
+  properties: {
+    level: { enum: [...Object.keys(HA_PRESETS), 'custom'] },
+    sections: { type: 'array', items: { enum: [...HA_SECTIONS] }, maxItems: HA_SECTIONS.length },
+  },
+} as const;
 
 const TOPIC = '^[A-Za-z0-9_\\-]+(/[A-Za-z0-9_\\-]+)*$';
 const body = {
@@ -52,6 +67,7 @@ const body = {
     topic: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
     discoveryPrefix: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
     publicUrl: { type: 'string', maxLength: 256 },
+    detail: detailBody,
   },
 } as const;
 
@@ -64,6 +80,7 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
       ...current,
       ...req.body,
       password: req.body.password ?? current.password,
+      detail: normalizeDetail(req.body.detail ?? current.detail),
       _id: 'homeassistant',
     };
     next.publicUrl = next.publicUrl.trim().replace(/\/+$/, '');
@@ -73,6 +90,13 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
     await bridge.apply(next);
     return dto(next, bridge);
   });
+
+  // entities that a level of detail would publish, for the settings page
+  app.post<{ Body: { detail: HaDetail } }>(
+    '/api/settings/homeassistant/preview',
+    { schema: { body: { type: 'object', required: ['detail'], additionalProperties: false, properties: { detail: detailBody } } } },
+    async (req) => bridge.preview(normalizeDetail(req.body.detail), await loadHomeAssistantSettings()),
+  );
 
   app.post('/api/settings/homeassistant/republish', async (_req, reply) => {
     if (!bridge.republish()) return reply.code(409).send({ error: "l'intégration n'est pas connectée au broker" });

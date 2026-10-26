@@ -15,7 +15,9 @@ import { createJob, jobDto, validPackages } from '../jobs.js';
 import { forgetHost } from '../pbs.js';
 import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
-import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostLevel, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
+
+const haLevelSchema = { type: ['string', 'null'], enum: ['none', 'minimal', 'standard', 'full', null] } as const;
 
 const hostBody = {
   type: 'object',
@@ -28,6 +30,8 @@ const hostBody = {
     roaming: { type: 'boolean' },
     critical: { type: 'boolean' },
     haExcluded: { type: 'boolean' },
+    // level of detail in Home Assistant; null: the global level
+    haDetail: haLevelSchema,
   },
 } as const;
 
@@ -149,7 +153,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; haDetail?: HaHostLevel | null } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -158,7 +162,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (linkError) return reply.code(400).send({ error: linkError });
       const set: Partial<HostDoc> = {};
       // flags and links: stored only when set
-      const unset: Partial<Record<'roaming' | 'critical' | 'haExcluded' | 'siteId', ''>> = {};
+      const unset: Partial<Record<'roaming' | 'critical' | 'haExcluded' | 'haDetail' | 'siteId', ''>> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
       if (req.body.siteId) set.siteId = req.body.siteId;
       else if (req.body.siteId === '') unset.siteId = '';
@@ -167,12 +171,49 @@ export function registerHostRoutes(app: FastifyInstance) {
         if (req.body[flag]) set[flag] = true;
         else if (req.body[flag] === false) unset[flag] = '';
       }
+      // haDetail replaces the old "excluded" flag
+      if (req.body.haDetail) {
+        set.haDetail = req.body.haDetail;
+        unset.haExcluded = '';
+        delete set.haExcluded;
+      } else if (req.body.haDetail === null) {
+        unset.haDetail = '';
+        unset.haExcluded = '';
+        delete set.haExcluded;
+      }
       const update = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
       const host = _id && (await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const dto = hostDto(host);
       publish('host', dto);
       return dto;
+    },
+  );
+
+  // several hosts at once (hosts list): same level of detail for all
+  app.post<{ Body: { ids: string[]; haDetail: HaHostLevel | null } }>(
+    '/api/hosts/ha-detail',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['ids', 'haDetail'],
+          additionalProperties: false,
+          properties: { ids: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', maxLength: 24 } }, haDetail: haLevelSchema },
+        },
+      },
+    },
+    async (req, reply) => {
+      const _ids = req.body.ids.map(parseId);
+      if (_ids.some((id) => !id)) return reply.code(400).send({ error: 'identifiant invalide' });
+      const filter = { _id: { $in: _ids as ObjectId[] } };
+      await hosts.updateMany(
+        filter,
+        req.body.haDetail ? { $set: { haDetail: req.body.haDetail }, $unset: { haExcluded: '' } } : { $unset: { haDetail: '', haExcluded: '' } },
+      );
+      const list = await hosts.find(filter).toArray();
+      for (const h of list) publish('host', hostDto(h));
+      return list.map(hostDto);
     },
   );
 
