@@ -98,7 +98,10 @@ export function HomeAssistantPanel() {
     }
   };
   // save and cancel both leave the settings screen, back to where the user came from (home when opened directly)
-  const leave = () => navigate(window.history.state?.idx > 0 ? -1 : '/');
+  const leave = () => {
+    if (window.history.state?.idx > 0) navigate(-1);
+    else navigate('/');
+  };
   const saveAndLeave = async () => {
     if (await save()) leave();
   };
@@ -235,6 +238,25 @@ export function HomeAssistantPanel() {
             Entités créées dans Home Assistant par la découverte automatique. Chaque hôte peut avoir son propre niveau
             (options de l'hôte, ou sélection dans la liste des hôtes) ; sans réglage, il suit le niveau choisi ici.
           </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-zinc-100">Niveau global</span>
+            <div role="radiogroup" aria-label="Niveau global de publication" className="inline-flex overflow-hidden rounded-md border border-line">
+              {columns.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected === c.id}
+                  title={c.hint}
+                  onClick={() => pickLevel(c.id)}
+                  className={`px-3 py-1.5 text-sm transition ${selected === c.id ? 'bg-emerald-500/15 font-medium text-emerald-300' : 'text-zinc-400 hover:bg-raised/60 hover:text-zinc-100'}`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-muted">Appliqué aux hôtes sans niveau propre.</span>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead>
