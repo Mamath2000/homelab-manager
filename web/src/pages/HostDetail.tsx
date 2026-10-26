@@ -311,12 +311,14 @@ function HostDetailPage({ id }: { id: string }) {
       }
       const checksPromise = Promise.allSettled(actions.map((action) => refreshRun.mutateAsync({ hostId: host.id, action })));
       const backupsPromise = Promise.allSettled([backupsOn ? api.refreshBackups().then(() => true) : Promise.resolve(false)]);
-      // the agent reads its local state again (system, Docker stacks, Home Assistant backups, UPS)
+      // the agent reads its local state again (system, health measures, Docker stacks, Home Assistant backups, UPS)
       const agentPromise = canRefreshAgent ? api.refreshHost(host.id).then(() => true, () => false) : Promise.resolve(false);
       const [checkResults, backupResults, agentRefreshed] = await Promise.all([checksPromise, backupsPromise, agentPromise]);
       const started = checkResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
       if (started.length) setJobId(started[0].id);
       await queryClient.invalidateQueries({ queryKey: keys.hostJobs(id) });
+      // the agent has just sent new health measures (chart history of the panel)
+      if (agentRefreshed) await queryClient.invalidateQueries({ queryKey: ['health', host.id] });
       if (backupsOn) await queryClient.invalidateQueries({ queryKey: keys.backups });
 
       const backupResult = backupResults[0];

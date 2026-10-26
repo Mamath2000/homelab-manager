@@ -315,7 +315,8 @@ func (s *session) loop(ctx context.Context) error {
 			if in.Op == "refresh" {
 				_ = s.hello(ctx)
 				s.sessions(ctx, true)
-				out.Result = map[string][]string{"scopes": {"info", "session"}}
+				s.refreshHealth(ctx)
+				out.Result = map[string][]string{"scopes": {"info", "session", "health"}}
 			} else if in.Op == "smart_scan" {
 				if list, err := listSmartCandidates(ctx); err != nil {
 					out.Error = err.Error()

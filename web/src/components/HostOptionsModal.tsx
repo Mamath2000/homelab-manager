@@ -54,6 +54,15 @@ function Capability({ label, enabled, detail }: { label: string; enabled: boolea
   );
 }
 
+function CapabilityGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h5>
+      <div className="flex flex-col gap-2.5">{children}</div>
+    </section>
+  );
+}
+
 // Windows: path of the backup CLI (Nimbus Backup, installed by hand). The agent checks it once saved and reports it
 // in its capabilities (backup:cli): only then does the host page show its backups.
 function BackupClientSection({ host }: { host: Host }) {
@@ -164,8 +173,8 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
   return (
     <Modal
       open
-      scroll
-      wide="xl"
+      wide="screen-wide"
+      fixed
       onClose={onClose}
       title={
         <>
@@ -291,15 +300,26 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
                 <h4 className="text-sm font-semibold text-zinc-100">Éléments détectés</h4>
                 <p className="mt-1 text-xs text-muted">Capacités et services signalés par l’agent lors de son dernier rapport.</p>
               </div>
-              <div className="grid gap-2.5 sm:grid-cols-2">
+              <div className="grid items-start gap-5 md:grid-cols-3">
+              <CapabilityGroup title="Supervision">
+                <Capability label="Mesures système" enabled={host.capabilities.includes('health')} detail="CPU, mémoire, charge Unix et volumes (seuils : section Santé)" />
+                <Capability label="SMART" enabled={host.capabilities.includes('smart')} detail={host.capabilities.includes('smart') ? `Disques physiques suivis : ${host.smartDevices.length || 'aucun choisi'}` : 'Indisponible : smartmontools absent, hôte virtualisé ou agent ancien'} />
+                <Capability label="RAID" enabled={host.capabilities.includes('raid')} detail="Arrays mdadm, Unraid ou Ceph détectés sur l’hôte" />
+                <Capability label="Onduleur (UPS)" enabled={host.capabilities.includes('ups')} detail={host.capabilities.includes('ups_control') ? 'Suivi NUT, bip et test batterie' : 'Suivi NUT de l’onduleur branché sur l’hôte'} />
+                <Capability label="Sauvegardes Home Assistant" enabled={host.capabilities.includes('ha_backups')} detail="Remontée des sauvegardes Home Assistant" />
+              </CapabilityGroup>
+              <CapabilityGroup title="Gestion">
                 <Capability label="Mises à jour APT" enabled={hasApt(host)} detail="Gestion des paquets système" />
                 <Capability label="Docker" enabled={!!host.docker} detail={host.docker ? `${host.docker.engine} · Compose ${host.docker.compose}` : 'Aucun moteur Docker détecté'} />
+                <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
+              </CapabilityGroup>
+              <CapabilityGroup title="Actions à distance">
                 <Capability label="Redémarrage" enabled={host.capabilities.includes('reboot')} detail="Redémarrage à distance de l’hôte" />
                 <Capability label="Extinction" enabled={host.capabilities.includes('shutdown')} detail="Extinction à distance de l’hôte" />
                 {isWindows(host) && <Capability label="Verrouillage" enabled={host.capabilities.includes('lock')} detail="Verrouillage d’une session utilisateur" />}
+                <Capability label="Actualisation à la demande" enabled={host.capabilities.includes('refresh')} detail="L’agent relit ses mesures et son état sur demande" />
                 <Capability label="Mise à jour de l’agent" enabled={host.capabilities.includes('agent_update')} detail="L’agent peut se mettre à jour lui-même" />
-                <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
-                <Capability label="Sauvegardes Home Assistant" enabled={host.capabilities.includes('ha_backups')} detail="Remontée des sauvegardes Home Assistant" />
+              </CapabilityGroup>
               </div>
               {host.info && (
                 <dl className="grid gap-x-6 gap-y-2 border-t border-line pt-4 text-sm sm:grid-cols-2">

@@ -78,7 +78,7 @@ export function agentRequest<T>(hostId: string, op: string, params: Record<strin
 }
 
 // What an agent reads again on request (agent refresh.go); none asked: all it can read.
-export const REFRESH_SCOPES = ['info', 'apt', 'docker', 'ha_backups', 'ups'] as const;
+export const REFRESH_SCOPES = ['info', 'apt', 'docker', 'ha_backups', 'ups', 'health'] as const;
 export type RefreshScope = (typeof REFRESH_SCOPES)[number];
 
 // Asks an agent to read again what it reports on its own; its reports arrive before the answer, which

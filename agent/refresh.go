@@ -8,11 +8,11 @@ import (
 )
 
 // Refresh on request of the hub (rpc "refresh"): the agent reads again what it reports on its own
-// periodically and sends the usual messages (hello, apt_report, docker_report, ha_backups, ups_report).
+// periodically and sends the usual messages (hello, apt_report, docker_report, ha_backups, ups_report, health_*).
 // Local state only: the registry check of the images stays the docker_check job.
 
 // refreshScopes, in the order they are refreshed
-var refreshScopes = []string{"info", "apt", "docker", "ha_backups", "ups"}
+var refreshScopes = []string{"info", "apt", "docker", "ha_backups", "ups", "health"}
 
 // availableScopes: what this agent can read, given its platform.
 func availableScopes(apt, docker, haos bool) []string {
@@ -28,7 +28,8 @@ func availableScopes(apt, docker, haos bool) []string {
 	} else {
 		out = append(out, "ups")
 	}
-	return out
+	// CPU, memory, load, volumes and RAID; SMART keeps its own schedule
+	return append(out, "health")
 }
 
 // wantedScopes: the scopes asked that this agent can read (none asked: all of them), in refresh order.
@@ -60,6 +61,8 @@ func (s *session) refresh(ctx context.Context, asked []string) []string {
 			if r := collectUps(ctx); r != nil {
 				_ = s.send(ctx, Outbound{Type: "ups_report", Ups: r})
 			}
+		case "health":
+			s.refreshHealth(ctx)
 		}
 	}
 	return scopes
