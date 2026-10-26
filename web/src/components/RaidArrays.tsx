@@ -148,8 +148,9 @@ function CephCluster({ c, cluster, actions }: { c: HealthCeph; cluster?: string;
 
 // RAID of a host, one card each: mdadm arrays, Unraid array and its pools, Ceph cluster (`cluster`: its corosync name).
 export function RaidArrays({ raid, cluster, actions }: { raid: HealthRaid; cluster?: string; actions?: Actions }) {
+  const count = raid.arrays.length + Number(!!raid.unraid) + Number(!!raid.ceph);
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className={`grid gap-2 ${count > 1 ? 'sm:grid-cols-2' : ''}`}>
       {raid.arrays.map((a) => <MdArray key={a.name} a={a} actions={actions} />)}
       {raid.unraid && <UnraidArray u={raid.unraid} actions={actions} />}
       {raid.ceph && <CephCluster c={raid.ceph} cluster={cluster} actions={actions} />}
