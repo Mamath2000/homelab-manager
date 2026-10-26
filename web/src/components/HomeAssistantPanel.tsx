@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Check, Home, Minus, PlugZap, Radio, RefreshCw, Wand2 } from 'lucide-react';
 import { api, type HaDetail, type HaSection, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
 import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
