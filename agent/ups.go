@@ -5,7 +5,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,31 +16,6 @@ import (
 
 // UPS monitoring through NUT: the first UPS listed by "upsc -l" on the host (one UPS per host).
 // Read only, local (upsd on localhost), nothing is opened on the host.
-
-type UpsReport struct {
-	CheckedAt int64  `json:"checkedAt"` // unix ms
-	Name      string `json:"name"`      // NUT name (upsc <name>)
-	Model     string `json:"model"`
-	Driver    string `json:"driver"`
-	// ups.status as NUT gives it: OL, OB, LB, RB, CHRG, DISCHRG, ALARM... space separated
-	Status string `json:"status"`
-	// nil = not reported by the UPS
-	Charge        *float64 `json:"charge,omitempty"`        // battery.charge, %
-	ChargeWarning *float64 `json:"chargeWarning,omitempty"` // battery.charge.warning, %
-	ChargeLow     *float64 `json:"chargeLow,omitempty"`     // battery.charge.low, %
-	Runtime       *float64 `json:"runtime,omitempty"`       // battery.runtime, seconds
-	RuntimeLow    *float64 `json:"runtimeLow,omitempty"`    // battery.runtime.low, seconds
-	Load          *float64 `json:"load,omitempty"`          // ups.load, %
-	InputVoltage  *float64 `json:"inputVoltage,omitempty"`  // input.voltage, V
-	InputNominal  *float64 `json:"inputNominal,omitempty"`  // input.voltage.nominal, V
-	BatteryVolt   *float64 `json:"batteryVoltage,omitempty"`
-	BatteryNom    *float64 `json:"batteryNominal,omitempty"`
-	TestResult    string   `json:"testResult,omitempty"` // ups.test.result
-	BeeperStatus  string   `json:"beeper,omitempty"`     // ups.beeper.status
-	// manufacturing date of the battery pack (battery.mfr.date), "" = unknown; battery.date is
-	// not used: most units keep the factory value
-	MfrDate string `json:"mfrDate,omitempty"`
-}
 
 // parseUpsc reads the "key: value" lines of "upsc <name>".
 func parseUpsc(name, out string) *UpsReport {
@@ -189,50 +163,4 @@ func upsError(out string) string {
 		}
 	}
 	return "failed"
-}
-
-// sendUps reports the UPS right now, after a command (the NUT driver takes a moment to reflect it).
-func (s *session) sendUps(ctx context.Context) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(3 * time.Second):
-	}
-	if r := collectUps(ctx); r != nil {
-		_ = s.send(ctx, Outbound{Type: "ups_report", Ups: r})
-	}
-}
-
-// upsLoop polls every minute; a report goes to the hub when something changed, and at least every
-// 5 minutes.
-func (s *session) upsLoop(ctx context.Context) {
-	var lastKey string
-	var lastSent time.Time
-	poll := func() {
-		r := collectUps(ctx)
-		if r == nil {
-			return
-		}
-		at := r.CheckedAt
-		r.CheckedAt = 0
-		b, _ := json.Marshal(r)
-		r.CheckedAt = at
-		if string(b) == lastKey && time.Since(lastSent) < 5*time.Minute {
-			return
-		}
-		if s.send(ctx, Outbound{Type: "ups_report", Ups: r}) == nil {
-			lastKey, lastSent = string(b), time.Now()
-		}
-	}
-	poll()
-	t := time.NewTicker(time.Minute)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			poll()
-		}
-	}
 }
