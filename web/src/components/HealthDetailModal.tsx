@@ -129,15 +129,16 @@ export function HealthDetailModal({ open, onClose, hostName, cluster, health, sa
   const smartDisks = health?.smart?.disks ?? [];
   const raid = health?.raid;
   const raidCount = raid ? raid.arrays.length + (raid.unraid ? 1 : 0) + (raid.ceph ? 1 : 0) : 0;
+  const hasLoadSamples = samples.some((sample) => loadMetric.series.some((series) => series.pick(sample.report) !== undefined));
   return (
     <Modal open={open} onClose={onClose} title={`Détail Santé · ${hostName}`} wide="screen-wide" scroll>
       <div className="space-y-5">
         <section>
           <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><ChartLine className="h-4 w-4 text-emerald-300" />CPU, mémoire et charge · dernière heure</div>
-          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+          <div className={`grid gap-3 lg:grid-cols-2 ${hasLoadSamples ? 'xl:grid-cols-3' : 'xl:grid-cols-2'}`}>
             <MetricChart samples={samples} settings={settings} metric={percentMetric('cpuPercent', 'CPU', '#34d399')} label="CPU" color="#34d399" warning={settings?.cpuWarningThreshold} alert={settings?.cpuAlertThreshold} />
             <MetricChart samples={samples} settings={settings} metric={percentMetric('memPercent', 'Mémoire', '#38bdf8')} label="Mémoire" color="#38bdf8" warning={settings?.memoryWarningThreshold} alert={settings?.memoryAlertThreshold} />
-            {samples.some((sample) => loadMetric.series.some((series) => series.pick(sample.report) !== undefined)) && (
+            {hasLoadSamples && (
               <MetricChart samples={samples} settings={settings} metric={loadMetric} label="Charge / CPU" color="#fbbf24" warning={settings?.loadWarningThreshold} alert={settings?.loadAlertThreshold} />
             )}
           </div>
