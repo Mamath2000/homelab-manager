@@ -238,7 +238,7 @@ function HostDetailPage({ id }: { id: string }) {
   const queryClient = useQueryClient();
   const run = useRunJob();
   const refreshRun = useRunJob();
-  const { canWrite, canManage } = useMe();
+  const { canWrite, canManage, features } = useMe();
   const navigate = useNavigate();
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -524,7 +524,7 @@ function HostDetailPage({ id }: { id: string }) {
             </StripItem>
             <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
             {!isWindows(host) && <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>}
-            {showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
+            {features.standardisation && showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
             {(() => {
               const { lan, tailscale } = groupIps(host.info?.ips);
               return (

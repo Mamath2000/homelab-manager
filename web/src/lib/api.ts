@@ -545,6 +545,8 @@ export interface Me {
   role: Role | 'superadmin';
   // temporary password: it must be replaced before using the app
   mustChangePassword: boolean;
+  // optional features of the hub (environment variables, e.g. FEATURE_STANDARDISATION)
+  features: { standardisation: boolean };
 }
 
 export interface AuthStatus {

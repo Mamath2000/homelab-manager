@@ -4,6 +4,7 @@ import { ObjectId } from 'mongodb';
 import { authorize } from '../src/roles.js';
 import { DEFAULT_SETUP, buildSpec, effectiveValues, overridesError, profileError, resetError } from '../src/setup.js';
 import { setupDto } from '../src/hostDto.js';
+import { config } from '../src/config.js';
 import { DEFAULT_FASTFETCH } from '../src/fastfetch.js';
 import { DEFAULT_STARSHIP } from '../src/starship.js';
 import { SETUP_OPTIONS, type HostDoc, type SetupOption, type SetupOverrides, type SetupProfile, type SetupValues } from '../src/types.js';
@@ -126,8 +127,15 @@ test('drift counts modules that differ or failed to check', () => {
       ],
     },
   } as unknown as HostDoc;
-  assert.equal(setupDto(h)!.drift, 2);
-  assert.equal(setupDto({ ...h, setup: undefined }), null);
+  config.featureStandardisation = true;
+  try {
+    assert.equal(setupDto(h)!.drift, 2);
+    assert.equal(setupDto({ ...h, setup: undefined }), null);
+  } finally {
+    config.featureStandardisation = false;
+  }
+  // FEATURE_STANDARDISATION off: the stored check is not shown
+  assert.equal(setupDto(h), null);
 });
 
 test('roles: the profile is admin only, operators apply and check', () => {

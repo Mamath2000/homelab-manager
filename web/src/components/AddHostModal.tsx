@@ -12,10 +12,12 @@ import { SiteSelect, TagPicker } from './HostTags';
 import { Step, Steps } from './PbsDialog';
 import { RoamingField } from './RoamingField';
 import { Button, Modal, Spinner } from './ui';
+import { useMe } from '../lib/auth';
 
 // Three steps from left to right: name and site, tags and options, system and install script. The host
 // is only created when the script is generated; cancelling before its agent connects deletes it again.
 export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { features } = useMe();
   const [name, setName] = useState('');
   const [siteId, setSiteId] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -135,7 +137,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
                 </select>
                 <span className="mt-1 block text-xs text-zinc-500">
                   {network === 'tailscale'
-                    ? "L'agent joint le hub (et le PBS) par Tailscale. Hôte créé non géré (aucune option de standardisation) et exclu de Home Assistant ; modifiable ensuite. Le réseau ne se change pas : il faut réinstaller l'agent."
+                    ? `L'agent joint le hub (et le PBS) par Tailscale. Hôte créé ${features.standardisation ? 'non géré (aucune option de standardisation) et ' : ''}exclu de Home Assistant ; modifiable ensuite. Le réseau ne se change pas : il faut réinstaller l'agent.`
                     : 'Adresse du hub telle que réglée dans Paramètres > Agent.'}
                 </span>
               </label>

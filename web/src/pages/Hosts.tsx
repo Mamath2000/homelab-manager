@@ -43,7 +43,7 @@ export function Hosts() {
   const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
   const [optionsHostId, setOptionsHostId] = useState<string | null>(null);
   const bulk = useRunBulk();
-  const { canWrite, canManage } = useMe();
+  const { canWrite, canManage, features } = useMe();
   const run = useRunJob();
 
   const setMany = (values: Record<string, string>) => {
@@ -139,7 +139,7 @@ export function Hosts() {
             <Button size="sm" onClick={() => setAgentModal(true)}>Mettre à jour les agents</Button>
           )}
           <Button size="sm" icon={Home} onClick={() => setHaModal(true)}>Niveau Home Assistant</Button>
-          {visibleSelected.some((h) => h.capabilities.includes('setup')) && (
+          {features.standardisation && visibleSelected.some((h) => h.capabilities.includes('setup')) && (
             <Button size="sm" icon={Wand2} onClick={() => setSetupModal(true)}>Standardisation</Button>
           )}
           <button className="ml-auto text-xs text-muted hover:text-zinc-200" onClick={() => setSelected(new Set())}>Désélectionner</button>

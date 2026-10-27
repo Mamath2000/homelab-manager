@@ -14,6 +14,7 @@ import { RoamingField } from './RoamingField';
 import { HostHealthFooter, HostHealthThresholds } from './HostHealthThresholds';
 import { useHostHealthEditor } from '../lib/useHostHealthEditor';
 import { Badge, Button, Checkbox, Modal } from './ui';
+import { useMe } from '../lib/auth';
 
 // Actions of the « Danger » zone, owned by the caller (its confirmations); no zone without them (host list).
 export interface HostDangerActions {
@@ -120,6 +121,7 @@ function BackupClientSection({ host }: { host: Host }) {
 
 // mounted only while open: its state starts from the current host
 export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClose: () => void; danger?: HostDangerActions }) {
+  const { features } = useMe();
   const [name, setName] = useState(host.name);
   const [siteId, setSiteId] = useState(host.siteId ?? '');
   const [tags, setTags] = useState(host.tags);
@@ -321,7 +323,7 @@ export function HostOptionsModal({ host, onClose, danger }: { host: Host; onClos
               <CapabilityGroup title="Gestion">
                 <Capability label="Mises à jour APT" enabled={hasApt(host)} detail="Gestion des paquets système" />
                 <Capability label="Docker" enabled={!!host.docker} detail={host.docker ? `${host.docker.engine} · Compose ${host.docker.compose}` : 'Aucun moteur Docker détecté'} />
-                <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />
+                {features.standardisation && <Capability label="Standardisation" enabled={host.capabilities.includes('setup')} detail="Application de la configuration standard" />}
               </CapabilityGroup>
               <CapabilityGroup title="Actions à distance">
                 <Capability label="Redémarrage" enabled={host.capabilities.includes('reboot')} detail="Redémarrage à distance de l’hôte" />

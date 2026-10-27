@@ -15,6 +15,7 @@ import { HealthSettings } from '../components/HealthSettings';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Button, Modal, Panel, VerticalTabs } from '../components/ui';
 import { api } from '../lib/api';
+import { useMe } from '../lib/auth';
 
 const tabs = [
   { id: 'hub', label: 'Hub', icon: Server },
@@ -32,7 +33,10 @@ type TabId = (typeof tabs)[number]['id'];
 
 export function Settings() {
   const [params, setParams] = useSearchParams();
-  const tab: TabId = tabs.find((item) => item.id === params.get('tab'))?.id ?? 'hub';
+  const { features } = useMe();
+  // Standardisation: only with FEATURE_STANDARDISATION on the hub
+  const shown = tabs.filter((item) => item.id !== 'setup' || features.standardisation);
+  const tab: TabId = shown.find((item) => item.id === params.get('tab'))?.id ?? 'hub';
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
   const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
@@ -206,7 +210,7 @@ export function Settings() {
       <p className="mb-5 text-sm text-muted">Modifie une rubrique puis enregistre ses changements en bas du formulaire.</p>
       <div className="panel">
         <VerticalTabs
-          tabs={[...tabs]}
+          tabs={shown}
           value={tab}
           onChange={selectTab}
           bodyClassName="min-w-0 flex-1 p-4 md:p-6"

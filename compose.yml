@@ -15,6 +15,7 @@ services:
       # SESSION_DAYS: 30
       # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
       # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
+      # FEATURE_STANDARDISATION: "true"  # affiche et active la standardisation des hôtes (absente : désactivée)
     depends_on:
       - mongo
 
