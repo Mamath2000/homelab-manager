@@ -176,8 +176,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         }),
       ),
       timezone: DEFAULT_TIMEZONE,
-      // Nextcloud AIO plugin shown (BACKUP_NEXTCLOUD_AIO), and settings of this host
-      nextcloudPlugin: config.backupNextcloudAio,
+      // Nextcloud AIO plugin shown (FEATURE_BACKUP_NEXTCLOUD_AIO), and settings of this host
+      nextcloudPlugin: config.featureBackupNextcloudAio,
       nextcloudSettings: host.nextcloud ?? null,
       // settings of before the disconnection of the main PBS (#190): restored from the dialog, prefilled
       nextcloudPrevious: host.nextcloud ? null : (host.backupCache?.nextcloud ?? null),

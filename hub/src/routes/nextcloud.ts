@@ -31,9 +31,9 @@ const pluginProps = {
 } as const;
 
 async function pluginHost(id: string, reply: FastifyReply): Promise<HostDoc | null> {
-  // hidden unless BACKUP_NEXTCLOUD_AIO=true (particular to one setup)
-  if (!config.backupNextcloudAio) {
-    reply.code(404).send({ error: 'plugin Nextcloud AIO désactivé (BACKUP_NEXTCLOUD_AIO)' });
+  // hidden unless FEATURE_BACKUP_NEXTCLOUD_AIO=true (particular to one setup)
+  if (!config.featureBackupNextcloudAio) {
+    reply.code(404).send({ error: 'plugin Nextcloud AIO désactivé (FEATURE_BACKUP_NEXTCLOUD_AIO)' });
     return null;
   }
   const _id = parseId(id);

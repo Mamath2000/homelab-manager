@@ -30,7 +30,7 @@ export const config = {
   // set when the hub sits behind a reverse proxy (X-Forwarded-* headers)
   trustProxy: env('TRUST_PROXY') === 'true',
   // Nextcloud AIO plugin of the backups (homelab#148): particular to one setup, hidden unless set
-  backupNextcloudAio: env('BACKUP_NEXTCLOUD_AIO') === 'true',
+  featureBackupNextcloudAio: env('FEATURE_BACKUP_NEXTCLOUD_AIO') === 'true',
   // standardisation of the hosts (setup.ts): hidden and inactive unless set
   featureStandardisation: env('FEATURE_STANDARDISATION') === 'true',
 };

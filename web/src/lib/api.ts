@@ -1106,7 +1106,7 @@ export interface HostBackupJobs {
   // retention the PBS applies to the namespace Hosts of each datastore; null: no pruning
   retention: Record<string, { keep: string; schedule: string | null; ns: string } | null>;
   timezone: string;
-  // Nextcloud AIO plugin: shown (BACKUP_NEXTCLOUD_AIO of the hub), instance found here, settings of the host
+  // Nextcloud AIO plugin: shown (FEATURE_BACKUP_NEXTCLOUD_AIO of the hub), instance found here, settings of the host
   nextcloudPlugin: boolean;
   nextcloud: boolean;
   nextcloudSettings: NextcloudSettings | null;

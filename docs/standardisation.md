@@ -10,6 +10,8 @@ Remplace le script `dispatch_full` de homeSetup. On définit une configuration s
 
 Disponible sur Debian et Ubuntu (pas sur Unraid), avec un agent à jour.
 
+Désactivée par défaut : il faut `FEATURE_STANDARDISATION=true` sur le hub (voir [Configuration](configuration.md)). Sans la variable, rien n'apparaît dans l'interface, l'API de la standardisation répond 404 et le hub n'applique ni ne vérifie rien, même à la première connexion d'un hôte. Un hôte ajouté pendant que la variable est absente n'est pas standardisé d'office quand on l'active ensuite. Ses valeurs propres et le standard restent en base.
+
 ## Trois sections
 
 | Section | Option | Effet sur l'hôte | Conformité |

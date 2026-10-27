@@ -20,7 +20,7 @@ Pensé pour le réseau local : un hub en conteneur, un agent léger par hôte, a
 - **Docker** : stacks compose des hôtes découvertes automatiquement, état des conteneurs et santé, images à mettre à jour (vérifiées auprès du registre sans rien télécharger), démarrer / arrêter / redémarrer / mettre à jour une stack ou un service, logs et fichiers compose (`.env` masqué). Voir [docs/docker.md](docs/docker.md).
 - **Santé** : écran dédié avec courbes CPU/mémoire de la dernière heure, charge Unix, occupation des volumes, alertes à seuil et SMART explicitement configuré par hôte. Les mesures sont conservées 48 h dans MongoDB puis purgées. Voir [docs/sante.md](docs/sante.md).
 - **Sauvegardes** : suivi d'un Proxmox Backup Server par son API ; jobs vzdump des clusters Proxmox VE rattachés automatiquement aux hôtes (lien par adresse MAC), retard jugé sur leur planification ; sauvegardes de répertoires définies dans le hub et lancées par les agents (client APT ou conteneur), et sauvegardes de bases PostgreSQL / MongoDB (dumps faits par l'agent) ; jetons créés par une commande à usage unique ; alertes dans l'interface et Home Assistant. Voir [docs/sauvegardes.md](docs/sauvegardes.md).
-- **Standardisation** : configuration standard des hôtes en trois sections (système : paquets, connexion SSH par mot de passe ; root et un utilisateur : clés SSH, alias, prompt, écran d'accueil), surchargeable option par option sur chaque hôte, appliquée à un hôte, à une sélection d'hôtes ou automatiquement à l'ajout, avec un état de conformité par option. Voir [docs/standardisation.md](docs/standardisation.md).
+- **Standardisation** : configuration standard des hôtes en trois sections (système : paquets, connexion SSH par mot de passe ; root et un utilisateur : clés SSH, alias, prompt, écran d'accueil), surchargeable option par option sur chaque hôte, appliquée à un hôte, à une sélection d'hôtes ou automatiquement à l'ajout, avec un état de conformité par option. Désactivée par défaut (`FEATURE_STANDARDISATION=true`). Voir [docs/standardisation.md](docs/standardisation.md).
 - **Historique** des tâches avec leurs sorties (conservé 90 jours).
 - **Home Assistant** (option, dans les Paramètres) : publication MQTT avec découverte automatique *device-based*. Hiérarchie Homelab Manager > hôtes > composants (APT…), alertes remontées vers l'hôte puis la racine, mises à jour installables depuis HA. Voir [docs/home-assistant.md](docs/home-assistant.md).
 - Interface **dark**, en français, utilisable sur mobile.
@@ -82,7 +82,8 @@ Déploiement : variables d'environnement écrites dans [`compose.yml`](compose.y
 | `SESSION_DAYS` | `30` | Durée des sessions |
 | `COOKIE_SECURE` | `false` | `true` si le hub est servi en HTTPS |
 | `TRUST_PROXY` | `false` | `true` derrière un reverse proxy |
-| `BACKUP_NEXTCLOUD_AIO` | `false` | `true` affiche le plugin Nextcloud AIO des sauvegardes |
+| `FEATURE_BACKUP_NEXTCLOUD_AIO` | `false` | `true` affiche le plugin Nextcloud AIO des sauvegardes |
+| `FEATURE_STANDARDISATION` | `false` | `true` affiche et active la standardisation des hôtes |
 
 Paramètres de l'application, dans l'interface (**Paramètres > Agent**) : **URL du hub** (vide : celle du navigateur ; les agents utilisent son nom d'hôte), **port TLS des agents** (port publié, 3443 par défaut), et fréquence de l'`apt-get update` automatique (12 h par défaut, `0` = désactivé). La page affiche aussi la clé épinglée et l'empreinte de l'autorité de certification du hub.
 

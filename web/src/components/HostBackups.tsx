@@ -277,7 +277,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
     }
   };
 
-  // Nextcloud AIO plugin: hub with BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
+  // Nextcloud AIO plugin: hub with FEATURE_BACKUP_NEXTCLOUD_AIO, instance found on the host (or plugin already set)
   const nextcloudShown = !!jobs?.nextcloudPlugin && (jobs.nextcloud || !!jobs.nextcloudSettings || !!jobs.nextcloudPrevious);
   // the client and the token are set in the options of the host (Sauvegardes)
   const addBlocked = !jobs ? 'Chargement…' : !jobs.mode ? (jobs.windows ? "Renseigner d'abord le chemin du client PBS (options de l’hôte › Sauvegardes)" : "Installer d'abord le client PBS (options de l’hôte › Sauvegardes)") : !jobs.credential ? "Renseigner d'abord l'accès au PBS (options de l’hôte › Sauvegardes)" : null;

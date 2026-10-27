@@ -315,7 +315,7 @@ Un job de type **Base PostgreSQL** ou **Base MongoDB** est une sauvegarde de l'a
 
 ## Plugin Nextcloud AIO
 
-Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configuration et données de chaque utilisateur, chacune dans le datastore choisi. Le plugin est propre à ce type d'installation : il n'apparaît que si le hub a `BACKUP_NEXTCLOUD_AIO=true` (voir [Configuration](configuration.md)) **et** que l'agent de l'hôte (0.4 ou plus récent) trouve l'instance. Bouton **Nextcloud** de la carte Sauvegardes de l'hôte.
+Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configuration et données de chaque utilisateur, chacune dans le datastore choisi. Le plugin est propre à ce type d'installation : il n'apparaît que si le hub a `FEATURE_BACKUP_NEXTCLOUD_AIO=true` (voir [Configuration](configuration.md)) **et** que l'agent de l'hôte (0.4 ou plus récent) trouve l'instance. Bouton **Nextcloud** de la carte Sauvegardes de l'hôte.
 
 **Détection** : par l'**image** des conteneurs qui tournent (`.Config.Image`, référence gardée même quand le tag `latest` a bougé depuis), pas par leur nom : `nextcloud/all-in-one` (mastercontainer), `nextcloud-releases/aio-nextcloud`, `nextcloud-releases/aio-postgresql`, quel que soit le registre. Le reste est demandé à Nextcloud et à Docker à chaque exécution, rien n'est figé dans le job :
 
@@ -342,7 +342,7 @@ Sauvegarde complète d'une instance **Nextcloud All-in-One** : base, configurati
 - Un groupe déjà écrit par un autre job (par ex. un job de répertoires fait à la main pour un utilisateur) bloque l'enregistrement : supprimer ou renommer ce job d'abord.
 - **Cohérence** : base et données ne sont pas figées ensemble (pas de mode maintenance). Après une restauration, `occ files:scan --all` remet la base en accord avec les fichiers.
 - Restauration de la base : `pg_restore -d <base> pg-nextcloud/<base>.dump` (parallélisable avec `-j`), après `psql -f pg-globals/globals.sql` sur une instance neuve.
-- Sans `BACKUP_NEXTCLOUD_AIO`, les jobs déjà générés continuent de tourner ; seule la fenêtre du plugin disparaît.
+- Sans `FEATURE_BACKUP_NEXTCLOUD_AIO`, les jobs déjà générés continuent de tourner ; seule la fenêtre du plugin disparaît.
 
 ## Sauvegardes Home Assistant
 
