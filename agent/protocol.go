@@ -83,7 +83,7 @@ type DockerUpdates struct {
 
 // agent -> hub
 type Outbound struct {
-	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | rpc_result | backup_synced | backup_result | ha_backups | offsite_synced | offsite_report
+	Type    string    `json:"type"` // hello | apt_report | docker_report | docker_updates | job_log | job_done | jobs_known | rpc_result | backup_synced | backup_result | ha_backups | offsite_synced | offsite_report
 	Version string    `json:"version,omitempty"`
 	Info    *HostInfo `json:"info,omitempty"`
 	// actions this agent can run, so that the hub only offers those
@@ -105,11 +105,13 @@ type Outbound struct {
 	Data         string          `json:"data,omitempty"`
 	ExitCode     int             `json:"exitCode,omitempty"`
 	Error        string          `json:"error,omitempty"`
+	// jobs_known: the jobs this agent has a record of (running, or result not acknowledged)
+	Jobs []string `json:"jobs,omitempty"`
 }
 
 // hub -> agent
 type Inbound struct {
-	Type     string   `json:"type"` // run | rpc | backup_sync | backup_result_ack | offsite_sync
+	Type     string   `json:"type"` // run | rpc | backup_sync | backup_result_ack | job_done_ack | offsite_sync
 	JobID    string   `json:"jobId"`
 	Action   string   `json:"action"` // apt_update, apt_upgrade, docker_up...
 	Packages []string `json:"packages,omitempty"`

@@ -8,7 +8,7 @@ import { publish } from './events.js';
 import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
 import { recentlyInstalled } from './installed.js';
-import { appendJobLog, createJob, failRunningJobs, finishJob, hasRunningJob } from './jobs.js';
+import { appendJobLog, createJob, failRunningJobs, finishJob, hasRunningJob, replaysJobs } from './jobs.js';
 import { checkHostSetup, onAgentHello } from './setup.js';
 import { refreshLinks } from './pve.js';
 import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
@@ -41,6 +41,20 @@ async function dockerRecheck(hostId: ObjectId) {
   if (!isOnline(id) || hasRunningJob(id)) return;
   const host = await hosts.findOneAndUpdate({ _id: hostId, dockerRecheck: true }, { $unset: { dockerRecheck: '' } });
   if (host) await createJob(host, 'docker_check', [], 'schedule');
+}
+
+// Jobs of an agent that replays its results (job_replay) wait this long for it to come back, then fail.
+const REPLAY_WAIT_MS = 5 * 60_000;
+const replayTimers = new Map<string, NodeJS.Timeout>();
+
+export function awaitAgent(hostId: string) {
+  clearTimeout(replayTimers.get(hostId));
+  const timer = setTimeout(() => {
+    replayTimers.delete(hostId);
+    if (!isOnline(hostId)) failRunningJobs(hostId, 'agent disconnected (no result after 5 min)').catch(() => {});
+  }, REPLAY_WAIT_MS);
+  timer.unref();
+  replayTimers.set(hostId, timer);
 }
 
 export function sendToAgent(hostId: string, msg: unknown) {
@@ -148,6 +162,7 @@ interface AgentMessage {
   data?: string;
   exitCode?: number;
   error?: string;
+  jobs?: unknown;
 }
 
 export function registerAgentSocket(app: FastifyInstance) {
@@ -166,13 +181,18 @@ export function registerAgentSocket(app: FastifyInstance) {
       const id = host._id.toHexString();
       const log = req.log.child({ host: host.name });
 
+      const connectedAt = Date.now();
       const previous = connections.get(id);
       if (previous) {
         previous.close(4000, 'replaced by a new connection');
-        // output of jobs started on the old connection can no longer reach us
-        failRunningJobs(id, 'agent reconnected').catch((err) => log.error({ err }, 'failed to close jobs'));
+        // output of jobs started on the old connection can no longer reach us (unless the agent replays it)
+        (async () => (await replaysJobs(id)) || (await failRunningJobs(id, 'agent reconnected')))().catch((err) =>
+          log.error({ err }, 'failed to close jobs'),
+        );
       }
       connections.set(id, socket);
+      clearTimeout(replayTimers.get(id));
+      replayTimers.delete(id);
       log.info('agent connected');
 
       let alive = true;
@@ -321,8 +341,20 @@ export function registerAgentSocket(app: FastifyInstance) {
             case 'job_done':
               if (msg.jobId) {
                 const job = await finishJob(msg.jobId, id, msg.exitCode ?? 0, msg.error);
+                // the agent keeps the result until then (also one already closed here: sent twice)
+                sendToAgent(id, { type: 'job_done_ack', jobId: msg.jobId });
                 if (job?.action === 'setup_apply') checkHostSetup(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
                 // a report received during the job (docker_update...) may have left a registry check due
+                await dockerRecheck(host._id);
+              }
+              break;
+            case 'jobs_known':
+              // after the results kept during a disconnection: a job sent before this connection that the
+              // agent has no record of never reached it
+              if (!Array.isArray(msg.jobs)) return;
+              {
+                const known = new Set(msg.jobs.filter((j) => typeof j === 'string'));
+                await failRunningJobs(id, "job non reçu par l'agent", (jobId, since) => known.has(jobId) || since >= connectedAt);
                 await dockerRecheck(host._id);
               }
               break;
@@ -339,7 +371,9 @@ export function registerAgentSocket(app: FastifyInstance) {
         connections.delete(id);
         log.info('agent disconnected');
         failPending(id);
-        await failRunningJobs(id, 'agent disconnected');
+        // an agent that replays its results sends them at its next connection, if it comes back in time
+        if (await replaysJobs(id)) awaitAgent(id);
+        else await failRunningJobs(id, 'agent disconnected');
         await hosts.updateOne({ _id: host._id }, { $set: { lastSeenAt: new Date() } });
         await emitHost(host._id);
       });

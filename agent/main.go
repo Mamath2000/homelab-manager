@@ -41,6 +41,8 @@ type session struct {
 func platformCapabilities() []string {
 	// refresh: rpc reading again what the agent reports on its own (refresh.go)
 	caps := []string{"refresh"}
+	// results of jobs sent again after a lost connection (jobresult.go)
+	caps = append(caps, "job_replay")
 	caps = append(caps, "health")
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
@@ -359,14 +361,10 @@ func (s *session) report(ctx context.Context) {
 }
 
 func (s *session) runJob(ctx context.Context, in Inbound) {
-	emit := func(d string) { _ = s.send(ctx, Outbound{Type: "job_log", JobID: in.JobID, Data: d}) }
-	done := func(code int, err error) {
-		o := Outbound{Type: "job_done", JobID: in.JobID, ExitCode: code}
-		if err != nil {
-			o.Error = err.Error()
-		}
-		_ = s.send(ctx, o)
-	}
+	// through the connection of the moment, the result kept until the hub acknowledges it (jobresult.go)
+	jobResults.start(in.JobID)
+	emit := func(d string) { jobResults.emit(in.JobID, d) }
+	done := func(code int, err error) { jobResults.done(in.JobID, code, err) }
 
 	// a backup can take hours: it has its own lock and does not hold the other jobs back
 	if in.Action == "backup_run" {
@@ -505,6 +503,8 @@ func (s *session) loop(ctx context.Context) error {
 	defer backups.detach()
 	offsite.attach(func(o Outbound) error { return s.send(ctx, o) })
 	defer offsite.detach()
+	jobResults.attach(func(o Outbound) error { return s.send(ctx, o) })
+	defer jobResults.detach()
 	go s.report(ctx)
 	go s.helloWhenBackupReady(ctx)
 	if !onWSL && !onHAOS { // WSL, HAOS: Docker is not managed
@@ -572,6 +572,8 @@ func (s *session) loop(ctx context.Context) error {
 			}()
 		case "backup_result_ack":
 			backups.ack(in.ReqID)
+		case "job_done_ack":
+			jobResults.ack(in.JobID)
 		case "health_config":
 			s.setHealthConfig(in.HealthConfig)
 		}
@@ -596,6 +598,7 @@ func main() {
 	}
 	client := httpClient(tlsConfig(roots, cert))
 
+	jobResults.recover()
 	// scheduled backups run whether the hub is reachable or not
 	go backups.loop(ctx)
 	go backups.ensureClientImage(ctx)
