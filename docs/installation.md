@@ -51,6 +51,8 @@ Sur une base vide, le hub écrit dans ses logs le mot de passe **temporaire** (2
 docker compose logs hub
 ```
 
+Le mot de passe n'est écrit qu'une fois : les redémarrages suivants ne le changent pas (tant qu'il n'a pas expiré). S'il est perdu, `docker exec homelab-manager hm-admin superadmin` en émet un nouveau.
+
 ```text
   Homelab Manager : premier démarrage, aucun compte
   Connexion :      superadmin

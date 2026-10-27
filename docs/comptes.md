@@ -25,8 +25,14 @@ Sur une base vide, le hub crée le compte `superadmin` et écrit son mot de pass
 (`docker compose logs hub`). On se connecte avec, puis on crée les comptes depuis la page **Comptes**.
 
 Ce mot de passe est valable 24 h et n'est invalidé qu'une fois qu'un compte a choisi son propre mot de passe (un échec de
-connexion, par exemple un cookie refusé en HTTP, ne le consomme pas). Il est redonné à chaque redémarrage du hub tant qu'aucun compte n'existe
-(`docker compose restart hub` s'il a été perdu).
+connexion, par exemple un cookie refusé en HTTP, ne le consomme pas). Il n'est écrit qu'**une fois** : un `docker compose down` / `up` ou un redémarrage ne le change pas
+(les logs le rappellent sans le réafficher, le hub n'en garde que le hash). Perdu ou expiré, en émettre un nouveau :
+
+```bash
+docker exec homelab-manager hm-admin superadmin
+```
+
+Un redémarrage n'en émet un nouveau que si le précédent a expiré.
 
 ## Nom et identifiant
 

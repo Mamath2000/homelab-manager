@@ -28,6 +28,11 @@ export function hasAccounts() {
   return users.countDocuments({ role: { $ne: SUPERADMIN } }).then((n) => n > 0);
 }
 
+// a password already issued and not expired survives restarts (only its hash is stored, it cannot be shown again)
+export function hasActiveSuperadminPassword(admin: { passwordHash?: string | null; passwordExpiresAt?: Date } | null) {
+  return !!admin?.passwordHash && !!admin.passwordExpiresAt && admin.passwordExpiresAt > new Date();
+}
+
 export function shouldResetSuperadminPassword(value = process.env.HM_RESET_SUPERADMIN_PASSWORD) {
   return value === 'true';
 }
@@ -52,6 +57,19 @@ export async function bootstrapSuperadmin() {
   }
 
   if (await hasAccounts()) return;
+  if (hasActiveSuperadminPassword(await users.findOne({ username: SUPERADMIN, role: SUPERADMIN }))) {
+    process.stdout.write(
+      [
+        '',
+        '================================================================',
+        '  Homelab Manager : aucun compte, le mot de passe du premier démarrage est toujours valable',
+        `  (il n'est affiché qu'une fois ; perdu : docker exec homelab-manager hm-admin ${SUPERADMIN})`,
+        '================================================================',
+        '',
+      ].join('\n'),
+    );
+    return;
+  }
   const password = await issueSuperadminPassword(24 * 60);
   const lines = [
     '',
@@ -60,7 +78,7 @@ export async function bootstrapSuperadmin() {
     `  Connexion :      ${SUPERADMIN}`,
     `  Mot de passe :   ${password}`,
     '  Usage unique, valable 24 h : crée ensuite les comptes depuis la page Comptes.',
-    '  (perdu ou expiré : redémarre le hub pour en obtenir un nouveau)',
+    `  (perdu : docker exec homelab-manager hm-admin ${SUPERADMIN} ; expiré : redémarre le hub)`,
     '================================================================',
     '',
   ];
