@@ -99,6 +99,8 @@ function me(user: UserDoc) {
     displayName: user.displayName ?? '',
     role: user.role,
     mustChangePassword: !!user.mustChangePassword,
+    // optional features of the hub (environment variables)
+    features: { standardisation: config.featureStandardisation },
   };
 }
 

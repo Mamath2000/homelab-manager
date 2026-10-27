@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { config } from '../config.js';
 import { sha256 } from '../crypto.js';
 import { hosts } from '../db.js';
 import { publish } from '../events.js';
@@ -55,7 +56,11 @@ export function registerEnrollRoute(app: FastifyInstance) {
       const updated = await hosts.findOneAndUpdate(
         { _id: host._id },
         // a new host (never connected) gets the standard configuration at its first connection
-        { $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), ...(host.enrolledAt ? {} : { setupPending: true }) }, $unset: { tokenHash: '' } },
+        // (not when FEATURE_STANDARDISATION is off: switching it on later must not standardise it)
+        {
+          $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), ...(host.enrolledAt || !config.featureStandardisation ? {} : { setupPending: true }) },
+          $unset: { tokenHash: '' },
+        },
         { returnDocument: 'after' },
       );
       if (updated) publish('host', hostDto(updated));

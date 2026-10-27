@@ -31,4 +31,6 @@ export const config = {
   trustProxy: env('TRUST_PROXY') === 'true',
   // Nextcloud AIO plugin of the backups (homelab#148): particular to one setup, hidden unless set
   backupNextcloudAio: env('BACKUP_NEXTCLOUD_AIO') === 'true',
+  // standardisation of the hosts (setup.ts): hidden and inactive unless set
+  featureStandardisation: env('FEATURE_STANDARDISATION') === 'true',
 };

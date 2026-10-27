@@ -1,5 +1,6 @@
 import type { ObjectId } from 'mongodb';
 import { agentRequest, isOnline } from './agents.js';
+import { config } from './config.js';
 import { hosts, settings } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
@@ -203,7 +204,8 @@ export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: Se
   };
 }
 
-export const canSetup = (h: { capabilities?: string[] }) => !!h.capabilities?.includes('setup');
+// FEATURE_STANDARDISATION off: no host can be standardised (no application, no check)
+export const canSetup = (h: { capabilities?: string[] }) => config.featureStandardisation && !!h.capabilities?.includes('setup');
 
 // Conformity of a host with its values (standard ones and overrides), as checked by its agent.
 export async function checkHostSetup(hostId: ObjectId) {

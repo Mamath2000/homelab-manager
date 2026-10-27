@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { isOnline } from '../agents.js';
+import { config } from '../config.js';
 import { hosts, parseId, settings } from '../db.js';
 import { hostDto } from '../hostDto.js';
 import { MAX_TEXT, canSetup, checkAllHosts, checkHostSetup, isListOption, loadSetupProfile, overridesError, profileError } from '../setup.js';
@@ -87,6 +88,8 @@ type ProfileBody = Omit<SetupProfile, '_id'>;
 const trimKeys = (l: string[]) => l.map((k) => k.trim()).filter(Boolean);
 
 export function registerSetupRoutes(app: FastifyInstance) {
+  // FEATURE_STANDARDISATION off: no route (404)
+  if (!config.featureStandardisation) return;
   // standard configuration (admin: /api/settings/*)
   app.get('/api/settings/setup', async () => {
     const { _id, ...p } = await loadSetupProfile();
