@@ -311,6 +311,7 @@ export function cephAlerts(c: HealthCeph) {
 type HealthCategory = HealthMetricDoc['category'];
 type HealthReport = HealthSystem | HealthDisks | HealthSmart | HealthRaid;
 const pendingHostWrites = new Map<string, Promise<void>>();
+const DISK_HYSTERESIS_BYTES = 20 * 1024 ** 3;
 
 export function healthMetricLevel(
   current: number,
@@ -340,8 +341,8 @@ export function healthMetricLevel(
     }
     return true;
   };
-  if (sustained(alert) || (previous === 'alert' && current >= alert - hysteresis)) return 'alert';
-  if (sustained(warning) || (previous === 'warn' && current >= warning - hysteresis)) return 'warn';
+  if (sustained(alert) || (previous === 'alert' && current > Math.max(0, alert - hysteresis))) return 'alert';
+  if (sustained(warning) || (previous === 'warn' && current > Math.max(0, warning - hysteresis))) return 'warn';
   return undefined;
 }
 
@@ -384,8 +385,9 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
       const key = `disks:volume:${v.mountpoint}`;
       const values = samples.filter((sample): sample is HealthDisks => 'volumes' in sample)
         .flatMap((sample) => sample.volumes.filter((volume) => volume.mountpoint === v.mountpoint).map((volume) => ({ checkedAt: sample.checkedAt, value: volume.percent })));
-      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, 0, settings.diskIntervalSeconds, previous.get(key));
-      if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, déclenchement immédiat)`, level);
+      const hysteresis = Math.min(100, (DISK_HYSTERESIS_BYTES / v.total) * 100);
+      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, 0, settings.diskIntervalSeconds, previous.get(key), Date.now(), hysteresis);
+      if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, déclenchement immédiat, retour après libération de 20 Go)`, level);
     }
   } else if (category === 'raid') {
     next.push(...raidAlerts(report as HealthRaid));

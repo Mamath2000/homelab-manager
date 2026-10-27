@@ -196,6 +196,27 @@ test('health metric hysteresis is configurable (load ratio keeps its level only 
   assert.equal(healthMetricLevel(0.8, [], 0.95, 1.2, 0, 60, 'warn', 1_000_000, 0.1), undefined);
 });
 
+test('disk alerts clear after 20 Go are freed, regardless of volume capacity', () => {
+  const total = 4 * 1024 ** 4;
+  const freedPercent = (20 * 1024 ** 3 / total) * 100;
+  const report = (percent: number) => ({
+    checkedAt: Date.now(),
+    volumes: [{ device: '/dev/sda1', mountpoint: '/data', fstype: 'ext4', total, used: total * percent / 100, percent }],
+  });
+  const previous = (level: 'warn' | 'alert') => ({
+    health: { alerts: [{ key: 'disks:volume:/data', label: '/data', level, reason: 'previous alert' }] },
+  }) as HostDoc;
+  const settings = resolveHealthSettings(DEFAULT_HEALTH_SETTINGS);
+
+  assert.equal(reportAlerts(previous('warn'), 'disks', report(75 - freedPercent + 0.01), settings)[0]?.level, 'warn');
+  assert.equal(reportAlerts(previous('warn'), 'disks', report(75 - freedPercent), settings).length, 0);
+  assert.equal(reportAlerts(previous('alert'), 'disks', report(90 - freedPercent + 0.01), settings)[0]?.level, 'alert');
+  assert.equal(reportAlerts(previous('alert'), 'disks', report(90 - freedPercent - 0.01), settings)[0]?.level, 'warn');
+
+  const smallVolume = { ...report(0), volumes: [{ ...report(0).volumes[0], total: 14 * 1024 ** 3 }] };
+  assert.equal(reportAlerts(previous('warn'), 'disks', smallVolume, settings).length, 0);
+});
+
 test('load alerts compare load5 to the CPU count, and skip containers and agents without cpuCount', () => {
   const host = (virt: string): HostDoc => ({ info: { hostname: 'h', osId: 'linux', osName: 'Linux', kernel: '6', arch: 'amd64', uptime: 1, ips: [], virt } }) as HostDoc;
   const settings: HealthSettings = { ...DEFAULT_HEALTH_SETTINGS, loadSustainedMinutes: 0 };
