@@ -118,6 +118,24 @@ Le réseau est choisi **par agent, à la création**, et ne se change pas ensuit
 
 Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée) et au niveau *Aucun* dans [Home Assistant](home-assistant.md#niveau-de-détail) (non publié). Les deux restent modifiables sur la fiche de l'hôte.
 
+#### Hub dans Docker : sidecar Tailscale
+
+Le hub n'a pas besoin d'entrer dans le tailnet : le `compose.yml` du dépôt contient (commenté) un service `tailscale` en **mode userspace** (`TS_USERSPACE`), sans `/dev/net/tun` ni interface ajoutée à l'hôte, donc utilisable dans un conteneur LXC. Il relaie uniquement le port agents `3443` vers le hub ; l'interface (`3000`) n'est pas exposée sur le tailnet, et le TLS mutuel reste de bout en bout (le TCP est relayé sans être terminé).
+
+1. Récupérer `tailscale-serve.json` (relais `tcp:3443` → `hub:3443`, fourni dans le dépôt) à côté du compose :
+
+   ```json
+   {"TCP": {"3443": {"TCPForward": "hub:3443"}}}
+   ```
+
+2. Console Tailscale (**Settings → Keys**) : générer une clé d'authentification, puis `cp tailscale.env.example tailscale.env` et y mettre `TS_AUTHKEY` (`chmod 600`, déjà gitignoré).
+3. Décommenter le service `tailscale` du compose, puis `docker compose --profile tailscale up -d`. Le hub n'est pas recréé, les agents du LAN ne sont pas coupés.
+4. Le nœud apparaît dans la console. Reporter son nom (`TS_HOSTNAME`) ou son IP tailnet dans **Paramètres → Agent → Adresse du hub sur Tailscale**.
+
+La clé d'authentification ne sert qu'au premier démarrage (l'identité du nœud est dans `./tailscale`) : `tailscale.env` peut être supprimé ensuite. Retour arrière : `docker compose --profile tailscale down`, puis retirer le nœud dans la console.
+
+Vérifier le relais : `docker exec homelab-manager-tailscale tailscale serve status` doit n'afficher que `tcp:3443 -> hub:3443`.
+
 ### Ce que l'installation met en place
 
 | Élément | Emplacement |

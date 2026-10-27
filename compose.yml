@@ -20,6 +20,26 @@ services:
     depends_on:
       - mongo
 
+  # Accès Tailscale (hôtes hors LAN), optionnel : décommenter ce service, mettre TS_AUTHKEY dans tailscale.env,
+  # puis `docker compose --profile tailscale up -d`. Mode userspace : aucun /dev/net/tun ni interface sur l'hôte
+  # (fonctionne dans un LXC). Seul le port agents (3443) est relayé vers le hub, l'interface n'est pas exposée.
+  # tailscale:
+  #   profiles: [tailscale]
+  #   image: tailscale/tailscale:stable
+  #   container_name: homelab-manager-tailscale
+  #   restart: unless-stopped
+  #   env_file: tailscale.env            # TS_AUTHKEY=tskey-auth-… (jamais commité ; inutile après le premier démarrage)
+  #   environment:
+  #     TS_HOSTNAME: homelab-manager     # nom du nœud : à reporter dans Paramètres > Agent > Adresse du hub sur Tailscale
+  #     TS_USERSPACE: "true"
+  #     TS_STATE_DIR: /var/lib/tailscale
+  #     TS_SERVE_CONFIG: /config/serve.json
+  #   volumes:
+  #     - ./tailscale:/var/lib/tailscale   # identité du nœud
+  #     - ./tailscale-serve.json:/config/serve.json:ro
+  #   depends_on:
+  #     - hub
+
   mongo:
     # MongoDB 5+ needs a CPU with AVX; use mongo:4.4 on older hardware.
     image: mongo:7
