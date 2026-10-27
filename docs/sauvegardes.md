@@ -34,7 +34,8 @@ Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le 
 
 - Jeton **déjà existant** : ses droits sont remis à ceux décidés par le hub — les droits manquants sont ajoutés, ceux **du jeton** qui ne sont plus prévus lui sont retirés (ceux de l'utilisateur restent : il peut porter d'autres jetons du hub). Le secret d'un jeton n'est lisible qu'à sa création : si le hub détient celui de ce jeton, il le garde ; sinon (base perdue, jeton créé à la main, autre PBS sous le même nom), l'agent **supprime et recrée le jeton** — nouveau secret, l'ancien ne fonctionne plus. Le message de fin l'indique (« recréé »). Pour le jeton de supervision et celui du PBS de secours, un secret détenu pour un autre hôte (ou un autre conteneur) ne compte pas : changer l'hôte du PBS recrée le jeton.
 - Si la création échoue après celle du jeton (droit refusé, PBS qui ne répond plus), l'agent supprime le jeton : un nouvel essai repart de zéro.
-- L'agent n'accepte que les rôles et chemins prévus (`DatastoreAudit`, `DatastoreBackup`, `DatastoreReader` sous `/datastore`, `RemoteAdmin` sous `/remote`), jamais `/`.
+- L'agent n'accepte que les rôles et chemins prévus (`DatastoreAudit`, `DatastoreBackup`, `DatastoreReader` sous `/datastore`, `Audit` sous `/system/tasks`, `RemoteAdmin` sous `/remote`), jamais `/`.
+- Un jeton de supervision créé avant l'ajout des statistiques n'a pas le droit `Audit` : relancer l'étape **Jeton** du PBS (Paramètres › Sauvegardes) pour le lui donner (le secret est conservé).
 - L'agent du PBS doit être à jour (capacité « pbs ») et en ligne ; pour révoquer un jeton (déconnexion, retrait du jeton d'un hôte), capacité « pbs_token_delete ».
 
 :::note PBS en conteneur
@@ -45,7 +46,7 @@ Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backu
 
 | Jeton | Utilisateur (défaut) | Rôle et chemin | Permet | Ne permet pas |
 |---|---|---|---|---|
-| supervision du PBS | `homelab@pbs!monitor` | `DatastoreAudit` sur `/datastore` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
+| supervision du PBS | `homelab@pbs!monitor` | `DatastoreAudit` sur `/datastore` + `Audit` sur `/system/tasks` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune ; lire la liste et le journal des tâches de sauvegarde ([volume transféré et durée](#volume-transféré-et-durée)) | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
 | écriture d'un hôte | `host-<hôte>@pbs!backup` | `DatastoreBackup` sur `/datastore/<chaque datastore>/Hosts` | créer des sauvegardes dans le namespace `Hosts`, voir et relire **ses propres** groupes | voir ou relire les groupes des autres hôtes, écrire hors de `Hosts` (namespaces de Proxmox VE) |
 | lecteur (PBS principal) | `homelab@pbs!reader` | `DatastoreReader` sur `/datastore` | lire toutes les sauvegardes du PBS principal : c'est avec lui que le [PBS de secours](#copie-déportée-pbs-de-secours) les tire | écrire, supprimer, modifier quoi que ce soit |
 | montage (volatil) | `homelab-mount@pbs!m<horodatage>` | `DatastoreReader` sur `/datastore/<datastore>/<namespace du groupe>` | lire les sauvegardes de ce namespace, le temps d'un [montage](#monter-une-sauvegarde-lecture-seule) : créé au montage, révoqué au démontage | écrire, supprimer, lire hors de ce namespace ; il n'est jamais conservé par le hub |
@@ -390,6 +391,7 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 ## Interface
 
 - **Page Sauvegardes** : compteurs, espace des datastores et, avec un PBS de secours, celui de son datastore cible ; une ligne par sauvegarde suivie : nom (celui du job pour une sauvegarde de répertoires) et sa pastille **détail**, **type**, hôte, 30 derniers jours, dernière, taille, vérification, état, seuil et, avec un PBS de secours, **copie déportée** (état et âge de la dernière copie, « non copiée », « — non copiable »). Filtres : en retard / échec, **type**, hôte, recherche.
+- **Volume transféré** : colonne **Transféré (30 j)** sur chaque ligne (petites barres par jour) et, au-dessus de la liste, un panneau avec le volume par jour (barres) et le temps de sauvegarde cumulé par jour (courbe, axe de droite), bascule **30 j / 60 j**. Détail [ci-dessous](#volume-transféré-et-durée).
 - **Fiche hôte**, carte **Sauvegardes** : icône du client PBS, guest Proxmox lié, alerte « non couvert », chaque sauvegarde sur une ligne de titre (nom, état, type, pastille **détail**, actions) et une ligne de détail (datastore, dernière, taille, vérification) à côté de sa frise ; boutons **+ Sauvegarde**, **Rattacher**, et sur chaque ligne d'un job de l'agent le crayon (modifier) et **Lancer**.
 - **Pastille « détail »**, sur toutes les sauvegardes : un clic ouvre le détail de la sauvegarde (type, datastore, dernière, planification ou rythme, délai avant alerte et sa source, bases d'un job de bases) et de sa **copie déportée** (état, dernier snapshot copié et sa vérification sur le PBS de secours, prochaine série ou copie en cours, erreurs, place sur le PBS de secours, boutons **Copier maintenant** et **Retirer de la copie** ; pour une sauvegarde non copiée, la vérification « copiable » et **Activer la copie**). Le nuage de la pastille donne l'état de la copie quand il y en a une : bleu à jour, gris en attente, orange en retard, rouge en échec, pulsant en cours de transfert.
 - **Frise à deux voies** (avec un PBS de secours) : sous les 30 jours de la sauvegarde, une voie fine pour les copies — bleu = un snapshot de ce jour est sur le PBS de secours et vérifié (bleu pâle : non vérifié, rouge : vérification en échec), contour orange = copie manquante, rouge = manquante et dernière copie en échec, pointillés = copie non activée ; rien pour une sauvegarde non copiable. Une copie est attendue pour un snapshot antérieur au début de la dernière copie et pas plus ancien que la plus ancienne copie (le PBS de secours élague de son côté).
@@ -402,6 +404,15 @@ Une planification que le hub ne sait pas lire retombe sur le rythme appris.
 
   C'est l'historique vu au dernier relevé, sans lecture du PBS en direct.
 - **Liste des hôtes** : badge « sauvegarde en retard / en échec / désactivée ». **Tableau de bord** : moitié basse du carré de chaque hôte, chiffres clés et liste « Sauvegardes à surveiller ».
+
+### Volume transféré et durée
+
+Le hub lit les tâches de sauvegarde du PBS (liste et journal de chaque tâche) et en retient, par tâche, la somme des **« Upload size »** et la durée (début → fin). C'est le volume réellement envoyé après déduplication (nouveaux chunks), **pas** la taille du disque sauvegardé. Valable pour tous les types (image PVE, répertoires, bases, externes).
+
+- Stockage : collection `backupStats`, une ligne par tâche, conservée 400 jours ; lecture par `GET /api/backups/stats?days=30|60`.
+- Relevé : au premier passage, reprise de l'historique jusqu'à 400 jours, par lots de 300 tâches par relevé (les plus récentes d'abord) ; ensuite incrémental, toutes les 15 min.
+- Une tâche en échec compte dans la durée avec un volume de 0 (barre rouge).
+- Droit requis : `Audit` sur `/system/tasks` pour le jeton de supervision (voir [portée de chaque jeton](#portée-de-chaque-jeton)) et agent du PBS à jour. Sans ce droit, le panneau affiche « Statistiques indisponibles » avec la raison.
 
 ## Home Assistant
 
