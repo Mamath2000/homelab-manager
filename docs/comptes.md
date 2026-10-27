@@ -24,7 +24,8 @@ Les comptes existant avant l'introduction des rôles deviennent `admin`.
 Sur une base vide, le hub crée le compte `superadmin` et écrit son mot de passe **à usage unique** dans ses logs
 (`docker compose logs hub`). On se connecte avec, puis on crée les comptes depuis la page **Comptes**.
 
-Ce mot de passe est valable 24 h et redonné à chaque redémarrage du hub tant qu'aucun compte n'existe
+Ce mot de passe est valable 24 h et n'est invalidé qu'une fois qu'un compte a choisi son propre mot de passe (un échec de
+connexion, par exemple un cookie refusé en HTTP, ne le consomme pas). Il est redonné à chaque redémarrage du hub tant qu'aucun compte n'existe
 (`docker compose restart hub` s'il a été perdu).
 
 ## Nom et identifiant
@@ -68,7 +69,7 @@ minute et par adresse IP, puis refus temporaire).
 ## Compte `superadmin`
 
 Le compte `superadmin` ne gère que les comptes : il peut **les lister, en créer et réinitialiser leurs mots de passe**,
-sans accès aux hôtes ni aux paramètres. Son mot de passe est à usage unique et sa session dure 15 minutes.
+sans accès aux hôtes ni aux paramètres. Son mot de passe est temporaire (invalidé dès qu'un compte a remplacé son mot de passe provisoire) et sa session dure 15 minutes.
 
 En dehors du premier démarrage, il sert d'accès de secours si plus personne ne peut se connecter en admin :
 

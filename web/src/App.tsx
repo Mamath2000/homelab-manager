@@ -50,6 +50,7 @@ export default function App() {
     return (
       <Login
         noAccounts={auth.data!.noAccounts}
+        cookieSecure={!!auth.data!.cookieSecure}
         onDone={setUser}
       />
     );

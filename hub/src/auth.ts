@@ -110,6 +110,13 @@ async function checkPassword(user: UserDoc, password: string) {
   return verifyPassword(password, user.passwordHash);
 }
 
+async function consumeSuperadminPassword() {
+  const admin = await users.findOne({ role: SUPERADMIN });
+  if (!admin) return;
+  await users.updateOne({ _id: admin._id }, { $set: { passwordHash: null }, $unset: { passwordExpiresAt: '' } });
+  await sessions.deleteMany({ userId: admin._id });
+}
+
 export function registerAuth(app: FastifyInstance) {
   app.addHook('onRequest', async (req, reply) => {
     if (isPublic(req)) return;
@@ -132,7 +139,7 @@ export function registerAuth(app: FastifyInstance) {
     const user = await userFromRequest(req);
     // fresh install: log in as superadmin with the password printed in the hub logs
     const noAccounts = !user && (await users.countDocuments({ role: { $ne: SUPERADMIN } })) === 0;
-    return { noAccounts, user: user ? me(user) : null };
+    return { noAccounts, cookieSecure: config.cookieSecure, user: user ? me(user) : null };
   });
 
   app.post<{ Body: { username: string; password: string } }>(
@@ -145,14 +152,8 @@ export function registerAuth(app: FastifyInstance) {
         recordFailure(req.ip);
         return reply.code(401).send({ error: 'invalid credentials' });
       }
-      if (user.role === SUPERADMIN) {
-        // one-time password: consumed atomically, so it can never open a second session
-        const { modifiedCount } = await users.updateOne(
-          { _id: user._id, passwordHash: user.passwordHash },
-          { $set: { passwordHash: null }, $unset: { passwordExpiresAt: '' } },
-        );
-        if (modifiedCount !== 1) return reply.code(401).send({ error: 'invalid credentials' });
-      }
+      // the superadmin password is not consumed here: a login whose cookie never sticks (e.g. Secure cookie over
+      // http) would lock the install out. It is consumed once a first account has set its own password.
       failures.delete(req.ip);
       await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
       await startSession(reply, user);
@@ -191,6 +192,8 @@ export function registerAuth(app: FastifyInstance) {
         { _id: user._id },
         { $set: { passwordHash: await hashPassword(req.body.newPassword), mustChangePassword: false } },
       );
+      // an account got past its temporary password: the bootstrap/recovery superadmin password has done its job
+      if (user.mustChangePassword) await consumeSuperadminPassword();
       // other sessions (another browser, someone else) are closed, the current one is kept
       const current = req.cookies[COOKIE];
       await sessions.deleteMany({ userId: user._id, _id: { $ne: current ? sha256(current) : '' } });

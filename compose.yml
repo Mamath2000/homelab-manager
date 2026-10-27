@@ -15,6 +15,7 @@ services:
       # SESSION_DAYS: 30
       # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
       # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
+      # FEATURE_BACKUP_NEXTCLOUD_AIO: "true"  # affiche le plugin Nextcloud AIO des sauvegardes (absente : désactivé)
       # FEATURE_STANDARDISATION: "true"  # affiche et active la standardisation des hôtes (absente : désactivée)
     depends_on:
       - mongo
@@ -24,6 +25,7 @@ services:
     image: mongo:7
     container_name: homelab-manager-mongo
     restart: unless-stopped
+    command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
     volumes:
       - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
       - ./mongo-config:/data/configdb

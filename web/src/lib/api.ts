@@ -552,6 +552,8 @@ export interface Me {
 export interface AuthStatus {
   // fresh install: log in as superadmin with the password printed in the hub logs
   noAccounts: boolean;
+  // COOKIE_SECURE is on: the session cookie is refused over plain http
+  cookieSecure?: boolean;
   user: Me | null;
 }
 

@@ -22,7 +22,10 @@ function Shell({ subtitle, children, onSubmit }: { subtitle: string; children: R
   );
 }
 
-export function Login({ noAccounts, onDone }: { noAccounts: boolean; onDone: (me: Me) => void }) {
+// browsers treat localhost as a secure context: Secure cookies work there over http
+const insecureOrigin = () => location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+
+export function Login({ noAccounts, cookieSecure, onDone }: { noAccounts: boolean; cookieSecure: boolean; onDone: (me: Me) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -43,6 +46,12 @@ export function Login({ noAccounts, onDone }: { noAccounts: boolean; onDone: (me
 
   return (
     <Shell subtitle="Connexion" onSubmit={submit}>
+      {cookieSecure && insecureOrigin() && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Le hub est réglé en <code>COOKIE_SECURE=true</code> mais cette page est servie en HTTP : le navigateur refusera la session
+          et la connexion échouera. Accédez au hub en HTTPS (reverse proxy), ou retirez <code>COOKIE_SECURE</code> du compose.
+        </p>
+      )}
       {noAccounts && (
         <p className="rounded-md border border-line bg-raised px-3 py-2 text-xs text-zinc-300">
           Premier démarrage : connectez-vous avec <code className="text-zinc-100">superadmin</code> et le mot de passe à usage

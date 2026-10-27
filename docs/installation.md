@@ -37,6 +37,7 @@ services:
     image: mongo:7
     container_name: homelab-manager-mongo
     restart: unless-stopped
+    command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
     volumes:
       - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
       - ./mongo-config:/data/configdb
@@ -44,7 +45,7 @@ services:
 
 ### Premier démarrage
 
-Sur une base vide, le hub écrit dans ses logs le mot de passe **à usage unique** du compte `superadmin` :
+Sur une base vide, le hub écrit dans ses logs le mot de passe **temporaire** (24 h, invalidé quand le premier compte a choisi le sien) du compte `superadmin` :
 
 ```bash
 docker compose logs hub
