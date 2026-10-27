@@ -128,10 +128,13 @@ func jobOfTask(workerID string) string {
 // --- module --------------------------------------------------------------------------------
 
 type offsiteState struct {
-	Spec    *OffsiteSpec `json:"spec,omitempty"`
-	Day     string       `json:"day"`     // last series started
-	Total   int          `json:"total"`   // jobs of that series
-	Pending []string     `json:"pending"` // jobs of that series not started yet
+	Spec *OffsiteSpec `json:"spec,omitempty"`
+	Day  string       `json:"day"` // last series started
+	// when that series started (unix ms, 0: unknown, state of an older agent): the second pass looks at
+	// the runs ended since, whatever the start time became meanwhile
+	SeriesStart int64    `json:"seriesStart,omitempty"`
+	Total       int      `json:"total"`   // jobs of that series
+	Pending     []string `json:"pending"` // jobs of that series not started yet
 	// day of the second pass (done or decided), and whether the series in progress is that pass
 	RetryDay string `json:"retryDay,omitempty"`
 	Retrying bool   `json:"retrying,omitempty"`
@@ -183,11 +186,16 @@ func (o *offsiteModule) saveLocked() {
 }
 
 // apply stores a new definition sent by the hub; the series in progress keeps the jobs still copied.
-func (o *offsiteModule) apply(s *OffsiteSpec) error {
+func (o *offsiteModule) apply(s *OffsiteSpec) error { return o.applyAt(s, time.Now()) }
+
+func (o *offsiteModule) applyAt(s *OffsiteSpec, now time.Time) error {
 	if err := validateOffsiteSpec(s); err != nil {
 		return err
 	}
 	o.mu.Lock()
+	if prev := o.state.Spec; prev == nil || prev.Hash != s.Hash {
+		log.Printf("offsite: definition received: %d sync job(s), start %s %s, retry after %d min", len(s.Jobs), s.Start, s.TZ, s.RetryAfterMin)
+	}
 	known := map[string]bool{}
 	for _, j := range s.Jobs {
 		known[j] = true
@@ -200,15 +208,19 @@ func (o *offsiteModule) apply(s *OffsiteSpec) error {
 	}
 	day, retryDay := o.state.Day, o.state.RetryDay
 	// First definition, or a new start time: a start already passed today waits for tomorrow, one still to
-	// come today fires today (the series of the day already done must not block it)
+	// come today fires today (the series of the day already done must not block it). A start passed with
+	// no series today leaves nothing to retry today; the series of the day already done keeps its second
+	// pass as it was (the start time moved, its runs did not)
 	if prev := o.state.Spec; len(s.Jobs) > 0 && (prev == nil && day == "" || prev != nil && prev.Start != s.Start) {
 		loc, _ := time.LoadLocation(s.TZ)
-		day, retryDay = "", ""
-		if now := time.Now(); !now.Before(startOf(now, loc, s.Start)) {
-			day = now.In(loc).Format(time.DateOnly)
+		today := now.In(loc).Format(time.DateOnly)
+		if now.Before(startOf(now, loc, s.Start)) {
+			day, retryDay = "", ""
+		} else if day != today {
+			day, retryDay = today, today
 		}
 	}
-	o.state = offsiteState{Spec: s, Day: day, Total: o.state.Total, Pending: pending, RetryDay: retryDay, Retrying: o.state.Retrying}
+	o.state = offsiteState{Spec: s, Day: day, SeriesStart: o.state.SeriesStart, Total: o.state.Total, Pending: pending, RetryDay: retryDay, Retrying: o.state.Retrying}
 	o.saveLocked()
 	o.mu.Unlock()
 	o.wake()
@@ -314,6 +326,7 @@ func (o *offsiteModule) step(ctx context.Context, now time.Time) {
 	o.mu.Lock()
 	if seriesDue(now, loc, s.Start, o.state.Day) {
 		o.state.Day = now.In(loc).Format(time.DateOnly)
+		o.state.SeriesStart = now.UnixMilli()
 		o.state.Pending = append([]string{}, s.Jobs...)
 		o.state.Total = len(s.Jobs)
 		o.state.Retrying = false
@@ -322,11 +335,12 @@ func (o *offsiteModule) step(ctx context.Context, now time.Time) {
 		log.Printf("offsite: series of %d sync job(s) started", len(s.Jobs))
 	}
 	idle := len(o.state.Pending) == 0 && o.running == nil
+	since := o.seriesStartLocked(now, loc, s)
 	retryDue := idle && s.RetryAfterMin > 0 && o.state.Day == now.In(loc).Format(time.DateOnly) && o.state.RetryDay != o.state.Day &&
-		!now.Before(startOf(now, loc, s.Start).Add(time.Duration(s.RetryAfterMin)*time.Minute))
+		!now.Before(since.Add(time.Duration(s.RetryAfterMin)*time.Minute))
 	o.mu.Unlock()
 	if retryDue {
-		o.startRetry(ctx, s, now)
+		o.startRetry(ctx, s, now, since)
 		o.report()
 		return
 	}
@@ -420,9 +434,18 @@ func failedJobs(jobs []string, status []syncStatus, since time.Time) []string {
 	return out
 }
 
-// startRetry decides the second pass of the day, once: the jobs that did not end well go again. A
-// failed read leaves the decision for the next tick.
-func (o *offsiteModule) startRetry(ctx context.Context, s *OffsiteSpec, now time.Time) {
+// seriesStartLocked: when the series of the day started; the start time of the spec when unknown (state
+// of an older agent, or no series today).
+func (o *offsiteModule) seriesStartLocked(now time.Time, loc *time.Location, s *OffsiteSpec) time.Time {
+	if st := o.state.SeriesStart; st > 0 && time.UnixMilli(st).In(loc).Format(time.DateOnly) == now.In(loc).Format(time.DateOnly) {
+		return time.UnixMilli(st)
+	}
+	return startOf(now, loc, s.Start)
+}
+
+// startRetry decides the second pass of the day, once: the jobs that did not end well since the series
+// started go again. A failed read leaves the decision for the next tick.
+func (o *offsiteModule) startRetry(ctx context.Context, s *OffsiteSpec, now, since time.Time) {
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	raw, err := o.tool(s.Container)(cctx, "api", "get", "/admin/sync", "--output-format", "json")
@@ -439,7 +462,8 @@ func (o *offsiteModule) startRetry(ctx context.Context, s *OffsiteSpec, now time
 		return
 	}
 	loc, _ := time.LoadLocation(s.TZ)
-	failed := failedJobs(s.Jobs, status, startOf(now, loc, s.Start))
+	failed := failedJobs(s.Jobs, status, since)
+	log.Printf("offsite: retry check of the series started %s: %d of %d sync job(s) to run again", since.In(loc).Format("2006-01-02 15:04"), len(failed), len(s.Jobs))
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.state.RetryDay = now.In(loc).Format(time.DateOnly)

@@ -350,3 +350,91 @@ func TestFailedJobs(t *testing.T) {
 		t.Fatalf("failed: %v", got)
 	}
 }
+
+// The start time moved after the series of the day (2026-10-25: 04:00 -> 09:00 at 17:21): the runs of
+// 04:00 are the ones the second pass looks at, not "nothing ran since 09:00".
+func TestOffsiteRetryAfterStartMoved(t *testing.T) {
+	f := &fakeDebug{}
+	o := newTestOffsite(t, f)
+	o.state.Spec.RetryAfterMin = 240
+	ctx := context.Background()
+	for _, hm := range []string{"04:00", "04:20", "04:40", "05:00"} {
+		f.tasks = nil
+		o.step(ctx, at("2026-10-18", hm))
+	}
+	f.tasks = nil
+	end := at("2026-10-18", "05:00").Unix()
+	f.status = []syncStatus{
+		{ID: "hlm-ds0-Hosts", State: "OK", EndTime: end},
+		{ID: "hlm-ds0", State: "OK", EndTime: end},
+		{ID: "hlm-ds3-Sites.Jarsay", State: "OK", EndTime: end},
+	}
+	// moved before its retry: decided at 08:00 all the same (4 h after the series started), nothing to run again
+	s := validOffsiteSpec()
+	s.Hash, s.Start, s.RetryAfterMin = "h2", "06:00", 240
+	if err := o.applyAt(s, at("2026-10-18", "07:00")); err != nil {
+		t.Fatal(err)
+	}
+	<-o.kick
+	if o.state.Day != "2026-10-18" || o.state.RetryDay != "" {
+		t.Fatalf("series of the day lost: %+v", o.state)
+	}
+	f.started = nil
+	o.step(ctx, at("2026-10-18", "08:00"))
+	o.step(ctx, at("2026-10-18", "08:01"))
+	if len(f.started) != 0 || o.state.RetryDay != "2026-10-18" {
+		t.Fatalf("successful runs retried: %v %+v", f.started, o.state)
+	}
+	// moved again after its retry: the retry stays done
+	s.Hash, s.Start = "h3", "09:00"
+	if err := o.applyAt(s, at("2026-10-18", "17:21")); err != nil {
+		t.Fatal(err)
+	}
+	<-o.kick
+	n := len(f.calls)
+	o.step(ctx, at("2026-10-18", "17:21"))
+	if len(f.calls) != n || len(f.started) != 0 {
+		t.Fatalf("second pass after a new start: %v", f.started)
+	}
+	// next day: the series at the new time, its retry 4 h later
+	o.step(ctx, at("2026-10-19", "09:00"))
+	if o.state.SeriesStart != at("2026-10-19", "09:00").UnixMilli() || len(f.started) != 1 {
+		t.Fatalf("next day: %v %+v", f.started, o.state)
+	}
+}
+
+// A start already passed with no series today: no series and no second pass before tomorrow, even if
+// yesterday's runs failed.
+func TestOffsiteStartMovedNoSeriesToday(t *testing.T) {
+	f := &fakeDebug{status: []syncStatus{{ID: "hlm-ds0", State: "failed", EndTime: at("2026-10-17", "04:10").Unix()}}}
+	o := newTestOffsite(t, f)
+	s := validOffsiteSpec()
+	s.Hash, s.Start, s.RetryAfterMin = "h2", "09:00", 240
+	if err := o.applyAt(s, at("2026-10-18", "17:00")); err != nil {
+		t.Fatal(err)
+	}
+	<-o.kick
+	o.step(context.Background(), at("2026-10-18", "17:01"))
+	if len(f.calls) != 0 || o.state.Day != "2026-10-18" || o.state.RetryDay != "2026-10-18" {
+		t.Fatalf("ran today: %v %+v", f.calls, o.state)
+	}
+}
+
+// State of an older agent (no seriesStart): the start time of the spec, as before.
+func TestOffsiteRetryWithoutSeriesStart(t *testing.T) {
+	f := &fakeDebug{status: []syncStatus{{ID: "hlm-ds0", State: "failed", EndTime: at("2026-10-18", "04:30").Unix()}}}
+	o := newTestOffsite(t, f)
+	o.state.Spec.RetryAfterMin = 240
+	o.state.Day = "2026-10-18"
+	ctx := context.Background()
+	o.step(ctx, at("2026-10-18", "07:59"))
+	if len(f.calls) != 0 {
+		t.Fatalf("before the delay: %v", f.calls)
+	}
+	o.step(ctx, at("2026-10-18", "08:00"))
+	o.step(ctx, at("2026-10-18", "08:01"))
+	// the three jobs: hlm-ds0 failed, the other two have not run since 04:00
+	if r := o.snapshot(at("2026-10-18", "08:01")); !r.Retry || r.Total != 3 || strings.Join(f.started, ",") != "hlm-ds0-Hosts" {
+		t.Fatalf("retry: %v %+v", f.started, r)
+	}
+}
