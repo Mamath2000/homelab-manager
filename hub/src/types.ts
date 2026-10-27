@@ -166,6 +166,8 @@ export interface HealthSnapshot {
   smart?: HealthSmart;
   raid?: HealthRaid;
   alerts?: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[];
+  // volume alerts lifted lately (health.ts nextRearm), to not raise them again before diskRearmMinutes
+  rearm?: { key: string; level: 'warn' | 'alert'; at: number }[];
 }
 
 export interface HealthMetricDoc {
@@ -198,6 +200,8 @@ export interface HealthSettings {
   loadWarningThreshold: number;
   loadAlertThreshold: number;
   loadSustainedMinutes: number;
+  // volumes: delay after an alert is lifted during which the same level (or a lower one) is not raised again, 0 = none
+  diskRearmMinutes: number;
 }
 
 // Per-host overrides of the global thresholds: only the fields set here differ, the others follow the global values.
@@ -205,7 +209,7 @@ export const HEALTH_OVERRIDE_NUMBER_KEYS = [
   'cpuWarningThreshold', 'cpuAlertThreshold', 'memoryWarningThreshold', 'memoryAlertThreshold',
   'diskWarningThreshold', 'diskAlertThreshold', 'smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold',
   'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'smartSustainedMinutes',
-  'loadWarningThreshold', 'loadAlertThreshold', 'loadSustainedMinutes',
+  'loadWarningThreshold', 'loadAlertThreshold', 'loadSustainedMinutes', 'diskRearmMinutes',
 ] as const satisfies readonly (keyof HealthSettings)[];
 // A disabled indicator raises neither warning nor alert (missing = enabled).
 export const HEALTH_OVERRIDE_ENABLED_KEYS = ['cpuEnabled', 'memoryEnabled', 'loadEnabled', 'diskEnabled', 'smartTemperatureEnabled', 'smartWearEnabled'] as const;

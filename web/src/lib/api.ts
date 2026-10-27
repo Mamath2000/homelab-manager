@@ -194,6 +194,7 @@ export interface HealthSettings {
   loadWarningThreshold: number;
   loadAlertThreshold: number;
   loadSustainedMinutes: number;
+  diskRearmMinutes: number;
 }
 
 // Per-host overrides (only the fields that differ from the global settings) and the settings they give.

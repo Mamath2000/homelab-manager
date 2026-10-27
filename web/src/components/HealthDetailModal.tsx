@@ -167,7 +167,7 @@ export function HealthDetailModal({ open, onClose, hostName, cluster, health, sa
 
         {!noDisks && <section>
           <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-100"><HardDrive className="h-4 w-4 text-amber-300" />Volumes ({volumes.length})</h3>
-          {settings && <p className="mb-3 text-xs text-muted">Warning {settings.diskWarningThreshold}% · alerte {settings.diskAlertThreshold}% · déclenchement immédiat</p>}
+          {settings && <p className="mb-3 text-xs text-muted">Warning {settings.diskWarningThreshold}% · alerte {settings.diskAlertThreshold}% · déclenchement immédiat{settings.diskRearmMinutes ? `, réactivation ${settings.diskRearmMinutes} min après la levée` : ''}</p>}
           {!volumes.length ? <p className="rounded-md border border-line p-4 text-sm text-muted">Aucune mesure de volume disponible.</p> : (
             <div className="grid gap-3 lg:grid-cols-2">
               {volumes.map((volume) => (

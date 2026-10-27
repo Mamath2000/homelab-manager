@@ -49,13 +49,13 @@ function Field({ title, unit, value, onChange, min, max, step, disabled, dim, re
 }
 
 const differs = (r: ThresholdRow, f: ThresholdForm, ref: ThresholdForm) =>
-  [r.warning, r.alert, ...(r.duration ? [r.duration] : [])].some((k) => f[k] !== ref[k]);
+  [r.warning, r.alert, ...(r.duration ? [r.duration] : []), ...(r.rearm ? [r.rearm] : [])].some((k) => f[k] !== ref[k]);
 const defaultsOf = (r: ThresholdRow, ref: ThresholdForm, unit: string) =>
-  `${ref[r.warning]} / ${ref[r.alert]} ${unit}${r.duration ? ` · ${ref[r.duration] ? `${ref[r.duration]} min` : 'immédiat'}` : ''}`;
+  `${ref[r.warning]} / ${ref[r.alert]} ${unit}${r.duration ? ` · ${ref[r.duration] ? `${ref[r.duration]} min` : 'immédiat'}` : ''}${r.rearm ? ` · réactivation ${ref[r.rearm] ? `${ref[r.rearm]} min` : 'aucune'}` : ''}`;
 const unitOf = (suffix: string) => (suffix === '× CPU' ? '×' : suffix);
 const HINTS: Partial<Record<ThresholdRow['warning'], string>> = {
   loadWarningThreshold: 'load5 ÷ nombre de CPU',
-  diskWarningThreshold: 'déclenchement immédiat',
+  diskWarningThreshold: 'immédiat · dernier champ : délai de réactivation après la levée',
 };
 
 // The threshold rows, shared by the global settings and the per-host dialog. With `enabled`, each row has an on/off
@@ -79,7 +79,7 @@ export function ThresholdFields({ form, onChange, enabled, onEnabledChange, refe
   return (
     <div className="overflow-hidden rounded-md border border-line">
       <div className={clsx('hidden gap-3 border-b border-line bg-raised/40 px-4 py-2 text-[11px] uppercase tracking-wide text-muted md:grid', cols)}>
-        <span>Indicateur</span><span className="text-right">Warning</span><span className="text-right">Alerte</span><span className="text-right">Durée</span>
+        <span>Indicateur</span><span className="text-right">Warning</span><span className="text-right">Alerte</span><span className="text-right" title="Volumes : délai de réactivation">Durée</span>
         {reference && <span>Défaut global</span>}
         {enabled && <span className="text-center">Actif</span>}
       </div>
@@ -104,7 +104,7 @@ export function ThresholdFields({ form, onChange, enabled, onEnabledChange, refe
               <div className="contents">
                 {field(r.warning, 'Warning', unit, r.min ?? 1, r.max, r.step)}
                 {field(r.alert, 'Alerte', unit, r.min ?? 1, r.max, r.step)}
-                {r.duration ? field(r.duration, 'Durée', 'min', 0, r.durationMax ?? 2880) : <span className="self-center text-right text-xs text-muted">immédiat</span>}
+                {r.duration ? field(r.duration, 'Durée', 'min', 0, r.durationMax ?? 2880) : r.rearm ? field(r.rearm, 'Réactivation', 'min', 0, r.durationMax ?? 2880) : <span className="self-center text-right text-xs text-muted">immédiat</span>}
               </div>
               {reference && (
                 <p className={clsx('col-span-3 text-xs md:col-span-1', differs(r, form, reference) ? 'text-amber-300' : 'text-muted')}>

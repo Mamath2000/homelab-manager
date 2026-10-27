@@ -33,6 +33,7 @@ function formOf(s: HealthSettingsValues): Form {
     loadWarningThreshold: s.loadWarningThreshold,
     loadAlertThreshold: s.loadAlertThreshold,
     loadSustainedMinutes: s.loadSustainedMinutes,
+    diskRearmMinutes: s.diskRearmMinutes,
   };
 }
 
@@ -69,7 +70,7 @@ export function HealthSettings() {
   return (
     <Panel title="Collecte et alertes Santé" icon={Activity}>
       <div className="space-y-4 p-4">
-        <p className="max-w-3xl text-sm leading-relaxed text-muted">Les seuils de volume déclenchent immédiatement. Les autres indicateurs peuvent demander une durée au-dessus du seuil. Les disques SMART sont activés hôte par hôte et ne doivent pas inclure de disques virtualisés.</p>
+        <p className="max-w-3xl text-sm leading-relaxed text-muted">Les seuils de volume déclenchent immédiatement, puis ne ré-alertent pas pendant le délai de réactivation qui suit la levée. Les autres indicateurs peuvent demander une durée au-dessus du seuil. Les disques SMART sont activés hôte par hôte et ne doivent pas inclure de disques virtualisés.</p>
         <div className="grid gap-3 lg:grid-cols-2">
           {intervals.map(({ key, label, min, max, suffix, help }) => (
             <label key={key} className="rounded-md border border-line bg-raised/30 p-3">
@@ -93,7 +94,7 @@ export function HealthSettings() {
           <h3 className="mb-2 text-sm font-medium text-zinc-100">Seuils et temporisations</h3>
           <div className="space-y-2">
             <ThresholdFields form={form} onChange={(key, value) => setDraft({ ...form, [key]: value })} />
-            <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. La durée est partagée entre CPU et mémoire, ainsi qu’entre les mesures SMART ; la charge Unix (load5 rapporté au nombre de CPU, sans alerte sur les conteneurs) a la sienne. Les seuils de volume sont toujours immédiats.</p>
+            <p className="text-xs text-muted">Le seuil Warning doit rester inférieur au seuil Alerte. La durée est partagée entre CPU et mémoire, ainsi qu’entre les mesures SMART ; la charge Unix (load5 rapporté au nombre de CPU, sans alerte sur les conteneurs) a la sienne. Les alertes sont levées dès que la valeur repasse sous le seuil. Les seuils de volume sont toujours immédiats ; leur délai de réactivation (0 = aucun) empêche de ré-alerter au même niveau, ou à un niveau inférieur, juste après la levée.</p>
           </div>
         </div>
         <div className="flex justify-end gap-2">

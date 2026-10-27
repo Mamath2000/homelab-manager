@@ -30,6 +30,7 @@ export const DEFAULT_HEALTH_SETTINGS: HealthSettings = {
   loadWarningThreshold: 0.95,
   loadAlertThreshold: 1.2,
   loadSustainedMinutes: 10,
+  diskRearmMinutes: 60,
 };
 
 export async function loadHealthSettings(): Promise<HealthSettings> {
@@ -311,7 +312,6 @@ export function cephAlerts(c: HealthCeph) {
 type HealthCategory = HealthMetricDoc['category'];
 type HealthReport = HealthSystem | HealthDisks | HealthSmart | HealthRaid;
 const pendingHostWrites = new Map<string, Promise<void>>();
-const DISK_HYSTERESIS_BYTES = 20 * 1024 ** 3;
 
 export function healthMetricLevel(
   current: number,
@@ -320,10 +320,7 @@ export function healthMetricLevel(
   alert: number,
   durationMinutes: number,
   intervalSeconds: number,
-  previous: 'warn' | 'alert' | undefined,
   now = Date.now(),
-  // a level already reached is kept until the value falls this far under its threshold
-  hysteresis = 5,
 ): 'warn' | 'alert' | undefined {
   const sustained = (threshold: number) => {
     if (durationMinutes === 0) return current >= threshold;
@@ -341,9 +338,27 @@ export function healthMetricLevel(
     }
     return true;
   };
-  if (sustained(alert) || (previous === 'alert' && current > Math.max(0, alert - hysteresis))) return 'alert';
-  if (sustained(warning) || (previous === 'warn' && current > Math.max(0, warning - hysteresis))) return 'warn';
+  // no hysteresis: a level is lifted as soon as the value is back under its threshold
+  if (sustained(alert)) return 'alert';
+  if (sustained(warning)) return 'warn';
   return undefined;
+}
+
+type AlertLevel = 'warn' | 'alert';
+export type HealthRearm = { key: string; level: AlertLevel; at: number };
+const LEVEL_RANK: Record<AlertLevel, number> = { warn: 1, alert: 2 };
+
+// After an alert was lifted, the same level (or a lower one) stays silent for `rearmMinutes`; a higher level is raised at once.
+function rearmSuppresses(rearm: HealthRearm[] | undefined, key: string, level: AlertLevel, rearmMinutes: number, now: number): boolean {
+  const r = rearm?.find((x) => x.key === key);
+  return !!r && now - r.at < rearmMinutes * 60_000 && LEVEL_RANK[level] <= LEVEL_RANK[r.level];
+}
+
+// Rearm records after a report: the alerts that just disappeared start a delay, those raised again (or expired) end theirs.
+export function nextRearm(previous: HealthRearm[] | undefined, oldAlerts: { key: string; level: AlertLevel }[], newAlerts: { key: string }[], rearmMinutes: number, now = Date.now()): HealthRearm[] {
+  const lifted = oldAlerts.filter((a) => !newAlerts.some((n) => n.key === a.key)).map((a) => ({ key: a.key, level: a.level, at: now }));
+  const kept = (previous ?? []).filter((r) => now - r.at < rearmMinutes * 60_000 && !newAlerts.some((n) => n.key === r.key) && !lifted.some((l) => l.key === r.key));
+  return rearmMinutes > 0 ? [...kept, ...lifted] : [];
 }
 
 export function reportAlerts(h: HostDoc, category: HealthCategory, report: HealthReport, settings: HealthSettings & HealthEnabled, samples: HealthReport[] = []) {
@@ -354,7 +369,6 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
 
   if (category === 'system') {
     const r = report as HealthSystem;
-    const previous = (key: string) => old.find((a) => a.key === `system:${key}`)?.level;
     const addSystemMetric = (key: 'cpu' | 'memory', label: string, field: 'cpuPercent' | 'memPercent', value: number, warning: number, critical: number) => {
       const level = healthMetricLevel(
         value,
@@ -363,7 +377,6 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
         critical,
         settings.systemSustainedMinutes,
         settings.systemIntervalSeconds,
-        previous(key),
       );
       if (level) alert(key, label, `${label} à ${value.toFixed(1)} % (warning ${warning} %, alerte ${critical} %, durée ${settings.systemSustainedMinutes} min)`, level);
     };
@@ -376,38 +389,35 @@ export function reportAlerts(h: HostDoc, category: HealthCategory, report: Healt
         .filter((sample): sample is HealthSystem => 'cpuPercent' in sample && sample.load5 !== undefined && !!sample.cpuCount)
         .map((sample) => ({ checkedAt: sample.checkedAt, value: sample.load5! / sample.cpuCount! }));
       const { loadWarningThreshold: warning, loadAlertThreshold: critical, loadSustainedMinutes: minutes } = settings;
-      const level = healthMetricLevel(ratio, values, warning, critical, minutes, settings.systemIntervalSeconds, previous('load'), Date.now(), 0.1);
+      const level = healthMetricLevel(ratio, values, warning, critical, minutes, settings.systemIntervalSeconds);
       if (level) alert('load', 'Charge', `Charge 5 min ${r.load5.toFixed(2)} pour ${Number(r.cpuCount.toFixed(1))} CPU (ratio ${ratio.toFixed(2)} ; warning ${warning}, alerte ${critical}, ${minutes ? `durée ${minutes} min` : 'déclenchement immédiat'})`, level);
     }
   } else if (category === 'disks') {
-    const previous = new Map(old.map((a) => [a.key, a.level]));
     if (settings.diskEnabled !== false) for (const v of (report as HealthDisks).volumes) {
       const key = `disks:volume:${v.mountpoint}`;
       const values = samples.filter((sample): sample is HealthDisks => 'volumes' in sample)
         .flatMap((sample) => sample.volumes.filter((volume) => volume.mountpoint === v.mountpoint).map((volume) => ({ checkedAt: sample.checkedAt, value: volume.percent })));
-      const hysteresis = Math.min(100, (DISK_HYSTERESIS_BYTES / v.total) * 100);
-      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, 0, settings.diskIntervalSeconds, previous.get(key), Date.now(), hysteresis);
-      if (level) alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, déclenchement immédiat, retour après libération de 20 Go)`, level);
+      const level = healthMetricLevel(v.percent, values, settings.diskWarningThreshold, settings.diskAlertThreshold, 0, settings.diskIntervalSeconds);
+      // a level still active is never delayed (only the one raised again after being lifted is)
+      if (!level || (!old.some((a) => a.key === key) && rearmSuppresses(h.health?.rearm, key, level, settings.diskRearmMinutes, report.checkedAt))) continue;
+      alert(`volume:${v.mountpoint}`, v.mountpoint, `${v.mountpoint} utilisé à ${v.percent.toFixed(1)} % (warning ${settings.diskWarningThreshold} %, alerte ${settings.diskAlertThreshold} %, déclenchement immédiat${settings.diskRearmMinutes ? `, réactivation ${settings.diskRearmMinutes} min après la levée` : ''})`, level);
     }
   } else if (category === 'raid') {
     next.push(...raidAlerts(report as HealthRaid));
   } else {
-    const previous = new Map(old.map((a) => [a.key, a.level]));
     for (const d of (report as HealthSmart).disks) {
       if (d.healthy === false) alert(`smart:${d.device}:health`, d.device, `${d.device} : état SMART en échec`, 'alert');
       if (settings.smartTemperatureEnabled !== false && d.temperatureC !== undefined) {
-        const key = `smart:smart:${d.device}:temperature`;
         const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
           .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.temperatureC !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.temperatureC! })));
-        const level = healthMetricLevel(d.temperatureC, values, settings.smartTemperatureWarningThreshold, settings.smartTemperatureAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds, previous.get(key));
+        const level = healthMetricLevel(d.temperatureC, values, settings.smartTemperatureWarningThreshold, settings.smartTemperatureAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds);
           if (level) alert(`smart:${d.device}:temperature`, d.device, `${d.device} : température ${d.temperatureC} °C (warning ${settings.smartTemperatureWarningThreshold} °C, alerte ${settings.smartTemperatureAlertThreshold} °C, ${settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'})`, level);
       }
       if (d.reallocated !== undefined && d.reallocated > 0) alert(`smart:${d.device}:reallocated`, d.device, `${d.device} : ${d.reallocated} secteur(s) réalloué(s)`, 'alert');
       if (settings.smartWearEnabled !== false && d.nvmeWearPercent !== undefined) {
-        const key = `smart:smart:${d.device}:wear`;
         const values = samples.filter((sample): sample is HealthSmart => 'disks' in sample)
           .flatMap((sample) => sample.disks.filter((disk) => disk.device === d.device && disk.nvmeWearPercent !== undefined).map((disk) => ({ checkedAt: sample.checkedAt, value: disk.nvmeWearPercent! })));
-        const level = healthMetricLevel(d.nvmeWearPercent, values, settings.smartWearWarningThreshold, settings.smartWearAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds, previous.get(key));
+        const level = healthMetricLevel(d.nvmeWearPercent, values, settings.smartWearWarningThreshold, settings.smartWearAlertThreshold, settings.smartSustainedMinutes, settings.smartIntervalSeconds);
         if (level) alert(`smart:${d.device}:wear`, d.device, `${d.device} : usure NVMe ${d.nvmeWearPercent} % (warning ${settings.smartWearWarningThreshold} %, alerte ${settings.smartWearAlertThreshold} %, ${settings.smartSustainedMinutes ? `durée ${settings.smartSustainedMinutes} min` : 'déclenchement immédiat'})`, level);
       }
       if (d.error) alert(`smart:${d.device}:error`, d.device, `${d.device} : ${d.error}`);
@@ -447,6 +457,7 @@ async function persistReport(hostId: ObjectId, category: HealthCategory, report:
   const alerts = reportAlerts(host, category, stored, s, docs.map((d) => d.report));
   const field = `health.${category}`;
   const update: Record<string, unknown> = { [field]: stored, 'health.alerts': alerts };
+  if (category === 'disks') update['health.rearm'] = nextRearm(host.health?.rearm, (host.health?.alerts ?? []).filter((a) => a.key.startsWith('disks:')), alerts.filter((a) => a.key.startsWith('disks:')), s.diskRearmMinutes, report.checkedAt);
   // RAID keys carry a count: an acceptance whose alert is gone (count changed, array repaired) is dropped
   if (category === 'raid') update.healthSilenced = (host.healthSilenced ?? []).filter((x) => !x.key.startsWith('raid:') || alerts.some((a) => a.key === x.key));
   await hosts.updateOne({ _id: hostId }, { $set: update });
@@ -480,7 +491,7 @@ const healthSettingsBody = {
     'cpuWarningThreshold', 'cpuAlertThreshold', 'memoryWarningThreshold', 'memoryAlertThreshold',
     'diskWarningThreshold', 'diskAlertThreshold', 'smartTemperatureWarningThreshold', 'smartTemperatureAlertThreshold',
     'smartWearWarningThreshold', 'smartWearAlertThreshold', 'systemSustainedMinutes', 'smartSustainedMinutes',
-    'loadWarningThreshold', 'loadAlertThreshold', 'loadSustainedMinutes',
+    'loadWarningThreshold', 'loadAlertThreshold', 'loadSustainedMinutes', 'diskRearmMinutes',
   ],
   additionalProperties: false,
   properties: {
@@ -502,6 +513,7 @@ const healthSettingsBody = {
     loadWarningThreshold: { type: 'number', minimum: 0.1, maximum: 9.9 },
     loadAlertThreshold: { type: 'number', minimum: 0.2, maximum: 10 },
     loadSustainedMinutes: { type: 'integer', minimum: 0, maximum: 60 },
+    diskRearmMinutes: { type: 'integer', minimum: 0, maximum: 2880 },
   },
 } as const;
 

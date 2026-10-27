@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey, reportAlerts, resolveHealthSettings, thresholdsInvalid } from '../src/health.js';
+import { DEFAULT_HEALTH_SETTINGS, healthMetricLevel, isContainerHealthHost, isHealthDisks, isHealthRaid, isHealthSmart, isHealthSystem, isVirtualizedHealthHost, hasNoHealthDisks, keepStandbyDisks, raidAlerts, unraidAlerts, cephAlerts, applySilence, isCephClusterKey, nextRearm, reportAlerts, resolveHealthSettings, thresholdsInvalid } from '../src/health.js';
 import type { HealthSettings, HostDoc, HostInfo } from '../src/types.js';
 import { isHealthAlertSilenced } from '../src/healthSilence.js';
 
@@ -55,11 +55,11 @@ test('health metrics distinguish warning and alert levels after their configured
     { checkedAt: now - 60_000, value: 96 },
     { checkedAt: now, value: 97 },
   ];
-  assert.equal(healthMetricLevel(97, samples, 75, 90, 2, 60, undefined, now), 'alert');
-  assert.equal(healthMetricLevel(85, samples.map((sample) => ({ ...sample, value: 85 })), 75, 90, 2, 60, undefined, now), 'warn');
-  assert.equal(healthMetricLevel(95, [{ checkedAt: now, value: 95 }], 75, 90, 2, 60, undefined, now), undefined);
-  assert.equal(healthMetricLevel(95, [], 75, 90, 0, 60, undefined, now), 'alert');
-  assert.equal(healthMetricLevel(87, [], 75, 90, 0, 60, 'alert', now), 'alert');
+  assert.equal(healthMetricLevel(97, samples, 75, 90, 2, 60, now), 'alert');
+  assert.equal(healthMetricLevel(85, samples.map((sample) => ({ ...sample, value: 85 })), 75, 90, 2, 60, now), 'warn');
+  assert.equal(healthMetricLevel(95, [{ checkedAt: now, value: 95 }], 75, 90, 2, 60, now), undefined);
+  assert.equal(healthMetricLevel(95, [], 75, 90, 0, 60, now), 'alert');
+  assert.equal(healthMetricLevel(87, [], 75, 90, 0, 60, now), 'warn');
 });
 
 test('virtualized hosts are identified from agent virtualization information', () => {
@@ -190,31 +190,47 @@ test('a shared acceptance only covers the active alerts of each node', () => {
   assert.deepEqual(applySilence([...kept, { key: 'raid:ceph:check:A', level: 'warn' }], alerts, ['raid:ceph:check:A'], false), kept);
 });
 
-test('health metric hysteresis is configurable (load ratio keeps its level only 0.1 under the threshold)', () => {
-  assert.equal(healthMetricLevel(1.15, [], 0.95, 1.2, 0, 60, 'alert', 1_000_000, 0.1), 'alert');
-  assert.equal(healthMetricLevel(1.05, [], 0.95, 1.2, 0, 60, 'alert', 1_000_000, 0.1), 'warn');
-  assert.equal(healthMetricLevel(0.8, [], 0.95, 1.2, 0, 60, 'warn', 1_000_000, 0.1), undefined);
+test('health alerts have no hysteresis: a level is lifted as soon as the value is back under its threshold', () => {
+  assert.equal(healthMetricLevel(1.19, [], 0.95, 1.2, 0, 60, 1_000_000), 'warn');
+  assert.equal(healthMetricLevel(0.94, [], 0.95, 1.2, 0, 60, 1_000_000), undefined);
+  assert.equal(healthMetricLevel(79.9, [], 80, 90, 0, 30, 1_000_000), undefined);
 });
 
-test('disk alerts clear after 20 Go are freed, regardless of volume capacity', () => {
+test('a lifted volume alert is not raised again during the rearm delay, except when it gets worse', () => {
   const total = 4 * 1024 ** 4;
-  const freedPercent = (20 * 1024 ** 3 / total) * 100;
-  const report = (percent: number) => ({
-    checkedAt: Date.now(),
+  const t0 = Date.now();
+  const report = (percent: number, checkedAt: number) => ({
+    checkedAt,
     volumes: [{ device: '/dev/sda1', mountpoint: '/data', fstype: 'ext4', total, used: total * percent / 100, percent }],
   });
-  const previous = (level: 'warn' | 'alert') => ({
-    health: { alerts: [{ key: 'disks:volume:/data', label: '/data', level, reason: 'previous alert' }] },
-  }) as HostDoc;
-  const settings = resolveHealthSettings(DEFAULT_HEALTH_SETTINGS);
+  const settings = resolveHealthSettings({ ...DEFAULT_HEALTH_SETTINGS, diskRearmMinutes: 60 });
+  const key = 'disks:volume:/data';
+  const host = (alerts: { key: string; label: string; level: 'warn' | 'alert'; reason: string }[], rearm?: { key: string; level: 'warn' | 'alert'; at: number }[]) => ({ health: { alerts, rearm } }) as HostDoc;
+  const active = (level: 'warn' | 'alert') => [{ key, label: '/data', level, reason: '' }];
 
-  assert.equal(reportAlerts(previous('warn'), 'disks', report(75 - freedPercent + 0.01), settings)[0]?.level, 'warn');
-  assert.equal(reportAlerts(previous('warn'), 'disks', report(75 - freedPercent), settings).length, 0);
-  assert.equal(reportAlerts(previous('alert'), 'disks', report(90 - freedPercent + 0.01), settings)[0]?.level, 'alert');
-  assert.equal(reportAlerts(previous('alert'), 'disks', report(90 - freedPercent - 0.01), settings)[0]?.level, 'warn');
+  // lifted right away, with no margin under the threshold
+  assert.equal(reportAlerts(host(active('warn')), 'disks', report(74.9, t0), settings).length, 0);
+  assert.deepEqual(nextRearm(undefined, active('warn'), [], 60, t0), [{ key, level: 'warn', at: t0 }]);
 
-  const smallVolume = { ...report(0), volumes: [{ ...report(0).volumes[0], total: 14 * 1024 ** 3 }] };
-  assert.equal(reportAlerts(previous('warn'), 'disks', smallVolume, settings).length, 0);
+  // within the delay: same level silenced, higher level raised
+  const rearm = [{ key, level: 'warn' as const, at: t0 }];
+  assert.equal(reportAlerts(host([], rearm), 'disks', report(76, t0 + 10 * 60_000), settings).length, 0);
+  assert.equal(reportAlerts(host([], rearm), 'disks', report(91, t0 + 10 * 60_000), settings)[0]?.level, 'alert');
+  // an alert lifted from the alert level also silences the warning level
+  assert.equal(reportAlerts(host([], [{ key, level: 'alert', at: t0 }]), 'disks', report(80, t0 + 10 * 60_000), settings).length, 0);
+  // after the delay, or without any record: raised normally
+  assert.equal(reportAlerts(host([], rearm), 'disks', report(76, t0 + 61 * 60_000), settings)[0]?.level, 'warn');
+  assert.equal(reportAlerts(host([]), 'disks', report(76, t0), settings)[0]?.level, 'warn');
+  // an alert still active is never delayed
+  assert.equal(reportAlerts(host(active('warn'), rearm), 'disks', report(76, t0 + 10 * 60_000), settings)[0]?.level, 'warn');
+  // 0 disables the delay
+  assert.equal(reportAlerts(host([], rearm), 'disks', report(76, t0 + 60_000), { ...settings, diskRearmMinutes: 0 })[0]?.level, 'warn');
+
+  // records: kept while silenced, dropped when raised again or expired
+  assert.deepEqual(nextRearm(rearm, [], [], 60, t0 + 10 * 60_000), rearm);
+  assert.deepEqual(nextRearm(rearm, [], active('warn'), 60, t0 + 10 * 60_000), []);
+  assert.deepEqual(nextRearm(rearm, [], [], 60, t0 + 61 * 60_000), []);
+  assert.deepEqual(nextRearm(rearm, active('warn'), [], 0, t0), []);
 });
 
 test('load alerts compare load5 to the CPU count, and skip containers and agents without cpuCount', () => {
