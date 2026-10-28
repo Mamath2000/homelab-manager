@@ -101,6 +101,7 @@ function me(user: UserDoc) {
     mustChangePassword: !!user.mustChangePassword,
     // optional features of the hub (environment variables)
     features: { standardisation: config.featureStandardisation },
+    channel: config.channel,
   };
 }
 

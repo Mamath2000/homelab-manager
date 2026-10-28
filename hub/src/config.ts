@@ -31,6 +31,8 @@ export const config = {
   trustProxy: env('TRUST_PROXY') === 'true',
   // Nextcloud AIO plugin of the backups (homelab#148): particular to one setup, hidden unless set
   featureBackupNextcloudAio: env('FEATURE_BACKUP_NEXTCLOUD_AIO') === 'true',
+  // release channel: the dev and prod images are the same one (promoted as is), so only the deployment tells them apart
+  channel: env('CHANNEL') === 'dev' ? ('dev' as const) : ('prod' as const),
   // standardisation of the hosts (setup.ts): hidden and inactive unless set
   featureStandardisation: env('FEATURE_STANDARDISATION') === 'true',
 };

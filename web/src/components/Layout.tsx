@@ -146,11 +146,15 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
+        {me.channel === 'dev' && <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-amber-500" />}
         <div className="flex items-center gap-3">
           <button className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised lg:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
+          {me.channel === 'dev' && (
+            <span title="Version de développement (CHANNEL=dev)" className="rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold tracking-widest text-amber-400">DEV</span>
+          )}
         </div>
         <div ref={setTitleSlot} className="flex min-w-0 flex-1 items-center gap-3" />
         {/* centred on the bar: the site of the host, wide screens only (it would cover the title otherwise) */}

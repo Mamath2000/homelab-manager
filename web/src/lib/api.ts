@@ -548,6 +548,8 @@ export interface Me {
   mustChangePassword: boolean;
   // optional features of the hub (environment variables, e.g. FEATURE_STANDARDISATION)
   features: { standardisation: boolean };
+  // release channel of the hub (CHANNEL env): the dev channel shows a banner
+  channel: 'dev' | 'prod';
 }
 
 export interface AuthStatus {
