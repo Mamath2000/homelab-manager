@@ -1,21 +1,21 @@
 // ===============================
 // Home Assistant: level of detail of the published entities
 // ===============================
-// A level is a preset of sections. Sections are published per host (apt, docker, ups, backup, sessions, actions,
+// A level is a preset of sections. Sections are published per host (apt, docker, ups, backup, probes, sessions, actions,
 // diagnostics) or once for the hub (counters, tops). Alerts and the connectivity of a host are always published
 // (unless the host is set to 'none'), whatever the level: they roll up from the registry, not from the sub-devices.
 import type { HaDetail, HaHostDetail, HaLevel, HaSection, HostDoc } from '../types.js';
 
 export const HA_SECTIONS: readonly HaSection[] = [
-  'counters', 'tops', 'apt', 'docker', 'ups', 'backup', 'sessions', 'actions', 'diagnostics',
+  'counters', 'tops', 'apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics',
 ];
 
 // sections published per host; the others (counters, tops) only on the hub's device, from the global level
-export const HA_HOST_SECTIONS: readonly HaSection[] = ['apt', 'docker', 'ups', 'backup', 'sessions', 'actions', 'diagnostics'];
+export const HA_HOST_SECTIONS: readonly HaSection[] = ['apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics'];
 
 export const HA_PRESETS: Record<HaLevel, readonly HaSection[]> = {
   minimal: ['tops'],
-  standard: ['tops', 'counters', 'apt', 'docker', 'ups', 'backup'],
+  standard: ['tops', 'counters', 'apt', 'docker', 'ups', 'backup', 'probes'],
   full: HA_SECTIONS,
 };
 

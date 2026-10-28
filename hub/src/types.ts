@@ -580,7 +580,7 @@ export type HaHostLevel = HaLevel | 'none';
 // level of a host: a preset, or its sections picked one by one (sections of a host only, see HA_HOST_SECTIONS)
 export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
 export type HaSection =
-  | 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'sessions' | 'actions' | 'diagnostics';
+  | 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
 // custom: the sections are picked one by one
 export interface HaDetail {
   level: HaLevel | 'custom';
