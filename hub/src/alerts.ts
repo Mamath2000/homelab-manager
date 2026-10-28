@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { isOnline } from './agents.js';
-import { backups, hostAlerts, hosts, jobs } from './db.js';
+import { backups, hostAlerts, hosts, jobs, probes } from './db.js';
 import { subscribe } from './events.js';
 import { jobDto } from './jobs.js';
 import { DOMAINS, dayOf, evaluate } from './monitoring.js';
@@ -52,10 +52,11 @@ async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, Day
 }
 
 // What cannot be read now (APT, Docker, UPS of a host off for days) is left out: the last report says
-// nothing of those days. Backups and the connection are always followed by the hub.
+// nothing of those days. Backups, probes and the connection are always followed by the hub.
 export async function recordHost(h: HostDoc, now = new Date()) {
   const groups = await backups.find({ hostId: h._id }).toArray();
-  const status = evaluate(h, { online: isOnline(h._id.toHexString()), groups, now: now.getTime() });
+  const hostProbes = await probes.find({ 'subject.kind': 'host', 'subject.id': h._id }).toArray();
+  const status = evaluate(h, { online: isOnline(h._id.toHexString()), groups, now: now.getTime(), probes: hostProbes });
   await record(h._id, Object.fromEntries(DOMAINS.map(({ id }) => [id, dayOf(status.domains[id])])), now);
 }
 
@@ -114,6 +115,11 @@ export function startAlerts(log: FastifyBaseLogger) {
   const fail = (err: unknown) => log.warn({ err }, 'alert recording failed');
   const unsubscribe = subscribe((event, data) => {
     if (event === 'host') recordHostId((data as { id: string }).id).catch(fail);
+    // a probe changed state: recorded at once, whichever host it checks
+    else if (event === 'probe') {
+      const subject = (data as { subject: { kind: string; id: string } }).subject;
+      if (subject.kind === 'host') recordHostId(subject.id).catch(fail);
+    }
     else if (event === 'backups') recordAll().catch(fail);
     else if (event === 'host.deleted') {
       const id = (data as { id: string }).id;

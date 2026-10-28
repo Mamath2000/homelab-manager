@@ -968,7 +968,7 @@ export interface BackupPve {
 
 // Alerts of a host over the last days (alerts.ts): latest observed level of the day in each domain, with its reasons
 export type AlertLevel = 'ok' | 'warn' | 'alert';
-export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups' | 'mount' | 'health';
+export type AlertDomain = 'system' | 'apt' | 'docker' | 'backup' | 'offsite' | 'ups' | 'mount' | 'health' | 'services';
 export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
@@ -986,6 +986,7 @@ export interface HostAlertDoc {
   ups?: DayAlert;
   mount?: DayAlert;
   health?: DayAlert;
+  services?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;
 }

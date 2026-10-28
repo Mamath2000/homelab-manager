@@ -176,6 +176,9 @@ export function startProbes(log: FastifyBaseLogger) {
   return Object.assign(() => engine.stop(), { engine });
 }
 
+// Probes attached to hosts, for the status of the hosts (monitoring.ts)
+export const hostProbes = () => probes.find({ 'subject.kind': 'host' }).toArray();
+
 // Probes of a subject (host page, status of the host), without their live details
 export async function probesOf(kind: ProbeDoc['subject']['kind'], id: ObjectId) {
   return probes.find({ 'subject.kind': kind, 'subject.id': id }).sort({ name: 1 }).toArray();
