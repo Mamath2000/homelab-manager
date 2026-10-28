@@ -34,8 +34,8 @@ itinérant n'est pas « hors ligne » quand il est absent. Tous les rôles peuve
 | `agentsOutdated` | Agents à mettre à jour |
 | `stacks` | Stacks Docker suivies |
 | `stacksToUpdate` | Stacks avec une image plus récente |
-| `alerts` | Alertes en cours (agent, APT, Docker) |
-| `critical` | Dont alertes critiques (agent hors ligne) |
+| `alerts` | Alertes en cours (agent, APT, Docker, sondes de service) |
+| `critical` | Dont alertes critiques (agent hors ligne, sonde hors service) |
 
 :::note
 Les sauvegardes ne sont pas comptées dans `alerts` : elles ont leur propre page et leur propre API (`/api/backups`).
@@ -54,6 +54,10 @@ Exemple de réponse :
 ## `GET /api/status`
 
 Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Alertes et statuts](alertes.md)) : `domains` (identifiant, libellé, icône, dans l'ordre d'affichage) et `hosts` (par identifiant d'hôte : `level` ok / warn / alert et `domains`, chacun avec son `level` ok / warn / alert / unknown, ses `checks` et, si inconnu, la raison). Un domaine absent d'un hôte ne s'y applique pas. Tous les rôles peuvent le lire.
+
+## Sondes
+
+`GET /api/hosts/:id/probes` (tous les rôles) donne les sondes d'un hôte avec leur état en direct ; les autres routes (création, test, brokers MQTT) sont réservées aux administrateurs. Voir [Sondes de service](sondes.md#api).
 
 ## Exemple : widget Homepage
 

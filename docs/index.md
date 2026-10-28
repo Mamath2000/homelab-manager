@@ -26,6 +26,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Fiche hôte** : bandeau système et frise des alertes des 30 derniers jours (une ligne par domaine que l'hôte fournit : pire situation de chaque jour, détail au clic) en tête de page ; sur grand écran, l'historique et la console en direct restent visibles à droite, et toute tâche lancée depuis la fiche s'y affiche. **Actualiser** demande aussi à l'agent de relire son état local (système, APT, stacks Docker, sauvegardes Home Assistant, onduleur) ; l'agent annonce la capacité `refresh` (requête `refresh` avec des portées facultatives).
 - **Docker** : stacks compose des hôtes, état des conteneurs, images à mettre à jour, démarrer / arrêter / redémarrer / mettre à jour, logs et fichiers compose.
 - **Onduleur** : état, batterie, autonomie, charge et tensions de l'onduleur d'un hôte (via NUT), indicateur de batterie à remplacer et alertes.
+- **Sondes de service** : vérifier depuis le hub qu'un service répond (MQTT, ping, TCP, HTTP), par hôte ou par stack, avec un domaine **Services** dans les alertes et des entités dans Home Assistant.
 - **Clés d'API** : comptes sans mot de passe et clés nommées (une par service) pour interroger le hub, par exemple depuis Homepage.
 - **Home Assistant** (option) : appareils, alertes et mises à jour publiés via MQTT, avec découverte automatique.
 
@@ -42,6 +43,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
 - [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
 - [Onduleur](onduleur.md) : suivi d'un onduleur via NUT, fin de vie de la batterie, alertes.
+- [Sondes de service](sondes.md) : MQTT, ping, TCP et HTTP depuis le hub, brokers MQTT, états et alertes.
 - [Alertes et statuts](alertes.md) : domaines, éléments suivis, agrégation hôte → site, hôte hors ligne ou itinérant.
 - [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.
 - [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe, comptes sans mot de passe, clés d'API.

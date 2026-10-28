@@ -41,13 +41,14 @@ Sous le lien, **Paramètres de publication** règle ce qui est créé dans Home 
 | Top 5 CPU / mémoire / disque | ✅ | ✅ | ✅ |
 | Compteurs de Homelab Manager (hôtes, mises à jour, stacks, sauvegardes, datastores) | — | ✅ | ✅ |
 | Sous-composants APT, Docker, Onduleur, Sauvegardes | — | ✅ | ✅ |
+| Sondes de service : une entité par sonde | — | ✅ | ✅ |
 | Sessions Windows | — | — | ✅ |
 | Actions : boutons et entités `update` installables | — | — | ✅ |
 | Diagnostics : système, noyau, IP, dernière vue, alertes des sous-composants | — | — | ✅ |
 
 **Personnalisé** coche les catégories une à une (en partant du niveau courant). Les alertes ne dépendent pas du niveau : un sous-composant non publié fait toujours remonter ses alertes sur son hôte et sur Homelab Manager.
 
-**Par hôte**, le niveau global peut être remplacé : onglet **Home Assistant** des options de l'hôte, ou **Niveau Home Assistant** sur une sélection dans la liste des hôtes. Les deux présentent le même tableau, limité aux catégories d'un hôte (APT, Docker, Onduleur, Sauvegardes, Sessions Windows, Actions, Diagnostics), avec l'aperçu de ses entités : *Niveau global* (par défaut), *Aucun* (hôte non publié), *Minimal*, *Standard*, *Complet* ou *Personnalisé*. Compteurs et top 5, publiés sur Homelab Manager, ne suivent que le niveau global. Un hôte réglé sur *Aucun* n'a ni appareil, ni alertes, ni place dans les compteurs et les top 5 ; tous les autres comptent dans les totaux de Homelab Manager, quel que soit leur niveau. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés au niveau *Aucun*. L'ancienne case « exclu de Home Assistant » est lue comme *Aucun*.
+**Par hôte**, le niveau global peut être remplacé : onglet **Home Assistant** des options de l'hôte, ou **Niveau Home Assistant** sur une sélection dans la liste des hôtes. Les deux présentent le même tableau, limité aux catégories d'un hôte (APT, Docker, Onduleur, Sauvegardes, Sondes, Sessions Windows, Actions, Diagnostics), avec l'aperçu de ses entités : *Niveau global* (par défaut), *Aucun* (hôte non publié), *Minimal*, *Standard*, *Complet* ou *Personnalisé*. Compteurs et top 5, publiés sur Homelab Manager, ne suivent que le niveau global. Un hôte réglé sur *Aucun* n'a ni appareil, ni alertes, ni place dans les compteurs et les top 5 ; tous les autres comptent dans les totaux de Homelab Manager, quel que soit leur niveau. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés au niveau *Aucun*. L'ancienne case « exclu de Home Assistant » est lue comme *Aucun*.
 
 Changer de niveau retire de Home Assistant les appareils et entités qui ne sont plus publiés.
 
@@ -152,6 +153,16 @@ Un par hôte dont l'agent remonte un onduleur NUT. Détail et seuils : [Onduleur
 
 Indisponible quand l'agent est hors ligne, comme APT et Docker.
 
+### Sondes de service
+
+Une entité par [sonde](sondes.md) de l'hôte, **sur l'appareil de l'hôte** ou, pour une sonde rattachée à une stack Docker, **sur l'appareil de cette stack** (sur celui de l'hôte si l'appareil de la stack n'est pas publié). Catégorie **Sondes**, présente aux niveaux Standard et Complet.
+
+| Entité | Type |
+|---|---|
+| Nom de la sonde | capteur binaire de connectivité : allumé quand le service répond ; attributs `type`, `target` (cible), `since` (dernier changement) et `message` (raison d'un échec) |
+
+Une sonde **inconnue** (broker MQTT injoignable, ping non autorisé, hôte itinérant absent, pas encore mesurée) est **indisponible** dans Home Assistant, et non éteinte : le service n'est pas jugé. À l'inverse de APT et Docker, ces entités **restent disponibles quand l'agent est hors ligne** : c'est le hub qui mesure, pas l'hôte. Le niveau de l'hôte et sa catégorie Sondes ne changent pas les alertes : une sonde hors service fait toujours remonter une alerte sur le problème de l'hôte.
+
 ### Alertes
 
 | Composant | Niveau | Alerte |
@@ -167,6 +178,7 @@ Indisponible quand l'agent est hors ligne, comme APT et Docker.
 | Docker | avertissement | Conteneur qui redémarre en boucle |
 | Onduleur | critique | Batterie à remplacer, alarme, sur batterie, batterie faible, surcharge, arrêt forcé |
 | Onduleur | avertissement | Charge ou autonomie sous le seuil NUT, auto-test en échec, statut inhabituel |
+| Services | critique | Sonde hors service (les sondes inconnues ne comptent pas) |
 
 « Paquets à nettoyer », « Nettoyer les paquets » et « Redémarrer » n'apparaissent qu'avec un agent récent (0.1.1 et plus) : l'agent annonce au hub les actions qu'il sait faire.
 

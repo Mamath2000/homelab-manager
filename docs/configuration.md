@@ -61,8 +61,9 @@ Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse 
 
 | Collection MongoDB | Contenu |
 |---|---|
-| `settings` | paramètres de l'application (agents, Home Assistant) et autorité de certification du hub (document `pki`, clés privées comprises) |
+| `settings` | paramètres de l'application (agents, Home Assistant, brokers MQTT des sondes) et autorité de certification du hub (document `pki`, clés privées comprises) |
 | `hosts` | hôtes, empreinte du certificat de l'agent, hash du code d'installation en attente, dernier état système et APT |
+| `probes` | sondes de service ([Sondes](sondes.md)) : cible, réglages et état courant, sans historique de mesures ; supprimées avec leur hôte |
 | `jobs` | tâches et leurs sorties, supprimées après 90 jours |
 | `users`, `sessions` | comptes utilisateurs et sessions |
 
