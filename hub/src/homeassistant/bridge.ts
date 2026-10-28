@@ -10,6 +10,7 @@ import { isUnmanaged } from '../docker.js';
 import { backups, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
+import { hostProbes } from '../probes.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
 import { build, deviceOf, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
@@ -95,7 +96,7 @@ export class HomeAssistantBridge {
 
     // hosts, jobs and agent connections all change what Home Assistant shows
     this.unsubscribe = subscribe((event) => {
-      if (event === 'host' || event === 'host.deleted' || event === 'job' || event === 'backups') this.schedule(1000);
+      if (event === 'host' || event === 'host.deleted' || event === 'job' || event === 'backups' || event === 'probe') this.schedule(1000);
     });
     // time based states (stale package lists) without any event
     this.timer = setInterval(() => this.schedule(0), 60_000);
@@ -212,7 +213,7 @@ export class HomeAssistantBridge {
       const { haDetail: _own, haExcluded: _legacy, ...rest } = h;
       return override.haDetail === null ? rest : { ...rest, haDetail: override.haDetail };
     });
-    const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray());
+    const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), await hostProbes());
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
     return build(
       list.map((host) => {

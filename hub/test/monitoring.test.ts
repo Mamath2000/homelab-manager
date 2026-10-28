@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { DOMAINS, aptStatus, backupStatus, dayOf, dockerStatus, evaluate, healthStatus, offsiteStatus, systemStatus, worst, type Context } from '../src/monitoring.js';
-import type { AptReport, BackupDoc, DockerStack, HostDoc, Package } from '../src/types.js';
+import { DOMAINS, aptStatus, backupStatus, dayOf, dockerStatus, evaluate, evaluateAll, healthStatus, offsiteStatus, servicesStatus, systemStatus, worst, type Context } from '../src/monitoring.js';
+import type { AptReport, BackupDoc, DockerStack, HostDoc, Package, ProbeDoc, ProbeState } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
 const H = 3600_000;
@@ -111,7 +111,7 @@ test('host: worst of its known domains; unknown ones do not count; absent domain
   const roaming = evaluate(host({ roaming: true, apt: report() }), ctx({ online: false, groups: [group({ verify: 'failed' })] }));
   assert.equal(roaming.domains.system?.level, 'unknown');
   assert.equal(roaming.level, 'alert');
-  assert.deepEqual(DOMAINS.map((d) => d.id), ['system', 'apt', 'docker', 'backup', 'offsite', 'ups', 'mount', 'health']);
+  assert.deepEqual(DOMAINS.map((d) => d.id), ['system', 'apt', 'docker', 'backup', 'offsite', 'ups', 'mount', 'health', 'services']);
 });
 
 test('health alerts are live checks and are unknown while the host is offline', () => {
@@ -121,4 +121,49 @@ test('health alerts are live checks and are unknown while the host is offline', 
   };
   assert.deepEqual(dayOf(healthStatus({ health: snapshot }, on)), { level: 'warn', reasons: ['CPU élevée'] });
   assert.equal(healthStatus({ health: snapshot }, off)?.level, 'unknown');
+});
+
+const probe = (hostId: ObjectId, name: string, state?: ProbeState, message?: string, stack?: string): ProbeDoc =>
+  ({ _id: new ObjectId(), subject: { kind: 'host', id: hostId, stack }, name, target: { type: 'ping', host: 'h' }, runFrom: 'hub', intervalSec: 60, timeoutSec: 10, retries: 0, state, message, createdAt: new Date() }) as ProbeDoc;
+
+test('services: not applicable without probes; a down probe is an alert, an up one is ok', () => {
+  const id = new ObjectId();
+  assert.equal(servicesStatus({}, { online: true, probes: [] }), null);
+  assert.equal(servicesStatus({}, { online: true }), null);
+  const s = servicesStatus({}, { online: true, probes: [probe(id, 'DNS AdGuard', 'up'), probe(id, 'Bridge Zigbee2MQTT', 'down', 'payload « offline »', 'zigbee2mqtt')] });
+  assert.equal(s?.level, 'alert');
+  assert.deepEqual(dayOf(s), { level: 'alert', reasons: ['Bridge Zigbee2MQTT : payload « offline »'] });
+  assert.deepEqual(s?.checks.map((c) => c.label), ['DNS AdGuard', 'zigbee2mqtt · Bridge Zigbee2MQTT']);
+  assert.equal(dayOf(servicesStatus({}, { online: true, probes: [probe(id, 'a', 'up')] }))?.level, 'ok');
+});
+
+test('services: an offline host does not hide its probes', () => {
+  const id = new ObjectId();
+  const s = servicesStatus({}, { online: false, probes: [probe(id, 'Nextcloud', 'down', 'code 502')] });
+  assert.equal(s?.level, 'alert');
+  assert.equal(servicesStatus({}, { online: false, probes: [probe(id, 'Nextcloud', 'up')] })?.level, 'ok');
+});
+
+test('services: probes that cannot measure are unknown and never count; a roaming host away is unknown', () => {
+  const id = new ObjectId();
+  const none = servicesStatus({}, { online: true, probes: [probe(id, 'Chargeur VE', 'unknown', 'broker injoignable'), probe(id, 'Neuve')] });
+  assert.equal(none?.level, 'unknown');
+  assert.equal(dayOf(none), null);
+  // the readable ones make the level, the others are only mentioned
+  const mixed = servicesStatus({}, { online: true, probes: [probe(id, 'DNS', 'up'), probe(id, 'Chargeur VE', 'unknown')] });
+  assert.equal(mixed?.level, 'ok');
+  assert.equal(mixed?.reason, '1 sonde(s) non mesurée(s)');
+  assert.equal(mixed?.checks.length, 1);
+  const away = servicesStatus({ roaming: true }, { online: false, probes: [probe(id, 'DNS', 'down', 'x')] });
+  assert.deepEqual([away?.level, away?.reason], ['unknown', 'Absent (itinérant)']);
+  assert.equal(servicesStatus({ roaming: true }, { online: true, probes: [probe(id, 'DNS', 'down', 'x')] })?.level, 'alert');
+});
+
+test('evaluateAll: probes go to their host, a probe down makes the host an alert', () => {
+  const a = host();
+  const b = host();
+  const out = evaluateAll([a, b], [], now, [probe(a._id, 'DNS', 'down', 'connexion refusée'), probe(b._id, 'DNS', 'up'), { ...probe(a._id, 'x', 'down'), subject: { kind: 'equipment', id: a._id } } as ProbeDoc]);
+  assert.equal(out[a._id.toHexString()].domains.services?.checks.length, 1);
+  assert.equal(out[a._id.toHexString()].level, 'alert');
+  assert.equal(out[b._id.toHexString()].level, 'warn');
 });

@@ -36,3 +36,14 @@ test('offline hosts raise a warning by default, a critical alert when flagged, a
   // roaming and away: not an alert, not known either
   assert.equal(dayOf(systemStatus(roaming, { online: false })), null);
 });
+
+test('a probe down counts as a critical alert of its host, an unknown one does not', () => {
+  const a = host('a', { roaming: false });
+  const probe = (state: 'up' | 'down' | 'unknown') =>
+    ({ _id: new ObjectId(), subject: { kind: 'host', id: a._id }, name: 'DNS', state, message: 'connexion refusée' }) as never;
+  const none = summarize([a], [], Date.now(), [probe('unknown')]);
+  const down = summarize([a], [], Date.now(), [probe('down')]);
+  // the host is offline here: its connection warning is the only other alert
+  assert.equal(down.alerts - none.alerts, 1);
+  assert.equal(down.critical - none.critical, 1);
+});

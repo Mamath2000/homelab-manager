@@ -5,7 +5,7 @@ import { backupState } from './pbs.js';
 import { offsiteState } from './offsite.js';
 import { upsProblems } from './ups.js';
 import { isHealthAlertSilenced } from './healthSilence.js';
-import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostDoc } from './types.js';
+import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostDoc, ProbeDoc } from './types.js';
 
 // What the hub monitors, in two levels:
 // - a domain (system, apt, backup...) groups what one source can tell about a host;
@@ -31,6 +31,7 @@ export const DOMAINS: DomainMeta[] = [
   { id: 'ups', label: 'Onduleur', icon: 'battery-charging' },
   { id: 'mount', label: 'Montage PBS', icon: 'folder-open' },
   { id: 'health', label: 'Santé', icon: 'activity' },
+  { id: 'services', label: 'Services', icon: 'globe' },
 ];
 
 export interface Check {
@@ -62,6 +63,7 @@ export interface Context {
   groups: BackupDoc[]; // backup groups attached to the host
   now: number;
   agentOutdated?: boolean | null; // a newer agent binary is available (null: unknown)
+  probes?: ProbeDoc[]; // probes attached to the host (probes.ts)
 }
 
 type Provider = (h: HostDoc, ctx: Context) => DomainReport;
@@ -198,6 +200,27 @@ export function healthStatus(h: Pick<HostDoc, 'health' | 'healthSilenced'>, ctx:
     : [check('health', 'Santé', 'ok')]);
 }
 
+// Probes of the host (probes.ts). Unlike the other domains this one is read from the hub, not from the agent:
+// a probe tells the real state of the service whether the agent is online or not, so an offline host does not
+// make it unknown. A probe that cannot measure (broker unreachable...) is unknown and left out of the level; the
+// domain is unknown when no probe can be read. A roaming host away is not followed: its services are unknown.
+export function servicesStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'online' | 'probes'>): DomainReport {
+  const list = ctx.probes ?? [];
+  if (!list.length) return null;
+  if (away(h, ctx)) return unknown('Absent (itinérant)');
+  const read = list.filter((p) => p.state === 'up' || p.state === 'down');
+  if (!read.length) return unknown(list.length === 1 ? (list[0].message ?? 'Sonde non mesurée') : `${list.length} sondes non mesurées`);
+  const status = known(
+    read.map((p) => {
+      const key = String(p._id);
+      const label = p.subject.stack ? `${p.subject.stack} · ${p.name}` : p.name;
+      return p.state === 'up' ? check(key, label, 'ok') : check(key, label, 'alert', `${p.name} : ${p.message ?? 'ne répond pas'}`);
+    }),
+  );
+  const unread = list.length - read.length;
+  return unread ? { ...status, reason: `${unread} sonde(s) non mesurée(s)` } : status;
+}
+
 const PROVIDERS: Record<AlertDomain, Provider> = {
   system: systemStatus,
   apt: aptStatus,
@@ -207,6 +230,7 @@ const PROVIDERS: Record<AlertDomain, Provider> = {
   ups: upsStatus,
   mount: mountStatus,
   health: healthStatus,
+  services: servicesStatus,
 };
 
 // --- evaluation ---------------------------------------------------------------------------------
@@ -221,14 +245,16 @@ export function evaluate(h: HostDoc, ctx: Context): HostStatus {
   return { level: worst(levels), domains };
 }
 
-// Status of every host from the backup groups attached to them.
-export function evaluateAll(list: HostDoc[], groups: BackupDoc[], now = Date.now()): Record<string, HostStatus> {
+// Status of every host from the backup groups and the probes attached to them.
+export function evaluateAll(list: HostDoc[], groups: BackupDoc[], now = Date.now(), probes: ProbeDoc[] = []): Record<string, HostStatus> {
   const byHost = new Map<string, BackupDoc[]>();
   for (const g of groups) if (g.hostId) byHost.set(g.hostId.toHexString(), [...(byHost.get(g.hostId.toHexString()) ?? []), g]);
+  const probesByHost = new Map<string, ProbeDoc[]>();
+  for (const p of probes) if (p.subject.kind === 'host') probesByHost.set(p.subject.id.toHexString(), [...(probesByHost.get(p.subject.id.toHexString()) ?? []), p]);
   const out: Record<string, HostStatus> = {};
   for (const h of list) {
     const id = h._id.toHexString();
-    out[id] = evaluate(h, { online: isOnline(id), groups: byHost.get(id) ?? [], now, agentOutdated: agentOutdated(h) });
+    out[id] = evaluate(h, { online: isOnline(id), groups: byHost.get(id) ?? [], now, agentOutdated: agentOutdated(h), probes: probesByHost.get(id) ?? [] });
   }
   return out;
 }

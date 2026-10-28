@@ -1,13 +1,13 @@
 import { hostAlerts } from './homeassistant/alerts.js';
 import { hostDto } from './hostDto.js';
 import { evaluateAll } from './monitoring.js';
-import type { BackupDoc, HostDoc } from './types.js';
+import type { BackupDoc, HostDoc, ProbeDoc } from './types.js';
 
 // Global counters, same rules as the root device of Home Assistant (hosts excluded from HA are left out).
 // Alerts are the not-ok checks of the registry (monitoring.ts), warn -> warning, alert -> critical.
-export function summarize(all: HostDoc[], groups: BackupDoc[] = [], now = Date.now()) {
+export function summarize(all: HostDoc[], groups: BackupDoc[] = [], now = Date.now(), probes: ProbeDoc[] = []) {
   const kept = all.filter((h) => !h.haExcluded);
-  const status = evaluateAll(kept, groups, now);
+  const status = evaluateAll(kept, groups, now, probes);
   const list = kept.map((h) => ({ doc: h, dto: hostDto(h) }));
   let alerts = 0;
   let critical = 0;
