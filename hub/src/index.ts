@@ -24,6 +24,7 @@ import { startPbsPoller } from './pbs.js';
 import { startOffsitePoller } from './offsite.js';
 import { startMountReconciler } from './pbsMount.js';
 import { startPvePoller } from './pve.js';
+import { startProbes } from './probes.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
 import { registerHealthRoutes } from './health.js';
@@ -97,6 +98,7 @@ const stopPbsPoller = startPbsPoller(app.log);
 const stopOffsitePoller = startOffsitePoller(app.log);
 const stopMountReconciler = startMountReconciler(app.log);
 const stopPvePoller = startPvePoller(app.log);
+const stopProbes = startProbes(app.log);
 await bridge.apply(await loadHomeAssistantSettings());
 
 let agentServer: Awaited<ReturnType<typeof startAgentServer>> | null = null;
@@ -111,6 +113,7 @@ async function shutdown() {
   stopOffsitePoller();
   stopMountReconciler();
   stopPvePoller();
+  stopProbes();
   await bridge.stop(false);
   await flushLogs().catch(() => {});
   await app.close();

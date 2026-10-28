@@ -1012,3 +1012,54 @@ export interface BackupStatDoc {
   ok: boolean;
   at: Date; // start, for the TTL index
 }
+
+// --- Probes (service checks seen from outside, see probes.ts) --------------------------------
+
+// What a probe is attached to. Only a host (with an optional Docker stack of it) is implemented for now;
+// the other kinds are in the model so that equipment and sites need no rework.
+export type ProbeSubject = { kind: 'host'; id: ObjectId; stack?: string } | { kind: 'equipment' | 'site'; id: ObjectId; stack?: never };
+
+export const PROBE_TYPES = ['mqtt', 'ping', 'tcp', 'http'] as const;
+export type ProbeType = (typeof PROBE_TYPES)[number];
+
+// What one type of probe checks. mqtt: the last payload of the topic contains `contains`; without it, a
+// message must have arrived within the timeout.
+export type ProbeTarget =
+  | { type: 'mqtt'; brokerId: string; topic: string; contains?: string }
+  | { type: 'ping'; host: string }
+  | { type: 'tcp'; host: string; port: number }
+  | { type: 'http'; url: string; status?: number; keyword?: string; insecure?: boolean };
+
+// unknown: the measure is impossible (broker unreachable, runner offline), never a failed service
+export type ProbeState = 'up' | 'down' | 'unknown';
+
+export interface ProbeDoc {
+  _id: ObjectId;
+  subject: ProbeSubject;
+  name: string;
+  target: ProbeTarget;
+  // where the probe runs: the hub only for now (later the agent of another host, never the one it checks)
+  runFrom: 'hub';
+  intervalSec: number;
+  timeoutSec: number;
+  // failed measures in a row before the probe is down
+  retries: number;
+  // current state only, no series: the transitions are kept by the alert history
+  state?: ProbeState;
+  since?: Date; // last change of state
+  message?: string | null; // why, when not up
+  createdAt: Date;
+}
+
+export interface MqttBroker {
+  id: string;
+  name: string;
+  url: string; // mqtt://host:1883, mqtts://...
+  username: string;
+  password: string;
+}
+// Brokers the probes listen to, distinct from the one of the Home Assistant bridge.
+export interface MqttBrokersSettings {
+  _id: 'mqttBrokers';
+  brokers: MqttBroker[];
+}
