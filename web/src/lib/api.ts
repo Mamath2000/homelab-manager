@@ -591,7 +591,7 @@ export type HaLevel = 'minimal' | 'standard' | 'full';
 export type HaHostLevel = HaLevel | 'none';
 // level of a host: a preset or its own sections (host sections only, HA_HOST_SECTIONS)
 export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
-export type HaSection = 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'sessions' | 'actions' | 'diagnostics';
+export type HaSection = 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
 export interface HaDetail {
   level: HaLevel | 'custom';
   sections: HaSection[];

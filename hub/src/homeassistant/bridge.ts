@@ -213,7 +213,8 @@ export class HomeAssistantBridge {
       const { haDetail: _own, haExcluded: _legacy, ...rest } = h;
       return override.haDetail === null ? rest : { ...rest, haDetail: override.haDetail };
     });
-    const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), await hostProbes());
+    const allProbes = await hostProbes();
+    const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), allProbes);
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
     return build(
       list.map((host) => {
@@ -226,6 +227,7 @@ export class HomeAssistantBridge {
           agentOutdated: agentOutdated(host),
           latestAgentVersion: bin?.version ?? null,
           status: status[id],
+          probes: allProbes.filter((p) => p.subject.id.toHexString() === id),
         };
       }),
       { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, detail: s.detail, backups: await backupsForHa() },

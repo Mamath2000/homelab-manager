@@ -4,8 +4,9 @@ import { test } from 'node:test';
 import { Aedes } from 'aedes';
 import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
+import { evaluateAll } from '../src/monitoring.js';
 import { build, deviceOf, INSTALL, PRESS, ROOT_ID, ROOT_KEY, parseDiscoveryTopic, topicKeys, type Device, type HostState } from '../src/homeassistant/discovery.js';
-import type { HostDoc } from '../src/types.js';
+import type { HostDoc, ProbeDoc } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
 const opts = { topic: 'hm', discoveryPrefix: 'homeassistant', version: '1.2.3' };
@@ -446,4 +447,108 @@ test('custom level of a host: its own sections, kept to the host ones', async ()
   const comps = devices.find((d) => d.id === hid)!.discovery.components as Record<string, unknown>;
   assert.ok(comps.reboot);
   assert.equal(comps.os, undefined);
+});
+
+// --- probes ------------------------------------------------------------------------------------------
+
+const probe = (h: HostDoc, name: string, state: ProbeDoc['state'], extra: Partial<ProbeDoc> = {}): ProbeDoc => ({
+  _id: new ObjectId(),
+  subject: { kind: 'host', id: h._id },
+  name,
+  target: { type: 'tcp', host: '10.0.0.1', port: 8123 },
+  runFrom: 'hub',
+  intervalSec: 60,
+  timeoutSec: 10,
+  retries: 0,
+  state,
+  since: new Date('2026-01-01T00:00:00Z'),
+  message: state === 'down' ? 'connexion refusée' : null,
+  createdAt: new Date(),
+  ...extra,
+});
+
+const stackOf = (name: string) => ({
+  name, workingDir: `/srv/${name}`, configFiles: [`/srv/${name}/compose.yml`], envFiles: [], status: 'running' as const,
+  services: [{ name: 'app', image: 'nginx', containers: [{ id: 'a', name: `${name}-app-1`, state: 'running', status: '', imageId: 'i' }] }],
+});
+
+test('probes: a binary sensor per probe on the host device, unavailable when unknown', () => {
+  const h = host('pve1');
+  const up = probe(h, 'Zigbee2MQTT', 'up', { target: { type: 'mqtt', brokerId: 'vouille', topic: 'zigbee2mqtt/bridge/state', contains: 'online' } });
+  const down = probe(h, 'HA', 'down');
+  const unknown = probe(h, 'ESP', 'unknown', { message: 'broker injoignable' });
+  const { devices } = build([{ host: h, online: true, busy: false, probes: [up, down, unknown] }], { ...opts, detail: { level: 'standard', sections: [] } });
+  const hid = `hm_${h._id.toHexString()}`;
+  const comps = devices.find((d) => d.id === hid)!.discovery.components as Record<string, Record<string, unknown>>;
+  const key = (p: ProbeDoc) => `probe_${p._id.toHexString()}`;
+  assert.equal(comps[key(up)].platform, 'binary_sensor');
+  assert.equal(comps[key(up)].name, 'Zigbee2MQTT');
+  assert.equal(comps[key(up)].device_class, 'connectivity');
+  assert.equal(comps[key(up)].unique_id, `${hid}_${key(up)}`);
+  assert.equal(find(devices, hid, key(up)), 'ON');
+  assert.equal(find(devices, hid, key(down)), 'OFF');
+  // readable: available whatever the state, unknown: unavailable
+  assert.equal(find(devices, hid, `${key(up)}_available`), 'ON');
+  assert.equal(find(devices, hid, `${key(down)}_available`), 'ON');
+  assert.equal(find(devices, hid, `${key(unknown)}_available`), 'OFF');
+  // the availability of the entity is its own: the connectivity of the host does not apply (the hub measures it)
+  const avail = comps[key(up)].availability as { topic: string }[];
+  assert.ok(avail.some((a) => a.topic === `${at(devices, hid)}/${key(up)}_available/state`));
+  assert.ok(!avail.some((a) => a.topic.endsWith('/etat/state')));
+  const attrs = JSON.parse(find(devices, hid, key(down), 'attributes')!);
+  assert.deepEqual(attrs, { type: 'tcp', target: '10.0.0.1:8123', since: '2026-01-01T00:00:00.000Z', message: 'connexion refusée' });
+  assert.equal(JSON.parse(find(devices, hid, key(up), 'attributes')!).target, 'vouille · zigbee2mqtt/bridge/state');
+});
+
+test('probes: those of a stack go on its device, the others on the host', () => {
+  const h = dockerHost({ stacks: [stackOf('web')] });
+  const onStack = probe(h, 'Web', 'up', { subject: { kind: 'host', id: h._id, stack: 'web' } });
+  const onHost = probe(h, 'SSH', 'up');
+  const { devices } = build([{ host: h, online: true, busy: false, probes: [onStack, onHost] }], { ...opts, detail: { level: 'standard', sections: [] } });
+  const comps = (id: string) => Object.keys(devices.find((d) => d.id === id)!.discovery.components as object);
+  const hid = `hm_${h._id.toHexString()}`;
+  assert.ok(comps(`${hid}_docker_web`).includes(`probe_${onStack._id.toHexString()}`));
+  assert.ok(!comps(hid).includes(`probe_${onStack._id.toHexString()}`));
+  assert.ok(comps(hid).includes(`probe_${onHost._id.toHexString()}`));
+  // the stack's entity does not follow the connectivity of the host either
+  const c = (devices.find((d) => d.id === `${hid}_docker_web`)!.discovery.components as Record<string, { availability?: { topic: string }[] }>)[`probe_${onStack._id.toHexString()}`];
+  assert.ok(!c.availability!.some((a) => a.topic.endsWith('/etat/state')));
+});
+
+test('probes: a stack without a published device puts its probes on the host; section off: nothing', () => {
+  const h = dockerHost({ stacks: [stackOf('web')] });
+  const p = probe(h, 'Web', 'down', { subject: { kind: 'host', id: h._id, stack: 'web' } });
+  const hid = `hm_${h._id.toHexString()}`;
+  const key = `probe_${p._id.toHexString()}`;
+  // Docker not published: the probe stays reachable on the host
+  const noDocker = build([{ host: h, online: true, busy: false, probes: [p] }], { ...opts, detail: { level: 'custom', sections: ['probes'] } });
+  assert.ok(key in (noDocker.devices.find((d) => d.id === hid)!.discovery.components as object));
+  // minimal level (no probes section): no entity, but the alert of the registry still rolls up
+  const status = evaluateAll([h], [], Date.now(), [p])[h._id.toHexString()];
+  const minimal = build([{ host: h, online: true, busy: false, probes: [p], status }], { ...opts, detail: { level: 'minimal', sections: [] } });
+  assert.ok(!(key in (minimal.devices.find((d) => d.id === hid)!.discovery.components as object)));
+  assert.equal(find(minimal.devices, hid, 'alerts'), '1');
+});
+
+test('probes: a roaming host away makes them unavailable', () => {
+  const h = { ...host('laptop'), roaming: true };
+  const p = probe(h, 'SSH', 'up');
+  const hid = `hm_${h._id.toHexString()}`;
+  const away = build([{ host: h, online: false, busy: false, probes: [p] }], { ...opts, detail: { level: 'standard', sections: [] } });
+  assert.equal(find(away.devices, hid, `probe_${p._id.toHexString()}_available`), 'OFF');
+  const here = build([{ host: h, online: true, busy: false, probes: [p] }], { ...opts, detail: { level: 'standard', sections: [] } });
+  assert.equal(find(here.devices, hid, `probe_${p._id.toHexString()}_available`), 'ON');
+  // a fixed host that is offline: its services are still judged by the hub
+  const fixed = { ...host('nas') };
+  const q = probe(fixed, 'SMB', 'up');
+  const off = build([{ host: fixed, online: false, busy: false, probes: [q] }], { ...opts, detail: { level: 'standard', sections: [] } });
+  assert.equal(find(off.devices, `hm_${fixed._id.toHexString()}`, `probe_${q._id.toHexString()}_available`), 'ON');
+});
+
+test('probes section: in the standard and full presets, per host, not in minimal', async () => {
+  const { HA_HOST_SECTIONS, HA_PRESETS, normalizeHostDetail } = await import('../src/homeassistant/detail.js');
+  assert.ok(HA_PRESETS.standard.includes('probes') && HA_PRESETS.full.includes('probes'));
+  assert.ok(!HA_PRESETS.minimal.includes('probes'));
+  assert.ok(HA_HOST_SECTIONS.includes('probes'));
+  assert.deepEqual(normalizeHostDetail({ level: 'custom', sections: ['probes', 'apt'] }), { level: 'custom', sections: ['apt', 'probes'] });
 });

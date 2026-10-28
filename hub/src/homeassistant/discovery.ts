@@ -5,9 +5,10 @@
 //   Homelab Manager (root)
 //   └── one device per host: agent connectivity, alerts rolled up from its sub-components
 //       └── one device per sub-component, with the details: APT, one per Docker compose stack, UPS
+// The probes of a host are entities of its device, or of the device of its stack.
 // Retained topics: <topic>/lwt, <topic>/<device>/<entity>/state, <topic>/<device>/<entity>/set (commands);
 // <device>: the host name as a slug (topicKeys), `manager` for the root.
-import { hasApt, type HaDetail, type HaSection, type HostDoc, type JobAction } from '../types.js';
+import { hasApt, type HaDetail, type HaSection, type HostDoc, type JobAction, type ProbeDoc, type ProbeTarget } from '../types.js';
 import { needsReboot } from '../reboot.js';
 import { alertsOf, hostAlerts as rolledUp, type Alert } from './alerts.js';
 import { evaluate, type HostStatus } from '../monitoring.js';
@@ -76,6 +77,17 @@ export interface HostState {
   agentOutdated?: boolean | null;
   latestAgentVersion?: string | null;
   status?: HostStatus; // registry status (monitoring.ts); computed without backup groups when missing
+  probes?: ProbeDoc[]; // probes attached to the host (probes.ts)
+}
+
+// What a probe checks, in a few words for the attributes of its entity
+function targetText(t: ProbeTarget) {
+  switch (t.type) {
+    case 'mqtt': return `${t.brokerId} · ${t.topic}`;
+    case 'ping': return t.host;
+    case 'tcp': return `${t.host}:${t.port}`;
+    case 'http': return t.url;
+  }
 }
 
 export interface Command {
@@ -172,6 +184,26 @@ export function build(all: HostState[], opts: BuildOptions) {
         })]);
         dev.binary('problem', 'Problème', list.length > 0, { device_class: 'problem', ...extra });
       },
+      // up / down; unavailable when the probe cannot be read (unknown: the service is not judged). The hub measures
+      // it, whatever the agent does: the availability of the device (connectivity of the host) does not apply.
+      probe(p: ProbeDoc, readable: boolean) {
+        const key = `probe_${p._id.toHexString()}`;
+        // ends with /state like the other states: the bridge removes the retained ones nothing publishes any more
+        const available = `${key}_available`;
+        add(key, 'binary_sensor', p.name, {
+          state_topic: t(key), payload_on: 'ON', payload_off: 'OFF', device_class: 'connectivity', json_attributes_topic: t(key, 'attributes'),
+          availability: [...availability, { topic: t(available), payload_available: 'ON', payload_not_available: 'OFF' }],
+          availability_mode: 'all',
+        });
+        states.push([t(key), p.state === 'up' ? 'ON' : 'OFF']);
+        states.push([t(available), readable ? 'ON' : 'OFF']);
+        dev.attributes(key, {
+          type: p.target.type,
+          target: targetText(p.target),
+          since: p.since ? new Date(p.since).toISOString() : null,
+          message: p.message ?? null,
+        });
+      },
       button(key: string, name: string, cmd: Omit<Command, 'payload'>, extra: Component = {}) {
         if (!sec.has('actions')) return;
         add(key, 'button', name, { command_topic: t(key, 'set'), payload_press: PRESS, ...extra });
@@ -217,14 +249,20 @@ export function build(all: HostState[], opts: BuildOptions) {
 
   const stackLabel: Record<string, string> = { running: 'En marche', partial: 'Partielle', stopped: 'Arrêtée', down: 'Down' };
 
-  for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion, status: given } of hosts) {
+  for (const { host, online: isOnline, busy, agentOutdated, latestAgentVersion, status: given, probes: hostProbes = [] } of hosts) {
     const hid = host._id.toHexString();
     const hostId = `hm_${hid}`;
     const hostKey = keys.get(hid)!;
     const hostTopic = `${topic}/${hostKey}`;
     const sec = hostSections(host, global);
     const r = host.apt;
-    const status = given ?? evaluate(host, { online: isOnline, groups: [], now: Date.now(), agentOutdated });
+    const status = given ?? evaluate(host, { online: isOnline, groups: [], now: Date.now(), agentOutdated, probes: hostProbes });
+
+    // probes: an entity on the device of their stack when it is published, else on the host's. A roaming host away is
+    // not followed: its probes are unknown, like the others that cannot be measured.
+    const probeSection = sec.has('probes');
+    const placed = new Set<string>();
+    const readable = (p: ProbeDoc) => (p.state === 'up' || p.state === 'down') && !(host.roaming && !isOnline);
 
     // --- APT sub-component: the details
     const apt = alertsOf(status.domains.apt, 'apt');
@@ -312,6 +350,12 @@ export function build(all: HostState[], opts: BuildOptions) {
       d.button('start', 'Démarrer', { action: 'docker_up', hostIds: [hid], target }, { icon: 'mdi:play' });
       d.button('stop', 'Arrêter', { action: 'docker_stop', hostIds: [hid], target }, { icon: 'mdi:stop' });
       d.alerts(alerts, diag);
+      if (probeSection) {
+        for (const p of hostProbes.filter((x) => x.subject.stack === st.name)) {
+          d.probe(p, readable(p));
+          placed.add(String(p._id));
+        }
+      }
       d.finish();
     }
 
@@ -423,6 +467,7 @@ export function build(all: HostState[], opts: BuildOptions) {
       d.button('reboot', 'Redémarrer', { action: 'reboot', hostIds: [hid] }, { device_class: 'restart' });
     }
     if (view) d.button('docker_check', 'Vérifier les images Docker', { action: 'docker_check', hostIds: [hid] }, { icon: 'mdi:docker' });
+    if (probeSection) for (const p of hostProbes.filter((x) => !placed.has(String(x._id)))) d.probe(p, readable(p));
     d.alerts(hostAlerts);
     d.sensor('os', 'Système', host.info?.osName ?? null, { icon: host.info?.osId === 'windows' ? 'mdi:microsoft-windows' : 'mdi:linux', ...diag });
     d.sensor('kernel', 'Noyau', host.info?.kernel ?? null, { icon: 'mdi:chip', ...diag });
