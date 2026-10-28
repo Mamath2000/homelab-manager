@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
+import clsx from 'clsx';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import type { Job } from '../lib/api';
-import { actionLabel, dateTime, duration } from '../lib/format';
+import { jobTitle, dateTime, duration } from '../lib/format';
 import { useJob } from '../lib/queries';
 import { Spinner } from './ui';
 
@@ -12,7 +13,8 @@ export function JobStatusIcon({ status, className = 'h-4 w-4' }: { status: Job['
 }
 
 // Live output of a job; follows the tail while the job runs.
-export function JobConsole({ jobId, height = 'h-80' }: { jobId: string; height?: string }) {
+// height: classes of the output (fixed height, or flex-1 inside a column that sets it); className: the frame
+export function JobConsole({ jobId, height = 'h-80', className }: { jobId: string; height?: string; className?: string }) {
   const { data: job, isLoading } = useJob(jobId);
   const ref = useRef<HTMLPreElement>(null);
   const stick = useRef(true);
@@ -25,11 +27,11 @@ export function JobConsole({ jobId, height = 'h-80' }: { jobId: string; height?:
   if (isLoading || !job) return <div className="flex justify-center p-8"><Spinner /></div>;
 
   return (
-    <div className="overflow-hidden rounded-md border border-line">
+    <div className={clsx('overflow-hidden rounded-md border border-line', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-raised/60 px-3 py-2 text-xs">
-        <span className="flex items-center gap-2 text-zinc-200">
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-zinc-200">
           <JobStatusIcon status={job.status} />
-          <span className="font-medium">{actionLabel[job.action]}</span>
+          <span className="font-medium">{jobTitle(job)}</span>
           <span className="text-muted">· {job.hostName}</span>
           {job.packages.length > 0 && <span className="text-muted">· {job.packages.length} paquet(s)</span>}
         </span>
@@ -40,11 +42,12 @@ export function JobConsole({ jobId, height = 'h-80' }: { jobId: string; height?:
       </div>
       <pre
         ref={ref}
+        tabIndex={0}
         onScroll={(e) => {
           const el = e.currentTarget;
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
-        className={`${height} overflow-auto bg-black/60 p-3 font-mono text-[12px] leading-relaxed text-zinc-300`}
+        className={`${height} overflow-auto bg-black/60 p-3 font-mono text-[12px] leading-relaxed text-zinc-300 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-emerald-500/40`}
       >
         {job.log || (job.status === 'running' ? 'En attente de la sortie…\n' : '')}
         {job.error && <span className="text-red-400">{`\n✖ ${job.error}\n`}</span>}

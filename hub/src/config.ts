@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// Empty variables (e.g. "PUBLIC_URL=" left in a .env file) count as unset.
+// Empty variables count as unset.
 function env(name: string) {
   const v = process.env[name]?.trim();
   return v ? v : undefined;
@@ -18,17 +18,19 @@ function num(name: string, fallback: number) {
 export const config = {
   version: (JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf8')) as { version: string }).version,
   port: num('PORT', 3000),
+  // TLS port for the agents (install script, binaries, enrollment, WebSocket)
+  agentTlsPort: num('AGENT_TLS_PORT', 3443),
   host: env('HOST') ?? '0.0.0.0',
   mongoUrl: env('MONGO_URL') ?? 'mongodb://localhost:27017/homelab',
-  // URL the agents use to reach the hub. Derived from the request when unset.
-  publicUrl: env('PUBLIC_URL')?.replace(/\/+$/, ''),
   webDir: env('WEB_DIR') ?? resolve(here, '../../web/dist'),
   agentBinDir: env('AGENT_BIN_DIR') ?? resolve(here, '../../agent/dist'),
   assetsDir: resolve(here, '../assets'),
-  // how often the hub asks each agent to run `apt-get update`
-  checkIntervalHours: num('CHECK_INTERVAL_HOURS', 12),
   sessionDays: num('SESSION_DAYS', 30),
   cookieSecure: env('COOKIE_SECURE') === 'true',
   // set when the hub sits behind a reverse proxy (X-Forwarded-* headers)
   trustProxy: env('TRUST_PROXY') === 'true',
+  // Nextcloud AIO plugin of the backups (homelab#148): particular to one setup, hidden unless set
+  featureBackupNextcloudAio: env('FEATURE_BACKUP_NEXTCLOUD_AIO') === 'true',
+  // standardisation of the hosts (setup.ts): hidden and inactive unless set
+  featureStandardisation: env('FEATURE_STANDARDISATION') === 'true',
 };

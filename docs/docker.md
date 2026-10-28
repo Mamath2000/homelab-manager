@@ -1,0 +1,112 @@
+---
+title: Docker
+description: Suivi des stacks docker compose des hôtes, mises à jour des images, actions, logs et fichiers compose
+sidebar_position: 3
+---
+
+# Docker
+
+Le module Docker suit les **stacks docker compose déjà présentes sur les hôtes**. L'hôte reste la source de vérité : rien n'est déployé depuis le hub, on y voit l'état des stacks, les images à mettre à jour, et on agit dessus.
+
+![Page Docker](./img/docker.png)
+
+## Prérequis
+
+- Docker Engine et le plugin **compose v2** (`docker compose version` doit répondre) sur l'hôte ;
+- un agent à jour : il détecte Docker tout seul et l'annonce au hub. Un Docker installé plus tard est pris en compte dans la demi-heure, ou tout de suite en redémarrant l'agent (`systemctl restart homelab-agent`).
+
+Rien à configurer : les stacks sont découvertes à partir des labels que compose pose sur ses conteneurs (`com.docker.compose.project`, dossier et fichiers du projet).
+
+Certains conteneurs créent eux-mêmes d'autres conteneurs rattachés à leur projet compose (Nextcloud AIO : le *mastercontainer* lance apache, nextcloud, database…). Ces conteneurs, absents du fichier compose, sont listés dans la stack sous leur nom avec le badge **hors compose** : état, image et logs, mais aucune action (ils sont gérés par le conteneur qui les a créés).
+
+Sur **Unraid**, les stacks du plugin Compose Manager sont suivies là où il les range (`/boot/config/plugins/compose.manager/projects/…`). Les conteneurs créés par l'interface Docker d'Unraid (templates) ne passent pas par compose : ils ne sont pas suivis.
+
+## Ce qui est suivi
+
+- **Stacks**, avec leur état :
+
+  | État | Signification |
+  |---|---|
+  | En marche | tous les conteneurs tournent |
+  | Partielle | une partie seulement des conteneurs tourne |
+  | Arrêtée | conteneurs présents mais arrêtés (`docker compose stop`) |
+  | Down | plus aucun conteneur (`docker compose down`) |
+
+  Une stack « down » reste listée tant que ses fichiers compose existent, pour pouvoir la redémarrer. **Oublier** (admin, sur la page de la stack) la retire de la liste.
+- **Services et conteneurs** : image, état, santé (`healthy`, `unhealthy`), statut.
+- **Problèmes** : stack partielle, conteneur en mauvaise santé ou qui redémarre en boucle. Une stack arrêtée volontairement n'est pas un problème.
+- L'état est rafraîchi en direct : l'agent suit les événements Docker (démarrage, arrêt, santé…), y compris pour les actions faites en dehors du hub, et renvoie un relevé complet toutes les 5 minutes.
+
+## Mises à jour des images
+
+**Vérifier les images** compare, pour chaque image utilisée par une stack, le digest de l'image locale à celui du même tag sur son registre. L'agent fait une requête `HEAD` sur le manifeste : **rien n'est téléchargé** et Docker Hub ne la compte pas dans son quota de pulls. La vérification est aussi lancée automatiquement, au même rythme que l'`apt-get update` (**Paramètres › Agent**, 12 h par défaut).
+
+| Statut | Signification |
+|---|---|
+| Mise à jour | une image plus récente est publiée sur le registre |
+| À redéployer | la nouvelle image est déjà téléchargée, mais le conteneur tourne encore sur l'ancienne |
+| À jour | image identique à celle du registre |
+| Inconnu | jamais vérifiée, ou non vérifiable (voir ci-dessous) |
+
+Registres : Docker Hub, ghcr.io, lscr.io, quay.io et tout registre compatible avec l'API v2. Les registres en HTTP simple (`localhost` et les `insecure-registries` du démon) sont acceptés. Pour une image privée, l'agent utilise les identifiants de `docker login` stockés en clair dans `/root/.docker/config.json`.
+
+Non vérifiables :
+- les images épinglées par digest (`image@sha256:…`) ;
+- les images construites sur l'hôte et absentes de tout registre ;
+- les registres privés dont les identifiants passent par un *credential helper*.
+
+![Page d'une stack](./img/docker-stack.png)
+
+## Actions
+
+Sur une stack, ou sur un seul de ses services (page de la stack) :
+
+| Action | Commande sur l'hôte |
+|---|---|
+| Démarrer | `docker compose up -d` : démarre, et recrée les conteneurs dont la configuration a changé |
+| Arrêter | `docker compose stop` (les conteneurs ne sont pas supprimés) |
+| Redémarrer | `docker compose restart` |
+| Mettre à jour | `docker compose pull`, `docker compose up -d`, puis `docker image prune -f` (seulement les images devenues orphelines) |
+
+Les actions sont des tâches comme les autres : sortie en direct, historique (onglet **Historique** de la stack et page Activité), une tâche à la fois par hôte. **Mettre à jour (n)** sur la page Docker lance la mise à jour de toutes les stacks concernées.
+
+L'agent ne prend jamais un chemin venant du hub : il n'agit que sur les stacks qu'il a lui-même découvertes, avec leur dossier et leurs fichiers compose, et sur les services qu'elles contiennent.
+
+## Logs et fichiers compose
+
+- **Logs** : dernières lignes de la stack (tous les services, triées dans l'ordre chronologique) ou d'un service, avec suivi toutes les 5 secondes.
+- **Compose** : les fichiers compose de la stack tels qu'ils sont sur l'hôte, en lecture seule. Les fichiers d'environnement (`.env`) sont affichés avec leurs **valeurs masquées**.
+
+Logs et fichiers compose peuvent contenir des secrets : ils sont réservés aux rôles **admin** et **operator**. Le rôle **viewer** voit les stacks, leurs états et leurs mises à jour.
+
+## Tableau de bord
+
+Docker a la même place que les mises à jour APT et les sauvegardes sur le tableau de bord :
+
+- **Bloc de chiffres « Docker »** : stacks en problème, stacks avec une image plus récente, stacks arrêtées, stacks en marche sur le total. Il n'apparaît que si un hôte a Docker ;
+- **Panneau « Stacks Docker à mettre à jour »** (colonne de droite, sur le modèle des correctifs de sécurité) : une ligne par stack, avec le nombre d'images concernées, qui ouvre la page de la stack. Les problèmes restent dans « Autres points à traiter » ;
+- **Jauge « Docker » par site** dans la vue par site : hôtes avec une stack en problème, avec des images à mettre à jour, ou à jour. Elle n'apparaît que pour les sites dont un hôte a Docker, et un problème ou une mise à jour d'image colore aussi la pastille du site.
+
+Les stacks non managées et les hôtes hors ligne n'y sont pas comptés. L'action groupée **Conteneurs Docker** du tableau de bord met à jour toutes les stacks concernées, après confirmation.
+
+## Stacks non managées
+
+Une stack qui a son propre système de mise à jour (ou que l'on veut simplement laisser de côté) peut être sortie de la gestion : **Ne plus gérer** (admin, sur la page de la stack). Elle reste listée, en lecture seule, avec le badge **Non managée** :
+
+- ni état, ni conteneurs, ni problème : rien de cela n'est affiché ni compté (tuiles, tableau de bord, filtre « Arrêtées ») ;
+- les **mises à jour d'image** restent affichées, pour information (badge, détail par service, filtre « À mettre à jour ») : elles ne comptent pas dans les tuiles, le tableau de bord ni la liste des hôtes, et ne sont pas envoyées à Home Assistant ;
+- aucune action : Démarrer, Arrêter, Redémarrer et Mettre à jour sont refusés, y compris par l'API, et la stack est exclue de **Mettre à jour (n)** ;
+- pas publiée dans Home Assistant (son sous-composant disparaît) ;
+- restent consultables : ses services et leurs images, les logs et les fichiers compose.
+
+Le choix est enregistré par le hub (par hôte et nom de stack), rien n'est modifié sur l'hôte. Il survit à un « Oublier » : la stack revient non managée si elle est relancée. **Gérer** la remet dans le suivi normal. L'agent continue de vérifier ses images au registre comme pour les autres stacks.
+
+## Home Assistant
+
+Avec l'intégration activée, chaque stack (sauf les stacks non managées) devient un sous-composant de son hôte (`hôte · stack`) : état, conteneurs en marche, entité `update` « Images » installable depuis Home Assistant, boutons Démarrer, Arrêter et Redémarrer. Ses problèmes remontent en alertes vers l'hôte puis vers Homelab Manager. Voir [Home Assistant](home-assistant.md).
+
+## Limites
+
+- Seuls les conteneurs lancés par **docker compose** sont suivis (pas les `docker run` isolés).
+- Le compose n'est pas modifiable depuis le hub, et le hub ne déploie pas de nouvelle stack : c'est l'étape suivante (synchronisation hôte ↔ hub).
+- Pas de mise à jour automatique des stacks : la mise à jour se lance à la main, depuis l'interface ou Home Assistant.

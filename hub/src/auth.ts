@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 import { hashPassword, randomToken, sha256, verifyPassword } from './crypto.js';
-import { sessions, users } from './db.js';
-import type { UserDoc } from './types.js';
+import { apiKeys, sessions, users } from './db.js';
+import { allowedBeforePasswordChange, authorize } from './roles.js';
+import { SUPERADMIN, type UserDoc } from './types.js';
 
 const COOKIE = 'hm_session';
 
@@ -18,7 +19,7 @@ function isPublic(req: FastifyRequest) {
   const route = req.routeOptions.url;
   // unmatched requests only reach the 404 / SPA fallback
   if (!route) return true;
-  // static UI, install script, agent socket (authenticated by its own token)
+  // static UI and the notice of the old install script (the agents use their own TLS server)
   if (!route.startsWith('/api/')) return true;
   return route.startsWith('/api/auth/') || route === '/api/health';
 }
@@ -35,9 +36,13 @@ function recordFailure(ip: string) {
   failures.set(ip, { count: fresh ? 1 : f.count + 1, until: Date.now() + 60_000 });
 }
 
+// the superadmin only gets a short session out of its one-time password
+const SUPERADMIN_SESSION_MS = 15 * 60_000;
+
 async function startSession(reply: FastifyReply, user: UserDoc) {
   const token = randomToken();
-  const expiresAt = new Date(Date.now() + config.sessionDays * 24 * 3600 * 1000);
+  const ttl = user.role === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionDays * 24 * 3600 * 1000;
+  const expiresAt = new Date(Date.now() + ttl);
   await sessions.insertOne({ _id: sha256(token), userId: user._id, expiresAt });
   reply.setCookie(COOKIE, token, {
     path: '/',
@@ -48,6 +53,22 @@ async function startSession(reply: FastifyReply, user: UserDoc) {
   });
 }
 
+export const API_KEY_PREFIX = 'hm_';
+
+export function newApiKey() {
+  const key = API_KEY_PREFIX + randomToken();
+  return { key, hash: sha256(key) };
+}
+
+// `Authorization: Bearer hm_…`: undefined when the request carries no key, null when it is unknown
+async function userFromApiKey(req: FastifyRequest) {
+  const match = /^Bearer (hm_\S+)$/.exec(req.headers.authorization ?? '');
+  if (!match) return undefined;
+  const key = await apiKeys.findOneAndUpdate({ hash: sha256(match[1]) }, { $set: { lastUsedAt: new Date() } });
+  if (!key) return null;
+  return users.findOne({ _id: key.userId, role: { $ne: SUPERADMIN } });
+}
+
 async function userFromRequest(req: FastifyRequest) {
   const token = req.cookies[COOKIE];
   if (!token) return null;
@@ -56,7 +77,11 @@ async function userFromRequest(req: FastifyRequest) {
   return users.findOne({ _id: session.userId });
 }
 
-const credentialsSchema = {
+export function revokeSessions(user: Pick<UserDoc, '_id'>) {
+  return sessions.deleteMany({ userId: user._id });
+}
+
+const loginSchema = {
   body: {
     type: 'object',
     required: ['username', 'password'],
@@ -68,51 +93,71 @@ const credentialsSchema = {
   },
 } as const;
 
+function me(user: UserDoc) {
+  return {
+    username: user.username,
+    displayName: user.displayName ?? '',
+    role: user.role,
+    mustChangePassword: !!user.mustChangePassword,
+    // optional features of the hub (environment variables)
+    features: { standardisation: config.featureStandardisation },
+  };
+}
+
+async function checkPassword(user: UserDoc, password: string) {
+  if (!user.passwordHash || !password) return false;
+  if (user.role === SUPERADMIN && !(user.passwordExpiresAt && user.passwordExpiresAt > new Date())) return false;
+  return verifyPassword(password, user.passwordHash);
+}
+
+async function consumeSuperadminPassword() {
+  const admin = await users.findOne({ role: SUPERADMIN });
+  if (!admin) return;
+  await users.updateOne({ _id: admin._id }, { $set: { passwordHash: null }, $unset: { passwordExpiresAt: '' } });
+  await sessions.deleteMany({ userId: admin._id });
+}
+
 export function registerAuth(app: FastifyInstance) {
   app.addHook('onRequest', async (req, reply) => {
     if (isPublic(req)) return;
-    const user = await userFromRequest(req);
+    // a key is a credential of its own: it never falls back to the session cookie
+    if (tooManyFailures(req.ip) && req.headers.authorization) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
+    const byKey = await userFromApiKey(req);
+    if (byKey === null) recordFailure(req.ip);
+    const user = byKey === undefined ? await userFromRequest(req) : byKey;
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
+    const route = req.routeOptions.url!;
+    // temporary password: it must be replaced before anything else (the key is not concerned)
+    if (byKey === undefined && user.mustChangePassword && !allowedBeforePasswordChange(req.method, route)) {
+      return reply.code(403).send({ error: 'password_change_required' });
+    }
+    if (!authorize(user.role, req.method, route)) return reply.code(403).send({ error: 'forbidden' });
     req.user = user;
   });
 
   app.get('/api/auth/status', async (req) => {
-    const setupRequired = (await users.countDocuments()) === 0;
-    const user = setupRequired ? null : await userFromRequest(req);
-    return { setupRequired, user: user ? { username: user.username } : null };
+    const user = await userFromRequest(req);
+    // fresh install: log in as superadmin with the password printed in the hub logs
+    const noAccounts = !user && (await users.countDocuments({ role: { $ne: SUPERADMIN } })) === 0;
+    return { noAccounts, cookieSecure: config.cookieSecure, user: user ? me(user) : null };
   });
-
-  // First run: create the admin account. Only possible while no user exists.
-  app.post<{ Body: { username: string; password: string } }>(
-    '/api/auth/setup',
-    { schema: credentialsSchema },
-    async (req, reply) => {
-      if ((await users.countDocuments()) > 0) return reply.code(409).send({ error: 'already configured' });
-      if (req.body.password.length < 8) return reply.code(400).send({ error: 'password must be at least 8 characters' });
-      const doc = {
-        username: req.body.username.trim(),
-        passwordHash: await hashPassword(req.body.password),
-        createdAt: new Date(),
-      };
-      const { insertedId } = await users.insertOne(doc as UserDoc);
-      await startSession(reply, { ...doc, _id: insertedId });
-      return { username: doc.username };
-    },
-  );
 
   app.post<{ Body: { username: string; password: string } }>(
     '/api/auth/login',
-    { schema: credentialsSchema },
+    { schema: loginSchema },
     async (req, reply) => {
       if (tooManyFailures(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
       const user = await users.findOne({ username: req.body.username.trim() });
-      if (!user || !(await verifyPassword(req.body.password, user.passwordHash))) {
+      if (!user || !(await checkPassword(user, req.body.password))) {
         recordFailure(req.ip);
         return reply.code(401).send({ error: 'invalid credentials' });
       }
+      // the superadmin password is not consumed here: a login whose cookie never sticks (e.g. Secure cookie over
+      // http) would lock the install out. It is consumed once a first account has set its own password.
       failures.delete(req.ip);
+      await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
       await startSession(reply, user);
-      return { username: user.username };
+      return me(user);
     },
   );
 
@@ -123,13 +168,13 @@ export function registerAuth(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.post<{ Body: { currentPassword: string; newPassword: string } }>(
+  app.post<{ Body: { currentPassword?: string; newPassword: string } }>(
     '/api/account/password',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['currentPassword', 'newPassword'],
+          required: ['newPassword'],
           properties: {
             currentPassword: { type: 'string', maxLength: 256 },
             newPassword: { type: 'string', minLength: 8, maxLength: 256 },
@@ -139,10 +184,19 @@ export function registerAuth(app: FastifyInstance) {
     },
     async (req, reply) => {
       const user = req.user!;
-      if (!(await verifyPassword(req.body.currentPassword, user.passwordHash))) {
+      // with a temporary password the user just authenticated with it: no need to type it again
+      if (!user.mustChangePassword && !(await checkPassword(user, req.body.currentPassword ?? ''))) {
         return reply.code(400).send({ error: 'current password is wrong' });
       }
-      await users.updateOne({ _id: user._id }, { $set: { passwordHash: await hashPassword(req.body.newPassword) } });
+      await users.updateOne(
+        { _id: user._id },
+        { $set: { passwordHash: await hashPassword(req.body.newPassword), mustChangePassword: false } },
+      );
+      // an account got past its temporary password: the bootstrap/recovery superadmin password has done its job
+      if (user.mustChangePassword) await consumeSuperadminPassword();
+      // other sessions (another browser, someone else) are closed, the current one is kept
+      const current = req.cookies[COOKIE];
+      await sessions.deleteMany({ userId: user._id, _id: { $ne: current ? sha256(current) : '' } });
       return { ok: true };
     },
   );

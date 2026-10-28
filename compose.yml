@@ -1,25 +1,51 @@
+# Déploiement du hub. Les paramètres fonctionnels (URL du hub pour les agents, fréquence des vérifications)
+# se règlent dans l'interface : Paramètres > Agent.
 services:
   hub:
-    image: ${HUB_IMAGE:-mathmath350/homelab-manager:latest}
+    image: mathmath350/homelab-manager:latest
     container_name: homelab-manager
     restart: unless-stopped
     ports:
-      - "${HUB_PORT:-3000}:3000"
-    env_file:
-      - path: .env          # optionnel, voir .env.example
-        required: false
+      - "3000:3000"           # interface et API : <port publié>:3000
+      - "3443:3443"           # agents, en TLS : <port publié>:3443 (à reporter dans Paramètres > Agent s'il diffère)
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
+      LOG_LEVEL: info         # fatal | error | warn | info | debug
+      TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
+      # SESSION_DAYS: 30
+      # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
+      # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
+      # FEATURE_BACKUP_NEXTCLOUD_AIO: "true"  # affiche le plugin Nextcloud AIO des sauvegardes (absente : désactivé)
+      # FEATURE_STANDARDISATION: "true"  # affiche et active la standardisation des hôtes (absente : désactivée)
     depends_on:
       - mongo
+
+  # Accès Tailscale (hôtes hors LAN), optionnel : décommenter ce service, mettre TS_AUTHKEY dans tailscale.env,
+  # puis `docker compose --profile tailscale up -d`. Mode userspace : aucun /dev/net/tun ni interface sur l'hôte
+  # (fonctionne dans un LXC). Seul le port agents (3443) est relayé vers le hub, l'interface n'est pas exposée.
+  # tailscale:
+  #   profiles: [tailscale]
+  #   image: tailscale/tailscale:stable
+  #   container_name: homelab-manager-tailscale
+  #   restart: unless-stopped
+  #   env_file: tailscale.env            # TS_AUTHKEY=tskey-auth-… (jamais commité ; inutile après le premier démarrage)
+  #   environment:
+  #     TS_HOSTNAME: homelab-manager     # nom du nœud : à reporter dans Paramètres > Agent > Adresse du hub sur Tailscale
+  #     TS_USERSPACE: "true"
+  #     TS_STATE_DIR: /var/lib/tailscale
+  #     TS_SERVE_CONFIG: /config/serve.json
+  #   volumes:
+  #     - ./tailscale:/var/lib/tailscale   # identité du nœud
+  #     - ./tailscale-serve.json:/config/serve.json:ro
+  #   depends_on:
+  #     - hub
 
   mongo:
     # MongoDB 5+ needs a CPU with AVX; use mongo:4.4 on older hardware.
     image: mongo:7
     container_name: homelab-manager-mongo
     restart: unless-stopped
+    command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
     volumes:
-      - mongo-data:/data/db
-
-volumes:
-  mongo-data:
+      - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
+      - ./mongo-config:/data/configdb

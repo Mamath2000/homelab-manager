@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
+import { Ctx } from '../lib/toast';
 
 interface Toast {
   id: number;
@@ -7,7 +8,6 @@ interface Toast {
   text: string;
 }
 
-const Ctx = createContext<{ success: (t: string) => void; error: (t: string) => void } | null>(null);
 let seq = 0;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -38,10 +38,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </Ctx.Provider>
   );
-}
-
-export function useToast() {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error('ToastProvider missing');
-  return ctx;
 }

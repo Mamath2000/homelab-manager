@@ -3,4 +3,9 @@ dist/
 *.log
 .env
 .env.*
-!.env.example
+agent/.build-hash
+agent/.dev/
+mongo-data/
+mongo-config/
+tailscale.env
+tailscale/

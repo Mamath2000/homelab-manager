@@ -7,6 +7,12 @@ export function publish(event: string, data: unknown) {
   for (const l of listeners) l(event, data);
 }
 
+// In-process subscribers (e.g. the Home Assistant bridge); returns the unsubscribe function.
+export function subscribe(listener: Listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 // Server-Sent Events stream used by the UI for live updates.
 export function registerEvents(app: FastifyInstance) {
   app.get('/api/events', (req, reply) => {

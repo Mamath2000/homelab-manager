@@ -1,0 +1,230 @@
+import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Lock } from 'lucide-react';
+import { api } from '../lib/api';
+import { useAgentTls } from '../lib/agentTls';
+import { useToast } from '../lib/toast';
+import { SettingsFormActions } from './SettingsForm';
+import { useSettingsDraft } from './settingsDraft';
+import { CopyField } from './ui';
+
+// Automatic agent updates + the agent version the hub distributes.
+export function AgentAutoUpdate({ children }: { children?: (actions: ReactNode) => ReactNode }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings });
+  const [draft, setDraft] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const autoUpdate = draft ?? data?.autoUpdate ?? false;
+
+  const save = async () => {
+    if (!data) return false;
+    setBusy(true);
+    try {
+      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({ autoUpdate }));
+      setDraft(null);
+      toast.success(autoUpdate ? 'Mise à jour automatique des agents activée' : 'Mise à jour automatique des agents désactivée');
+      return true;
+    } catch (err) {
+      toast.error((err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const discard = () => setDraft(null);
+  const dirty = !!data && draft !== null && autoUpdate !== data.autoUpdate;
+  useSettingsDraft(dirty, save, discard);
+  if (!data) return null;
+  const version = data.binaries.find((b) => b.version)?.version;
+
+  return (
+    <>
+      <div className="rounded-md border border-line bg-raised/40 p-4">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input type="checkbox" checked={autoUpdate} onChange={(e) => setDraft(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-500" />
+          <span>
+            <span className="block font-medium text-zinc-100">Mettre à jour les agents automatiquement</span>
+            <span className="mt-1 block text-xs text-muted">
+              Dès qu'un agent se connecte avec une version différente de celle du hub, il télécharge la nouvelle, vérifie son empreinte et sa signature, puis redémarre.
+              Un nouvel essai a lieu au plus une fois par heure.
+            </span>
+          </span>
+        </label>
+        <p className="mt-3 text-xs text-muted">
+          Agent distribué par ce hub : <span className="font-mono text-zinc-300">{version ?? 'inconnu'}</span>
+          {data.binaries.length > 0 && <> ({data.binaries.map((b) => `${b.os}/${b.arch}`).join(', ')})</>}
+          {data.binaries.length > 0 &&
+            (data.binaries.every((b) => b.signed) ? (
+              <span className="text-emerald-400"> · signé</span>
+            ) : (
+              <span className="text-amber-300"> · non signé (build de développement : les agents de release refuseront cette mise à jour)</span>
+            ))}
+        </p>
+      </div>
+      {children
+        ? children(<SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />)
+        : <SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />}
+    </>
+  );
+}
+
+// Hub address and TLS port given to the agents, interval of the automatic apt-get update.
+export function AgentHubSettings() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings });
+  // local draft once edited, server values until then
+  const [draft, setDraft] = useState<{ hubUrl: string; agentPort: string; tailscaleHub: string; checkIntervalHours: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const form = draft ?? {
+    hubUrl: data?.hubUrl ?? '',
+    agentPort: String(data?.agentPort ?? 3443),
+    tailscaleHub: data?.tailscaleHub ?? '',
+    checkIntervalHours: String(data?.checkIntervalHours ?? 0),
+  };
+
+  const save = async () => {
+    if (!data) return false;
+    setBusy(true);
+    try {
+      qc.setQueryData(['settings', 'agents'], await api.saveAgentSettings({
+        hubUrl: form.hubUrl,
+        agentPort: Number(form.agentPort),
+        tailscaleHub: form.tailscaleHub,
+        checkIntervalHours: Number(form.checkIntervalHours),
+      }));
+      setDraft(null);
+      toast.success('Paramètres des agents enregistrés');
+      return true;
+    } catch (err) {
+      toast.error((err as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const discard = () => setDraft(null);
+  const dirty = !!data && !!draft && (
+    form.hubUrl !== data.hubUrl ||
+    form.agentPort !== String(data.agentPort) ||
+    form.tailscaleHub !== data.tailscaleHub ||
+    form.checkIntervalHours !== String(data.checkIntervalHours)
+  );
+  useSettingsDraft(dirty, save, discard);
+  if (!data) return null;
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); void save(); }} className="space-y-4">
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">URL du hub</span>
+        <input
+          className="input"
+          value={form.hubUrl}
+          onChange={(e) => setDraft({ ...form, hubUrl: e.target.value })}
+          placeholder={window.location.origin}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">
+          Adresse de l'interface telle que les hôtes la joignent (liens Home Assistant) ; les agents utilisent son nom d'hôte avec le port TLS ci-dessous.
+          Vide : l'adresse de ce navigateur.
+        </span>
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Port TLS des agents</span>
+        <input
+          className="input w-32"
+          type="number"
+          min={1}
+          max={65535}
+          required
+          value={form.agentPort}
+          onChange={(e) => setDraft({ ...form, agentPort: e.target.value })}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">
+          Port publié du hub pour les agents (3443 par défaut). Un agent déjà installé garde l'adresse de son installation : après un changement, relance la commande de mise à jour sur l'hôte.
+        </span>
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Adresse du hub sur Tailscale</span>
+        <input
+          className="input"
+          value={form.tailscaleHub}
+          onChange={(e) => setDraft({ ...form, tailscaleHub: e.target.value })}
+          placeholder="100.x.y.z ou hub.tailnet.ts.net"
+          spellCheck={false}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">
+          Nom d'hôte ou IP du hub sur le tailnet, sans http:// ni port (le port TLS ci-dessus est repris). Renseignée, elle ajoute le réseau d'accès « Tailscale » à l'ajout d'un hôte ; vide : seul le LAN est proposé.
+        </span>
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Vérification automatique des mises à jour (heures)</span>
+        <input
+          className="input w-32"
+          type="number"
+          min={0}
+          max={720}
+          required
+          value={form.checkIntervalHours}
+          onChange={(e) => setDraft({ ...form, checkIntervalHours: e.target.value })}
+        />
+        <span className="mt-1 block text-xs text-zinc-500">Fréquence de l'apt-get update lancé sur chaque hôte. 0 : désactivé.</span>
+      </label>
+      <SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />
+    </form>
+  );
+}
+
+// Pinned keys of the agent server, to check the install command by hand.
+export function AgentTlsInfo() {
+  const tls = useAgentTls();
+  if (!tls) return null;
+  return (
+    <div className="rounded-md border border-line bg-raised/40 p-4">
+      <p className="mb-2 flex items-center gap-2 font-medium text-zinc-100">
+        <Lock className="h-4 w-4 text-emerald-400" /> Connexion des agents
+      </p>
+      <p className="mb-3 text-xs text-muted">
+        Chiffrée en TLS, avec un certificat par agent émis par l'autorité interne du hub. La commande d'installation épingle la clé du serveur ; l'agent
+        n'accepte ensuite que les certificats de cette autorité.
+      </p>
+      <dl className="space-y-2 text-xs">
+        <div>
+          <dt className="text-muted">Adresse des agents</dt>
+          <dd className="font-mono text-zinc-200">{tls.agentUrl ?? <span className="text-red-400">URL du hub invalide</span>}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Clé épinglée du serveur (SHA-256 de la clé publique, base64)</dt>
+          <dd className="font-mono break-all text-zinc-200">{tls.serverPin}</dd>
+        </div>
+        <div>
+          <dt className="text-muted">Empreinte de l'autorité de certification (SHA-256)</dt>
+          <dd className="font-mono break-all text-zinc-200">{tls.caFingerprint.match(/../g)?.join(':').toUpperCase()}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+// Manual upgrade and uninstall commands, to run as root on a host.
+export function AgentManualCommands() {
+  const tls = useAgentTls();
+  if (!tls) return null;
+  return (
+    <div className="space-y-4">
+      {tls.upgradeCommand && (
+        <div>
+          <p className="mb-2 text-zinc-300">Mettre à jour un agent à la main, en root sur l'hôte (son certificat est conservé) :</p>
+          <CopyField value={tls.upgradeCommand} multiline />
+        </div>
+      )}
+      {tls.uninstallCommand && (
+        <div>
+          <p className="mb-2 text-zinc-300">Désinstaller l'agent :</p>
+          <CopyField value={tls.uninstallCommand} multiline />
+        </div>
+      )}
+    </div>
+  );
+}

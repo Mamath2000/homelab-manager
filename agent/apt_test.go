@@ -1,6 +1,12 @@
+//go:build !windows
+
 package main
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"testing"
+)
 
 func TestParseUpgradable(t *testing.T) {
 	out := `Listing...
@@ -19,11 +25,37 @@ curl/stable-updates 7.88.1-10+deb12u6 amd64 [upgradable from: 7.88.1-10+deb12u5]
 	}
 }
 
+func TestParseAutoremove(t *testing.T) {
+	out := `Reading package lists...
+The following packages will be REMOVED:
+  libyuv0 linux-image-6.18.33+rpt-rpi-v8
+0 upgraded, 0 newly installed, 2 to remove and 0 not upgraded.
+Remv linux-image-6.18.33+rpt-rpi-v8 [1:6.18.33-1+rpt1]
+Remv libyuv0 [0.0~git20230123.b2528b0-1]
+`
+	p := parseAutoremove(out)
+	if len(p) != 2 || p[0] != "libyuv0" || p[1] != "linux-image-6.18.33+rpt-rpi-v8" {
+		t.Fatalf("unexpected %v", p)
+	}
+	if len(parseAutoremove("0 upgraded, 0 newly installed, 0 to remove")) != 0 {
+		t.Fatal("expected nothing to remove")
+	}
+}
+
 func TestValidPackages(t *testing.T) {
 	if !validPackages([]string{"libc6", "g++-12", "libstdc++6:amd64"}) {
 		t.Fatal("valid rejected")
 	}
 	if validPackages([]string{"foo; rm -rf /"}) || validPackages([]string{"--purge"}) {
 		t.Fatal("invalid accepted")
+	}
+}
+
+func TestSelfUpdateChecksum(t *testing.T) {
+	if err := selfUpdate(context.Background(), http.DefaultClient, "http://127.0.0.1:1", "short", func(string) {}); err == nil {
+		t.Fatal("an invalid expected hash must be refused before any download")
+	}
+	if len(selfHash()) != 64 {
+		t.Fatal("selfHash must return a sha256")
 	}
 }

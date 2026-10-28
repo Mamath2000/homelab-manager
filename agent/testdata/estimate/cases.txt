@@ -1,0 +1,24 @@
+# name<TAB>pattern<TAB>pattern… (exclusions passed to --exclude); a case without pattern: no --exclude
+none
+cache	**/.cache
+cache_slash	.cache/
+nodemods	node_modules
+nodemods_dir	node_modules/
+logs	*.log
+logs_keep	*.log	!keep.log
+rooted	/tmp	/var/tmp
+rooted_dir	/tmp/	/README.md/
+starstar	home/**/docs	var/**/*.log*
+mid_star	home/*/tmp
+class	data/[ab]?	data/[^a]?
+class_named	data/[[:alpha:]][[:digit:]]
+range	data/[a-b]*
+question	var/log/syslog.?
+escape	weird/\[br]	weird/star\*
+space	weird/a b
+hidden	.*
+negate_dir	home/	!home/u1/	home/u1/.cache
+dotdot	./var/../proj/build
+star_root	*
+starstar_tail	proj/**
+bak	*.bak	*.txt.*

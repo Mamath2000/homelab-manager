@@ -1,0 +1,41 @@
+# Fixture tree of the estimate conformance test (estimate_golden_test.go, regen.sh).
+# f <path> : file ; d <path> : empty directory ; x <path> <content> : file with content (\n escapes)
+f a.log
+f keep.log
+f README.md
+f data/a1
+f data/b2
+f data/c3
+f data/sub/a1
+f data/.hidden
+f home/u1/.cache/pip/x
+f home/u1/.cache/y
+f home/u1/docs/n.txt
+f home/u1/docs/old.txt.bak
+f home/u1/node_modules/m/i.js
+f home/u2/.cache
+f home/u2/tmp/t
+f home/u2/Tmp/t
+f proj/node_modules/x.js
+f proj/src/node_modules
+f proj/src/main.go
+f proj/build/out.bin
+f proj/build.log
+f tmp/t1
+f var/tmp/t2
+f var/log/syslog
+f var/log/syslog.1
+f var/log/app/app.log.2
+f var/lib/db/f1
+f var/lib/db/f2
+f weird/a b/c
+f weird/x-y_z
+f weird/[br]
+f weird/star*
+d empty
+d proj/dist
+x proj/.pxarexclude build/\n# comment\n/dist\n!keep.bin\n  *.log  \n
+f proj/keep.bin
+f proj/sub/keep.bin
+f proj/sub/x.bin
+x var/lib/.pxarexclude /db/f2\n

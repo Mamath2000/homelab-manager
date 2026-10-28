@@ -1,14 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import { ArrowUpCircle, PackageCheck, Search } from 'lucide-react';
-import { useToast } from '../components/Toast';
-import { Badge, Button, Checkbox, ConfirmModal, Empty, PageHeader, Spinner } from '../components/ui';
+import { RebootTag } from '../components/Reboot';
+import { useToast } from '../lib/toast';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Badge, Button, Checkbox, Empty, ResponsiveList, Spinner } from '../components/ui';
 import { api, type Host } from '../lib/api';
 import { useHosts } from '../lib/queries';
+import { useMe } from '../lib/auth';
 
 interface Row {
   name: string;
   security: boolean;
+  reboot: boolean;
   candidates: Set<string>;
   hosts: Host[];
 }
@@ -17,17 +21,27 @@ interface Row {
 export function Updates() {
   const { data: hosts, isLoading } = useHosts();
   const toast = useToast();
-  const [q, setQ] = useState('');
-  const [securityOnly, setSecurityOnly] = useState(false);
-  const [target, setTarget] = useState<Row | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { canWrite } = useMe();
+  const [params, setParams] = useSearchParams();
+  const q = params.get('q') ?? '';
+  const securityOnly = params.get('security') === '1';
+  // package whose upgrade is being started
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
 
   const rows = useMemo(() => {
     const map = new Map<string, Row>();
     for (const h of hosts ?? []) {
       for (const p of h.apt?.upgradable ?? []) {
-        const r = map.get(p.name) ?? { name: p.name, security: false, candidates: new Set(), hosts: [] };
+        const r = map.get(p.name) ?? { name: p.name, security: false, reboot: false, candidates: new Set(), hosts: [] };
         r.security ||= p.security;
+        r.reboot ||= !!p.reboot;
         r.candidates.add(p.candidate);
         r.hosts.push(h);
         map.set(p.name, r);
@@ -40,7 +54,7 @@ export function Updates() {
   const affected = new Set(rows.flatMap((r) => r.hosts.map((h) => h.id))).size;
 
   const upgrade = async (row: Row) => {
-    setBusy(true);
+    setBusy(row.name);
     const targets = row.hosts.filter((h) => h.online);
     let ok = 0;
     for (const h of targets) {
@@ -51,8 +65,7 @@ export function Updates() {
         // reported below through the counter
       }
     }
-    setBusy(false);
-    setTarget(null);
+    setBusy(null);
     if (ok) toast.success(`${row.name} : mise à jour lancée sur ${ok} hôte(s)`);
     if (ok < targets.length) toast.error(`${targets.length - ok} hôte(s) n'ont pas pu démarrer la mise à jour`);
   };
@@ -61,7 +74,7 @@ export function Updates() {
 
   return (
     <>
-      <PageHeader icon={PackageCheck} title="Mises à jour" />
+      <HeaderTitle icon={PackageCheck} title="Mises à jour" />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         {[
@@ -79,17 +92,50 @@ export function Updates() {
       <div className="mb-4 flex flex-wrap items-center gap-4">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input className="input h-9 py-0 pl-9" placeholder="Filtrer les paquets" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input className="input h-9 py-0 pl-9" placeholder="Filtrer les paquets" value={q} onChange={(e) => setParam('q', e.target.value)} />
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
-          <Checkbox checked={securityOnly} onChange={setSecurityOnly} /> Sécurité uniquement
+          <Checkbox checked={securityOnly} onChange={(checked) => setParam('security', checked ? '1' : '')} /> Sécurité uniquement
         </label>
       </div>
 
-      <div className="panel overflow-x-auto">
+      <div className="panel min-w-0">
         {list.length === 0 ? (
           <Empty icon={PackageCheck} title={rows.length ? 'Aucun paquet ne correspond' : 'Tout est à jour'} />
         ) : (
+          <>
+          <ResponsiveList mode="mobile">
+            {list.map((r) => (
+              <article key={r.name} className="min-w-0 space-y-3 p-4">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="min-w-0 break-all font-medium text-zinc-100">{r.name}</h2>
+                  {r.security && <Badge tone="bad">sécurité</Badge>}
+                  {r.reboot && <RebootTag />}
+                </div>
+                <div className="break-all font-mono text-xs text-emerald-300">{[...r.candidates].join(', ')}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {r.hosts.map((h) => (
+                    <Link key={h.id} to={`/hosts/${h.id}`} className={`rounded-sm px-2 py-1 text-xs font-semibold ${h.online ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-zinc-500 line-through'}`}>
+                      {h.name}
+                    </Link>
+                  ))}
+                </div>
+                {canWrite && (
+                  <Button
+                    size="sm"
+                    icon={ArrowUpCircle}
+                    className="min-h-10 w-full md:min-h-0 md:w-auto"
+                    disabled={!r.hosts.some((h) => h.online) || !!busy}
+                    loading={busy === r.name}
+                    onClick={() => upgrade(r)}
+                  >
+                    Mettre à jour ({r.hosts.filter((h) => h.online).length})
+                  </Button>
+                )}
+              </article>
+            ))}
+          </ResponsiveList>
+          <ResponsiveList mode="desktop">
           <table className="w-full min-w-[760px] text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -105,35 +151,32 @@ export function Updates() {
                   <td className="td">
                     <span className="font-medium text-zinc-100">{r.name}</span>
                     {r.security && <Badge tone="bad" className="ml-2">sécurité</Badge>}
+                    {r.reboot && <RebootTag />}
                   </td>
                   <td className="td font-mono text-xs text-emerald-300">{[...r.candidates].join(', ')}</td>
                   <td className="td">
                     <div className="flex flex-wrap gap-1.5">
                       {r.hosts.map((h) => (
-                        <Link key={h.id} to={`/hosts/${h.id}`} className={`rounded px-2 py-0.5 text-xs font-semibold ${h.online ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-zinc-500 line-through'}`}>
+                        <Link key={h.id} to={`/hosts/${h.id}`} className={`rounded-sm px-2 py-0.5 text-xs font-semibold ${h.online ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-900 text-zinc-500 line-through'}`}>
                           {h.name}
                         </Link>
                       ))}
                     </div>
                   </td>
                   <td className="td text-right">
-                    <Button size="sm" icon={ArrowUpCircle} disabled={!r.hosts.some((h) => h.online)} onClick={() => setTarget(r)}>
+                    {canWrite && <Button size="sm" icon={ArrowUpCircle} disabled={!r.hosts.some((h) => h.online) || !!busy} loading={busy === r.name} onClick={() => upgrade(r)}>
                       Mettre à jour ({r.hosts.filter((h) => h.online).length})
-                    </Button>
+                    </Button>}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </ResponsiveList>
+          </>
         )}
       </div>
 
-      <ConfirmModal open={!!target} onClose={() => setTarget(null)} title={`Mettre à jour ${target?.name}`} confirmLabel="Lancer" loading={busy} onConfirm={() => target && upgrade(target)}>
-        <p>
-          <code className="text-zinc-100">apt-get install --only-upgrade {target?.name}</code> sera lancé sur {target?.hosts.filter((h) => h.online).length} hôte(s) en ligne.
-        </p>
-        {target?.hosts.some((h) => !h.online) && <p className="mt-2 text-xs text-muted">Les hôtes hors ligne sont ignorés.</p>}
-      </ConfirmModal>
     </>
   );
 }

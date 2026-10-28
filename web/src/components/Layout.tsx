@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import { Suspense, useCallback, useMemo, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { History, LayoutDashboard, LogOut, Menu, PackageCheck, Search, Server, Settings, User, type LucideIcon } from 'lucide-react';
-import { StatusDot } from './ui';
+import { Activity, Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Plus, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { HeaderSlotContext } from '../lib/headerSlot';
+import { ROLE_LABELS, useMe } from '../lib/auth';
+import { AddHostModal } from './AddHostModal';
+import { ChangePasswordModal } from './ChangePasswordModal';
+import { HostQuickSwitch } from './HostQuickSwitch';
+import { Spinner, StatusDot } from './ui';
 
 interface NavItem {
   to: string;
@@ -19,6 +26,9 @@ const sections: { title?: string; items: NavItem[] }[] = [
     items: [
       { to: '/hosts', label: 'Hôtes', icon: Server },
       { to: '/updates', label: 'Mises à jour', icon: PackageCheck },
+      { to: '/docker', label: 'Docker', icon: Container },
+      { to: '/backups', label: 'Sauvegardes', icon: DatabaseBackup },
+      { to: '/health', label: 'Santé', icon: Activity },
     ],
   },
   {
@@ -47,7 +57,7 @@ function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
       onClick={onClick}
       className={({ isActive }) =>
         clsx(
-          'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition',
+          'flex items-center gap-2.5 rounded-md px-3 py-3 text-sm font-medium transition md:py-2',
           isActive ? 'bg-raised text-zinc-50 ring-1 ring-inset ring-line' : 'text-zinc-400 hover:bg-raised/60 hover:text-zinc-100',
         )
       }
@@ -58,10 +68,11 @@ function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
   );
 }
 
-function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+function Sidebar({ onNavigate, onPassword, onLogout }: { onNavigate?: () => void; onPassword: () => void; onLogout: () => void }) {
+  const me = useMe();
   return (
     <nav className="flex h-full flex-col gap-1 p-4">
-      {sections.map((s, i) => (
+      {!me.isSuperAdmin && sections.map((s, i) => (
         <div key={i} className="flex flex-col gap-1">
           {s.title && (
             <div className="mb-1 mt-3 flex items-center gap-2 px-1 text-[11px] uppercase tracking-wider text-zinc-500">
@@ -75,89 +86,125 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           ))}
         </div>
       ))}
-      <div className="mt-auto border-t border-line pt-3">
-        <SideLink item={{ to: '/settings', label: 'Paramètres', icon: Settings }} onClick={onNavigate} />
+      {me.canAccounts && (
+        <div className="mt-auto flex flex-col gap-1 border-t border-line pt-3">
+          <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} />
+        </div>
+      )}
+      <div className={clsx('flex flex-col gap-2 border-t border-line pt-3', !me.canAccounts && 'mt-auto')}>
+        <div className="flex min-w-0 items-start gap-2 px-3 text-zinc-300" title={ROLE_LABELS[me.role]}>
+          <User className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm">{me.displayName || me.username}</span>
+            <span className="block truncate text-xs text-muted">{ROLE_LABELS[me.role]}</span>
+          </span>
+        </div>
+        <div className="flex gap-1">
+          {!me.isSuperAdmin && (
+            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className="flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0">
+              <KeyRound className="h-4 w-4" /> Mot de passe
+            </button>
+          )}
+          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className="flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0">
+            <LogOut className="h-4 w-4" /> Déconnexion
+          </button>
+        </div>
       </div>
     </nav>
   );
 }
 
-function SearchBox() {
-  const navigate = useNavigate();
-  const [q, setQ] = useState('');
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes(target.tagName)) {
-        e.preventDefault();
-        ref.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+// Hub version and the agent version it distributes (what agents are updated to).
+function Versions() {
+  const { isSuperAdmin } = useMe();
+  const { data } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, staleTime: 60_000, enabled: !isSuperAdmin });
+  const agent = data?.binaries.find((b) => b.version)?.version;
   return (
-    <form
-      className="relative hidden w-full max-w-md sm:block"
-      onSubmit={(e) => {
-        e.preventDefault();
-        navigate(`/hosts?q=${encodeURIComponent(q)}`);
-        setQ('');
-        ref.current?.blur();
-      }}
-    >
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-      <input ref={ref} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" className="input h-9 py-0 pl-9 pr-10" />
-      <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-line bg-panel px-1.5 text-[10px] text-muted">/</kbd>
-    </form>
+    <span className="hidden items-center gap-3 text-xs text-muted lg:flex">
+      <span title="Version du hub">hub v{__APP_VERSION__}</span>
+      {agent && <span title="Version de l'agent distribuée par le hub">agent {agent}</span>}
+    </span>
   );
 }
 
-export function Layout({ user, live, onLogout }: { user: string; live: boolean; onLogout: () => void }) {
-  const [drawer, setDrawer] = useState(false);
-  const location = useLocation();
-  useEffect(() => setDrawer(false), [location.pathname]);
+export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void }) {
+  const me = useMe();
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [addingHost, setAddingHost] = useState(false);
+  const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
+  const [extraSlot, setExtraSlot] = useState<HTMLElement | null>(null);
+  const slots = useMemo(() => ({ title: titleSlot, extra: extraSlot }), [titleSlot, extraSlot])
+  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
+  const openQuickSwitch = useCallback(() => setQuickSwitchOpen(true), []);
+  const closeQuickSwitch = useCallback(() => setQuickSwitchOpen(false), []);
+  const { pathname } = useLocation();
+  // drawer is open for the path it was opened on: any navigation closes it
+  const [drawerPath, setDrawerPath] = useState<string | null>(null);
+  const drawer = drawerPath === pathname;
+  const setDrawer = (open: boolean) => setDrawerPath(open ? pathname : null);
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur md:px-6">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
         <div className="flex items-center gap-3">
-          <button className="rounded p-1.5 text-zinc-400 hover:bg-raised md:hidden" onClick={() => setDrawer((d) => !d)} aria-label="Menu">
+          <button className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised lg:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
         </div>
-        <SearchBox />
+        <div ref={setTitleSlot} className="flex min-w-0 flex-1 items-center gap-3" />
+        {/* centred on the bar: the site of the host, wide screens only (it would cover the title otherwise) */}
+        <div ref={setExtraSlot} className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 items-center xl:flex [&>*]:pointer-events-auto" />
         <div className="flex items-center gap-4 text-sm">
-          <span className="hidden text-xs text-muted lg:inline">v{__APP_VERSION__}</span>
-          <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
-            <StatusDot tone={live ? 'ok' : 'bad'} />
-          </span>
-          <span className="hidden items-center gap-1.5 text-zinc-300 sm:flex">
-            <User className="h-4 w-4" />
-            {user}
-          </span>
-          <button onClick={onLogout} title="Se déconnecter" className="rounded p-1.5 text-zinc-400 hover:bg-raised hover:text-zinc-100">
-            <LogOut className="h-4 w-4" />
-          </button>
+          {me.canManage && !me.isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => setAddingHost(true)}
+              aria-label="Ajouter un hôte"
+              title="Ajouter un hôte"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-line px-2.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-500/50 hover:bg-raised hover:text-emerald-300 md:h-8"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ajouter</span>
+            </button>
+          )}
+          <Versions />
+          {me.canSettings && (
+            <NavLink to="/settings" aria-label="Paramètres" title="Paramètres" className={({ isActive }) => clsx('inline-flex h-10 w-10 items-center justify-center rounded-sm transition hover:bg-raised hover:text-zinc-100 md:h-7 md:w-7', isActive ? 'text-emerald-300' : 'text-zinc-400')}>
+              <Settings className="h-4 w-4" />
+            </NavLink>
+          )}
+          {!me.isSuperAdmin && (
+            <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
+              <StatusDot tone={live ? 'ok' : 'bad'} />
+            </span>
+          )}
         </div>
       </header>
 
-      <aside className="fixed bottom-0 left-0 top-14 hidden w-60 border-r border-line bg-bg md:block">
-        <Sidebar />
+      <aside className="fixed bottom-0 left-0 top-14 hidden w-60 border-r border-line bg-bg lg:block">
+        <Sidebar onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
       </aside>
       {drawer && (
-        <div className="fixed inset-0 top-14 z-20 bg-black/60 md:hidden" onClick={() => setDrawer(false)}>
+        <div className="fixed inset-0 top-14 z-20 bg-black/60 lg:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-64 border-r border-line bg-bg" onClick={(e) => e.stopPropagation()}>
-            <Sidebar onNavigate={() => setDrawer(false)} />
+            <Sidebar onNavigate={() => setDrawer(false)} onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
           </aside>
         </div>
       )}
 
-      <main className="px-4 py-6 md:ml-60 md:px-8">
-        <div className="mx-auto max-w-[1600px]">
-          <Outlet />
+      <AddHostModal open={addingHost} onClose={() => setAddingHost(false)} />
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
+
+      <main className="px-4 py-6 lg:ml-60 lg:px-8">
+        <div>
+          {/* pages are lazy chunks: the menu stays in place while one loads */}
+          <HeaderSlotContext.Provider value={slots}>
+            <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>
+              <Outlet />
+            </Suspense>
+          </HeaderSlotContext.Provider>
         </div>
       </main>
     </div>

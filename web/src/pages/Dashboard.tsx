@@ -1,143 +1,140 @@
 import { useState } from 'react';
-import { History, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCw, Server, ShieldAlert } from 'lucide-react';
+import clsx from 'clsx';
+import { LayoutDashboard, Plus, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
-import { JobStatusIcon } from '../components/JobConsole';
-import { ItemCard, StatusSection } from '../components/StatusSection';
-import { Badge, Button, Empty, PageHeader, Spinner, Tag } from '../components/ui';
-import { actionLabel, timeAgo } from '../lib/format';
-import { useHosts, useJobs, useRunBulk } from '../lib/queries';
-import { connection, connectionMeta, listsStale, osLabel, updateMeta, updateState } from '../lib/status';
-import type { Host } from '../lib/api';
+import { DashboardActions } from '../components/DashboardActions';
+import { DashboardTodo } from '../components/DashboardTodo';
+import { MountBanner } from '../components/PbsMount';
+import { SiteOverview } from '../components/SiteOverview';
+import { SiteTimeline } from '../components/SiteTimeline';
+import { HeaderTitle } from '../components/HeaderSlot';
+import { Button, Empty, Spinner } from '../components/ui';
+import { useBackups, useHosts, useJobs, useSites } from '../lib/queries';
+import { aptTile, backupTile, count, groupSites, oldestBackup } from '../lib/sites';
+import { allStacks, hasApt, type Tone } from '../lib/status';
+import { useMe } from '../lib/auth';
+import type { BackupGroup, Host } from '../lib/api';
 
-const connOrder = { offline: 0, pending: 1, online: 2 };
-const updOrder = { security: 0, updates: 1, unknown: 2, uptodate: 3 };
+const border: Record<Tone, string> = {
+  ok: 'border-emerald-500',
+  warn: 'border-amber-500',
+  bad: 'border-red-500',
+  info: 'border-sky-500',
+  unknown: 'border-violet-500',
+  neutral: 'border-line',
+};
 
-function HostTags({ h }: { h: Host }) {
+function Kpi({ value, label, tone }: { value: string | number; label: string; tone: Tone }) {
   return (
-    <>
-      {h.group && <Tag>{h.group}</Tag>}
-      {osLabel(h) && <Tag>{osLabel(h)}</Tag>}
-      {h.info?.virt && h.info.virt !== 'none' && <Tag>{h.info.virt}</Tag>}
-    </>
+    <div className={clsx('border-l-[3px] py-0.5 pl-2.5', border[tone])}>
+      <b className="block text-[26px] font-semibold leading-tight tabular-nums text-zinc-100">{value}</b>
+      <span className="text-xs text-muted">{label}</span>
+    </div>
+  );
+}
+
+function KpiGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="panel grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-2.5 px-4 py-3">
+      <p className="col-span-full text-[11px] font-semibold uppercase tracking-wider text-muted">{title}</p>
+      {children}
+    </section>
+  );
+}
+
+// Figures of the priorities, same weight: system updates (security first), backups and Docker.
+function Kpis({ hosts, groups, backups }: { hosts: Host[]; groups: BackupGroup[] | undefined; backups: boolean }) {
+  const apt = hosts.filter(hasApt).map(aptTile);
+  const followed = apt.filter((t) => t !== 'unknown' && t !== 'offline').length;
+  const security = count(apt, 'security');
+  const updates = security + count(apt, 'updates');
+  const reboot = hosts.filter((h) => h.aptSummary?.rebootRequired).length;
+  const bak = hosts.map((h) => backupTile(groups, h.id));
+  const tracked = bak.filter((b) => b !== 'none').length;
+  const oldest = oldestBackup(hosts, groups);
+  const oldestDays = oldest === null ? null : Math.floor(oldest / (24 * 3600 * 1000));
+  // managed stacks only: an unmanaged one has neither state nor problems to follow
+  const stacks = allStacks(hosts).filter((s) => s.managed);
+  const stackProblems = stacks.filter((s) => s.problems.length > 0).length;
+  const stackUpdates = stacks.filter((s) => s.updates > 0).length;
+  const stackStopped = stacks.filter((s) => s.status === 'stopped' || s.status === 'down').length;
+  const stackRunning = stacks.filter((s) => s.status === 'running').length;
+  const docker = hosts.some((h) => h.docker);
+  return (
+    <div className={clsx('grid gap-3', backups && docker ? 'lg:grid-cols-3' : (backups || docker) && 'lg:grid-cols-2')}>
+      <KpiGroup title="Mises à jour">
+        <Kpi value={security} label="hôtes avec des correctifs de sécurité" tone={security ? 'bad' : 'ok'} />
+        <Kpi value={`${updates} / ${followed}`} label="hôtes avec des mises à jour" tone={updates ? 'warn' : 'ok'} />
+        <Kpi value={reboot} label="redémarrages requis" tone={reboot ? 'info' : 'ok'} />
+      </KpiGroup>
+      {backups && (
+        <KpiGroup title="Sauvegardes">
+          <Kpi value={count(bak, 'bad')} label="hôtes en échec" tone={count(bak, 'bad') ? 'bad' : 'ok'} />
+          <Kpi value={count(bak, 'warn')} label="hôtes en retard" tone={count(bak, 'warn') ? 'warn' : 'ok'} />
+          <Kpi value={`${count(bak, 'ok')} / ${tracked}`} label="à jour sur les hôtes suivis" tone={count(bak, 'ok') === tracked ? 'ok' : 'warn'} />
+          <Kpi value={oldestDays === null ? '—' : `${oldestDays} j`} label="âge de la plus ancienne" tone={oldestDays === null ? 'neutral' : oldestDays > 3 ? 'bad' : oldestDays > 1 ? 'warn' : 'ok'} />
+        </KpiGroup>
+      )}
+      {docker && (
+        <KpiGroup title="Docker">
+          <Kpi value={stackProblems} label="stacks en problème" tone={stackProblems ? 'bad' : 'ok'} />
+          <Kpi value={stackUpdates} label="stacks avec une image plus récente" tone={stackUpdates ? 'warn' : 'ok'} />
+          <Kpi value={stackStopped} label="stacks arrêtées" tone={stackStopped ? 'info' : 'ok'} />
+          <Kpi value={`${stackRunning} / ${stacks.length}`} label="stacks en marche" tone={stackRunning === stacks.length ? 'ok' : 'warn'} />
+        </KpiGroup>
+      )}
+    </div>
   );
 }
 
 export function Dashboard() {
   const { data: hosts, isLoading } = useHosts();
-  const { data: jobs } = useJobs();
-  const bulk = useRunBulk();
+  const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
+  const { data: backups } = useBackups();
+  const { data: siteConfig } = useSites();
+  const { canWrite, canManage } = useMe();
   const [adding, setAdding] = useState(false);
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
 
-  const count = <T extends string>(fn: (h: Host) => T, v: T) => hosts.filter((h) => fn(h) === v).length;
-  const online = hosts.filter((h) => h.online);
-  const needsUpdate = hosts
-    .filter((h) => (h.aptSummary?.upgradable ?? 0) > 0 || h.aptSummary?.rebootRequired)
-    .sort((a, b) => updOrder[updateState(a)] - updOrder[updateState(b)] || (b.aptSummary?.upgradable ?? 0) - (a.aptSummary?.upgradable ?? 0));
-  const sortedHosts = [...hosts].sort((a, b) => connOrder[connection(a)] - connOrder[connection(b)] || a.name.localeCompare(b.name));
-
-  const dayAgo = Date.now() - 24 * 3600 * 1000;
-  const recentJobs = (jobs ?? []).filter((j) => Date.parse(j.createdAt) > dayAgo);
+  const sites = groupSites(hosts, siteConfig ?? []);
+  // only the backups attached to a host are followed (without PBS: those of Home Assistant)
+  const withBackups = !!backups && (backups.connected || backups.groups.length > 0);
+  const groups = withBackups ? backups.groups : undefined;
 
   return (
     <>
-      <PageHeader
-        icon={LayoutDashboard}
-        title="Tableau de bord"
-        actions={
-          <>
-            <Button icon={RefreshCw} loading={bulk.isPending} disabled={!online.length} onClick={() => bulk.mutate({ hostIds: online.map((h) => h.id), action: 'apt_update' })}>
-              Tout vérifier
-            </Button>
-            <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button>
-          </>
-        }
-      />
+      <HeaderTitle icon={LayoutDashboard} title="Tableau de bord" />
 
       {hosts.length === 0 ? (
         <div className="panel">
           <Empty icon={Server} title="Aucun hôte pour l'instant">
             Ajoute ton premier serveur ou LXC : une commande à copier, et l'agent remonte son état en quelques secondes.
-            <div className="mt-4"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button></div>
+            {canManage && <div className="mt-4"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un hôte</Button></div>}
           </Empty>
         </div>
       ) : (
-        <div className="space-y-5">
-          <StatusSection
-            icon={Server}
-            title="Hôtes"
-            to="/hosts"
-            stats={[
-              { label: 'En ligne', value: count(connection, 'online'), tone: 'ok' },
-              { label: 'Hors ligne', value: count(connection, 'offline'), tone: 'bad' },
-              { label: 'En attente', value: count(connection, 'pending'), tone: 'unknown' },
-            ]}
-            cardsTitle="Tous les hôtes"
-            cardsIcon={Server}
-          >
-            {sortedHosts.map((h) => {
-              const c = connection(h);
-              return (
-                <ItemCard key={h.id} to={`/hosts/${h.id}`} icon={Server} tone={connectionMeta[c].tone} title={h.name}
-                  right={c !== 'online' && <Badge tone={connectionMeta[c].tone}>{connectionMeta[c].label}</Badge>}>
-                  <HostTags h={h} />
-                </ItemCard>
-              );
-            })}
-          </StatusSection>
-
-          <StatusSection
-            icon={PackageCheck}
-            title="Mises à jour"
-            to="/updates"
-            stats={[
-              { label: 'À jour', value: count(updateState, 'uptodate'), tone: 'ok' },
-              { label: 'Mises à jour', value: count(updateState, 'updates'), tone: 'warn' },
-              { label: 'Sécurité', value: count(updateState, 'security'), tone: 'bad' },
-              { label: 'Inconnu', value: count(updateState, 'unknown'), tone: 'unknown' },
-              { label: 'Reboot requis', value: hosts.filter((h) => h.aptSummary?.rebootRequired).length, tone: 'info', ringless: true },
-            ]}
-            cardsTitle="À traiter"
-            cardsIcon={ShieldAlert}
-            empty={needsUpdate.length === 0 ? <p className="py-6 text-sm text-muted">Tout est à jour. 🎉</p> : undefined}
-          >
-            {needsUpdate.map((h) => {
-              const s = h.aptSummary!;
-              return (
-                <ItemCard key={h.id} to={`/hosts/${h.id}`} icon={PackageCheck} tone={updateMeta[updateState(h)].tone} title={h.name}
-                  right={s.rebootRequired && <RotateCw className="h-4 w-4 text-sky-400" aria-label="Redémarrage requis" />}>
-                  {s.security > 0 && <Badge tone="bad">{s.security} sécu</Badge>}
-                  {s.upgradable > 0 && <Badge tone="warn">{s.upgradable} paquet{s.upgradable > 1 ? 's' : ''}</Badge>}
-                  {s.rebootRequired && <Badge tone="info">reboot</Badge>}
-                  {listsStale(h) && <Badge tone="unknown">listes périmées</Badge>}
-                </ItemCard>
-              );
-            })}
-          </StatusSection>
-
-          <StatusSection
-            icon={History}
-            title="Activité"
-            to="/activity"
-            stats={[
-              { label: 'Réussies', value: recentJobs.filter((j) => j.status === 'success').length, tone: 'ok' },
-              { label: 'En cours', value: recentJobs.filter((j) => j.status === 'running').length, tone: 'info' },
-              { label: 'Échouées', value: recentJobs.filter((j) => j.status === 'failed').length, tone: 'bad' },
-            ]}
-            cardsTitle="Dernières tâches · compteurs sur 24 h"
-            cardsIcon={History}
-            empty={!jobs?.length ? <p className="py-6 text-sm text-muted">Aucune tâche pour le moment.</p> : undefined}
-          >
-            {(jobs ?? []).slice(0, 8).map((j) => (
-              <ItemCard key={j.id} to={`/jobs/${j.id}`} icon={History}
-                tone={j.status === 'success' ? 'ok' : j.status === 'failed' ? 'bad' : 'info'}
-                title={actionLabel[j.action]} right={<JobStatusIcon status={j.status} />}>
-                <Tag>{j.hostName}</Tag>
-                <span className="self-center text-xs text-muted">{timeAgo(j.createdAt)}</span>
-              </ItemCard>
-            ))}
-          </StatusSection>
+        <div className="space-y-4">
+          <MountBanner hosts={hosts} />
+          <Kpis hosts={hosts} groups={groups} backups={withBackups} />
+          <div className="min-[1100px]:hidden">
+            <DashboardTodo section="others" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+          </div>
+          <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_400px]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <SiteOverview sites={sites} />
+              <SiteTimeline sites={sites} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-4">
+              {canWrite && <DashboardActions hosts={hosts} groups={groups} />}
+              <div className="hidden min-[1100px]:block">
+                <DashboardTodo hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+              </div>
+              <div className="min-[1100px]:hidden">
+                <DashboardTodo section="regular" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
       <AddHostModal open={adding} onClose={() => setAdding(false)} />

@@ -1,33 +1,44 @@
-import { useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, useEffect, type ComponentType } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { Spinner } from './components/ui';
-import { api } from './lib/api';
+import { api, type Me } from './lib/api';
+import { MeContext, rights } from './lib/auth';
 import { useLiveEvents } from './lib/live';
-import { Activity } from './pages/Activity';
-import { Dashboard } from './pages/Dashboard';
-import { HostDetail } from './pages/HostDetail';
-import { Hosts } from './pages/Hosts';
-import { JobDetail } from './pages/JobDetail';
-import { Login } from './pages/Login';
-import { Settings } from './pages/Settings';
-import { Updates } from './pages/Updates';
+import { ForcePasswordChange, Login } from './pages/Login';
+
+// One chunk per page, fetched on first visit (Login stays in the main bundle: shown before the Layout).
+// Pages use named exports, lazy() wants a default one.
+const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) => lazy(() => load().then((m) => ({ default: m[name] })));
+const Accounts = page(() => import('./pages/Accounts'), 'Accounts');
+const Activity = page(() => import('./pages/Activity'), 'Activity');
+const Backups = page(() => import('./pages/Backups'), 'Backups');
+const Dashboard = page(() => import('./pages/Dashboard'), 'Dashboard');
+const Docker = page(() => import('./pages/Docker'), 'Docker');
+const HostDetail = page(() => import('./pages/HostDetail'), 'HostDetail');
+const Hosts = page(() => import('./pages/Hosts'), 'Hosts');
+const Health = page(() => import('./pages/Health'), 'Health');
+const JobDetail = page(() => import('./pages/JobDetail'), 'JobDetail');
+const Settings = page(() => import('./pages/Settings'), 'Settings');
+const Stack = page(() => import('./pages/Stack'), 'Stack');
+const Updates = page(() => import('./pages/Updates'), 'Updates');
 
 export default function App() {
   const qc = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.authStatus, staleTime: Infinity });
-  const user = auth.data?.user?.username;
-  const live = useLiveEvents(!!user);
+  const user = auth.data?.user ?? null;
+  // the superadmin may only use the accounts page, not the live feed
+  const live = useLiveEvents(!!user && user.role !== 'superadmin' && !user.mustChangePassword);
 
   // Switch user state without detaching the ['auth'] observer (qc.clear() would).
-  const setUser = (username: string | null) => {
+  const setUser = (me: Me | null) => {
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-    qc.setQueryData(['auth'], { setupRequired: false, user: username ? { username } : null });
+    qc.setQueryData(['auth'], { noAccounts: false, user: me });
   };
 
   useEffect(() => {
-    const onUnauthorized = () => qc.setQueryData(['auth'], { setupRequired: false, user: null });
+    const onUnauthorized = () => qc.setQueryData(['auth'], { noAccounts: false, user: null });
     window.addEventListener('hm:unauthorized', onUnauthorized);
     return () => window.removeEventListener('hm:unauthorized', onUnauthorized);
   }, [qc]);
@@ -38,7 +49,8 @@ export default function App() {
   if (!user) {
     return (
       <Login
-        setup={auth.data!.setupRequired}
+        noAccounts={auth.data!.noAccounts}
+        cookieSecure={!!auth.data!.cookieSecure}
         onDone={setUser}
       />
     );
@@ -49,20 +61,42 @@ export default function App() {
     setUser(null);
   };
 
+  if (user.mustChangePassword) {
+    return <ForcePasswordChange me={user} onLogout={logout} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
+  }
+
+  const me = rights(user);
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout user={user} live={live} onLogout={logout} />}>
-          <Route index element={<Dashboard />} />
-          <Route path="hosts" element={<Hosts />} />
-          <Route path="hosts/:id" element={<HostDetail />} />
-          <Route path="updates" element={<Updates />} />
-          <Route path="activity" element={<Activity />} />
-          <Route path="jobs/:id" element={<JobDetail />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <MeContext.Provider value={me}>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout live={live} onLogout={logout} />}>
+            {me.isSuperAdmin ? (
+              <>
+                <Route path="accounts" element={<Accounts />} />
+                <Route path="*" element={<Navigate to="/accounts" replace />} />
+              </>
+            ) : (
+              <>
+                <Route index element={<Dashboard />} />
+                <Route path="hosts" element={<Hosts />} />
+                <Route path="hosts/:id" element={<HostDetail />} />
+                <Route path="health" element={<Health />} />
+                <Route path="updates" element={<Updates />} />
+                <Route path="docker" element={<Docker />} />
+                <Route path="docker/:hostId/:stack" element={<Stack />} />
+                <Route path="backups" element={<Backups />} />
+                <Route path="activity" element={<Activity />} />
+                <Route path="jobs/:id" element={<JobDetail />} />
+                {me.canAccounts && <Route path="accounts" element={<Accounts />} />}
+                {me.canSettings && <Route path="settings" element={<Settings />} />}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </>
+            )}
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </MeContext.Provider>
   );
 }
