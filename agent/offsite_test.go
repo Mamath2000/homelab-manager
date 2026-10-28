@@ -125,7 +125,9 @@ func newTestOffsite(t *testing.T, f *fakeDebug) *offsiteModule {
 		t.Fatal(err)
 	}
 	<-o.kick
+	// apply() used the real clock: past the start time it also set RetryDay to today
 	o.state.Day = "2026-10-17"
+	o.state.RetryDay = ""
 	return o
 }
 
