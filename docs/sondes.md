@@ -1,6 +1,6 @@
 ---
 title: Sondes de service
-description: Vérifier de l'extérieur qu'un service rend bien le service (MQTT, ping, TCP, HTTP) depuis le hub, brokers MQTT, états, alertes, Home Assistant
+description: Vérifier de l'extérieur qu'un service rend bien le service (MQTT, ping, TCP, HTTP) depuis le hub, sur un hôte ou un équipement, brokers MQTT, états, alertes, Home Assistant
 sidebar_position: 3.7
 ---
 
@@ -8,7 +8,7 @@ sidebar_position: 3.7
 
 Une **sonde** vérifie, depuis le hub, qu'un service est réellement rendu : un port qui répond, une page qui contient le bon texte, un appareil Zigbee ou ESPHome qui se déclare en ligne. C'est le complément de ce que l'agent rapporte de l'intérieur de l'hôte (Docker dit qu'un conteneur tourne, la sonde dit que le service répond).
 
-Les sondes remplacent les moniteurs d'hôtes d'Uptime Kuma. Elles se rattachent à un **hôte**, éventuellement à l'une de ses **stacks Docker**, et alimentent le domaine **Services** des [alertes et statuts](alertes.md).
+Les sondes remplacent les moniteurs d'Uptime Kuma. Elles se rattachent à un **hôte**, éventuellement à l'une de ses **stacks Docker**, ou à un **[équipement](equipements.md)** (switch, passerelle, module domotique…), et alimentent le domaine **Services** des [alertes et statuts](alertes.md).
 
 ## Les quatre types
 
@@ -50,6 +50,10 @@ Dans la **fiche de l'hôte**, le panneau **Sondes** (après Docker) liste ses so
 
 L'ajout et la modification se font sans confirmation ; la suppression en demande une. Tous les rôles voient les sondes d'un hôte ; seuls les **administrateurs** les ajoutent, les modifient, les testent et les suppriment, et gèrent les brokers.
 
+## Sondes d'un équipement
+
+La fiche d'un [équipement](equipements.md) a le même panneau **Sondes**, sans choix de stack. Une nouvelle sonde ping ou TCP reprend l'adresse IP de l'équipement, et changer cette adresse déplace les sondes ping et TCP qui visaient l'ancienne. La suppression d'un équipement supprime ses sondes.
+
 :::info Stack supprimée
 Quand une stack disparaît du rapport Docker de son hôte, ses sondes sont **supprimées** (elles ne feraient que passer en échec) et l'interface le signale par un message. Les sondes de l'hôte lui-même ne sont pas touchées. La suppression d'un hôte supprime toutes ses sondes.
 :::
@@ -70,12 +74,13 @@ La catégorie **Sondes** crée une entité par sonde, sur l'appareil de l'hôte 
 
 ## API
 
-Lecture des sondes d'un hôte : tous les rôles. Tout le reste (écriture, test, brokers) : administrateurs seulement, car le hub ouvre des connexions vers ce qui est saisi.
+Lecture des sondes d'un hôte ou d'un équipement : tous les rôles. Tout le reste (écriture, test, brokers) : administrateurs seulement, car le hub ouvre des connexions vers ce qui est saisi.
 
 | Route | Rôle |
 |---|---|
 | `GET /api/hosts/:id/probes` | sondes d'un hôte, avec leur état en direct |
 | `POST /api/hosts/:id/probes` | créer une sonde |
+| `GET`, `POST /api/equipments/:id/probes` | la même chose pour un [équipement](equipements.md) (sans `stack`) |
 | `PUT /api/probes/:id` | modifier une sonde (changer la cible remet son état à « inconnu ») |
 | `DELETE /api/probes/:id` | supprimer une sonde |
 | `POST /api/probes/test` | mesurer une cible sans rien enregistrer |
@@ -100,7 +105,8 @@ Corps d'une sonde :
 
 ## Limites actuelles
 
-- Les sondes se rattachent aux **hôtes** seulement (le modèle prévoit déjà d'autres sujets, comme les équipements ou les sites).
+- Les sondes se rattachent aux **hôtes** et aux **équipements** (le modèle prévoit aussi les sites, non implémentés).
+- Les sondes des équipements ne sont pas encore publiées dans Home Assistant.
 - Elles sont toutes lancées **depuis le hub** (le champ `runFrom` est dans le modèle pour d'autres exécutants plus tard, jamais l'hôte vérifié).
 - Pas d'import depuis Uptime Kuma : les sondes se saisissent à la main.
 - Le hub doit joindre les cibles : un hub sur un site distant ne voit pas les services d'un autre site sans VPN.

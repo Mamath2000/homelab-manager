@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Globe, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
-import { api, type Host, type Probe, type ProbeInput, type ProbeTarget, type ProbeType } from '../lib/api';
+import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeTarget, type ProbeType } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import { useHostProbes, useMqttBrokers } from '../lib/queries';
+import { useMqttBrokers, useProbes } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
@@ -41,12 +41,18 @@ function StateBadge({ p }: { p: Probe }) {
   return <Badge tone={m.tone}>{m.label}{p.state === 'up' && p.latencyMs ? ` · ${p.latencyMs} ms` : ''}</Badge>;
 }
 
-// Probes of a host, on its detail page: what is seen from outside, on top of what its agent reports. Admins edit.
-export function ProbesPanel({ host }: { host: Host }) {
+// What the probes are attached to: a host (a probe may follow one of its Docker stacks) or an equipment (its IP is
+// the address offered to a new probe).
+export type ProbeOwner = { kind: 'host'; host: Host } | { kind: 'equipment'; equipment: Equipment };
+const ownerOf = (o: ProbeOwner) => (o.kind === 'host' ? o.host : o.equipment);
+
+// Probes of a host or an equipment, on its page: what is seen from outside, on top of what its agent or its source
+// reports. Admins edit.
+export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
   const { canManage } = useMe();
   const toast = useToast();
   const qc = useQueryClient();
-  const { data: probes, isLoading } = useHostProbes(host.id);
+  const { data: probes, isLoading } = useProbes(owner.kind, ownerOf(owner).id);
   const { data: brokers } = useMqttBrokers(canManage);
   const [editing, setEditing] = useState<Probe | 'new' | null>(null);
   const [removing, setRemoving] = useState<Probe | null>(null);
@@ -103,7 +109,7 @@ export function ProbesPanel({ host }: { host: Host }) {
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
       ) : !probes?.length ? (
-        <p className="p-4 text-sm text-muted">Aucune sonde. Une sonde vérifie, depuis le hub, que le service rendu par cet hôte répond.</p>
+        <p className="p-4 text-sm text-muted">Aucune sonde. Une sonde vérifie, depuis le hub, que {owner.kind === 'host' ? 'le service rendu par cet hôte' : 'cet équipement'} répond.</p>
       ) : (
         <>
           <ResponsiveList mode="mobile">
@@ -156,7 +162,7 @@ export function ProbesPanel({ host }: { host: Host }) {
           </ResponsiveList>
         </>
       )}
-      {editing && <ProbeModal host={host} probe={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && <ProbeModal owner={owner} probe={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer la sonde" confirmLabel="Supprimer" danger loading={busy === 'remove'}>
         La sonde <b>{removing?.name}</b> ne sera plus mesurée. Son historique dans la frise des alertes est conservé.
       </ConfirmModal>
@@ -182,7 +188,8 @@ interface Form {
   retries: string;
 }
 
-function formOf(p: Probe | null): Form {
+// address: offered to a new ping or TCP probe (IP of an equipment)
+function formOf(p: Probe | null, address = ''): Form {
   const t = p?.target;
   return {
     name: p?.name ?? '',
@@ -191,7 +198,7 @@ function formOf(p: Probe | null): Form {
     brokerId: t?.type === 'mqtt' ? t.brokerId : '',
     topic: t?.type === 'mqtt' ? t.topic : '',
     contains: t?.type === 'mqtt' ? (t.contains ?? '') : '',
-    host: t?.type === 'ping' || t?.type === 'tcp' ? t.host : '',
+    host: t?.type === 'ping' || t?.type === 'tcp' ? t.host : p ? '' : address,
     port: t?.type === 'tcp' ? String(t.port) : '',
     url: t?.type === 'http' ? t.url : '',
     status: t?.type === 'http' && t.status ? String(t.status) : '',
@@ -225,12 +232,13 @@ function targetOf(f: Form): ProbeTarget | null {
 }
 
 // A probe in four steps (PbsDialog.tsx): type and name, target, options, test. The test measures without saving.
-function ProbeModal({ host, probe, onClose }: { host: Host; probe: Probe | null; onClose: () => void }) {
+function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe | null; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
   const { data: brokers } = useMqttBrokers();
-  const [initial] = useState(() => formOf(probe));
+  const subject = ownerOf(owner);
+  const [initial] = useState(() => formOf(probe, owner.kind === 'equipment' ? (owner.equipment.ip ?? '') : ''));
   const [form, setForm] = useState<Form>(initial);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
@@ -277,7 +285,7 @@ function ProbeModal({ host, probe, onClose }: { host: Host; probe: Probe | null;
     setBusy('save');
     try {
       if (probe) await api.updateProbe(probe.id, input());
-      else await api.createProbe(host.id, input());
+      else await api.createProbe(owner.kind, subject.id, input());
       await qc.invalidateQueries({ queryKey: ['probes'] });
       toast.success(probe ? `Sonde ${form.name.trim()} modifiée` : `Sonde ${form.name.trim()} ajoutée`);
       onClose();
@@ -289,7 +297,7 @@ function ProbeModal({ host, probe, onClose }: { host: Host; probe: Probe | null;
   };
 
   const [typeState, targetState, optionsState, testState] = stepStates([nameOk, !!target, !!target && optionsOk, test?.level === 'ok']);
-  const stacks = host.docker?.stacks ?? [];
+  const stacks = owner.kind === 'host' ? (owner.host.docker?.stacks ?? []) : null;
   const hint = TYPES.find((t) => t.id === form.type)?.hint;
 
   return (
@@ -300,7 +308,7 @@ function ProbeModal({ host, probe, onClose }: { host: Host; probe: Probe | null;
         wide="screen"
         wider
         fixed
-        title={probe ? `Modifier la sonde · ${host.name}` : `Ajouter une sonde · ${host.name}`}
+        title={probe ? `Modifier la sonde · ${subject.name}` : `Ajouter une sonde · ${subject.name}`}
         footer={
           <>
             <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
@@ -396,15 +404,17 @@ function ProbeModal({ host, probe, onClose }: { host: Host; probe: Probe | null;
             )}
           </Step>
           <Step n={3} title="Options" state={optionsState} intro="Facultatif, modifiable ensuite.">
-            <label className="block">
-              <span className={field}>Stack Docker</span>
-              <select className="input" value={form.stack} onChange={(e) => set({ stack: e.target.value })}>
-                <option value="">Aucune (l'hôte)</option>
-                {stacks.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
-                {form.stack && !stacks.some((s) => s.name === form.stack) && <option value={form.stack}>{form.stack}</option>}
-              </select>
-              <span className="mt-1 block text-xs text-muted">La sonde suit la stack : elle est supprimée avec elle.</span>
-            </label>
+            {stacks && (
+              <label className="block">
+                <span className={field}>Stack Docker</span>
+                <select className="input" value={form.stack} onChange={(e) => set({ stack: e.target.value })}>
+                  <option value="">Aucune (l'hôte)</option>
+                  {stacks.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+                  {form.stack && !stacks.some((s) => s.name === form.stack) && <option value={form.stack}>{form.stack}</option>}
+                </select>
+                <span className="mt-1 block text-xs text-muted">La sonde suit la stack : elle est supprimée avec elle.</span>
+              </label>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className={field}>Intervalle (s)</span>

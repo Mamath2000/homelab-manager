@@ -518,6 +518,8 @@ export interface HostStatus {
 export interface StatusView {
   domains: DomainMeta[];
   hosts: Record<string, HostStatus | undefined>;
+  // same shape: connection (native checks of the source) and services (probes) only
+  equipments: Record<string, HostStatus | undefined>;
 }
 
 // Sites described in the settings (display order of the dashboard), one per host.
@@ -1205,7 +1207,8 @@ export interface PveClusterInput {
   agent?: { hostId: string };
 }
 
-// Service probes of a host and the MQTT brokers they listen to (hub/src/probes.ts)
+// Service probes of a host or an equipment and the MQTT brokers they listen to (hub/src/probes.ts)
+export type ProbeSubjectKind = 'host' | 'equipment';
 export type ProbeState = 'up' | 'down' | 'unknown';
 export type ProbeType = 'mqtt' | 'ping' | 'tcp' | 'http';
 export type ProbeTarget =
@@ -1216,7 +1219,8 @@ export type ProbeTarget =
 
 export interface Probe {
   id: string;
-  hostId: string;
+  hostId: string | null;
+  equipmentId: string | null;
   stack: string | null;
   name: string;
   target: ProbeTarget;
@@ -1254,6 +1258,33 @@ export interface MqttBrokerView {
   hasPassword: boolean;
   status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
   probes: number;
+}
+
+// Equipment: what is followed without an agent (hub/src/equipments.ts). manual: typed here; the others come from
+// their source, which provides type, site, IP and uplink (only the name is edited).
+export type EquipmentType = 'gateway' | 'switch' | 'ap' | 'coordinator' | 'bridge' | 'iot' | 'other';
+export type EquipmentSource = 'manual' | 'omada';
+export interface Equipment {
+  id: string;
+  name: string;
+  type: EquipmentType;
+  siteId: string | null;
+  ip: string | null;
+  source: EquipmentSource;
+  externalId: string | null;
+  uplinkId: string | null;
+  native: { syncedAt: string; checks: Check[] } | null;
+  createdAt: string;
+  probes: { id: string; name: string; state: ProbeState; message: string | null }[];
+}
+// "" clears siteId, ip, uplinkId; ping (creation): a ping probe on the IP
+export interface EquipmentInput {
+  name?: string;
+  type?: EquipmentType;
+  siteId?: string;
+  ip?: string;
+  uplinkId?: string;
+  ping?: boolean;
 }
 
 // password: absent keeps the stored one, "" clears it
@@ -1308,8 +1339,8 @@ export const api = {
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
-  hostProbes: (id: string) => request<{ probes: Probe[] }>('GET', `/api/hosts/${id}/probes`),
-  createProbe: (hostId: string, p: ProbeInput) => request<Probe>('POST', `/api/hosts/${hostId}/probes`, p),
+  probes: (kind: ProbeSubjectKind, id: string) => request<{ probes: Probe[] }>('GET', `/api/${kind}s/${id}/probes`),
+  createProbe: (kind: ProbeSubjectKind, id: string, p: ProbeInput) => request<Probe>('POST', `/api/${kind}s/${id}/probes`, p),
   updateProbe: (id: string, p: ProbeInput) => request<Probe>('PUT', `/api/probes/${id}`, p),
   deleteProbe: (id: string) => request<void>('DELETE', `/api/probes/${id}`),
   testProbe: (target: ProbeTarget, timeoutSec: number) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec }),
@@ -1319,6 +1350,11 @@ export const api = {
   deleteMqttBroker: (id: string) => request<void>('DELETE', `/api/settings/mqtt-brokers/${id}`),
   testMqttBroker: (b: MqttBrokerInput & { id?: string }) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/mqtt-brokers/test', b),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
+  equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
+  createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),
+  updateEquipment: (id: string, e: EquipmentInput) => request<Equipment>('PATCH', `/api/equipments/${id}`, e),
+  deleteEquipment: (id: string) => request<void>('DELETE', `/api/equipments/${id}`),
+  equipmentAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/equipments/${id}/alerts`),
   hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart' | 'raid'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart | HealthRaid }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),
   silenceHealthAlerts: (id: string, keys: string[], silenced: boolean) => request<{ healthSilenced: { key: string; level: 'warn' | 'alert' }[] }>('PUT', `/api/hosts/${id}/health/silenced`, { keys, silenced }),

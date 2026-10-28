@@ -388,7 +388,7 @@ function HostDetailPage({ id }: { id: string }) {
   if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
-  blocks.push(<ProbesPanel key="probes" host={host} />);
+  blocks.push(<ProbesPanel key="probes" owner={{ kind: 'host', host }} />);
   if (isWindows(host)) blocks.push(<SessionsPanel key="sessions" host={host} />);
   else if (!hasApt(host) && !host.docker) {
     blocks.push(
@@ -563,7 +563,7 @@ function HostDetailPage({ id }: { id: string }) {
       <div style={{ '--sh': `${stripHeight}px` } as CSSProperties} className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
         <div className="min-w-0 @container">
           <div className={clsx('2xl:sticky 2xl:top-[calc(3.5rem+var(--sh))] 2xl:z-10 2xl:bg-bg', scrolled ? 'pb-2.5' : 'pb-4')}>
-            <AlertTimeline hostId={host.id} />
+            <AlertTimeline id={host.id} />
           </div>
 
           {host.aptSummary?.rebootRequired && (

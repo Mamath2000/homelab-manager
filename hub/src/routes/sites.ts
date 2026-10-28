@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { loadSites, loadTags, normalizeSites, sameName, saveTags } from '../catalog.js';
-import { hosts, settings } from '../db.js';
+import { equipments, hosts, settings } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { SITE_KINDS, TAG_COLORS, type SiteConfig, type TagColor } from '../types.js';
@@ -42,7 +42,7 @@ export function registerSiteRoutes(app: FastifyInstance) {
   app.get('/api/sites', async () => ({ sites: await loadSites() }));
   app.get('/api/tags', async () => ({ tags: await loadTags() }));
 
-  // the whole list, in display order; a site left out is removed from its hosts
+  // the whole list, in display order; a site left out is removed from its hosts and equipment
   app.put<{ Body: { sites: (Omit<SiteConfig, 'id' | 'color'> & { id?: string; color?: TagColor })[] } }>('/api/settings/sites', { schema: { body: sitesBody } }, async (req, reply) => {
     const sites = normalizeSites(req.body.sites);
     if (!sites) return reply.code(400).send({ error: 'un site est indiqué deux fois' });
@@ -52,6 +52,11 @@ export function registerSiteRoutes(app: FastifyInstance) {
     if (orphans.length) {
       await hosts.updateMany(gone, { $unset: { siteId: '' } });
       await republish({ _id: { $in: orphans.map((h) => h._id) } });
+    }
+    const left = await equipments.find(gone, { projection: { _id: 1 } }).toArray();
+    if (left.length) {
+      await equipments.updateMany(gone, { $unset: { siteId: '' } });
+      for (const e of left) publish('equipment', { id: e._id.toHexString() });
     }
     publish('catalog', {});
     return { sites };

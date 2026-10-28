@@ -5,7 +5,7 @@ import { backupState } from './pbs.js';
 import { offsiteState } from './offsite.js';
 import { upsProblems } from './ups.js';
 import { isHealthAlertSilenced } from './healthSilence.js';
-import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, HostDoc, ProbeDoc } from './types.js';
+import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, EquipmentDoc, HostDoc, ProbeDoc } from './types.js';
 
 // What the hub monitors, in two levels:
 // - a domain (system, apt, backup...) groups what one source can tell about a host;
@@ -257,6 +257,36 @@ export function evaluateAll(list: HostDoc[], groups: BackupDoc[], now = Date.now
     out[id] = evaluate(h, { online: isOnline(id), groups: byHost.get(id) ?? [], now, agentOutdated: agentOutdated(h), probes: probesByHost.get(id) ?? [] });
   }
   return out;
+}
+
+// --- equipment ----------------------------------------------------------------------------------
+// An equipment has no agent: the connection domain is what its source reports (native checks), the services
+// domain its probes. A manual equipment has no connection domain, its probes tell everything.
+
+export const NATIVE_STALE_MS = 15 * 60_000;
+
+export function nativeStatus(e: Pick<EquipmentDoc, 'source' | 'native'>, now: number): DomainReport {
+  if (e.source === 'manual') return null;
+  if (!e.native) return unknown('Pas encore synchronisé');
+  // the source stopped answering: what it said last says nothing of now
+  if (now - e.native.syncedAt.getTime() > NATIVE_STALE_MS) return unknown('Source muette');
+  return known(e.native.checks.map((c) => check(c.key, c.label, c.level, c.reason)));
+}
+
+export function evaluateEquipment(e: EquipmentDoc, ctx: { now: number; probes: ProbeDoc[] }): HostStatus {
+  const domains: HostStatus['domains'] = {};
+  const system = nativeStatus(e, ctx.now);
+  const services = servicesStatus({}, { online: true, probes: ctx.probes });
+  if (system) domains.system = system;
+  if (services) domains.services = services;
+  const levels = Object.values(domains).flatMap((d) => (d.level === 'unknown' ? [] : [d.level]));
+  return { level: worst(levels), domains };
+}
+
+export function evaluateEquipments(list: EquipmentDoc[], probes: ProbeDoc[], now = Date.now()): Record<string, HostStatus> {
+  const byEquipment = new Map<string, ProbeDoc[]>();
+  for (const p of probes) if (p.subject.kind === 'equipment') byEquipment.set(p.subject.id.toHexString(), [...(byEquipment.get(p.subject.id.toHexString()) ?? []), p]);
+  return Object.fromEntries(list.map((e) => [e._id.toHexString(), evaluateEquipment(e, { now, probes: byEquipment.get(e._id.toHexString()) ?? [] })]));
 }
 
 // The day of the history: unknown is not recorded (the day stays "nothing known" for this domain).

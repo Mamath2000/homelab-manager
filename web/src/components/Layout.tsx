@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Plus, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { Activity, Container, DatabaseBackup, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Plus, Router, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
@@ -25,6 +25,7 @@ const sections: { title?: string; items: NavItem[] }[] = [
     title: 'Ressources',
     items: [
       { to: '/hosts', label: 'Hôtes', icon: Server },
+      { to: '/equipments', label: 'Équipements', icon: Router },
       { to: '/updates', label: 'Mises à jour', icon: PackageCheck },
       { to: '/docker', label: 'Docker', icon: Container },
       { to: '/backups', label: 'Sauvegardes', icon: DatabaseBackup },

@@ -4,6 +4,7 @@ import { LayoutDashboard, Plus, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { DashboardActions } from '../components/DashboardActions';
 import { DashboardTodo } from '../components/DashboardTodo';
+import { EquipmentOverview } from '../components/EquipmentOverview';
 import { MountBanner } from '../components/PbsMount';
 import { SiteOverview } from '../components/SiteOverview';
 import { SiteTimeline } from '../components/SiteTimeline';
@@ -123,6 +124,7 @@ export function Dashboard() {
           <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_400px]">
             <div className="flex min-w-0 flex-col gap-4">
               <SiteOverview sites={sites} />
+              <EquipmentOverview />
               <SiteTimeline sites={sites} />
             </div>
             <div className="flex min-w-0 flex-col gap-4">

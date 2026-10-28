@@ -63,7 +63,9 @@ Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse 
 |---|---|
 | `settings` | paramètres de l'application (agents, Home Assistant, brokers MQTT des sondes) et autorité de certification du hub (document `pki`, clés privées comprises) |
 | `hosts` | hôtes, empreinte du certificat de l'agent, hash du code d'installation en attente, dernier état système et APT |
-| `probes` | sondes de service ([Sondes](sondes.md)) : cible, réglages et état courant, sans historique de mesures ; supprimées avec leur hôte |
+| `probes` | sondes de service ([Sondes](sondes.md)) : cible, réglages et état courant, sans historique de mesures ; supprimées avec leur hôte ou leur équipement |
+| `equipments` | [équipements](equipements.md) suivis sans agent : type, site, adresse, amont, source et checks natifs remontés par la source |
+| `equipmentAlerts` | frise des alertes des équipements, un document par équipement et par jour, gardé 40 jours |
 | `jobs` | tâches et leurs sorties, supprimées après 90 jours |
 | `users`, `sessions` | comptes utilisateurs et sessions |
 

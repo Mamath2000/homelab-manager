@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Host, type Job, type JobAction, type SetupOption } from './api';
+import { api, type Host, type Job, type JobAction, type ProbeSubjectKind, type SetupOption } from './api';
 import { useToast } from './toast';
 
 export const keys = {
@@ -9,11 +9,14 @@ export const keys = {
   job: (id: string) => ['job', id] as const,
   backups: ['backups'] as const,
   hostAlerts: (id: string) => ['host-alerts', id] as const,
+  equipments: ['equipments'] as const,
+  equipmentAlerts: (id: string) => ['equipment-alerts', id] as const,
   alerts: ['alerts'] as const,
   status: ['status'] as const,
   sites: ['sites'] as const,
   tags: ['tags'] as const,
-  probes: (hostId: string) => ['probes', hostId] as const,
+  // host or equipment: their ids never meet
+  probes: (subjectId: string) => ['probes', subjectId] as const,
   mqttBrokers: ['settings', 'mqtt-brokers'] as const,
 };
 
@@ -43,8 +46,10 @@ export function useJobs() {
   return useQuery({ queryKey: keys.jobs, queryFn: () => api.jobs(100) });
 }
 
-export function useHostAlerts(id: string) {
-  return useQuery({ queryKey: keys.hostAlerts(id), queryFn: () => api.hostAlerts(id) });
+// Alert days of a host or an equipment (timeline of its page)
+export function useAlertDays(kind: ProbeSubjectKind, id: string) {
+  const queryKey = kind === 'host' ? keys.hostAlerts(id) : keys.equipmentAlerts(id);
+  return useQuery({ queryKey, queryFn: () => (kind === 'host' ? api.hostAlerts(id) : api.equipmentAlerts(id)) });
 }
 
 // Alerts of every host (dashboard): the days change slowly, refreshed every 5 minutes and on the
@@ -58,8 +63,21 @@ export function useStatus() {
   return useQuery({ queryKey: keys.status, queryFn: api.status, refetchInterval: 60_000 });
 }
 
-export function useHostProbes(hostId: string) {
-  return useQuery({ queryKey: keys.probes(hostId), queryFn: () => api.hostProbes(hostId), select: (d) => d.probes });
+export function useProbes(kind: ProbeSubjectKind, id: string) {
+  return useQuery({ queryKey: keys.probes(id), queryFn: () => api.probes(kind, id), select: (d) => d.probes });
+}
+
+export function useEquipments() {
+  return useQuery({ queryKey: keys.equipments, queryFn: api.equipments, select: (d) => d.equipments });
+}
+
+export function useEquipment(id: string | undefined) {
+  const q = useEquipments();
+  return { ...q, data: q.data?.find((e) => e.id === id) };
+}
+
+export function useEquipmentAlerts(id: string) {
+  return useQuery({ queryKey: keys.equipmentAlerts(id), queryFn: () => api.equipmentAlerts(id) });
 }
 
 export function useMqttBrokers(enabled = true) {

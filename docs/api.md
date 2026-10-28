@@ -53,11 +53,11 @@ Exemple de réponse :
 
 ## `GET /api/status`
 
-Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Alertes et statuts](alertes.md)) : `domains` (identifiant, libellé, icône, dans l'ordre d'affichage) et `hosts` (par identifiant d'hôte : `level` ok / warn / alert et `domains`, chacun avec son `level` ok / warn / alert / unknown, ses `checks` et, si inconnu, la raison). Un domaine absent d'un hôte ne s'y applique pas. Tous les rôles peuvent le lire.
+Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Alertes et statuts](alertes.md)) : `domains` (identifiant, libellé, icône, dans l'ordre d'affichage) et `hosts` (par identifiant d'hôte : `level` ok / warn / alert et `domains`, chacun avec son `level` ok / warn / alert / unknown, ses `checks` et, si inconnu, la raison). Un domaine absent d'un hôte ne s'y applique pas. `equipments` donne la même chose pour chaque [équipement](equipements.md) (domaines Connexion et Services seulement). Tous les rôles peuvent le lire.
 
 ## Sondes
 
-`GET /api/hosts/:id/probes` (tous les rôles) donne les sondes d'un hôte avec leur état en direct ; les autres routes (création, test, brokers MQTT) sont réservées aux administrateurs. Voir [Sondes de service](sondes.md#api).
+`GET /api/hosts/:id/probes` et `GET /api/equipments/:id/probes` (tous les rôles) donnent les sondes d'un hôte ou d'un équipement avec leur état en direct ; les autres routes (création, test, brokers MQTT) sont réservées aux administrateurs. Voir [Sondes de service](sondes.md#api).
 
 ## Exemple : widget Homepage
 

@@ -58,17 +58,34 @@ export function useLiveEvents(enabled: boolean) {
     });
     // a snapshot mounted or unmounted (the hosts carry it): the mount window
     es.addEventListener('pbs-mount', () => qc.invalidateQueries({ queryKey: ['pbs-mount'] }));
-    // a probe changed state (status, timeline of its host) or was added, edited, removed
+    // a probe changed state (status, timeline of its host or equipment) or was added, edited, removed
     es.addEventListener('probe', (e) => {
       const { subject } = JSON.parse((e as MessageEvent).data) as { subject: { kind: string; id: string } };
       qc.invalidateQueries({ queryKey: ['probes'] });
       qc.invalidateQueries({ queryKey: keys.status });
       if (subject.kind === 'host') qc.invalidateQueries({ queryKey: keys.hostAlerts(subject.id) });
+      if (subject.kind === 'equipment') {
+        // the squares of its probes
+        qc.invalidateQueries({ queryKey: keys.equipments });
+        qc.invalidateQueries({ queryKey: keys.equipmentAlerts(subject.id) });
+      }
       qc.invalidateQueries({ queryKey: keys.alerts });
     });
     es.addEventListener('probe.config', () => {
       qc.invalidateQueries({ queryKey: ['probes'] });
+      qc.invalidateQueries({ queryKey: keys.equipments });
       qc.invalidateQueries({ queryKey: keys.mqttBrokers });
+      qc.invalidateQueries({ queryKey: keys.status });
+    });
+    // an equipment added, edited (by hand or by its source) or removed
+    es.addEventListener('equipment', (e) => {
+      const { id } = JSON.parse((e as MessageEvent).data) as { id: string };
+      qc.invalidateQueries({ queryKey: keys.equipments });
+      qc.invalidateQueries({ queryKey: keys.status });
+      qc.invalidateQueries({ queryKey: keys.equipmentAlerts(id) });
+    });
+    es.addEventListener('equipment.deleted', () => {
+      qc.invalidateQueries({ queryKey: keys.equipments });
       qc.invalidateQueries({ queryKey: keys.status });
     });
     // the stack of a probe is gone: the probes went with it

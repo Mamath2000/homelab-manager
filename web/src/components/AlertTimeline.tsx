@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { Activity } from 'lucide-react';
-import type { AlertLevel, DayAlert } from '../lib/api';
+import type { AlertLevel, DayAlert, ProbeSubjectKind } from '../lib/api';
 import { domainIcon } from '../lib/monitoring';
-import { useHostAlerts, useStatus } from '../lib/queries';
+import { useAlertDays, useStatus } from '../lib/queries';
 import { Panel } from './ui';
 
 const DAYS = 30;
@@ -36,11 +36,11 @@ const shortDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', m
 const longDate = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 const reasonText = (a: DayAlert | null) => (!a ? 'non suivi' : a.reasons.length ? a.reasons.join(' · ') : levelLabel[a.level]);
 
-// Alerts of the last 30 days of a host, one row per domain the host provides (given by the hub), one
+// Alerts of the last 30 days of a host or an equipment, one row per domain it provides (given by the hub), one
 // square per day (latest known state of the day; today, the live status).
 // A click on a day shows its reasons in each domain.
-export function AlertTimeline({ hostId }: { hostId: string }) {
-  const { data } = useHostAlerts(hostId);
+export function AlertTimeline({ kind = 'host', id }: { kind?: ProbeSubjectKind; id: string }) {
+  const { data } = useAlertDays(kind, id);
   const { data: status } = useStatus();
   const [isCompact, setIsCompact] = useState(false);
 
@@ -52,7 +52,7 @@ export function AlertTimeline({ hostId }: { hostId: string }) {
     return () => media.removeEventListener('change', update);
   }, []);
 
-  const live = status?.hosts[hostId];
+  const live = (kind === 'host' ? status?.hosts : status?.equipments)?.[id];
   const domains = (status?.domains ?? []).filter((d) => live?.domains[d.id]);
   const days = lastDays();
   const visibleDays = isCompact ? days.slice(-7) : days;

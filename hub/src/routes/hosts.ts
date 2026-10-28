@@ -3,9 +3,9 @@ import { ObjectId } from 'mongodb';
 import { AgentRequestError, REFRESH_SCOPES, agentRequest, disconnectAgent, isOnline, refreshAgent, type RefreshScope } from '../agents.js';
 import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
 import { randomToken, sha256 } from '../crypto.js';
-import { backups, healthMetrics, hosts, jobs, parseId, probes } from '../db.js';
+import { backups, equipments, healthMetrics, hosts, jobs, parseId, probes } from '../db.js';
 import { allAlertDays, hostAlertDays } from '../alerts.js';
-import { DOMAINS, evaluateAll } from '../monitoring.js';
+import { DOMAINS, evaluateAll, evaluateEquipments } from '../monitoring.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { isVirtualizedHealthHost } from '../health.js';
@@ -13,7 +13,7 @@ import { agentCommands } from '../hubUrl.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { createJob, jobDto, validPackages } from '../jobs.js';
 import { forgetHost } from '../pbs.js';
-import { hostProbes } from '../probes.js';
+import { equipmentProbes, hostProbes } from '../probes.js';
 import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostDetail, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
@@ -272,10 +272,11 @@ export function registerHostRoutes(app: FastifyInstance) {
   // the same for every host (timeline of the dashboard, by site)
   app.get('/api/alerts', async () => ({ days: await allAlertDays() }));
 
-  // live status of every host by domain and followed element (monitoring.ts); every role reads
+  // live status of every host and equipment by domain and followed element (monitoring.ts); every role reads
   app.get('/api/status', async () => ({
     domains: DOMAINS,
     hosts: evaluateAll(await hosts.find().toArray(), await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), await hostProbes()),
+    equipments: evaluateEquipments(await equipments.find().toArray(), await equipmentProbes()),
   }));
 
   app.get<{ Params: { id: string } }>('/api/hosts/:id/jobs', async (req, reply) => {

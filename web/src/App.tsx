@@ -16,6 +16,8 @@ const Activity = page(() => import('./pages/Activity'), 'Activity');
 const Backups = page(() => import('./pages/Backups'), 'Backups');
 const Dashboard = page(() => import('./pages/Dashboard'), 'Dashboard');
 const Docker = page(() => import('./pages/Docker'), 'Docker');
+const EquipmentDetail = page(() => import('./pages/EquipmentDetail'), 'EquipmentDetail');
+const Equipments = page(() => import('./pages/Equipments'), 'Equipments');
 const HostDetail = page(() => import('./pages/HostDetail'), 'HostDetail');
 const Hosts = page(() => import('./pages/Hosts'), 'Hosts');
 const Health = page(() => import('./pages/Health'), 'Health');
@@ -82,6 +84,8 @@ export default function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="hosts" element={<Hosts />} />
                 <Route path="hosts/:id" element={<HostDetail />} />
+                <Route path="equipments" element={<Equipments />} />
+                <Route path="equipments/:id" element={<EquipmentDetail />} />
                 <Route path="health" element={<Health />} />
                 <Route path="updates" element={<Updates />} />
                 <Route path="docker" element={<Docker />} />

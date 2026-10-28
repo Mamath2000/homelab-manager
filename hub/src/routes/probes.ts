@@ -1,13 +1,13 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ObjectId } from 'mongodb';
-import { hosts, parseId, probes, settings } from '../db.js';
+import { equipments, hosts, parseId, probes, settings } from '../db.js';
 import { STACK_RE } from '../docker.js';
 import { publish } from '../events.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { BROKER_ID_RE, INTERVAL_RANGE, MAX_RETRIES, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, targetError, testTarget } from '../probes.js';
-import type { MqttBroker, MqttBrokersSettings, ProbeDoc, ProbeTarget } from '../types.js';
+import type { MqttBroker, MqttBrokersSettings, ProbeDoc, ProbeSubject, ProbeTarget } from '../types.js';
 
-// Probes of the hosts and the MQTT brokers they listen to. Writes are for admins only (roles.ts refuses what it
+// Probes of the hosts and equipment, and the MQTT brokers they listen to. Writes are for admins only (roles.ts refuses what it
 // does not list): the hub opens connections to what is typed here.
 
 // One flat shape for all the types (an anyOf of closed objects would have the validator strip the fields of the
@@ -70,7 +70,8 @@ function dto(p: ProbeDoc) {
   const live = probeEngine()?.liveOf(p._id.toHexString());
   return {
     id: p._id.toHexString(),
-    hostId: p.subject.id.toHexString(),
+    hostId: p.subject.kind === 'host' ? p.subject.id.toHexString() : null,
+    equipmentId: p.subject.kind === 'equipment' ? p.subject.id.toHexString() : null,
     stack: p.subject.stack ?? null,
     name: p.name,
     target: p.target,
@@ -87,7 +88,7 @@ function dto(p: ProbeDoc) {
 }
 
 // null: valid; else the answer to send
-async function invalid(b: ProbeBody, hostId: ObjectId, reply: FastifyReply) {
+async function invalid(b: ProbeBody, subject: Pick<ProbeSubject, 'kind' | 'id'>, reply: FastifyReply) {
   const bad = (error: string) => reply.code(400).send({ error });
   const timeoutSec = b.timeoutSec ?? TIMEOUT_RANGE.default;
   const intervalSec = b.intervalSec ?? INTERVAL_RANGE.default;
@@ -97,7 +98,8 @@ async function invalid(b: ProbeBody, hostId: ObjectId, reply: FastifyReply) {
   const t = b.target;
   if (t.type === 'mqtt' && !(await loadMqttBrokers()).brokers.some((x) => x.id === t.brokerId)) return bad('broker inconnu');
   if (b.stack) {
-    const host = await hosts.findOne({ _id: hostId }, { projection: { docker: 1 } });
+    if (subject.kind !== 'host') return bad("pas de stack hors d'un hôte");
+    const host = await hosts.findOne({ _id: subject.id }, { projection: { docker: 1 } });
     if (!STACK_RE.test(b.stack) || !host?.docker?.stacks.some((s) => s.name === b.stack)) return bad("stack inconnue sur cet hôte");
   }
   return null;
@@ -136,42 +138,53 @@ async function saveBrokers(brokers: MqttBroker[]) {
   publish('probe.config', {});
 }
 
-export function registerProbeRoutes(app: FastifyInstance) {
-  app.get<{ Params: { id: string } }>('/api/hosts/:id/probes', async (req, reply) => {
-    const _id = parseId(req.params.id);
-    if (!_id || !(await hosts.countDocuments({ _id }, { limit: 1 }))) return reply.code(404).send({ error: 'host not found' });
-    return { probes: (await probes.find({ 'subject.kind': 'host', 'subject.id': _id }).sort({ name: 1 }).toArray()).map(dto) };
-  });
+// What a probe can be attached to, with the path of its probes
+const SUBJECTS = [
+  { kind: 'host', path: '/api/hosts/:id/probes', exists: (_id: ObjectId) => hosts.countDocuments({ _id }, { limit: 1 }), missing: 'host not found' },
+  { kind: 'equipment', path: '/api/equipments/:id/probes', exists: (_id: ObjectId) => equipments.countDocuments({ _id }, { limit: 1 }), missing: 'equipment not found' },
+] as const;
 
-  app.post<{ Params: { id: string }; Body: ProbeBody }>('/api/hosts/:id/probes', { schema: { body: probeBody } }, async (req, reply) => {
-    const _id = parseId(req.params.id);
-    if (!_id || !(await hosts.countDocuments({ _id }, { limit: 1 }))) return reply.code(404).send({ error: 'host not found' });
-    const b = req.body;
-    if (await invalid(b, _id, reply)) return;
-    const doc: ProbeDoc = {
-      _id: new ObjectId(),
-      subject: { kind: 'host', id: _id, ...(b.stack ? { stack: b.stack } : {}) },
-      name: b.name.trim(),
-      target: clean(b.target),
-      runFrom: 'hub',
-      intervalSec: b.intervalSec ?? INTERVAL_RANGE.default,
-      timeoutSec: b.timeoutSec ?? TIMEOUT_RANGE.default,
-      retries: b.retries ?? 0,
-      createdAt: new Date(),
-    };
-    await probes.insertOne(doc);
-    publish('probe.config', {});
-    return reply.code(201).send(dto(doc));
-  });
+const subjectOf = (kind: 'host' | 'equipment', id: ObjectId, stack?: string): ProbeSubject =>
+  kind === 'host' ? { kind, id, ...(stack ? { stack } : {}) } : { kind, id };
+
+export function registerProbeRoutes(app: FastifyInstance) {
+  for (const { kind, path, exists, missing } of SUBJECTS) {
+    app.get<{ Params: { id: string } }>(path, async (req, reply) => {
+      const _id = parseId(req.params.id);
+      if (!_id || !(await exists(_id))) return reply.code(404).send({ error: missing });
+      return { probes: (await probes.find({ 'subject.kind': kind, 'subject.id': _id }).sort({ name: 1 }).toArray()).map(dto) };
+    });
+
+    app.post<{ Params: { id: string }; Body: ProbeBody }>(path, { schema: { body: probeBody } }, async (req, reply) => {
+      const _id = parseId(req.params.id);
+      if (!_id || !(await exists(_id))) return reply.code(404).send({ error: missing });
+      const b = req.body;
+      if (await invalid(b, { kind, id: _id }, reply)) return;
+      const doc: ProbeDoc = {
+        _id: new ObjectId(),
+        subject: subjectOf(kind, _id, b.stack),
+        name: b.name.trim(),
+        target: clean(b.target),
+        runFrom: 'hub',
+        intervalSec: b.intervalSec ?? INTERVAL_RANGE.default,
+        timeoutSec: b.timeoutSec ?? TIMEOUT_RANGE.default,
+        retries: b.retries ?? 0,
+        createdAt: new Date(),
+      };
+      await probes.insertOne(doc);
+      publish('probe.config', {});
+      return reply.code(201).send(dto(doc));
+    });
+  }
 
   app.put<{ Params: { id: string }; Body: ProbeBody }>('/api/probes/:id', { schema: { body: probeBody } }, async (req, reply) => {
     const _id = parseId(req.params.id);
     const current = _id && (await probes.findOne({ _id }));
-    if (!current || current.subject.kind !== 'host') return reply.code(404).send({ error: 'probe not found' });
+    if (!current || current.subject.kind === 'site') return reply.code(404).send({ error: 'probe not found' });
     const b = req.body;
-    if (await invalid(b, current.subject.id, reply)) return;
+    if (await invalid(b, current.subject, reply)) return;
     const next = {
-      subject: { kind: 'host' as const, id: current.subject.id, ...(b.stack ? { stack: b.stack } : {}) },
+      subject: subjectOf(current.subject.kind, current.subject.id, b.stack),
       name: b.name.trim(),
       target: clean(b.target),
       intervalSec: b.intervalSec ?? INTERVAL_RANGE.default,

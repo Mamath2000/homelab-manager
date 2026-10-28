@@ -973,9 +973,7 @@ export interface DayAlert {
   level: AlertLevel;
   reasons: string[];
 }
-export interface HostAlertDoc {
-  _id?: ObjectId;
-  hostId: ObjectId;
+export interface AlertDayFields {
   day: string; // YYYY-MM-DD, time zone of the hub
   // one field per domain (see monitoring.ts DOMAINS)
   system?: DayAlert;
@@ -989,6 +987,15 @@ export interface HostAlertDoc {
   services?: DayAlert;
   updatedAt: Date;
   expiresAt: Date;
+}
+export interface HostAlertDoc extends AlertDayFields {
+  _id?: ObjectId;
+  hostId: ObjectId;
+}
+// The same for an equipment (only the connection and services domains apply)
+export interface EquipmentAlertDoc extends AlertDayFields {
+  _id?: ObjectId;
+  equipmentId: ObjectId;
 }
 
 // Fill level of a datastore, last value of each day (pbsStats.ts recordUsage): the history of the usage
@@ -1016,8 +1023,8 @@ export interface BackupStatDoc {
 
 // --- Probes (service checks seen from outside, see probes.ts) --------------------------------
 
-// What a probe is attached to. Only a host (with an optional Docker stack of it) is implemented for now;
-// the other kinds are in the model so that equipment and sites need no rework.
+// What a probe is attached to: a host (with an optional Docker stack of it) or an equipment. The site kind is in
+// the model so that site probes need no rework, none is implemented.
 export type ProbeSubject = { kind: 'host'; id: ObjectId; stack?: string } | { kind: 'equipment' | 'site'; id: ObjectId; stack?: never };
 
 export const PROBE_TYPES = ['mqtt', 'ping', 'tcp', 'http'] as const;
@@ -1063,4 +1070,34 @@ export interface MqttBroker {
 export interface MqttBrokersSettings {
   _id: 'mqttBrokers';
   brokers: MqttBroker[];
+}
+
+// --- Equipment (what has no agent: network gear, gateways, home automation modules; see equipments.ts) ---
+
+export const EQUIPMENT_TYPES = ['gateway', 'switch', 'ap', 'coordinator', 'bridge', 'iot', 'other'] as const;
+export type EquipmentType = (typeof EQUIPMENT_TYPES)[number];
+
+// manual: typed in the interface; the others are kept up to date by the synchronisation of their source (#231)
+export const EQUIPMENT_SOURCES = ['manual', 'omada'] as const;
+export type EquipmentSource = (typeof EQUIPMENT_SOURCES)[number];
+
+// What an automatic source reports of an equipment, written by its synchronisation: its native checks (connected,
+// firmware...). They make the connection domain of the equipment; unknown once syncedAt is too old.
+export interface EquipmentNative {
+  syncedAt: Date;
+  checks: { key: string; label: string; level: AlertLevel; reason?: string }[];
+}
+
+export interface EquipmentDoc {
+  _id: ObjectId;
+  siteId?: string;
+  name: string;
+  type: EquipmentType;
+  ip?: string;
+  source: EquipmentSource;
+  externalId?: string; // id of the equipment in its source (MAC for Omada); absent for a manual one
+  // upstream equipment: shown on the page, later the probable cause of a failure; never hides a probe
+  uplinkId?: ObjectId;
+  native?: EquipmentNative;
+  createdAt: Date;
 }

@@ -215,6 +215,9 @@ export async function removeStackProbes(hostId: ObjectId, stacks: string[]) {
 // Probes attached to hosts, for the status of the hosts (monitoring.ts)
 export const hostProbes = () => probes.find({ 'subject.kind': 'host' }).toArray();
 
+// Probes attached to equipment, for their status (monitoring.ts)
+export const equipmentProbes = () => probes.find({ 'subject.kind': 'equipment' }).toArray();
+
 // Probes of a subject (host page, status of the host), without their live details
 export async function probesOf(kind: ProbeDoc['subject']['kind'], id: ObjectId) {
   return probes.find({ 'subject.kind': kind, 'subject.id': id }).sort({ name: 1 }).toArray();

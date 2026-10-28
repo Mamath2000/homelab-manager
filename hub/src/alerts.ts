@@ -1,13 +1,13 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Collection } from 'mongodb';
 import { isOnline } from './agents.js';
-import { backups, hostAlerts, hosts, jobs, probes } from './db.js';
+import { backups, equipmentAlerts, equipments, hostAlerts, hosts, jobs, probes } from './db.js';
 import { subscribe } from './events.js';
 import { jobDto } from './jobs.js';
-import { DOMAINS, dayOf, evaluate } from './monitoring.js';
-import type { AlertDomain, DayAlert, HostAlertDoc, HostDoc, JobDoc } from './types.js';
+import { DOMAINS, dayOf, evaluate, evaluateEquipment } from './monitoring.js';
+import type { AlertDayFields, AlertDomain, DayAlert, EquipmentDoc, HostDoc, JobDoc } from './types.js';
 
-// History of the alerts over the last days, one state per host, domain and day (see monitoring.ts).
+// History of the alerts over the last days, one state per host (or equipment), domain and day (see monitoring.ts).
 // Each day keeps the latest observed state in each domain, with its reasons.
 
 export const ALERT_DAYS = 30;
@@ -33,9 +33,15 @@ export function latestDay(next: DayAlert): DayAlert {
   return { level: next.level, reasons: next.reasons.slice(0, MAX_REASONS) };
 }
 
-async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, DayAlert | null>>, now = new Date()) {
+// Hosts and equipment have the same days, each in its own collection.
+type Subject = { kind: 'host' | 'equipment'; id: ObjectId };
+const daysOf = (kind: Subject['kind']) => (kind === 'host' ? hostAlerts : equipmentAlerts) as unknown as Collection<AlertDayFields>;
+const keyOf = (s: Subject) => (s.kind === 'host' ? { hostId: s.id } : { equipmentId: s.id });
+
+async function record(subject: Subject, domains: Partial<Record<AlertDomain, DayAlert | null>>, now = new Date()) {
   const key = dayKey(now);
-  const current = await hostAlerts.findOne({ hostId, day: key });
+  const coll = daysOf(subject.kind);
+  const current = await coll.findOne({ ...keyOf(subject), day: key });
   const set: Partial<Record<AlertDomain, DayAlert>> = {};
   for (const [d, a] of Object.entries(domains) as [AlertDomain, DayAlert | null][]) {
     if (!a) continue;
@@ -43,8 +49,8 @@ async function record(hostId: ObjectId, domains: Partial<Record<AlertDomain, Day
     if (JSON.stringify(latest) !== JSON.stringify(current?.[d])) set[d] = latest;
   }
   if (!Object.keys(set).length) return;
-  await hostAlerts.updateOne(
-    { hostId, day: key },
+  await coll.updateOne(
+    { ...keyOf(subject), day: key },
     // kept a little longer than the timeline shows
     { $set: { ...set, updatedAt: now }, $setOnInsert: { expiresAt: new Date(now.getTime() + (ALERT_DAYS + 10) * 24 * 3600 * 1000) } },
     { upsert: true },
@@ -57,11 +63,19 @@ export async function recordHost(h: HostDoc, now = new Date()) {
   const groups = await backups.find({ hostId: h._id }).toArray();
   const hostProbes = await probes.find({ 'subject.kind': 'host', 'subject.id': h._id }).toArray();
   const status = evaluate(h, { online: isOnline(h._id.toHexString()), groups, now: now.getTime(), probes: hostProbes });
-  await record(h._id, Object.fromEntries(DOMAINS.map(({ id }) => [id, dayOf(status.domains[id])])), now);
+  await record({ kind: 'host', id: h._id }, Object.fromEntries(DOMAINS.map(({ id }) => [id, dayOf(status.domains[id])])), now);
+}
+
+// An equipment: its probes and what its source reports, both read by the hub.
+export async function recordEquipment(e: EquipmentDoc, now = new Date()) {
+  const own = await probes.find({ 'subject.kind': 'equipment', 'subject.id': e._id }).toArray();
+  const status = evaluateEquipment(e, { now: now.getTime(), probes: own });
+  await record({ kind: 'equipment', id: e._id }, Object.fromEntries(DOMAINS.map(({ id }) => [id, dayOf(status.domains[id])])), now);
 }
 
 export async function recordAll(now = new Date()) {
   for (const h of await hosts.find({}).toArray()) await recordHost(h, now);
+  for (const e of await equipments.find({}).toArray()) await recordEquipment(e, now);
 }
 
 async function recordHostId(id: string) {
@@ -70,15 +84,26 @@ async function recordHostId(id: string) {
   if (h) await recordHost(h);
 }
 
-const dayDto = (d: HostAlertDoc) => ({ day: d.day, domains: Object.fromEntries(DOMAINS.map(({ id }) => [id, d[id] ?? null])) as Record<AlertDomain, DayAlert | null> });
+async function recordEquipmentId(id: string) {
+  const _id = ObjectId.isValid(id) ? new ObjectId(id) : null;
+  const e = _id && (await equipments.findOne({ _id }));
+  if (e) await recordEquipment(e);
+}
 
-// Days of a host, oldest first; the missing days are left out (nothing known).
-export async function hostAlertDays(hostId: ObjectId, days = ALERT_DAYS, now = new Date()) {
+const dayDto = (d: AlertDayFields) => ({ day: d.day, domains: Object.fromEntries(DOMAINS.map(({ id }) => [id, d[id] ?? null])) as Record<AlertDomain, DayAlert | null> });
+
+async function subjectDays(subject: Subject, days: number, now: Date) {
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
-  const list = await hostAlerts.find({ hostId, day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
+  const list = await daysOf(subject.kind).find({ ...keyOf(subject), day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
   return list.map(dayDto);
 }
+
+// Days of a host, oldest first; the missing days are left out (nothing known).
+export const hostAlertDays = (hostId: ObjectId, days = ALERT_DAYS, now = new Date()) => subjectDays({ kind: 'host', id: hostId }, days, now);
+
+// The same for an equipment (its page).
+export const equipmentAlertDays = (equipmentId: ObjectId, days = ALERT_DAYS, now = new Date()) => subjectDays({ kind: 'equipment', id: equipmentId }, days, now);
 
 // Days of every host (dashboard, one row per site), oldest first.
 export async function allAlertDays(days = ALERT_DAYS, now = new Date()) {
@@ -107,7 +132,7 @@ async function backfill() {
 async function recordJob(j: ReturnType<typeof jobDto>, at = new Date()) {
   const domain = jobDomain(j.action);
   if (j.status !== 'failed' || !domain || !ObjectId.isValid(j.hostId)) return;
-  await record(new ObjectId(j.hostId), { [domain]: day('alert', [`Tâche en échec : ${jobLabel(j)}${j.error ? ` (${j.error})` : ''}`]) }, at);
+  await record({ kind: 'host', id: new ObjectId(j.hostId) }, { [domain]: day('alert', [`Tâche en échec : ${jobLabel(j)}${j.error ? ` (${j.error})` : ''}`]) }, at);
 }
 
 // Records on the events of the hub (and every 10 minutes, for the backups that become late with time).
@@ -115,15 +140,20 @@ export function startAlerts(log: FastifyBaseLogger) {
   const fail = (err: unknown) => log.warn({ err }, 'alert recording failed');
   const unsubscribe = subscribe((event, data) => {
     if (event === 'host') recordHostId((data as { id: string }).id).catch(fail);
-    // a probe changed state: recorded at once, whichever host it checks
+    // a probe changed state: recorded at once, whichever host or equipment it checks
     else if (event === 'probe') {
       const subject = (data as { subject: { kind: string; id: string } }).subject;
       if (subject.kind === 'host') recordHostId(subject.id).catch(fail);
+      else if (subject.kind === 'equipment') recordEquipmentId(subject.id).catch(fail);
     }
+    else if (event === 'equipment') recordEquipmentId((data as { id: string }).id).catch(fail);
     else if (event === 'backups') recordAll().catch(fail);
     else if (event === 'host.deleted') {
       const id = (data as { id: string }).id;
       if (ObjectId.isValid(id)) hostAlerts.deleteMany({ hostId: new ObjectId(id) }).catch(fail);
+    } else if (event === 'equipment.deleted') {
+      const id = (data as { id: string }).id;
+      if (ObjectId.isValid(id)) equipmentAlerts.deleteMany({ equipmentId: new ObjectId(id) }).catch(fail);
     } else if (event === 'job') recordJob(data as ReturnType<typeof jobDto>).catch(fail);
   });
   const run = () => recordAll().catch(fail);

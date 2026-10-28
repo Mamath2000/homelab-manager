@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, MqttBrokersSettings, PbsSettings, PbsRemoteSettings, ProbeDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, MqttBrokersSettings, PbsSettings, PbsRemoteSettings, ProbeDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -18,6 +18,8 @@ export let storageUsage: Collection<StorageUsageDoc>;
 export let hostAlerts: Collection<HostAlertDoc>;
 export let healthMetrics: Collection<HealthMetricDoc>;
 export let probes: Collection<ProbeDoc>;
+export let equipments: Collection<EquipmentDoc>;
+export let equipmentAlerts: Collection<EquipmentAlertDoc>;
 
 export async function connectDb() {
   await client.connect();
@@ -36,6 +38,8 @@ export async function connectDb() {
   hostAlerts = db.collection('hostAlerts');
   healthMetrics = db.collection('healthMetrics');
   probes = db.collection('probes');
+  equipments = db.collection('equipments');
+  equipmentAlerts = db.collection('equipmentAlerts');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -65,6 +69,12 @@ export async function connectDb() {
     hostAlerts.createIndex({ hostId: 1, day: 1 }, { unique: true }),
     hostAlerts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'host_alerts_ttl' }),
     probes.createIndex({ 'subject.kind': 1, 'subject.id': 1 }),
+    equipments.createIndex({ siteId: 1, name: 1 }),
+    // one equipment per id of its source
+    equipments.createIndex({ source: 1, externalId: 1 }, { unique: true, partialFilterExpression: { externalId: { $exists: true } } }),
+    // same as the hosts
+    equipmentAlerts.createIndex({ equipmentId: 1, day: 1 }, { unique: true }),
+    equipmentAlerts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'equipment_alerts_ttl' }),
     healthMetrics.createIndex({ hostId: 1, category: 1, sampledAt: -1 }),
     healthMetrics.createIndex({ sampledAt: 1 }, { expireAfterSeconds: 48 * 3600, name: 'health_metrics_ttl' }),
     // accounts created before roles existed keep full access

@@ -75,6 +75,7 @@ Activer la copie déportée d'une sauvegarde ajoute la ligne **Copie externe** �
 
 - **Fiche hôte** : la frise des 30 jours a une ligne par domaine que l'hôte fournit ; le jour sélectionné détaille les raisons. Aujourd'hui reprend l'état en direct, les jours passés l'historique enregistré par le hub.
 - **Tableau de bord, vue par site** : une colonne par hôte et un carré par domaine de l'ensemble des hôtes du site (haut → bas dans l'ordre du tableau ci-dessus). Un domaine que l'hôte ne fournit pas reste transparent. Le point du site est le pire de ses hôtes ; les jauges comptent les hôtes par état, domaine par domaine.
+- **Tableau de bord, équipements** : un bloc à part, une colonne par [équipement](equipements.md) et un carré par sonde. Un équipement n'a que les domaines Connexion (source automatique) et Services ; il ne compte pas dans la couleur du site.
 - **Tableau de bord, arrivée des alertes** : une ligne par site, le pire niveau du jour sur ses hôtes et ses domaines ; le filtre liste les domaines présents. Le jour courant reprend l'état en direct, donc la frise est cohérente avec la couleur du site.
 
 ## Historique
