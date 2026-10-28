@@ -13,6 +13,8 @@ export const keys = {
   status: ['status'] as const,
   sites: ['sites'] as const,
   tags: ['tags'] as const,
+  probes: (hostId: string) => ['probes', hostId] as const,
+  mqttBrokers: ['settings', 'mqtt-brokers'] as const,
 };
 
 export function useBackups() {
@@ -54,6 +56,14 @@ export function useAllAlerts() {
 // Live status by domain of every host, recomputed by the hub (late backups change with time alone).
 export function useStatus() {
   return useQuery({ queryKey: keys.status, queryFn: api.status, refetchInterval: 60_000 });
+}
+
+export function useHostProbes(hostId: string) {
+  return useQuery({ queryKey: keys.probes(hostId), queryFn: () => api.hostProbes(hostId), select: (d) => d.probes });
+}
+
+export function useMqttBrokers(enabled = true) {
+  return useQuery({ queryKey: keys.mqttBrokers, queryFn: api.mqttBrokers, select: (d) => d.brokers, enabled });
 }
 
 export function useSites() {

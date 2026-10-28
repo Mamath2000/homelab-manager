@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { ObjectId } from 'mongodb';
-import { probes, settings } from './db.js';
+import { hosts, probes, settings } from './db.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
@@ -22,14 +22,14 @@ export async function loadMqttBrokers(): Promise<MqttBrokersSettings> {
 
 // --- validation (the routes use it) --------------------------------------------------------------
 
-const hostOk = (h: string) => PING_HOST_RE.test(h);
+const hostOk = (h: unknown) => typeof h === 'string' && PING_HOST_RE.test(h);
 
 // null: valid, else why not
 export function targetError(t: ProbeTarget): string | null {
   switch (t.type) {
     case 'mqtt':
-      if (!BROKER_ID_RE.test(t.brokerId)) return 'broker invalide';
-      if (!t.topic || t.topic.length > 256 || /[+#\0]/.test(t.topic)) return 'topic invalide (pas de joker + ni #)';
+      if (typeof t.brokerId !== 'string' || !BROKER_ID_RE.test(t.brokerId)) return 'broker invalide';
+      if (typeof t.topic !== 'string' || !t.topic || t.topic.length > 256 || /[+#\0]/.test(t.topic)) return 'topic invalide (pas de joker + ni #)';
       if (t.contains !== undefined && t.contains.length > 256) return 'valeur attendue trop longue';
       return null;
     case 'ping':
@@ -39,7 +39,7 @@ export function targetError(t: ProbeTarget): string | null {
       return Number.isInteger(t.port) && t.port >= 1 && t.port <= 65535 ? null : 'port invalide';
     case 'http':
       try {
-        const u = new URL(t.url);
+        const u = new URL(String(t.url));
         if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'URL http ou https attendue';
       } catch {
         return 'URL invalide';
@@ -170,10 +170,46 @@ export function measure(p: Pick<ProbeDoc, 'target' | 'timeoutSec'>, pool: MqttPo
   return t.type === 'mqtt' ? pool.check(t.brokerId, t.topic, t.contains || undefined, timeoutMs) : measureLocal(t, timeoutMs);
 }
 
+let running: ProbeEngine | null = null;
+
 export function startProbes(log: FastifyBaseLogger) {
   const engine = new ProbeEngine(log);
+  running = engine;
   engine.start();
-  return Object.assign(() => engine.stop(), { engine });
+  return () => {
+    engine.stop();
+    running = null;
+  };
+}
+
+// The engine of the hub, for what the routes show of it (live measures, connection of the brokers)
+export const probeEngine = () => running;
+
+// One measure of a probe that is not saved (the test of the forms). A topic of a broker is listened to on a
+// connection of its own, closed after the measure.
+export async function testTarget(target: ProbeTarget, timeoutSec: number): Promise<Measure> {
+  if (target.type !== 'mqtt') return measure({ target, timeoutSec }, new MqttPool());
+  const broker = (await loadMqttBrokers()).brokers.find((b) => b.id === target.brokerId);
+  if (!broker) return { state: 'unknown', message: 'broker introuvable' };
+  const pool = new MqttPool();
+  pool.sync([broker], new Map([[broker.id, new Set([target.topic])]]));
+  try {
+    return await measure({ target, timeoutSec }, pool);
+  } finally {
+    pool.closeAll();
+  }
+}
+
+// A stack that is gone from the report of its host takes its probes with it: they would only ever be down.
+// The user is told (event probe.removed). Returns what was removed.
+export async function removeStackProbes(hostId: ObjectId, stacks: string[]) {
+  const gone = await probes.find({ 'subject.kind': 'host', 'subject.id': hostId, 'subject.stack': { $exists: true, $nin: stacks } }).toArray();
+  if (!gone.length) return [];
+  await probes.deleteMany({ _id: { $in: gone.map((p) => p._id) } });
+  const host = await hosts.findOne({ _id: hostId }, { projection: { name: 1 } });
+  publish('probe.config', {});
+  publish('probe.removed', { hostId: hostId.toHexString(), host: host?.name ?? '', probes: gone.map((p) => ({ name: p.name, stack: p.subject.stack })) });
+  return gone;
 }
 
 // Probes attached to hosts, for the status of the hosts (monitoring.ts)

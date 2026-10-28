@@ -93,3 +93,20 @@ test('unknown roles get nothing', () => {
   assert.ok(!authorize(undefined as never, 'GET', '/api/hosts'));
   assert.ok(!authorize('monitor' as never, 'GET', '/api/hosts'));
 });
+
+test('probes: everyone reads those of a host, only admins write them or the brokers they use', () => {
+  for (const role of ['admin', 'operator', 'viewer'] as const) assert.ok(authorize(role, 'GET', '/api/hosts/:id/probes'), role);
+  for (const [m, r] of [
+    ['POST', '/api/hosts/:id/probes'],
+    ['PUT', '/api/probes/:id'],
+    ['DELETE', '/api/probes/:id'],
+    ['POST', '/api/probes/test'],
+    ['GET', '/api/settings/mqtt-brokers'],
+    ['POST', '/api/settings/mqtt-brokers'],
+    ['DELETE', '/api/settings/mqtt-brokers/:id'],
+  ]) {
+    assert.ok(authorize('admin', m, r), `admin ${m} ${r}`);
+    assert.ok(!authorize('operator', m, r), `operator ${m} ${r}`);
+    assert.ok(!authorize('viewer', m, r), `viewer ${m} ${r}`);
+  }
+});

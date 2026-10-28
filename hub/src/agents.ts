@@ -21,6 +21,7 @@ import { isSessionReport } from './sessions.js';
 import { healthConfigForHost, receiveHealthReport } from './health.js';
 import { randomUUID } from 'node:crypto';
 import type { AptReport, HostDoc, HostInfo } from './types.js';
+import { removeStackProbes } from './probes.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -275,6 +276,7 @@ export function registerAgentSocket(app: FastifyInstance) {
                   { $set: { docker: msg.docker, lastSeenAt: new Date(), ...(recheck ? { dockerRecheck: true } : {}) } },
                 );
                 await emitHost(host._id);
+                await removeStackProbes(host._id, msg.docker.stacks.map((st) => st.name));
                 if (recheck) log.info('local images changed since the registry check');
                 await dockerRecheck(host._id);
               }

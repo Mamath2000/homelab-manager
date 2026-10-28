@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Host, Job } from './api';
 import { keys, useUpdateHostCache } from './queries';
+import { useToast } from './toast';
 
 // Subscribes to the hub's SSE stream and patches the React Query cache in place.
 export function useLiveEvents(enabled: boolean) {
   const qc = useQueryClient();
   const upsertHost = useUpdateHostCache();
+  const toast = useToast();
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -56,6 +58,25 @@ export function useLiveEvents(enabled: boolean) {
     });
     // a snapshot mounted or unmounted (the hosts carry it): the mount window
     es.addEventListener('pbs-mount', () => qc.invalidateQueries({ queryKey: ['pbs-mount'] }));
+    // a probe changed state (status, timeline of its host) or was added, edited, removed
+    es.addEventListener('probe', (e) => {
+      const { subject } = JSON.parse((e as MessageEvent).data) as { subject: { kind: string; id: string } };
+      qc.invalidateQueries({ queryKey: ['probes'] });
+      qc.invalidateQueries({ queryKey: keys.status });
+      if (subject.kind === 'host') qc.invalidateQueries({ queryKey: keys.hostAlerts(subject.id) });
+      qc.invalidateQueries({ queryKey: keys.alerts });
+    });
+    es.addEventListener('probe.config', () => {
+      qc.invalidateQueries({ queryKey: ['probes'] });
+      qc.invalidateQueries({ queryKey: keys.mqttBrokers });
+      qc.invalidateQueries({ queryKey: keys.status });
+    });
+    // the stack of a probe is gone: the probes went with it
+    es.addEventListener('probe.removed', (e) => {
+      const { host, probes } = JSON.parse((e as MessageEvent).data) as { host: string; probes: { name: string; stack?: string }[] };
+      const names = probes.map((p) => `${p.name}${p.stack ? ` (${p.stack})` : ''}`).join(', ');
+      toast.error(`${probes.length > 1 ? 'Sondes supprimées' : 'Sonde supprimée'} sur ${host || 'un hôte'} : la stack n'existe plus. ${names}`);
+    });
     // sites or tags changed in the settings
     es.addEventListener('catalog', () => {
       qc.invalidateQueries({ queryKey: keys.sites });
