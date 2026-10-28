@@ -1,7 +1,7 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
         docker-build docker-prune release-key \
-        docker-release docker-release-minor docker-release-major docker-direct publish
+        docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
 
 VERSION   := $(shell cat VERSION)
@@ -119,22 +119,25 @@ release-key: ## Crée la clé de signature des agents (une fois) : clé privée 
 docker-build: ## Construit l'image locale homelab-manager:latest (sans push ; agents signés si la clé de release est présente)
 	bash docker-release.sh build
 
-docker-prune: ## Libère le disque : dist, anciennes images locales (garde latest + version courante), images orphelines, cache buildx > 7 j
+docker-prune: ## Libère le disque : dist, anciennes images locales (garde latest, dev + version courante), images orphelines, cache buildx > 7 j
 	bash docker-release.sh prune
 
-docker-release: check ## Release : build +1 (X.Y.Z+1), commit, build et push Docker Hub (amd64 + arm64), tag git, push, synchro HAOS (workflow GitHub) et nettoyage disque
+docker-release: check ## Release dev : build +1 (X.Y.Z+1), commit, build et push Docker Hub (dev, X.Y.Z-dev ; amd64 + arm64), tag git, push, synchro HAOS dev (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release
 
-docker-release-minor: check ## Release : mineur +1, build remis à 0 (X.Y+1.0), commit, build et push, tag git, push, synchro HAOS (workflow GitHub) et nettoyage disque
+docker-release-minor: check ## Release dev : mineur +1, build remis à 0 (X.Y+1.0), commit, build et push dev, tag git, push, synchro HAOS dev (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release-minor
 
-docker-release-major: check ## Release : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push, tag git, push, synchro HAOS (workflow GitHub) et nettoyage disque
+docker-release-major: check ## Release dev : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push dev, tag git, push, synchro HAOS dev (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release-major
+
+docker-promote: ## Prod : publie l'image X.Y.Z-dev telle quelle sous X.Y.Z et latest, puis synchro HAOS prod [VERSION=X.Y.Z, défaut : version courante] [YES=1]
+	PROMOTE_VERSION=$(VERSION) YES=$(YES) bash docker-release.sh promote
 
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]
 	YES=$(YES) bash docker-release.sh direct
 
-publish: ## Prod : récupère la dernière image du hub (Docker Hub) et relance la stack (docker compose up -d), puis supprime les images orphelines (docker image prune) [YES=1]
+publish: ## Stack du CT : récupère la dernière image dev du hub (Docker Hub, tag dev) et relance la stack (docker compose up -d), puis supprime les images orphelines (docker image prune) [YES=1]
 	@echo "Stack de prod : $(PROD_SSH)$(if $(PROD_PCT), / CT $(PROD_PCT)):$(PROD_DIR)"
 	@[ "$(YES)" = 1 ] || { printf "Mettre à jour le hub et relancer la stack ? [o/N] "; read a; case "$$a" in o|O|oui|y|Y) ;; *) echo "Annulé"; exit 1 ;; esac; }
 	$(call PROD_RUN,docker compose pull hub && docker compose up -d && docker compose ps && docker image prune -f)

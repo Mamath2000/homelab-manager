@@ -193,7 +193,7 @@ Ce que remonte un hôte HAOS :
 - **système** : version de Home Assistant OS, nom d'hôte et virtualisation lus par l'API Supervisor, adresses et MAC de la VM (les interfaces internes de HA et Docker sont ignorées) ;
 - **rien d'autre** : ni mises à jour APT (« non pris en charge » dans la liste des hôtes), ni stacks Docker, ni standardisation, ni bouton Redémarrer, ni sauvegardes de répertoires (HA sauvegarde déjà ses fichiers).
 
-**Mises à jour.** L'agent ne se met pas à jour lui-même : un binaire remplacé dans le conteneur serait perdu à sa recréation. La version de l'application suit celle de l'agent : à chaque release du hub, une tâche GitHub Actions du repo (lancée par `make docker-release`, et chaque jour) publie une nouvelle version de l'application si l'agent a changé, que Home Assistant installe seul avec la mise à jour automatique. Un agent HAOS en retard est signalé sans bouton de mise à jour.
+**Mises à jour.** L'agent ne se met pas à jour lui-même : un binaire remplacé dans le conteneur serait perdu à sa recréation. La version de l'application suit celle de l'agent : à chaque release publiée du hub, une tâche GitHub Actions du repo (lancée à la publication, et chaque jour) publie une nouvelle version de l'application si l'agent a changé, que Home Assistant installe seul avec la mise à jour automatique. Un agent HAOS en retard est signalé sans bouton de mise à jour.
 
 **Désinstallation.** Désinstaller l'application dans Home Assistant, puis supprimer l'hôte dans Homelab Manager.
 

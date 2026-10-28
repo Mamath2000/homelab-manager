@@ -2,17 +2,20 @@
 # Build / release Docker de homelab-manager.
 #   build         : image locale homelab-manager:latest pour l'architecture courante (aucun push)
 #   release       : build +1 (X.Y.Z → X.Y.Z+1 : VERSION, hub/ et web/package.json) commitée « Release X.Y.Z »,
-#                   build multi-arch et push Docker Hub (latest, X.Y.Z, ref git), tag git vX.Y.Z
-#                   — l'image X.Y.Z contient exactement ce commit ; commit et tags poussés, puis synchro de
-#                   l'application HAOS lancée (gh workflow run, homelab-manager-haos)
+#                   build multi-arch et push Docker Hub sur le canal dev (dev, X.Y.Z-dev, ref git), tag git vX.Y.Z
+#                   — l'image X.Y.Z-dev contient exactement ce commit ; commit et tags poussés, puis synchro des
+#                   applications HAOS dev lancée (gh workflow run, homelab-manager-haos)
 #   release-minor : mineur +1, build remis à 0 (X.Y+1.0)
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
+#   promote       : prod : l'image X.Y.Z-dev (défaut : VERSION, sinon PROMOTE_VERSION) est publiée telle quelle
+#                   (sans rebuild, toutes architectures) sous X.Y.Z et latest, puis synchro des applications HAOS
+#                   prod lancée ; confirmation demandée sauf YES=1
 #   prune         : libère le disque : agent/hub/web dist, anciennes images locales de homelab-manager et
-#                   homelab-agent-haos (reste latest et la version courante), images orphelines, cache buildx > 7 j
+#                   homelab-agent-haos (restent latest, dev et la version courante), images orphelines, cache buildx > 7 j
 #                   (proposé aussi en fin de release, avec confirmation ; YES=1 l'accepte d'office)
 #   direct        : contournement de Docker Hub : build amd64 sans identifiants (config Docker vide), image
 #                   transférée par ssh dans le CT du hub (docker save | docker load), puis compose up du service.
-#                   Rien n'est publié ni commité ; tags locaux latest et X.Y.Z-<ref git>.
+#                   Rien n'est publié ni commité ; tags locaux dev et X.Y.Z-<ref git>.
 #                   Variables : DIRECT_SSH (pve1.lo), DIRECT_PCT (171, vide = hôte ssh lui-même),
 #                   DIRECT_DIR (/home/mamath/homelab-manager), DIRECT_SERVICE (hub), YES=1 (sans confirmation)
 # Les binaires de l'agent sont signés avec la clé de release (make release-key), passée en secret BuildKit :
@@ -48,7 +51,7 @@ prune_old() {
     keep=$(cat VERSION)
     docker images --format '{{.Repository}}:{{.Tag}}' \
         | grep -E "^($DOCKER_USER/$APP_NAME|$APP_NAME|homelab-agent-haos)(:|$)" \
-        | grep -Ev ":(latest|local|$keep|$keep-[0-9a-f]+)$" \
+        | grep -Ev ":(latest|dev|local|$keep|$keep-dev|$keep-[0-9a-f]+)$" \
         | xargs -r docker rmi 2>/dev/null || true
     docker image prune -f >/dev/null 2>&1 || true
     docker buildx prune -f --filter until=168h >/dev/null 2>&1 || true
@@ -107,6 +110,40 @@ if [ "$action" = "build" ]; then
     exit 0
 fi
 
+# haos_sync CHANNEL : synchro des applications HAOS (agent et hub) du canal, sans bloquer en cas d'échec
+haos_sync() {
+    local wf
+    for wf in sync.yaml sync-hub.yaml; do
+        gh workflow run "$wf" -R "$HAOS_REPO" -f channel="$1" \
+            && echo "✅ Synchro HAOS $1 lancée ($wf) : gh run list -R $HAOS_REPO" \
+            || echo "⚠️  Synchro HAOS $1 non lancée : make -C ../homelab-manager-haos ${wf%.yaml} CHANNEL=$1 (sinon cron quotidien)"
+    done
+}
+
+if [ "$action" = "promote" ]; then
+    command -v gh >/dev/null 2>&1 || { echo "❌ gh est requis (synchro HAOS)."; exit 1; }
+    docker buildx version >/dev/null 2>&1 || { echo "❌ docker buildx est requis."; exit 1; }
+    docker info 2>/dev/null | grep -q Username || { echo "❌ Non connecté à Docker Hub (docker login)."; exit 1; }
+    IMAGE="$DOCKER_USER/$APP_NAME"
+    PROMOTE=${PROMOTE_VERSION:-$VERSION}
+    docker buildx imagetools inspect "$IMAGE:$PROMOTE-dev" >/dev/null 2>&1 \
+        || { echo "❌ $IMAGE:$PROMOTE-dev introuvable sur Docker Hub"; exit 1; }
+    if docker buildx imagetools inspect "$IMAGE:$PROMOTE" >/dev/null 2>&1; then
+        echo "❌ $IMAGE:$PROMOTE existe déjà en prod"
+        exit 1
+    fi
+    echo "🚀 Promotion $IMAGE:$PROMOTE-dev → $PROMOTE, latest"
+    if [ "${YES:-}" != "1" ]; then
+        read -r -p "Publier $PROMOTE en prod (image publique et applications HAOS) ? [o/N] " answer
+        case "$answer" in o|O|oui|y|Y) ;; *) echo "Annulé"; exit 1 ;; esac
+    fi
+    # le manifeste multi-arch est recopié : mêmes images, mêmes labels que la dev testée
+    docker buildx imagetools create -t "$IMAGE:$PROMOTE" -t "$IMAGE:latest" "$IMAGE:$PROMOTE-dev"
+    echo "✅ $IMAGE:{$PROMOTE,latest} publiées"
+    haos_sync prod
+    exit 0
+fi
+
 if [ "$action" = "direct" ]; then
     DIRECT_SSH=${DIRECT_SSH:-"pve1.lo"}
     DIRECT_PCT=${DIRECT_PCT-"171"}
@@ -142,20 +179,20 @@ if [ "$action" = "direct" ]; then
         --label "org.opencontainers.image.revision=$GIT_REF" \
         --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
         --label "org.opencontainers.image.source=https://github.com/Mamath2000/homelab-manager" \
-        -t "$IMAGE:latest" \
+        -t "$IMAGE:dev" \
         -t "$IMAGE:$TAG" \
         "${SIGNING[@]}" \
         --load \
         .
 
     echo "📤 Transfert vers $TARGET"
-    docker save "$IMAGE:latest" "$IMAGE:$TAG" | gzip -1 | remote "gunzip | docker load"
+    docker save "$IMAGE:dev" "$IMAGE:$TAG" | gzip -1 | remote "gunzip | docker load"
 
     if [ "${YES:-}" != "1" ]; then
         read -r -p "Recréer le service $DIRECT_SERVICE sur $TARGET avec $IMAGE:$TAG ? [o/N] " answer
         case "$answer" in o|O|oui|y|Y) ;; *) echo "⏸️  Image chargée, service non redémarré (docker compose up -d $DIRECT_SERVICE dans $DIRECT_DIR)"; exit 0 ;; esac
     fi
-    # pas de pull : compose prend l'image latest chargée localement
+    # pas de pull : compose prend l'image dev chargée localement
     remote "cd $DIRECT_DIR && docker compose up -d --pull never $DIRECT_SERVICE"
     sleep 5
     remote "cd $DIRECT_DIR && docker compose ps $DIRECT_SERVICE"
@@ -163,13 +200,13 @@ if [ "$action" = "direct" ]; then
     labels=$(remote "docker inspect --format {{.Config.Labels}} \$(cd $DIRECT_DIR && docker compose ps -q $DIRECT_SERVICE)")
     case "$labels" in *"org.opencontainers.image.revision:$GIT_REF"*) ;; *) echo "❌ Le conteneur ne tourne pas sur $IMAGE:$TAG"; exit 1 ;; esac
     echo "✅ $IMAGE:$TAG déployée sur $TARGET (non publiée sur Docker Hub)"
-    echo "⚠️  Un docker compose pull / make apps-redeploy repasserait sur la latest de Docker Hub : faire la release Docker Hub dès que possible."
+    echo "⚠️  Un docker compose pull / make apps-redeploy repasserait sur la dev de Docker Hub : faire la release Docker Hub dès que possible."
     exit 0
 fi
 
 case "$action" in
     release|release-minor|release-major) ;;
-    *) echo "Usage: $0 [build|prune|release|release-minor|release-major|direct]"; exit 1 ;;
+    *) echo "Usage: $0 [build|prune|release|release-minor|release-major|promote|direct]"; exit 1 ;;
 esac
 
 command -v go >/dev/null 2>&1 || { echo "❌ go est requis (vérification de la clé de release)."; exit 1; }
@@ -213,24 +250,23 @@ docker buildx build \
     --label "org.opencontainers.image.revision=$GIT_REF" \
     --label "org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
     --label "org.opencontainers.image.source=https://github.com/Mamath2000/homelab-manager" \
-    -t "$DOCKER_USER/$APP_NAME:latest" \
-    -t "$DOCKER_USER/$APP_NAME:$NEW_VERSION" \
+    -t "$DOCKER_USER/$APP_NAME:dev" \
+    -t "$DOCKER_USER/$APP_NAME:$NEW_VERSION-dev" \
     -t "$DOCKER_USER/$APP_NAME:$GIT_REF" \
     "${SIGNING[@]}" \
     --push \
     .
 git tag "v$NEW_VERSION"
 
-echo "✅ Version $NEW_VERSION publiée : $DOCKER_USER/$APP_NAME:{latest,$NEW_VERSION,$GIT_REF} ($PLATFORMS)"
+echo "✅ Version $NEW_VERSION publiée en dev : $DOCKER_USER/$APP_NAME:{dev,$NEW_VERSION-dev,$GIT_REF} ($PLATFORMS)"
+echo "   Prod : make docker-promote"
 trap - ERR
 
-# The image is out: the release commit and its tag go to GitHub, then the HAOS app checks the agent
-# it ships (rebuilt only when agent/VERSION changed). Failures here leave the release as it is.
+# The image is out: the release commit and its tag go to GitHub, then the HAOS dev apps check the
+# image (agent rebuilt only when agent/VERSION changed). Failures here leave the release as it is.
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 git push -q origin "$BRANCH" --tags \
     && echo "✅ Poussé : $BRANCH et tag v$NEW_VERSION" \
     || echo "⚠️  Push échoué : git push origin $BRANCH --tags"
-gh workflow run sync.yaml -R "$HAOS_REPO" \
-    && echo "✅ Synchro de l'application HAOS lancée : gh run list -R $HAOS_REPO" \
-    || echo "⚠️  Synchro HAOS non lancée : make -C ../homelab-manager-haos sync (sinon cron quotidien)"
+haos_sync dev
 ask_prune

@@ -154,20 +154,22 @@ make agent-run CODE=…   # agent local enrôlé avec le code d'une commande d'i
 
 ### Release
 
-Les releases se font en local et publient sur Docker Hub, comme pour komodo2mqtt. Elles signent les binaires de l'agent : une fois pour toutes, `make release-key` crée la clé privée (`~/.config/homelab-manager/release.key`, à sauvegarder, jamais dans le dépôt) et `agent/release.pub`, à commiter.
+Les releases se font en local et publient sur Docker Hub, comme pour komodo2mqtt, en deux temps : chaque release part sur le canal **dev** (tags `dev` et `X.Y.Z-dev`) ; seule la **promotion** publie la prod (`X.Y.Z` et `latest`, le tag de l'image publique et de la doc d'installation). Elles signent les binaires de l'agent : une fois pour toutes, `make release-key` crée la clé privée (`~/.config/homelab-manager/release.key`, à sauvegarder, jamais dans le dépôt) et `agent/release.pub`, à commiter.
 
 ```sh
 docker login
 make docker-release         # X.Y.Z → X.Y.Z+1
 make docker-release-minor   # X.Y.Z → X.Y+1.0
 make docker-release-major   # X.Y.Z → X+1.0.0
-git push origin main --tags
+make docker-promote         # prod : X.Y.Z-dev → X.Y.Z + latest (VERSION=X.Y.Z pour une autre version dev)
 ```
 
 Une release lance d'abord `make check`. Elle refuse un arbre de travail non commité, ou une clé de release absente ou qui ne correspond pas à `agent/release.pub`. Ensuite elle :
 1. met à jour la version (`VERSION`, `hub/` et `web/package.json`) et la commite (« 🔖 Release X.Y.Z ») ;
-2. construit l'image amd64 + arm64 (binaires de l'agent signés, clé passée en secret BuildKit) et la pousse sous les tags `latest`, `X.Y.Z` et le hash du commit ;
-3. crée le tag git `vX.Y.Z`.
+2. construit l'image amd64 + arm64 (binaires de l'agent signés, clé passée en secret BuildKit) et la pousse sous les tags `dev`, `X.Y.Z-dev` et le hash du commit ;
+3. crée le tag git `vX.Y.Z`, pousse le commit et le tag, puis lance la synchro des applications HAOS **dev** (`homelab-manager-haos`).
+
+`make docker-promote` (après confirmation, `YES=1` pour s'en passer) republie l'image `X.Y.Z-dev` telle quelle, sans rebuild et pour toutes ses architectures, sous `X.Y.Z` et `latest`, puis lance la synchro des applications HAOS **prod**. Une version déjà en prod est refusée. La stack du CT 171 (`make publish`, `make docker-direct`) suit le tag `dev`.
 
 `DOCKER_USER` (défaut `mathmath350`), `PLATFORMS` (défaut `linux/amd64,linux/arm64`) et `RELEASE_KEY` sont surchargeables.
 
