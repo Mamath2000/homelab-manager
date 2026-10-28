@@ -21,7 +21,7 @@ Le cœur de Homelab Manager : un seul calcul, fait par le hub, donne l'état de 
 | **Copie externe** (`offsite`) | la copie vers le PBS de secours, un groupe copié = un élément | au moins une copie déportée est activée |
 | **Onduleur** (`ups`) | les problèmes remontés par NUT | l'hôte a un onduleur |
 | **Montage PBS** (`mount`) | un snapshot monté sur l'hôte : avertissement tant qu'il l'est, ou que son démontage attend un agent | une sauvegarde est [montée](sauvegardes.md#monter-une-sauvegarde-lecture-seule) sur l'hôte |
-| **Services** (`services`) | une sonde = un élément (en échec : alerte) ; une sonde qui ne peut pas mesurer (broker MQTT injoignable) est grise et ne compte pas | au moins une sonde est rattachée à l'hôte |
+| **Services** (`services`) | une [sonde](sondes.md) = un élément (en échec : alerte) ; une sonde qui ne peut pas mesurer (broker MQTT injoignable) est grise et ne compte pas | au moins une sonde est rattachée à l'hôte |
 
 - Un **élément suivi** est ce qui porte un état : une sauvegarde précise, une stack, un problème d'onduleur. Chaque élément est ok, avertissement ou alerte, avec la raison quand il ne l'est pas.
 
