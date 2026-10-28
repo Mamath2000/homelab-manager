@@ -1205,6 +1205,65 @@ export interface PveClusterInput {
   agent?: { hostId: string };
 }
 
+// Service probes of a host and the MQTT brokers they listen to (hub/src/probes.ts)
+export type ProbeState = 'up' | 'down' | 'unknown';
+export type ProbeType = 'mqtt' | 'ping' | 'tcp' | 'http';
+export type ProbeTarget =
+  | { type: 'mqtt'; brokerId: string; topic: string; contains?: string }
+  | { type: 'ping'; host: string }
+  | { type: 'tcp'; host: string; port: number }
+  | { type: 'http'; url: string; status?: number; keyword?: string; insecure?: boolean };
+
+export interface Probe {
+  id: string;
+  hostId: string;
+  stack: string | null;
+  name: string;
+  target: ProbeTarget;
+  runFrom: 'hub';
+  intervalSec: number;
+  timeoutSec: number;
+  retries: number;
+  state: ProbeState;
+  since: string | null;
+  message: string | null;
+  checkedAt: number | null;
+  latencyMs: number | null;
+}
+
+export interface ProbeInput {
+  name: string;
+  stack?: string;
+  target: ProbeTarget;
+  intervalSec: number;
+  timeoutSec: number;
+  retries: number;
+}
+
+export interface ProbeMeasure {
+  state: ProbeState;
+  latencyMs?: number;
+  message?: string;
+}
+
+export interface MqttBrokerView {
+  id: string;
+  name: string;
+  url: string;
+  username: string;
+  hasPassword: boolean;
+  status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
+  probes: number;
+}
+
+// password: absent keeps the stored one, "" clears it
+export interface MqttBrokerInput {
+  name: string;
+  url: string;
+  username: string;
+  password?: string;
+}
+
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
   login: (username: string, password: string) =>
@@ -1249,6 +1308,16 @@ export const api = {
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
+  hostProbes: (id: string) => request<{ probes: Probe[] }>('GET', `/api/hosts/${id}/probes`),
+  createProbe: (hostId: string, p: ProbeInput) => request<Probe>('POST', `/api/hosts/${hostId}/probes`, p),
+  updateProbe: (id: string, p: ProbeInput) => request<Probe>('PUT', `/api/probes/${id}`, p),
+  deleteProbe: (id: string) => request<void>('DELETE', `/api/probes/${id}`),
+  testProbe: (target: ProbeTarget, timeoutSec: number) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec }),
+  mqttBrokers: () => request<{ brokers: MqttBrokerView[] }>('GET', '/api/settings/mqtt-brokers'),
+  createMqttBroker: (b: MqttBrokerInput) => request<{ id: string }>('POST', '/api/settings/mqtt-brokers', b),
+  updateMqttBroker: (id: string, b: MqttBrokerInput) => request<{ id: string }>('PUT', `/api/settings/mqtt-brokers/${id}`, b),
+  deleteMqttBroker: (id: string) => request<void>('DELETE', `/api/settings/mqtt-brokers/${id}`),
+  testMqttBroker: (b: MqttBrokerInput & { id?: string }) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/mqtt-brokers/test', b),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart' | 'raid'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart | HealthRaid }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),

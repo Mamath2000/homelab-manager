@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
-import { Activity, Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
+import { Activity, Cloud, Globe, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { BackupSettings } from '../components/BackupSettings';
 import { OffsiteSettings } from '../components/OffsiteSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
+import { MqttBrokersSettings } from '../components/MqttBrokers';
 import { PveSettings } from '../components/PveSettings';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
 import { SitesSettings } from '../components/SitesSettings';
@@ -25,6 +26,7 @@ const tabs = [
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
   { id: 'health', label: 'Santé', icon: Activity },
+  { id: 'probes', label: 'Sondes', icon: Globe },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
   { id: 'about', label: 'À propos', icon: Info, dividerBefore: true },
 ] as const;
@@ -107,6 +109,7 @@ export function Settings() {
       </div>
     ),
     health: <HealthSettings />,
+    probes: <MqttBrokersSettings />,
     homeassistant: <HomeAssistantPanel />,
     about: (
       <div className="space-y-4">
