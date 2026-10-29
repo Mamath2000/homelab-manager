@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
 import { HostOptionsModal } from '../components/HostOptionsModal';
 import { HostTagList, SiteChip } from '../components/HostTags';
 import { InstallInstructions, WINDOWS_UNINSTALL } from '../components/InstallInstructions';
@@ -25,7 +25,7 @@ import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache }
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
-import { HostRolesPanel } from '../components/MqttBrokers';
+import { offeredCandidates } from '../lib/roles';
 import { ProbesPanel } from '../components/Probes';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel, toneBadge, type Tone } from '../lib/status';
@@ -245,6 +245,8 @@ function HostDetailPage({ id }: { id: string }) {
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // section of the options to open on (the notice of a detected service)
+  const [editingRoles, setEditingRoles] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const backupsData = useBackups().data;
   // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
@@ -389,7 +391,6 @@ function HostDetailPage({ id }: { id: string }) {
   if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
-  blocks.push(<HostRolesPanel key="roles" host={host} />);
   blocks.push(<ProbesPanel key="probes" owner={{ kind: 'host', host }} />);
   if (isWindows(host)) blocks.push(<SessionsPanel key="sessions" host={host} />);
   else if (!hasApt(host) && !host.docker) {
@@ -553,7 +554,7 @@ function HostDetailPage({ id }: { id: string }) {
                   />
                 )}
                 {canManage && (
-                  <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setEditing(true)} />
+                  <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => { setEditingRoles(false); setEditing(true); }} />
                 )}
               </div>
             )}
@@ -593,6 +594,17 @@ function HostDetailPage({ id }: { id: string }) {
                   <Button size="sm" icon={KeyRound} onClick={newInstall}>Commande d'installation</Button>
                 </span>
               )}
+            </div>
+          )}
+          {canManage && offeredCandidates(host).length > 0 && (
+            <div className="panel mb-5 flex flex-wrap items-center gap-3 border-sky-500/40 bg-sky-500/5 px-4 py-3 text-sm">
+              <Radio className="h-4 w-4 text-sky-300" />
+              <span className="text-zinc-200">
+                Broker MQTT détecté sur cet hôte (port {offeredCandidates(host).map((c) => c.port).join(', ')}). Le déclarer permet aux sondes de l'écouter.
+              </span>
+              <span className="ml-auto">
+                <Button size="sm" icon={Settings} onClick={() => { setEditingRoles(true); setEditing(true); }}>Configurer</Button>
+              </span>
             </div>
           )}
           {host.agentOutdated && (
@@ -669,6 +681,7 @@ function HostDetailPage({ id }: { id: string }) {
       {editing && (
         <HostOptionsModal
           host={host}
+          initialSection={editingRoles ? 'roles' : undefined}
           onClose={() => setEditing(false)}
           danger={{
             onReboot: host.capabilities.includes('reboot') ? () => { setEditing(false); setConfirmReboot(true); } : undefined,

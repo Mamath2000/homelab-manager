@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Globe, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
+import { Globe, Pencil, Plug, Plus, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Host, type HostRole, type HostRoleInput, type RoleCandidate } from '../lib/api';
-import { useMe } from '../lib/auth';
 import type { Tone } from '../lib/status';
 import { stepStates } from '../lib/steps';
 import { useMqttBrokers } from '../lib/queries';
+import { offeredCandidates } from '../lib/roles';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
@@ -135,7 +135,7 @@ function BrokerModal({ host, role, candidate, onClose }: { host: Host; role: Hos
               </label>
               <label className="block">
                 <span className={field}>Port</span>
-                <input className="input" inputMode="numeric" value={form.port} onChange={(e) => set({ port: e.target.value.replace(/\D/g, '') })} />
+                <input className="input" inputMode="numeric" value={form.port} disabled title="Port détecté par l'agent" readOnly />
               </label>
             </div>
             <label className="block">
@@ -199,17 +199,15 @@ function BrokerModal({ host, role, candidate, onClose }: { host: Host; role: Hos
   );
 }
 
-// Fiche hôte: what this host is for. The brokers found by its agent are offered; an admin activates them or adds one.
-export function HostRolesPanel({ host }: { host: Host }) {
-  const { canManage } = useMe();
+// Options de l'hôte › Rôles: what this host is for. The brokers found by its agent are offered; an admin activates them or adds one.
+export function HostRolesSection({ host }: { host: Host }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState<{ role: HostRole | null; candidate: RoleCandidate | null } | null>(null);
   const [removing, setRemoving] = useState<HostRole | null>(null);
   const [busy, setBusy] = useState(false);
-  // already activated: a role on the same port
-  const offered = (host.roleCandidates ?? []).filter((c) => !host.roles.some((r) => r.port === c.port));
-  if (!host.roles.length && !(canManage && (offered.length || host.roleCandidates))) return null;
+  const offered = offeredCandidates(host);
+  const local = (host.roleCandidates ?? []).filter((c) => c.local && !host.roles.some((r) => r.port === c.port));
 
   const remove = async () => {
     if (!removing) return;
@@ -227,13 +225,14 @@ export function HostRolesPanel({ host }: { host: Host }) {
   };
 
   return (
-    <Panel
-      title="Rôles"
-      icon={Radio}
-      bodyClassName=""
-      actions={canManage && <Button size="sm" icon={Plus} onClick={() => setEditing({ role: null, candidate: null })}>Broker MQTT</Button>}
-    >
-      <ul className="divide-y divide-line">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-zinc-100">Rôles de l'hôte</h4>
+          <p className="mt-1 text-xs text-muted">Ce que l'hôte héberge pour le reste du parc, tel que son agent le détecte. Un broker MQTT activé ici peut être écouté par les sondes.</p>
+        </div>
+      </div>
+      <ul className="divide-y divide-line rounded-lg border border-line bg-black/10">
         {host.roles.map((r) => (
           <li key={r.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
             <div className="min-w-0">
@@ -243,35 +242,36 @@ export function HostRolesPanel({ host }: { host: Host }) {
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <Badge tone={statusMeta(r).tone}>{statusMeta(r).label}</Badge>
-              {canManage && (
-                <>
-                  <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => setEditing({ role: r, candidate: null })} />
-                  <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title="Supprimer" onClick={() => setRemoving(r)} />
-                </>
-              )}
+              <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => setEditing({ role: r, candidate: null })} />
+              <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title="Supprimer" onClick={() => setRemoving(r)} />
             </div>
           </li>
         ))}
-        {canManage &&
-          offered.map((c) => (
-            <li key={`${c.process}:${c.port}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate text-zinc-200">Broker MQTT détecté · {c.process}</p>
-                <p className="text-xs text-muted">
-                  port {c.port}
-                  {c.local ? ' · écoute en local seulement : injoignable par le hub' : ''}
-                </p>
-              </div>
-              <Button size="sm" icon={Plus} onClick={() => setEditing({ role: null, candidate: c })}>Activer</Button>
-            </li>
-          ))}
-        {canManage && !host.roles.length && !offered.length && <li className="px-4 py-3 text-sm text-muted">Aucun broker détecté sur cet hôte.</li>}
+        {offered.map((c) => (
+          <li key={`${c.process}:${c.port}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate text-zinc-200">Broker MQTT détecté{c.process ? ` · ${c.process}` : ''}</p>
+              <p className="text-xs text-muted">port {c.port}</p>
+            </div>
+            <Button size="sm" icon={Plus} onClick={() => setEditing({ role: null, candidate: c })}>Activer</Button>
+          </li>
+        ))}
+        {!host.roles.length && !offered.length && (
+          <li className="px-4 py-3 text-sm text-muted">
+            {host.roleCandidates ? 'Aucun broker détecté sur cet hôte.' : "L'agent n'a pas signalé de services : agent ancien ou ss absent."}
+          </li>
+        )}
       </ul>
+      {local.length > 0 && (
+        <p className="text-xs text-amber-300">
+          Broker détecté sur le port {local.map((c) => c.port).join(', ')} mais à l'écoute en local seulement : le hub ne peut pas l'atteindre.
+        </p>
+      )}
       {editing && <BrokerModal host={host} role={editing.role} candidate={editing.candidate} onClose={() => setEditing(null)} />}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer le broker" confirmLabel="Supprimer" danger loading={busy}>
         Le broker <b>{removing?.name}</b> ne sera plus écouté. Un broker utilisé par des sondes ne peut pas être supprimé : supprimez ou déplacez ces sondes d'abord.
       </ConfirmModal>
-    </Panel>
+    </div>
   );
 }
 

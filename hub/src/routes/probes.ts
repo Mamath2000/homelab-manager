@@ -244,12 +244,15 @@ export function registerProbeRoutes(app: FastifyInstance) {
 
   const hostOf = async (id: string) => {
     const _id = parseId(id);
-    return _id ? hosts.findOne({ _id }, { projection: { roles: 1, info: 1 } }) : null;
+    return _id ? hosts.findOne({ _id }, { projection: { roles: 1, info: 1, roleCandidates: 1 } }) : null;
   };
 
   app.post<{ Params: { id: string }; Body: RoleBody }>('/api/hosts/:id/roles', { schema: { body: roleBody } }, async (req, reply) => {
     const host = await hostOf(req.params.id);
     if (!host) return reply.code(404).send({ error: 'host not found' });
+    // a broker is activated from what the agent detected, never declared by hand
+    if (!host.roleCandidates?.some((c) => c.type === 'mqtt-broker' && c.port === req.body.port)) return reply.code(409).send({ error: "aucun broker détecté par l'agent sur ce port" });
+    if (host.roles?.some((r) => r.port === req.body.port)) return reply.code(409).send({ error: 'ce broker est déjà activé' });
     const name = req.body.name.trim();
     const all = (await loadMqttBrokers()).brokers;
     if (all.some((b) => b.name.toLowerCase() === name.toLowerCase())) return reply.code(409).send({ error: 'un broker porte déjà ce nom' });
@@ -275,6 +278,7 @@ export function registerProbeRoutes(app: FastifyInstance) {
     const host = await hostOf(req.params.id);
     const current = host?.roles?.find((r) => r.id === req.params.roleId);
     if (!host || !current) return reply.code(404).send({ error: 'rôle inconnu' });
+    if (req.body.port !== current.port) return reply.code(400).send({ error: 'le port est celui détecté par l’agent' });
     const name = req.body.name.trim();
     const all = (await loadMqttBrokers()).brokers;
     if (all.some((b) => b.id !== current.id && b.name.toLowerCase() === name.toLowerCase())) return reply.code(409).send({ error: 'un broker porte déjà ce nom' });

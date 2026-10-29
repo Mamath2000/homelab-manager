@@ -105,7 +105,11 @@ func (s *session) hello(ctx context.Context) error {
 		if haBackupsReadable.Load() {
 			caps = append(caps, "ha_backups")
 		}
-		return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
+		hello := Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash}
+		if rc := collectRoleCandidates(ctx); rc != nil {
+			hello.RoleCandidates = &rc
+		}
+		return s.send(ctx, hello)
 	}
 	caps := platformCapabilities()
 	if !onWSL && dock.available(ctx) {

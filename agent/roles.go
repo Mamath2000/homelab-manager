@@ -3,8 +3,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -94,9 +97,86 @@ func parseRoleCandidates(ssOut string) []RoleCandidate {
 	return out
 }
 
+// MQTT ports recognised without the name of the process: the standard ones only.
+var mqttStandardPorts = map[int]bool{1883: true, 8883: true}
+
+// parseProcNetListen reads /proc/net/tcp or tcp6: the services of the host network that listen on a standard MQTT
+// port. The process is unknown (an add-on cannot see the processes of the others), so the candidate is told by its port.
+func parseProcNetListen(r io.Reader) []RoleCandidate {
+	found := map[int]*RoleCandidate{}
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		// sl local_address rem_address st ...; st 0A = LISTEN
+		if len(f) < 4 || f[3] != "0A" {
+			continue
+		}
+		i := strings.LastIndex(f[1], ":")
+		if i < 0 {
+			continue
+		}
+		var port int
+		if _, err := fmt.Sscanf(f[1][i+1:], "%X", &port); err != nil || !mqttStandardPorts[port] {
+			continue
+		}
+		addr := f[1][:i]
+		// 127.x.x.x (little-endian hex ends with 7F) or ::1
+		loop := (len(addr) == 8 && strings.HasSuffix(addr, "7F")) || addr == "00000000000000000000000001000000"
+		c, ok := found[port]
+		if !ok {
+			c = &RoleCandidate{Type: "mqtt-broker", Port: port, Scheme: mqttScheme(port), Local: true}
+			found[port] = c
+		}
+		if !loop {
+			c.Local = false
+		}
+	}
+	out := make([]RoleCandidate, 0, len(found))
+	for _, c := range found {
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Port < out[j].Port })
+	return out
+}
+
+// collectRoleCandidatesByPort: Home Assistant OS, where the agent is an add-on on the host network (haos.go).
+func collectRoleCandidatesByPort() []RoleCandidate {
+	var all []RoleCandidate
+	read := false
+	for _, p := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		read = true
+		all = append(all, parseProcNetListen(f)...)
+		f.Close()
+	}
+	if !read {
+		return nil
+	}
+	// the same port on IPv4 and IPv6 makes one candidate, reachable when one of them is
+	merged := map[int]RoleCandidate{}
+	for _, c := range all {
+		if m, ok := merged[c.Port]; ok {
+			c.Local = c.Local && m.Local
+		}
+		merged[c.Port] = c
+	}
+	out := make([]RoleCandidate, 0, len(merged))
+	for _, c := range merged {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Port < out[j].Port })
+	return out
+}
+
 // collectRoleCandidates: nil when the sockets cannot be listed (no `ss`), so that the hub keeps what it knew
 // instead of concluding that every service is gone.
 func collectRoleCandidates(ctx context.Context) []RoleCandidate {
+	if onHAOS {
+		return collectRoleCandidatesByPort()
+	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(cctx, "ss", "-H", "-ltnp").Output()
