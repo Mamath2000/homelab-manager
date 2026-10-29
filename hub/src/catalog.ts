@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { hosts, settings } from './db.js';
-import { TAG_COLORS, type SiteConfig, type SitesSettings, type TagColor, type TagConfig, type TagsSettings } from './types.js';
+import { TAG_COLORS, defaultSiteFormat, type SiteConfig, type SiteFormat, type SitesSettings, type TagColor, type TagConfig, type TagsSettings } from './types.js';
 
 // Sites (settings, one per host) and tags (several per host, coloured).
 
@@ -8,7 +8,8 @@ const newId = () => new ObjectId().toHexString();
 
 export async function loadSites(): Promise<SiteConfig[]> {
   const doc = (await settings.findOne({ _id: 'sites' })) as SitesSettings | null;
-  return doc?.sites ?? [];
+  // sites saved before the format existed: the one of their kind
+  return (doc?.sites ?? []).map((s) => ({ ...s, format: s.format ?? defaultSiteFormat[s.kind] }));
 }
 
 export async function loadTags(): Promise<TagConfig[]> {
@@ -19,13 +20,13 @@ export async function loadTags(): Promise<TagConfig[]> {
 export const saveTags = (tags: TagConfig[]) => settings.replaceOne({ _id: 'tags' }, { _id: 'tags', tags }, { upsert: true });
 
 // Names trimmed, empty ones dropped, an id given to the new sites. null: a name is given twice.
-export function normalizeSites(list: (Omit<SiteConfig, 'id' | 'color'> & { id?: string; color?: TagColor })[]): SiteConfig[] | null {
+export function normalizeSites(list: (Omit<SiteConfig, 'id' | 'color' | 'format'> & { id?: string; color?: TagColor; format?: SiteFormat })[]): SiteConfig[] | null {
   const out: SiteConfig[] = [];
   for (const s of list) {
     const name = s.name.trim();
     if (!name) continue;
     if (out.some((o) => o.name.toLowerCase() === name.toLowerCase())) return null;
-    out.push({ id: s.id || newId(), name, kind: s.kind, color: s.color ?? 'zinc' });
+    out.push({ id: s.id || newId(), name, kind: s.kind, format: s.format ?? defaultSiteFormat[s.kind], color: s.color ?? 'zinc' });
   }
   return out;
 }

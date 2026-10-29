@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, MapPin, Plus, Trash2 } from 'lucide-react';
-import { api, type SiteConfig, type SiteKind } from '../lib/api';
+import { api, type SiteConfig, type SiteFormat, type SiteKind } from '../lib/api';
 import { keys, useHosts, useSites } from '../lib/queries';
-import { siteKindMeta } from '../lib/sites';
+import { siteFormatMeta, siteKindMeta } from '../lib/sites';
 import { useToast } from '../lib/toast';
 import { ColorSwatches } from './HostTags';
 import { SettingsFormActions } from './SettingsForm';
@@ -11,6 +11,7 @@ import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Panel, Spinner } from './ui';
 
 const KINDS = Object.keys(siteKindMeta) as SiteKind[];
+const FORMATS = Object.keys(siteFormatMeta) as SiteFormat[];
 type SiteDraft = Omit<SiteConfig, 'id'> & { id?: string };
 
 function same<T>(a: T, b: T) {
@@ -103,6 +104,15 @@ export function SitesSettings() {
               >
                 {KINDS.map((kind) => <option key={kind} value={kind}>{siteKindMeta[kind].label}</option>)}
               </select>
+              <select
+                className="input w-28"
+                value={site.format}
+                aria-label="Format d'affichage"
+                title="Format de la carte du site sur le tableau de bord"
+                onChange={(event) => setSiteDraft(currentSites.map((item, i) => i === index ? { ...item, format: event.target.value as SiteFormat } : item))}
+              >
+                {FORMATS.map((format) => <option key={format} value={format}>{siteFormatMeta[format].label}</option>)}
+              </select>
               <ColorSwatches value={site.color ?? 'zinc'} onChange={(color) => setSiteDraft(currentSites.map((item, i) => i === index ? { ...item, color } : item))} />
               <Button size="sm" variant="ghost" icon={ArrowUp} disabled={index === 0 || saving} onClick={() => {
                 const next = currentSites.slice();
@@ -119,7 +129,7 @@ export function SitesSettings() {
             </div>
           ))}
         </div>
-        <Button size="sm" icon={Plus} disabled={saving} onClick={() => setSiteDraft([...currentSites, { name: '', kind: currentSites.length ? 'vpn' : 'main', color: 'blue' }])}>
+        <Button size="sm" icon={Plus} disabled={saving} onClick={() => setSiteDraft([...currentSites, { name: '', kind: currentSites.length ? 'vpn' : 'main', format: currentSites.length ? 'medium' : 'large', color: 'blue' }])}>
           Ajouter un site
         </Button>
         <SettingsFormActions dirty={dirty} saving={saving} onSave={() => void save()} onCancel={discard} />
