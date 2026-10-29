@@ -176,7 +176,7 @@ export function Docker() {
                   ))}
                 </ResponsiveList>
                 <ResponsiveList mode="desktop">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full text-sm">
                 <thead className="border-b border-line">
                   <tr>
                     <th className="th">Stack</th>

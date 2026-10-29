@@ -267,7 +267,7 @@ export function Hosts() {
               })}
             </ResponsiveList>
             <ResponsiveList mode="desktop">
-          <table className="w-full min-w-[1200px] text-sm">
+          <table className="w-full text-sm">
             <thead className="border-b border-line">
               <tr>
                 {canWrite && <th className="th w-10"><Checkbox label="Tout sélectionner" checked={allChecked} indeterminate={visibleSelected.length > 0} onChange={(on) => setSelected(on ? new Set(list.map((h) => h.id)) : new Set())} /></th>}
@@ -290,7 +290,7 @@ export function Hosts() {
                   <tr key={h.id} onClick={() => navigate(`/hosts/${h.id}${params.size ? `?${params.toString()}` : ''}`)} className="cursor-pointer transition hover:bg-raised/50">
                     {canWrite && <td className="td"><Checkbox label={`Sélectionner ${h.name}`} checked={selected.has(h.id)} onChange={(on) => toggle(h.id, on)} /></td>}
                     <td className="td">
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                         <StatusDot tone={connectionMeta(h).tone} />
                         <span className="whitespace-nowrap font-medium text-zinc-100">{h.name}</span>
                         <HostTagList host={h} />
@@ -333,7 +333,7 @@ export function Hosts() {
                     </td>
                     <td className={clsx('td text-xs', listsStale(h) ? 'text-violet-300' : 'text-zinc-400')}>{h.apt ? timeAgo(h.apt.listsUpdatedAt) : '—'}</td>
                     <td className="td">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
                         {h.agentOutdated && <AgentBadge short />}
                         {!!h.setup?.drift && <Badge tone="warn" className="gap-1"><Wand2 className="h-3 w-3" />non standard</Badge>}

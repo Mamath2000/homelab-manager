@@ -1,15 +1,17 @@
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { MapPin, RefreshCw } from 'lucide-react';
-import type { DomainMeta, Equipment, Host, StatusView } from '../lib/api';
+import type { DomainMeta, Equipment, Host, ProbeState, StatusView } from '../lib/api';
 import { cellCls, cellLabel, cellOf, domainCells, domainText, hostsDomains, levelTone, worstLevel, type Cell } from '../lib/monitoring';
 import { useMe } from '../lib/auth';
-import { useRunBulk, useStatus } from '../lib/queries';
+import { useAllProbes, useRunBulk, useStatus } from '../lib/queries';
 import { inColumn, kindColumns } from '../lib/hostOverview';
 import { count, siteKindMeta, type Site } from '../lib/sites';
 import { hasApt, toneStroke, type Tone } from '../lib/status';
 import { SOURCE_LABELS, equipmentTone, probeCls, probeText } from '../lib/equipment';
 import { Badge, Button, Panel } from './ui';
+
+const probeTone: Record<ProbeState, Tone> = { up: 'ok', down: 'bad', unknown: 'neutral' };
 
 // Looks for APT updates on the online hosts of the given sites.
 function CheckButton({ hosts, label, title }: { hosts: Host[]; label: string; title: string }) {
@@ -25,13 +27,22 @@ function CheckButton({ hosts, label, title }: { hosts: Host[]; label: string; ti
 // the host opens with the list of its site: previous / next and the way back stay in it
 const hostLink = (h: Host) => `/hosts/${h.id}?site=${h.siteId ?? 'none'}`;
 
+const cellMark: Record<Cell, string> = { ok: '✓', warn: '⚠', alert: '✗', unknown: '?', none: '' };
+
 const cellTone: Record<Cell, Tone> = { ok: 'ok', warn: 'warn', alert: 'bad', unknown: 'neutral', none: 'neutral' };
 
 // One column per host, one square per domain of the site (top to bottom, as the hub orders them):
 // coloured when read, grey when the domain applies but cannot be read now, nothing when the host does
 // not provide it.
 function Tile({ host, status, domains, small }: { host: Host; status: StatusView | undefined; domains: DomainMeta[]; small?: boolean }) {
-  const title = [host.name, ...domains.map((d) => `${d.label.toLowerCase()} : ${domainText(status?.hosts[host.id]?.domains[d.id])}`)].join(' · ');
+  // native tooltip, one line per domain the host provides: "✓ Système : OK"
+  const title = [
+    host.name,
+    ...domains.flatMap((d) => {
+      const dom = status?.hosts[host.id]?.domains[d.id];
+      return dom ? [`${cellMark[cellOf(dom)]} ${d.label} : ${domainText(dom)}`] : [];
+    }),
+  ].join('\n');
   return (
     <Link
       to={hostLink(host)}
@@ -188,6 +199,7 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
 
 // External sites of a single host (equipments not shown): a "Services" frame, one block per site, its domains on two rows.
 function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | undefined }) {
+  const { data: allProbes } = useAllProbes();
   return (
     <div>
       <header className="mb-1 flex items-center gap-2.5">
@@ -198,6 +210,10 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
       {sites.map((s) => {
         const h = s.hosts[0];
         const domains = hostsDomains(status, s.hosts);
+        // probes declared on the hosts or the equipments of the site
+        const hostIds = new Set(s.hosts.map((x) => x.id));
+        const equipmentIds = new Set(s.equipments.map((e) => e.id));
+        const probes = (allProbes ?? []).filter((p) => (p.hostId && hostIds.has(p.hostId)) || (p.equipmentId && equipmentIds.has(p.equipmentId)));
         return (
           <Link
             key={s.name}
@@ -222,6 +238,16 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
                 );
               })}
             </span>
+            {probes.length > 0 && (
+              <span className="flex flex-col gap-1">
+                <span className="text-[11px] text-muted">Services · <b className="font-medium tabular-nums text-zinc-300">{probes.length}</b></span>
+                <span className="flex flex-wrap gap-1.5">
+                  {probes.map((p) => (
+                    <span key={p.id} title={probeText(p)}><Badge tone={probeTone[p.state]}>{p.name}</Badge></span>
+                  ))}
+                </span>
+              </span>
+            )}
           </Link>
         );
       })}

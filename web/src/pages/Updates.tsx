@@ -136,7 +136,7 @@ export function Updates() {
             ))}
           </ResponsiveList>
           <ResponsiveList mode="desktop">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full text-sm">
             <thead className="border-b border-line">
               <tr>
                 <th className="th">Paquet</th>

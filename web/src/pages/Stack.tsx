@@ -106,7 +106,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
         ))}
       </ResponsiveList>
       <ResponsiveList mode="desktop">
-      <table className="w-full min-w-[820px] text-sm">
+      <table className="w-full text-sm">
         <thead className="border-b border-line">
           <tr>
             <th className="th">Service</th>

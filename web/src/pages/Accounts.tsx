@@ -395,7 +395,7 @@ export function Accounts() {
             ))}
           </ResponsiveList>
           <ResponsiveList mode="desktop">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full text-sm">
             <thead className="border-b border-line">
               <tr className="text-left">
                 <th className="th">Compte</th>
