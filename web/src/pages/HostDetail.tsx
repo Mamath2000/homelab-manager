@@ -29,7 +29,7 @@ import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilt
 import { HostBackups } from '../components/HostBackups';
 import { offeredCandidates, roleTypeLabel } from '../lib/roles';
 import { ProbesPanel } from '../components/Probes';
-import { RoleWizard } from '../components/HubRoles';
+import { BrokerWizard } from '../components/HubRoles';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel, toneBadge, type Tone } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
@@ -742,7 +742,7 @@ function HostDetailPage({ id }: { id: string }) {
         />
       )}
       <SetupModal host={host} open={setupOpen} onClose={() => setSetupOpen(false)} running={!!running} onStarted={setJobId} />
-      {declaring && <RoleWizard role={null} preset={declaring} onClose={() => setDeclaring(null)} />}
+      {declaring && <BrokerWizard role={null} preset={declaring} onClose={() => setDeclaring(null)} />}
       <ConfirmModal
         open={confirmReboot}
         onClose={() => setConfirmReboot(false)}

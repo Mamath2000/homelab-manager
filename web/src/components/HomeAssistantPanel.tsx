@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { Home, Pencil, Plug, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
-import { api, type HaDetail, type HomeAssistantInput, type HomeAssistantSettings } from '../lib/api';
+import { api, type HaDetail, type HomeAssistantInput, type HomeAssistantSettings, type MqttHubRole } from '../lib/api';
 import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
@@ -43,7 +43,7 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
   const toast = useToast();
   const navigate = useNavigate();
   const { data: roles } = useRoles();
-  const brokers = (roles ?? []).filter((r) => r.type === 'mqtt-broker');
+  const brokers = (roles ?? []).filter((r): r is MqttHubRole => r.type === 'mqtt-broker');
   const [initial] = useState<BrokerForm>(() => ({
     brokerRoleId: data.brokerRoleId ?? '',
     topic: data.topic || 'homelab-manager',
@@ -196,7 +196,7 @@ export function HomeAssistantPanel() {
   // poll while the page is open to follow the connection state
   const { data } = useQuery({ queryKey: ['settings', 'homeassistant'], queryFn: api.homeAssistant, refetchInterval: 5000 });
   const { data: roles } = useRoles();
-  const broker = roles?.find((r) => r.id === data?.brokerRoleId);
+  const broker = roles?.find((r): r is MqttHubRole => r.type === 'mqtt-broker' && r.id === data?.brokerRoleId);
   // level of detail being edited, server value until then
   const [draft, setDraft] = useState<HaDetail | null>(null);
   const [busy, setBusy] = useState<'save' | 'republish' | 'remove' | null>(null);

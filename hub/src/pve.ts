@@ -1,11 +1,13 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { ObjectId } from 'mongodb';
-import { backups, guests, hosts, settings } from './db.js';
+import { ObjectId } from 'mongodb';
+import { backups, guests, hosts, roles, settings } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
 import { groupKey, loadPbsSettings } from './pbs.js';
+import { rolesSaved } from './roleEvents.js';
+import { allRoles, loadRoles, newRoleId } from './roles.js';
 import { apiGet, normalizeFingerprint } from './tlsApi.js';
-import type { GuestDoc, HostPveLink, PbsSettings, PveCluster, PveJobRef, PveSettings, PveTaskResult } from './types.js';
+import type { GuestDoc, HostPveLink, PbsSettings, PveCluster, PveJobRef, PveReportingRole, PveSettings, PveTaskResult } from './types.js';
 
 // Proxmox VE clusters, read through their API with a read-only token (PVEAuditor): the guests, their
 // MAC addresses, the vzdump backup jobs and the result of their last tasks. A host of the hub is the
@@ -15,9 +17,59 @@ import type { GuestDoc, HostPveLink, PbsSettings, PveCluster, PveJobRef, PveSett
 export const CLUSTER_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const PVE_TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$/;
 
+// The clusters followed: the pve-reporting roles of the hub, read from the database (the poll writes their state).
 export async function loadPveSettings(): Promise<PveSettings> {
+  const list = (await roles.find({ type: 'pve-reporting' }).sort({ name: 1 }).toArray()) as PveReportingRole[];
+  return { _id: 'pve', clusters: list.map(clusterOf) };
+}
+
+// A pve-reporting role as pve.ts reads it, and back.
+export function clusterOf(r: PveReportingRole): PveCluster {
+  const { cluster, ...rest } = r.config;
+  return { ...rest, id: cluster, name: r.name, agent: { hostId: r.carrier.id.toHexString() } };
+}
+
+export function roleOf(c: PveCluster & { agent: { hostId: string } }, _id: string, createdAt: Date): PveReportingRole {
+  const { id, name, agent, ...rest } = c;
+  return { _id, type: 'pve-reporting', name, carrier: { kind: 'host', id: new ObjectId(agent.hostId) }, config: { ...rest, cluster: id }, createdAt };
+}
+
+// Saves a cluster as its role (created if new, its node as carrier).
+export async function savePveCluster(c: PveCluster & { agent: { hostId: string } }) {
+  const current = allRoles().find((r): r is PveReportingRole => r.type === 'pve-reporting' && r.config.cluster === c.id);
+  const _id = current?._id ?? newRoleId(`pve-${c.id}`, (x) => allRoles().some((r) => r._id === x));
+  const next = roleOf(c, _id, current?.createdAt ?? new Date());
+  await roles.replaceOne({ _id }, next, { upsert: true });
+  await rolesSaved(current && !current.carrier.id.equals(next.carrier.id) ? [current.carrier.id, next.carrier.id] : [next.carrier.id]);
+}
+
+export async function removePveCluster(id: string) {
+  const current = allRoles().find((r): r is PveReportingRole => r.type === 'pve-reporting' && r.config.cluster === id);
+  if (!current) return;
+  await roles.deleteOne({ _id: current._id });
+  await rolesSaved([current.carrier.id]);
+}
+
+// The clusters were stored in the settings (pve) before they were roles of the hub. A cluster without its node (not
+// expected: the token is made by the agent of a node) keeps the settings, to be looked at.
+export async function migratePveClusters(log?: FastifyBaseLogger) {
   const s = (await settings.findOne({ _id: 'pve' })) as PveSettings | null;
-  return { _id: 'pve', clusters: s?.clusters ?? [] };
+  if (!s) return;
+  const done = await roles.find({ type: 'pve-reporting' }, { projection: { 'config.cluster': 1 } }).toArray();
+  const taken = new Set((await roles.find({}, { projection: { _id: 1 } }).toArray()).map((r) => r._id));
+  let orphans = 0;
+  for (const c of s.clusters) {
+    if (done.some((r) => (r as PveReportingRole).config.cluster === c.id)) continue;
+    if (!c.agent?.hostId || !ObjectId.isValid(c.agent.hostId)) {
+      orphans++;
+      log?.warn({ cluster: c.id }, 'PVE cluster without its node: not migrated to a role, kept in the settings');
+      continue;
+    }
+    const _id = newRoleId(`pve-${c.id}`, (x) => taken.has(x));
+    taken.add(_id);
+    await roles.insertOne(roleOf({ ...c, agent: c.agent }, _id, new Date()));
+  }
+  if (!orphans) await settings.deleteOne({ _id: 'pve' });
 }
 
 // Corosync cluster of a node, announced by its agent in its capabilities (agent/main.go): `pve_cluster:<name>`.
@@ -293,10 +345,12 @@ async function doPoll(log?: FastifyBaseLogger) {
       set = { polledAt: new Date(), pollError: (err as Error).message };
       log?.warn({ err, cluster: c.id }, 'PVE poll failed');
     }
-    const fields = Object.fromEntries(Object.entries(set).map(([k, v]) => [`clusters.$.${k}`, v]));
-    await settings.updateOne({ _id: 'pve', 'clusters.id': c.id } as never, { $set: fields });
+    const fields = Object.fromEntries(Object.entries(set).map(([k, v]) => [`config.${k}`, v]));
+    await roles.updateOne({ type: 'pve-reporting', 'config.cluster': c.id }, { $set: fields });
   }
-  // guests of clusters removed from the settings
+  // the state of the poll, shown with the roles
+  await loadRoles();
+  // guests of clusters no longer followed
   await guests.deleteMany({ cluster: { $nin: s.clusters.map((c) => c.id) } });
   await refreshLinks();
   publish('backups', {});

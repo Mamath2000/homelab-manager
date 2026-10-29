@@ -3,10 +3,11 @@ import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
 // listen on loopback only are left out: the hub cannot reach them.
-export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).filter((c) => !c.local && !host.roles.some((r) => r.port === c.port));
+export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).filter((c) => !c.local && !host.roles.some((r) => r.type === 'mqtt-broker' && r.config.port === c.port));
 
 export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'mqtt-broker', label: 'Broker MQTT', hint: 'écouté par les sondes MQTT, et broker de l’intégration Home Assistant' },
+  { id: 'pve-reporting', label: 'Reporting PVE', hint: 'VM et CT d’un cluster Proxmox VE, leurs jobs vzdump et le résultat de leurs sauvegardes' },
 ];
 export const roleTypeLabel = (t: HubRoleType) => ROLE_TYPES.find((x) => x.id === t)?.label ?? t;
 

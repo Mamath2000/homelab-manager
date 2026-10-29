@@ -368,7 +368,7 @@ export interface Host {
   // snapshot of a PBS mounted here (hub/src/pbsMount.ts); null: none
   pbsMount: PbsMount | null;
   // roles declared on this host, and the services its agent found (null: never reported)
-  roles: HostRole[];
+  roles: HubRole[];
   roleCandidates: RoleCandidate[] | null;
   // OS of the agent (windows: presence, info and sessions only)
   osFamily: 'linux' | 'windows';
@@ -1281,20 +1281,6 @@ export interface RoleCandidate {
   local?: boolean;
 }
 
-// A role of the hub carried by a host (hub/src/hostDto.ts): an MQTT broker the probes listen to. url: resolved address ('' unknown)
-export interface HostRole {
-  id: string;
-  type: 'mqtt-broker';
-  name: string;
-  scheme: BrokerScheme;
-  port: number;
-  address: string | null;
-  url: string;
-  username: string;
-  hasPassword: boolean;
-  status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
-}
-
 export interface MqttBrokerView {
   id: string;
   name: string;
@@ -1334,24 +1320,32 @@ export interface EquipmentInput {
   ping?: boolean;
 }
 
-// A role of the hub (hub/src/roles.ts): what the hub can do through a host. uses: what relies on it (probes, Home
-// Assistant), a role in use is not deleted.
-export type HubRoleType = 'mqtt-broker';
-export interface HubRole {
+// A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
+// hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
+// role in use is not deleted (absent from the roles of a host).
+export type HubRoleType = 'mqtt-broker' | 'pve-reporting';
+interface HubRoleBase {
   id: string;
-  type: HubRoleType;
   name: string;
   carrier: { kind: 'host'; id: string; name: string };
-  config: { scheme: BrokerScheme; port: number; address: string | null; username: string };
-  hasPassword: boolean;
+  hasSecret: boolean;
   url: string;
+  account: string;
   status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
-  uses: string[];
+  summary: string | null;
+  uses?: string[];
 }
+export type HubRole =
+  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string } })
+  | (HubRoleBase & { type: 'pve-reporting'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } });
 
-// config.password: absent keeps the stored one, "" clears it; carrier on an edit: moves the role
+export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
+export type PveHubRole = Extract<HubRole, { type: 'pve-reporting' }>;
+
+// a broker (the reporting of a cluster has its own routes, see createPveToken); config.password: absent keeps the stored
+// one, "" clears it; carrier on an edit: moves the role
 export interface HubRoleInput {
-  type: HubRoleType;
+  type: 'mqtt-broker';
   carrier?: { kind: 'host'; id: string };
   name: string;
   config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string };

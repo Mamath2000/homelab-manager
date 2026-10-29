@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type Host, type HubRole, type HubRoleType, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Host, type HubRole, type HubRoleType, type MqttHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, roleStatus, roleTypeLabel } from '../lib/roles';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
+import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
@@ -30,12 +31,12 @@ interface Form {
   username: string;
 }
 
-// What the agents found on the hosts, for a role of this type. taken: already a role (not the one being edited).
-function candidatesOf(hosts: Host[], roles: HubRole[], type: HubRoleType, editing: HubRole | null) {
+// The brokers the agents found on the hosts. taken: already a role (not the one being edited).
+function candidatesOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | null) {
   const list = hosts.flatMap((h) =>
     (h.roleCandidates ?? [])
-      .filter((c) => c.type === type)
-      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === type && r.carrier.id === h.id && r.config.port === c.port) })),
+      .filter((c) => c.type === 'mqtt-broker')
+      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === h.id && r.config.port === c.port) })),
   );
   // the carrier of the role edited stays offered, even if its agent no longer reports the service
   if (editing && !list.some((x) => x.host.id === editing.carrier.id && x.c.port === editing.config.port)) {
@@ -45,15 +46,15 @@ function candidatesOf(hosts: Host[], roles: HubRole[], type: HubRoleType, editin
   return list;
 }
 
-// Declares a role, or edits one (choosing another host moves it, its settings kept). Four steps (PbsDialog.tsx): type,
-// host, settings, test; as for the brokers before, saving needs a successful test and the password is never sent back.
+// Declares an MQTT broker role, or edits one (choosing another host moves it, its settings kept). Four steps
+// (PbsDialog.tsx): host, broker, account, test; saving needs a successful test and the password is never sent back.
 // preset: the host and port to start from (banner of a host page).
-export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; preset?: RolePick; onClose: () => void }) {
+export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | null; preset?: RolePick; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: hosts = [] } = useHosts();
   const { data: roles = [] } = useRoles();
-  const [type, setType] = useState<HubRoleType>(role?.type ?? 'mqtt-broker');
+  const type = 'mqtt-broker' as const;
   const [initialPick] = useState<RolePick | null>(() => (role ? { hostId: role.carrier.id, port: role.config.port } : preset ?? null));
   const [pick, setPick] = useState<RolePick | null>(initialPick);
   const [initial] = useState<Form>(() => {
@@ -89,7 +90,7 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
     else onClose();
   };
 
-  const candidates = candidatesOf(hosts, roles, type, role);
+  const candidates = candidatesOf(hosts, roles, role);
   const host = pick ? hosts.find((h) => h.id === pick.hostId) : undefined;
   const carrier = pick ? { kind: 'host' as const, id: pick.hostId } : undefined;
   const config = () => ({
@@ -131,8 +132,8 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
   const nameOk = form.name.trim().length > 0;
   const addressOk = /^[A-Za-z0-9.:_-]*$/.test(form.address);
   const shown = `${form.scheme}://${form.address.trim() || "IP de l'hôte"}:${pick?.port ?? '?'}`;
-  // the account is optional (anonymous broker)
-  const [typed, carried, configured, tested] = stepStates([true, !!pick, nameOk && addressOk, test?.level === 'ok']);
+  // the account is optional (anonymous broker): done with the broker
+  const [carried, configured, account, tested] = stepStates([!!pick, nameOk && addressOk, nameOk && addressOk, test?.level === 'ok']);
 
   return (
     <>
@@ -142,7 +143,7 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
         wide="screen"
         wider
         fixed
-        title={role ? `${roleTypeLabel(role.type)} · ${role.name}` : 'Déclarer un rôle'}
+        title={role ? `Broker MQTT · ${role.name}` : 'Nouveau rôle Broker MQTT'}
         footer={
           <>
             <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
@@ -151,16 +152,7 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
         }
       >
         <Steps fill>
-          <Step n={1} title="Type" state={typed} intro="Ce que le hub pourra faire grâce à ce rôle.">
-            {ROLE_TYPES.map((t) => (
-              <label key={t.id} className={clsx('block cursor-pointer rounded-md border px-3 py-2', type === t.id ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line hover:bg-raised/40', role && 'cursor-default')}>
-                <input type="radio" name="role-type" className="sr-only" checked={type === t.id} disabled={!!role} onChange={() => (setType(t.id), setPick(null), setTest(null))} />
-                <div className="font-medium text-zinc-100">{t.label}</div>
-                <div className="text-xs text-muted">{t.hint}</div>
-              </label>
-            ))}
-          </Step>
-          <Step n={2} title="Hôte" state={carried} intro={role ? "Choisir un autre hôte déplace le rôle, ses paramètres gardés." : "Les brokers que les agents ont trouvés en écoute sur leur hôte."}>
+          <Step n={1} title="Hôte" state={carried} intro={role ? "Choisir un autre hôte déplace le rôle, ses paramètres gardés." : "Les brokers que les agents ont trouvés en écoute sur leur hôte."}>
             {!candidates.length ? (
               <p className="text-sm text-muted">Aucun broker détecté par les agents. Il faut un agent HLM sur l'hôte du broker.</p>
             ) : (
@@ -182,7 +174,7 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
               </div>
             )}
           </Step>
-          <Step n={3} title="Paramètres" state={configured} intro="Par défaut, l'adresse est la première IP privée de l'hôte ; le compte est facultatif (broker anonyme).">
+          <Step n={2} title="Broker" state={configured} intro="Comment le broker s'appelle dans les sondes, et où le joindre : par défaut, la première IP privée de l'hôte.">
             <label className="block">
               <span className={field}>Nom</span>
               <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="zigbee2mqtt, esphome…" />
@@ -202,7 +194,10 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
             <label className="block">
               <span className={field}>Adresse (facultatif)</span>
               <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder="IP de l'hôte" spellCheck={false} />
+              <span className="mt-1 block text-xs text-muted">À renseigner si l'IP choisie par défaut n'est pas la bonne, ou pour un nom DNS.</span>
             </label>
+          </Step>
+          <Step n={3} title="Compte" state={account} intro="Facultatif : laisser vide pour un broker anonyme.">
             <label className="block">
               <span className={field}>Utilisateur</span>
               <input className="input" value={form.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
@@ -215,12 +210,12 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
                 value={password}
                 disabled={clearPassword}
                 onChange={(e) => (setPassword(e.target.value), setTest(null))}
-                placeholder={role?.hasPassword ? '••••••••' : ''}
+                placeholder={role?.hasSecret ? '••••••••' : ''}
                 autoComplete="new-password"
               />
-              {role?.hasPassword && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
+              {role?.hasSecret && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
             </label>
-            {role?.hasPassword && (
+            {role?.hasSecret && (
               <label className="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" checked={clearPassword} onChange={(e) => (setClearPassword(e.target.checked), setTest(null))} className="accent-emerald-500" />
                 Supprimer le mot de passe
@@ -240,14 +235,13 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
           >
             <DetectedRows
               rows={[
-                { label: 'Rôle', value: roleTypeLabel(type) },
                 { label: 'Nom', value: form.name, empty: 'non renseigné' },
                 { label: 'Hôte', value: host?.name, empty: 'non choisi' },
                 { label: 'Broker', value: shown },
                 { label: 'Utilisateur', value: form.username, empty: 'anonyme' },
               ]}
             />
-            <CheckLine label={roleTypeLabel(type)} check={test} idle={shown} />
+            <CheckLine label="Broker MQTT" check={test} idle={shown} />
           </Step>
         </Steps>
       </Modal>
@@ -258,22 +252,55 @@ export function RoleWizard({ role, preset, onClose }: { role: HubRole | null; pr
   );
 }
 
+// What is declared: the type first, then the window of that type.
+function TypePicker({ onPick, onClose }: { onPick: (t: HubRoleType) => void; onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title="Déclarer un rôle">
+      <div className="space-y-2">
+        {ROLE_TYPES.map((t) => (
+          <button key={t.id} type="button" className="block w-full rounded-md border border-line px-4 py-3 text-left transition hover:border-emerald-500/60 hover:bg-raised/40" onClick={() => onPick(t.id)}>
+            <div className="font-medium text-zinc-100">{t.label}</div>
+            <div className="text-xs text-muted">{t.hint}</div>
+          </button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+type Editing = { type: 'mqtt-broker'; role: MqttHubRole | null } | { type: 'pve-reporting'; role: PveHubRole | null };
+
 // Paramètres › Rôles: every role of the hub, declared, edited and removed here.
 export function RolesSettings() {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: roles, isLoading, error } = useRoles();
-  const [editing, setEditing] = useState<{ role: HubRole | null } | null>(null);
+  // the clusters as their window edits them (token, detection)
+  const { data: pve } = useQuery({ queryKey: ['settings', 'pve'], queryFn: api.pveSettings });
+  const [picking, setPicking] = useState(false);
+  const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<HubRole | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: keys.roles }),
+      qc.invalidateQueries({ queryKey: keys.mqttBrokers }),
+      qc.invalidateQueries({ queryKey: ['settings', 'pve'] }),
+      qc.invalidateQueries({ queryKey: ['backups'] }),
+    ]);
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await api.deleteRole(removing.id);
-      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers })]);
-      toast.success(`Rôle ${removing.name} supprimé`);
+      if (removing.type === 'pve-reporting') {
+        const r = await api.deletePveCluster(removing.config.cluster);
+        toast.success(r.revoked ? `Rôle ${removing.name} supprimé, jeton ${r.revoked} révoqué${r.userDeleted ? ' (utilisateur supprimé)' : ''}` : `Rôle ${removing.name} supprimé`);
+      } else {
+        await api.deleteRole(removing.id);
+        toast.success(`Rôle ${removing.name} supprimé`);
+      }
+      await refresh();
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -281,25 +308,29 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
+  const edit = (r: HubRole) => setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : { type: r.type, role: r });
+  const uses = (r: HubRole) => r.uses ?? [];
   const actions = (r: HubRole) => (
     <div className="flex shrink-0 items-center gap-1.5">
-      <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => setEditing({ role: r })} />
-      <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={r.uses.length ? `Utilisé par : ${r.uses.join(', ')}` : 'Supprimer'} disabled={r.uses.length > 0} onClick={() => setRemoving(r)} />
+      <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => edit(r)} />
+      <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => setRemoving(r)} />
     </div>
   );
+  const cluster = editing?.type === 'pve-reporting' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
 
   return (
-    <Panel title="Rôles du hub" icon={Radio} bodyClassName="" actions={<Button size="sm" icon={Plus} onClick={() => setEditing({ role: null })}>Déclarer un rôle</Button>}>
+    <Panel title="Rôles du hub" icon={Radio} bodyClassName="" actions={<Button size="sm" icon={Plus} onClick={() => setPicking(true)}>Déclarer un rôle</Button>}>
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
-        Ce que le hub peut faire grâce à un hôte du homelab. Un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ;
-        injoignable, ses sondes passent en « inconnu » : le service n'est pas jugé. Un rôle utilisé ne peut pas être supprimé, et l'hôte qui le porte non plus.
+        Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
+        reporting d'un cluster Proxmox VE relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump. Un rôle utilisé ne peut pas être supprimé, et
+        l'hôte qui le porte non plus.
       </p>
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
       ) : error ? (
         <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>
       ) : !roles?.length ? (
-        <p className="p-4 text-sm text-muted">Aucun rôle : pas de sonde MQTT ni d'intégration Home Assistant.</p>
+        <p className="p-4 text-sm text-muted">Aucun rôle : pas de sonde MQTT, d'intégration Home Assistant ni de reporting Proxmox VE.</p>
       ) : (
         <>
           <ResponsiveList mode="mobile">
@@ -311,7 +342,7 @@ export function RolesSettings() {
                 </div>
                 <p className="break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted"><Link className="underline" to={`/hosts/${r.carrier.id}`}>{r.carrier.name}</Link> · {r.uses.join(', ') || 'inutilisé'}</p>
+                  <p className="text-xs text-muted"><Link className="underline" to={`/hosts/${r.carrier.id}`}>{r.carrier.name}</Link> · {uses(r).join(', ') || r.summary || 'inutilisé'}</p>
                   {actions(r)}
                 </div>
               </article>
@@ -339,12 +370,12 @@ export function RolesSettings() {
                     </td>
                     <td className="td"><Link className="underline" to={`/hosts/${r.carrier.id}`}>{r.carrier.name}</Link></td>
                     <td className="td font-mono text-xs text-zinc-300">{r.url || 'inconnue'}</td>
-                    <td className="td text-muted">{r.config.username || 'anonyme'}</td>
+                    <td className="td text-muted">{r.account || 'anonyme'}</td>
                     <td className="td">
                       <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
                       {r.status?.error && <p className="mt-0.5 max-w-[240px] truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
                     </td>
-                    <td className="td text-muted">{r.uses.join(', ') || '—'}</td>
+                    <td className="td text-muted">{uses(r).join(', ') || r.summary || '—'}</td>
                     <td className="td">{actions(r)}</td>
                   </tr>
                 ))}
@@ -353,9 +384,26 @@ export function RolesSettings() {
           </ResponsiveList>
         </>
       )}
-      {editing && <RoleWizard role={editing.role} onClose={() => setEditing(null)} />}
+      {picking && <TypePicker onClose={() => setPicking(false)} onPick={(t) => (setPicking(false), setEditing(t === 'mqtt-broker' ? { type: t, role: null } : { type: t, role: null }))} />}
+      {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
+      {editing?.type === 'pve-reporting' && (!editing.role || cluster) && (
+        <ClusterModal
+          key={editing.role?.id ?? 'new'}
+          cluster={cluster}
+          others={(pve?.clusters ?? []).filter((c) => c.id !== cluster?.id)}
+          onClose={() => (setEditing(null), void refresh())}
+        />
+      )}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer le rôle" confirmLabel="Supprimer" danger loading={busy}>
-        Le rôle <b>{removing?.name}</b> est retiré du hub : le broker n'est plus écouté.
+        {removing?.type === 'pve-reporting' ? (
+          <>
+            Le hub ne relèvera plus <b>{removing.name}</b> : son jeton <code>{removing.account}</code> est révoqué par l’agent du nœud (ainsi que l’utilisateur s’il
+            n’a plus de jeton), les liens de ses VM et CT avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés (les sauvegardes restent
+            sur le PBS, orphelines).
+          </>
+        ) : (
+          <>Le rôle <b>{removing?.name}</b> est retiré du hub : le broker n'est plus écouté.</>
+        )}
       </ConfirmModal>
     </Panel>
   );

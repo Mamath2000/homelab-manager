@@ -15,7 +15,7 @@ import {
   pbsGet,
   pollPbs,
 } from '../pbs.js';
-import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollPve, pveGet } from '../pve.js';
+import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollPve, pveClusterOf, pveGet, removePveCluster, savePveCluster } from '../pve.js';
 import { validTimeZone } from '../calendar.js';
 import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
@@ -40,6 +40,17 @@ async function pveAlreadyFollowed(clusters: PveCluster[], hostId: string, except
   const caps = new Map(docs.map((d) => [d._id.toHexString(), d.capabilities]));
   const c = followedCluster(clusters, (i) => caps.get(i), caps.get(hostId), exceptId);
   return c ? `ce cluster est déjà suivi (${c.name}) : modifier cette entrée plutôt que d’en ajouter une` : null;
+}
+
+// The reporting of a cluster moves only to another node of the same corosync cluster: they share the users, so the
+// token of the hub holds there too. null: allowed (or not a move), else why not.
+async function pveMoveError(current: PveCluster | undefined, hostId: string) {
+  if (!current?.agent || current.agent.hostId === hostId) return null;
+  const ids = [current.agent.hostId, hostId].flatMap((i) => parseId(i) ?? []);
+  const docs = await hosts.find({ _id: { $in: ids } }, { projection: { capabilities: 1 } }).toArray();
+  const of = (i: string) => pveClusterOf(docs.find((d) => d._id.toHexString() === i)?.capabilities);
+  const from = of(current.agent.hostId);
+  return from && from === of(hostId) ? null : `ce nœud n'est pas du cluster ${current.name} : le jeton du hub n'y vaut pas`;
 }
 
 // The token is not part of the form: only the agent of the PBS creates it (POST /api/settings/pbs/token).
@@ -390,7 +401,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const tokenId = req.body.tokenId.trim();
     const conn = resolvePve(req.params.id, req.body, current, { tokenId, tokenSecret: 'pending' });
     if (typeof conn === 'string') return reply.code(400).send({ error: conn });
-    const followed = await pveAlreadyFollowed(s.clusters, req.body.hostId, req.params.id);
+    const followed = (await pveAlreadyFollowed(s.clusters, req.body.hostId, req.params.id)) ?? (await pveMoveError(current, req.body.hostId));
     if (followed) return reply.code(409).send({ error: followed });
     let t;
     try {
@@ -401,9 +412,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
       throw err;
     }
     const fresh = await loadPveSettings();
-    const next: PveCluster = { ...conn, ...fresh.clusters.find((c) => c.id === conn.id), ...pick(conn), tokenId: t.tokenId, tokenSecret: t.tokenSecret };
-    const clusters = fresh.clusters.some((c) => c.id === next.id) ? fresh.clusters.map((c) => (c.id === next.id ? next : c)) : [...fresh.clusters, next];
-    await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
+    const next = { ...conn, ...fresh.clusters.find((c) => c.id === conn.id), ...pick(conn), tokenId: t.tokenId, tokenSecret: t.tokenSecret, agent: { hostId: req.body.hostId } };
+    await savePveCluster(next);
     req.log.info({ cluster: next.id, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PVE token set by the agent');
     pollPve(req.log).catch(() => {});
     return { cluster: pveDto(next), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
@@ -415,10 +425,10 @@ export function registerBackupRoutes(app: FastifyInstance) {
     if (!current?.tokenSecret) return reply.code(409).send({ error: 'créer d’abord le jeton du cluster' });
     const next = resolvePve(req.params.id, req.body, current, current);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
-    const followed = next.agent && (await pveAlreadyFollowed(s.clusters, next.agent.hostId, next.id));
+    if (!next.agent) return reply.code(400).send({ error: 'nœud du cluster requis' });
+    const followed = (await pveAlreadyFollowed(s.clusters, next.agent.hostId, next.id)) ?? (await pveMoveError(current, next.agent.hostId));
     if (followed) return reply.code(409).send({ error: followed });
-    const clusters = s.clusters.map((c) => (c.id === next.id ? next : c));
-    await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters }, { upsert: true });
+    await savePveCluster({ ...next, agent: next.agent });
     pollPve(req.log).catch(() => {});
     return pveDto(next);
   });
@@ -438,7 +448,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       throw err;
     }
     req.log.info({ cluster: c.id, tokenId: c.tokenId, deleted: revoked?.deleted, userDeleted: revoked?.userDeleted }, 'PVE cluster removed, token revoked');
-    await settings.replaceOne({ _id: 'pve' }, { _id: 'pve', clusters: s.clusters.filter((c) => c.id !== req.params.id) }, { upsert: true });
+    await removePveCluster(c.id);
     pollPve(req.log).catch(() => {});
     return { revoked: revoked?.deleted ? c.tokenId : null, userDeleted: !!revoked?.userDeleted };
   });

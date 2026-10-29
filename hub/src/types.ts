@@ -781,6 +781,7 @@ export interface BackupSnapshot {
 
 // --- Proxmox VE clusters (see pve.ts) -------------------------------------------------------
 
+// A cluster as pve.ts reads it: a pve-reporting role (roles.ts), its node as agent.
 export interface PveCluster {
   id: string; // short name, e.g. vouille
   name: string;
@@ -796,6 +797,7 @@ export interface PveCluster {
   guests?: number;
 }
 
+// Clusters as stored before they were roles of the hub (migrated by migratePveClusters).
 export interface PveSettings {
   _id: 'pve';
   clusters: PveCluster[];
@@ -1107,12 +1109,12 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
 
-// What carries a role: the host it runs on.
+// What carries a role: the host it runs on (pve-reporting: the node whose agent created the token).
 export interface RoleCarrier {
   kind: CarrierKind;
   id: ObjectId;
@@ -1139,7 +1141,20 @@ export interface MqttBrokerRole {
   createdAt: Date;
 }
 
-export type RoleDoc = MqttBrokerRole;
+// pve-reporting: the guests, jobs and backup tasks of a Proxmox VE cluster read through its API (pve.ts). cluster: its
+// id, named by the guests (<cluster>/<vmid>) and the groups it attaches; one role per corosync cluster.
+export type PveReportingConfig = Omit<PveCluster, 'id' | 'name' | 'agent'> & { cluster: string };
+
+export interface PveReportingRole {
+  _id: string;
+  type: 'pve-reporting';
+  name: string;
+  carrier: RoleCarrier;
+  config: PveReportingConfig;
+  createdAt: Date;
+}
+
+export type RoleDoc = MqttBrokerRole | PveReportingRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {

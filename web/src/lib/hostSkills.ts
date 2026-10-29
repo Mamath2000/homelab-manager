@@ -1,6 +1,7 @@
 import { Archive, ArchiveRestore, BatteryCharging, Cloud, Container, Database, HardDrive, Home, Layers, Radio, Server, type LucideIcon } from 'lucide-react';
 import type { Host, HostBackupJobs } from './api';
 import { backupClient, databaseKindLabel } from './backups';
+import { roleTypeLabel } from './roles';
 
 // What a host does, for the badges of its options: nature (Proxmox node, PBS), roles declared on it and what its agent reads.
 export interface HostSkill {
@@ -34,7 +35,8 @@ export function hostSkills(h: Host, jobs?: Pick<HostBackupJobs, 'databases' | 'n
     caps.includes('pve') && { label: 'PVE', title: 'Nœud Proxmox VE', icon: Server, cls: tint.orange },
     caps.includes('pbs') && { label: 'PBS', title: 'Serveur Proxmox Backup Server', icon: Archive, cls: tint.sky },
     client.mode && { label: 'Client PBS', title: `Client de sauvegarde PBS installé (${client.mode})`, icon: ArchiveRestore, cls: tint.teal },
-    ...h.roles.map((r) => ({ label: 'Broker MQTT', title: `${r.name} · ${r.url || `port ${r.port}`}`, icon: Radio, cls: tint.violet })),
+    // roles of the hub it carries
+    ...h.roles.map((r) => ({ label: roleTypeLabel(r.type), title: `${r.name} · ${r.url || (r.type === 'mqtt-broker' ? `port ${r.config.port}` : '')}`, icon: r.type === 'mqtt-broker' ? Radio : Server, cls: r.type === 'mqtt-broker' ? tint.violet : tint.orange })),
     ...(databases ?? []).map((k) => ({ label: databaseKindLabel[k], title: `Moteur ${databaseKindLabel[k]} détecté par l’agent`, icon: Database, cls: tint.rose })),
     jobs?.nextcloudPlugin && jobs.nextcloud && { label: 'Nextcloud AIO', title: 'Instance Nextcloud AIO détectée (plugin de sauvegarde activé)', icon: Cloud, cls: tint.indigo },
     h.docker && { label: 'Docker', title: `${h.docker.engine} · Compose ${h.docker.compose}`, icon: Container, cls: tint.blue },

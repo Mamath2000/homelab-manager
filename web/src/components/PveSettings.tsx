@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plug, Plus, Save, Server } from 'lucide-react';
+import { Link } from 'react-router';
+import { Plug, Save, Server } from 'lucide-react';
 import { api, type PveCluster, type PveClusterInput, type PveDetected } from '../lib/api';
 import { useHosts } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { AgentPicker, TokenButton } from './AgentPicker';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
-import { ServerRow, field } from './ProxmoxServer';
+import { field } from './ProxmoxServer';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
+import { Button, ConfirmModal, Modal, Panel } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pve!monitor';
 const PORT = 8006;
@@ -25,10 +26,10 @@ const hostOf = (url: string) => {
 // Corosync cluster of a node, announced by its agent (`pve_cluster:<name>`).
 const clusterOf = (caps: string[]) => caps.find((c) => c.startsWith('pve_cluster:'))?.slice('pve_cluster:'.length);
 
-// One cluster, declared from one of its nodes in four steps (PbsDialog.tsx): node and Détecter, what
-// its agent found and the interface the hub reaches the API at, token created by the agent, test.
-// The secret is never sent back by the hub.
-function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null; others: PveCluster[]; onClose: () => void }) {
+// One cluster (a pve-reporting role of the hub, Paramètres › Rôles), declared from one of its nodes in four steps
+// (PbsDialog.tsx): node and Détecter, what its agent found and the interface the hub reaches the API at, token created
+// by the agent, test. Choosing another node of the cluster moves the role. The secret is never sent back by the hub.
+export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null; others: PveCluster[]; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: hosts } = useHosts();
   // nodes of the clusters already followed are not offered again (the hub refuses them as well)
@@ -243,65 +244,19 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
   );
 }
 
-// Proxmox VE clusters followed through their API (Paramètres > Sauvegardes).
+// Paramètres › Sauvegardes: the Proxmox VE clusters are roles of the hub (Reporting PVE), declared in Paramètres › Rôles.
 export function PveSettings() {
-  const qc = useQueryClient();
-  const toast = useToast();
   const { data } = useQuery({ queryKey: ['settings', 'pve'], queryFn: api.pveSettings });
-  const [editing, setEditing] = useState<PveCluster | 'new' | null>(null);
-  const [removing, setRemoving] = useState<PveCluster | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const remove = async () => {
-    if (!removing) return;
-    setBusy(true);
-    try {
-      const r = await api.deletePveCluster(removing.id);
-      toast.success(r.revoked ? `Cluster retiré, jeton ${r.revoked} révoqué${r.userDeleted ? ' (utilisateur supprimé)' : ''}` : 'Cluster retiré');
-      qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
-      qc.invalidateQueries({ queryKey: ['backups'] });
-      setRemoving(null);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <Panel title="Clusters Proxmox VE" icon={Server} actions={<Button size="sm" icon={Plus} onClick={() => setEditing('new')}>Ajouter</Button>}>
-      <p className="mb-4 text-sm text-muted">
+    <Panel title="Clusters Proxmox VE" icon={Server}>
+      <p className="text-sm text-muted">
         Le hub lit les jobs de sauvegarde (vzdump) de chaque cluster, leur planification et le résultat de leurs tâches. Un hôte est lié à son CT ou sa VM par
         l'adresse MAC que remonte son agent : les sauvegardes de ce guest lui sont rattachées automatiquement, et leur retard est jugé sur la planification du job.
       </p>
-      {!data ? (
-        <div className="flex justify-center p-6"><Spinner /></div>
-      ) : data.clusters.length === 0 ? (
-        <p className="text-sm text-muted">Aucun cluster.</p>
-      ) : (
-        <ul className="divide-y divide-line rounded-md border border-line">
-          {data.clusters.map((c) => (
-            <ServerRow
-              key={c.id}
-              name={c.name}
-              tag={c.id}
-              url={c.url}
-              connected={c.hasSecret}
-              polledAt={c.polledAt}
-              pollError={c.pollError}
-              details={[c.guests !== undefined ? `${c.guests} guests` : '', c.timezone ?? '', c.tokenId ? `jeton ${c.tokenId}` : 'aucun jeton'].filter(Boolean).join(' · ')}
-              onEdit={() => setEditing(c)}
-              onRemove={() => setRemoving(c)}
-            />
-          ))}
-        </ul>
-      )}
-      {editing && <ClusterModal key={editing === 'new' ? 'new' : editing.id} cluster={editing === 'new' ? null : editing} others={(data?.clusters ?? []).filter((c) => editing === 'new' || c.id !== editing.id)} onClose={() => setEditing(null)} />}
-      <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={remove} title="Retirer le cluster" confirmLabel="Retirer" danger loading={busy}>
-        Le hub ne relèvera plus <b>{removing?.name}</b> : son jeton <code>{removing?.tokenId}</code> est révoqué par l’agent du nœud relié (ainsi que l’utilisateur s’il
-        n’a plus de jeton), les liens de ses guests avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés (les sauvegardes restent sur le PBS,
-        orphelines).
-      </ConfirmModal>
+      <p className="mt-3 text-sm text-muted">
+        {data ? `${data.clusters.length} cluster(s) suivi(s). ` : ''}Un cluster se déclare comme rôle <b className="text-zinc-300">Reporting PVE</b> dans{' '}
+        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
+      </p>
     </Panel>
   );
 }

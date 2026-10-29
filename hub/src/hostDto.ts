@@ -8,8 +8,8 @@ import { dockerSummary, dockerView } from './docker.js';
 import { healthWithSilenced } from './healthSilence.js';
 import { sessionSummary } from './sessions.js';
 import { hostLevel } from './homeassistant/detail.js';
-import { probeEngine, roleUrl } from './probes.js';
 import { carriedBy } from './roles.js';
+import { roleView } from './roleView.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -79,19 +79,8 @@ export function hostDto(h: HostDoc) {
     smartDevices: h.smartDevices ?? [],
     setupOverrides: h.setupOverrides ?? {},
     setup: setupDto(h),
-    // roles of the hub this host carries (never the password), and the services its agent found (null: never reported)
-    roles: carriedBy(h._id).map((r) => ({
-      id: r._id,
-      type: r.type,
-      name: r.name,
-      scheme: r.config.scheme,
-      port: r.config.port,
-      address: r.config.address ?? null,
-      url: roleUrl(r.config, h.info?.ips),
-      username: r.config.username,
-      hasPassword: !!r.config.password,
-      status: probeEngine()?.pool.status(r._id) ?? null,
-    })),
+    // roles of the hub this host carries (never a secret), and the services its agent found (null: never reported)
+    roles: carriedBy(h._id).map((r) => roleView(r, h)),
     roleCandidates: h.roleCandidates ?? null,
     // Proxmox VE guest this host is (see pve.ts)
     pve: h.pve ?? null,
