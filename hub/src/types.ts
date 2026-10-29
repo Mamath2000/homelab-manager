@@ -802,10 +802,16 @@ export interface PveSettings {
 // (siteId). main: main site, vpn: reached through a VPN, external: supervised from afar.
 export const SITE_KINDS = ['main', 'vpn', 'external'] as const;
 export type SiteKind = (typeof SITE_KINDS)[number];
+// Display of the site card on the dashboard: large (timeline of the hosts, full width), medium (smaller, side by side),
+// small (one indicator per domain, summed over the hosts).
+export const SITE_FORMATS = ['large', 'medium', 'small'] as const;
+export type SiteFormat = (typeof SITE_FORMATS)[number];
+export const defaultSiteFormat: Record<SiteKind, SiteFormat> = { main: 'large', vpn: 'medium', external: 'small' };
 export interface SiteConfig {
   id: string;
   name: string;
   kind: SiteKind;
+  format: SiteFormat;
   color: TagColor;
 }
 export interface SitesSettings {

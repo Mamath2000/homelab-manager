@@ -4,7 +4,7 @@ import { loadSites, loadTags, normalizeSites, sameName, saveTags } from '../cata
 import { equipments, hosts, settings } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
-import { SITE_KINDS, TAG_COLORS, type SiteConfig, type TagColor } from '../types.js';
+import { SITE_FORMATS, SITE_KINDS, TAG_COLORS, type SiteConfig, type SiteFormat, type TagColor } from '../types.js';
 
 const sitesBody = {
   type: 'object',
@@ -22,6 +22,7 @@ const sitesBody = {
           id: { type: 'string', maxLength: 24 },
           name: { type: 'string', maxLength: 64 },
           kind: { type: 'string', enum: SITE_KINDS },
+          format: { type: 'string', enum: SITE_FORMATS },
           color: { type: 'string', enum: TAG_COLORS },
         },
       },
@@ -43,7 +44,7 @@ export function registerSiteRoutes(app: FastifyInstance) {
   app.get('/api/tags', async () => ({ tags: await loadTags() }));
 
   // the whole list, in display order; a site left out is removed from its hosts and equipment
-  app.put<{ Body: { sites: (Omit<SiteConfig, 'id' | 'color'> & { id?: string; color?: TagColor })[] } }>('/api/settings/sites', { schema: { body: sitesBody } }, async (req, reply) => {
+  app.put<{ Body: { sites: (Omit<SiteConfig, 'id' | 'color' | 'format'> & { id?: string; color?: TagColor; format?: SiteFormat })[] } }>('/api/settings/sites', { schema: { body: sitesBody } }, async (req, reply) => {
     const sites = normalizeSites(req.body.sites);
     if (!sites) return reply.code(400).send({ error: 'un site est indiqué deux fois' });
     await settings.replaceOne({ _id: 'sites' }, { _id: 'sites', sites }, { upsert: true });

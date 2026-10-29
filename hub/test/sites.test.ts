@@ -11,6 +11,10 @@ test('sites: names trimmed, empty ones dropped, ids kept or given, a name given 
   ])!;
   assert.deepEqual(out.map((s) => [s.name, s.kind]), [['Vouille', 'main'], ['Jarsay', 'vpn']]);
   assert.deepEqual(out.map((s) => s.color), ['blue', 'zinc']);
+  // format: the one given, else the one of the kind
+  assert.deepEqual(out.map((s) => s.format), ['large', 'medium']);
+  assert.equal(normalizeSites([{ name: 'Freddy', kind: 'external' }])![0].format, 'small');
+  assert.equal(normalizeSites([{ name: 'Freddy', kind: 'external', format: 'medium' }])![0].format, 'medium');
   assert.equal(out[0].id, 'a1');
   assert.match(out[1].id, /^[0-9a-f]{24}$/);
   assert.equal(normalizeSites([{ name: 'Jarsay', kind: 'vpn' }, { name: 'jarsay ', kind: 'external' }]), null);

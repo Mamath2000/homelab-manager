@@ -60,9 +60,11 @@ Quand une stack disparaît du rapport Docker de son hôte, ses sondes sont **sup
 
 ## Brokers MQTT
 
-Les sondes MQTT écoutent leurs propres brokers, **distincts du broker du pont [Home Assistant](home-assistant.md)** (par exemple celui de Zigbee2MQTT et celui d'ESPHome d'un site). Ils se règlent dans **Paramètres › Sondes** (administrateurs) : nom, adresse (`mqtt://`, `mqtts://`, `ws://` ou `wss://`), compte facultatif. Comme pour Home Assistant, l'enregistrement exige un **test de connexion** réussi, et le mot de passe n'est jamais renvoyé par l'API.
+Les sondes MQTT écoutent leurs propres brokers, **distincts du broker du pont [Home Assistant](home-assistant.md)** (par exemple celui de Zigbee2MQTT et celui d'ESPHome d'un site). Un broker est un **rôle de l'hôte qui l'héberge** : l'agent de l'hôte signale les brokers qu'il voit en écoute, et un administrateur les active dans les **options de l'hôte › Rôles** (ou en saisit un à la main). Il faut donc un agent HLM sur l'hôte du broker.
 
-La liste montre l'état de la connexion de chaque broker (connecté, connexion, injoignable) et le nombre de sondes qui l'utilisent. Un broker injoignable met ses sondes en « inconnu ». Un broker utilisé par des sondes ne peut pas être supprimé : supprimer ou déplacer ces sondes d'abord.
+Un rôle porte un nom (l'identifiant que les sondes citent), le schéma (`mqtt://`, `mqtts://`, `ws://` ou `wss://`), le port, une adresse facultative (par défaut la première IP privée de l'hôte) et un compte facultatif (broker anonyme). Comme pour Home Assistant, l'enregistrement exige un **test de connexion** réussi, et le mot de passe n'est jamais renvoyé par l'API.
+
+**Paramètres › Sondes** donne la vue d'ensemble : état de la connexion de chaque broker (connecté, connexion, injoignable), hôte qui l'héberge et nombre de sondes qui l'utilisent. Un broker injoignable met ses sondes en « inconnu ». Un broker utilisé par des sondes ne peut pas être supprimé : supprimer ou déplacer ces sondes d'abord.
 
 ## Alertes et statuts
 
@@ -84,9 +86,10 @@ Lecture des sondes d'un hôte ou d'un équipement : tous les rôles. Tout le res
 | `PUT /api/probes/:id` | modifier une sonde (changer la cible remet son état à « inconnu ») |
 | `DELETE /api/probes/:id` | supprimer une sonde |
 | `POST /api/probes/test` | mesurer une cible sans rien enregistrer |
-| `GET`, `POST /api/settings/mqtt-brokers` | brokers MQTT des sondes (le mot de passe n'est jamais renvoyé : `hasPassword`) |
-| `PUT`, `DELETE /api/settings/mqtt-brokers/:id` | modifier, supprimer (refusé si des sondes l'utilisent) |
-| `POST /api/settings/mqtt-brokers/test` | tester la connexion d'un broker |
+| `GET /api/settings/mqtt-brokers` | brokers MQTT des sondes, avec état de connexion et nombre de sondes (le mot de passe n'est jamais renvoyé : `hasPassword`) |
+| `POST /api/hosts/:id/roles` | activer un broker détecté par l'agent de l'hôte (rôle `mqtt-broker`) |
+| `PUT`, `DELETE /api/hosts/:id/roles/:roleId` | modifier, supprimer (refusé si des sondes l'utilisent) |
+| `POST /api/hosts/:id/roles/test` | tester la connexion d'un broker |
 
 Corps d'une sonde :
 
@@ -108,5 +111,5 @@ Corps d'une sonde :
 - Les sondes se rattachent aux **hôtes** et aux **équipements** (le modèle prévoit aussi les sites, non implémentés).
 - Les sondes des équipements ne sont pas encore publiées dans Home Assistant.
 - Elles sont toutes lancées **depuis le hub** (le champ `runFrom` est dans le modèle pour d'autres exécutants plus tard, jamais l'hôte vérifié).
-- Pas d'import depuis Uptime Kuma : les sondes se saisissent à la main.
+- Pas d'import depuis Uptime Kuma : les sondes se saisissent à la main. Pas non plus de criticité par sonde ni par équipement (les groupes et tags de Kuma n'ont pas d'équivalent).
 - Le hub doit joindre les cibles : un hub sur un site distant ne voit pas les services d'un autre site sans VPN.

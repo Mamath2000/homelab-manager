@@ -527,10 +527,12 @@ export interface StatusView {
 
 // Sites described in the settings (display order of the dashboard), one per host.
 export type SiteKind = 'main' | 'vpn' | 'external';
+export type SiteFormat = 'large' | 'medium' | 'small';
 export interface SiteConfig {
   id: string;
   name: string;
   kind: SiteKind;
+  format: SiteFormat;
   color: TagColor;
 }
 

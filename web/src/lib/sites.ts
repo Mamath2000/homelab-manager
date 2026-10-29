@@ -1,4 +1,4 @@
-import type { BackupGroup, Equipment, Host, SiteConfig, SiteKind } from './api';
+import type { BackupGroup, Equipment, Host, SiteConfig, SiteFormat, SiteKind } from './api';
 import { hostBackups } from './backups';
 import { connection, hasApt, type Tone } from './status';
 
@@ -12,9 +12,20 @@ export const siteKindMeta: Record<SiteKind, { label: string; hint: string }> = {
   external: { label: 'Externe', hint: 'Site externe supervisé' },
 };
 
+export const siteFormatMeta: Record<SiteFormat, { label: string; hint: string }> = {
+  large: { label: 'Grand', hint: 'Frise pleine largeur' },
+  medium: { label: 'Moyen', hint: 'Frise réduite, côte à côte' },
+  small: { label: 'Petit', hint: 'Un indicateur par domaine, sommé sur les hôtes' },
+};
+
+// Format of the sites of the settings saved before it existed.
+export const defaultSiteFormat: Record<SiteKind, SiteFormat> = { main: 'large', vpn: 'medium', external: 'small' };
+
 export interface Site {
+  id: string | null;
   name: string;
   kind: SiteKind | null;
+  format: SiteFormat;
   hosts: Host[];
   equipments: Equipment[];
 }
@@ -24,14 +35,18 @@ export function groupSites(hosts: Host[], config: SiteConfig[], equipments: Equi
   const sorted = <T extends { name: string }>(list: T[]) => [...list].sort((a, b) => a.name.localeCompare(b.name));
   const known = new Set(config.map((c) => c.id));
   const sites: Site[] = config.map((c) => ({
+    id: c.id,
     name: c.name,
     kind: c.kind,
+    format: c.format ?? defaultSiteFormat[c.kind],
     hosts: sorted(hosts.filter((h) => h.siteId === c.id)),
     equipments: sorted(equipments.filter((e) => e.siteId === c.id)),
   }));
   const none: Site = {
+    id: null,
     name: NO_SITE,
     kind: null,
+    format: 'medium',
     hosts: sorted(hosts.filter((h) => !h.siteId || !known.has(h.siteId))),
     equipments: sorted(equipments.filter((e) => !e.siteId || !known.has(e.siteId))),
   };

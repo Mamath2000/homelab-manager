@@ -59,6 +59,12 @@ export function domainCells(status: StatusView | undefined, hosts: Pick<Host, 'i
   return hosts.map((h) => cellOf(status?.hosts[h.id]?.domains[domain]));
 }
 
+// One cell for a domain over several hosts: the worst one (alert, warning, unknown, ok); none when no host reads it.
+const cellWorst: Cell[] = ['alert', 'warn', 'unknown', 'ok'];
+export function sumCells(cells: Cell[]): Cell {
+  return cellWorst.find((c) => cells.includes(c)) ?? 'none';
+}
+
 // --- timeline of a site: worst level of the day over its hosts --------------------------------------
 
 export type SiteCell = { level: AlertLevel | 'none'; alert: number; warn: number };
