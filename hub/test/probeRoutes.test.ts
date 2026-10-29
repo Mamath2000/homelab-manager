@@ -52,8 +52,9 @@ test('probe and broker bodies: bad values are refused before any handler', async
   assert.equal((await send('POST', '/api/hosts/x/probes', { name: '', target })).statusCode, 400);
   assert.equal((await send('POST', '/api/hosts/x/probes', { name: 'ok', target, retries: 9 })).statusCode, 400);
   assert.equal((await send('POST', '/api/hosts/x/probes', { name: 'ok', target, intervalSec: 1 })).statusCode, 400);
-  assert.equal((await send('POST', '/api/settings/mqtt-brokers', { name: 'v', url: 'http://x', username: '' })).statusCode, 400);
-  assert.equal((await send('POST', '/api/settings/mqtt-brokers', { name: 'v', url: 'mqtt://x:1883' })).statusCode, 400);
+  assert.equal((await send('POST', '/api/hosts/x/roles', { name: 'v', scheme: 'http', port: 1883, username: '' })).statusCode, 400);
+  assert.equal((await send('POST', '/api/hosts/x/roles', { name: 'v', scheme: 'mqtt', port: 0, username: '' })).statusCode, 400);
+  assert.equal((await send('POST', '/api/hosts/x/roles', { name: 'v', scheme: 'mqtt', port: 1883 })).statusCode, 400);
   // past the schema: refused afterwards for the unknown host (404 once the database answers), not by the schema
   assert.notEqual((await send('POST', '/api/hosts/x/probes', { name: 'ok', target })).statusCode, 400);
 });

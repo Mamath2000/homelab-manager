@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, MqttBrokersSettings, PbsSettings, PbsRemoteSettings, ProbeDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -9,7 +9,7 @@ export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
 export let apiKeys: Collection<ApiKeyDoc>;
-export let settings: Collection<HomeAssistantSettings | AgentSettings | HealthSettings | PkiDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings | MqttBrokersSettings>;
+export let settings: Collection<HomeAssistantSettings | AgentSettings | HealthSettings | PkiDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let backups: Collection<BackupDoc>;

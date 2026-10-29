@@ -157,7 +157,11 @@ func (s *session) hello(ctx context.Context) error {
 	for _, k := range runningDatabaseKinds(ctx) {
 		caps = append(caps, "backup_database:"+k)
 	}
-	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash})
+	hello := Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash}
+	if rc := collectRoleCandidates(ctx); rc != nil {
+		hello.RoleCandidates = &rc
+	}
+	return s.send(ctx, hello)
 }
 
 // dockerReport sends the state of the compose stacks (nothing when Docker is unavailable).

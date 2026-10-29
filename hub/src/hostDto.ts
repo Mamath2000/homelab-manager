@@ -8,6 +8,7 @@ import { dockerSummary, dockerView } from './docker.js';
 import { healthWithSilenced } from './healthSilence.js';
 import { sessionSummary } from './sessions.js';
 import { hostLevel } from './homeassistant/detail.js';
+import { probeEngine, roleUrl } from './probes.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -77,6 +78,20 @@ export function hostDto(h: HostDoc) {
     smartDevices: h.smartDevices ?? [],
     setupOverrides: h.setupOverrides ?? {},
     setup: setupDto(h),
+    // roles declared here (never the password), and the services the agent found (null: never reported)
+    roles: (h.roles ?? []).map((r) => ({
+      id: r.id,
+      type: r.type,
+      name: r.name,
+      scheme: r.scheme,
+      port: r.port,
+      address: r.address ?? null,
+      url: roleUrl(r, h.info?.ips),
+      username: r.username,
+      hasPassword: !!r.password,
+      status: probeEngine()?.pool.status(r.id) ?? null,
+    })),
+    roleCandidates: h.roleCandidates ?? null,
     // Proxmox VE guest this host is (see pve.ts)
     pve: h.pve ?? null,
     // snapshot of a PBS mounted here (pbsMount.ts); the agent link stays in the hub

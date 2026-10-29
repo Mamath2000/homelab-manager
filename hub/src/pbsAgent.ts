@@ -1,4 +1,5 @@
 import { AgentRequestError, agentRequest, isOnline } from './agents.js';
+import { lanAddress } from './hostAddress.js';
 import { hosts, parseId } from './db.js';
 import { type AgentTokenDeleteResult, type AgentTokenResult, type HeldToken, holds, parseTokenId, tokenSecretOf as secretOf } from './apiTokens.js';
 import type { HostDoc, PbsAgentLink } from './types.js';
@@ -68,8 +69,7 @@ export async function pbsHost(hostId: string, capability = 'pbs'): Promise<HostD
 
 // First private IPv4 of the host, the address the other machines reach it at (editable in the UI).
 export function suggestedUrl(ips: string[] | null | undefined, port: number) {
-  const v4 = (ips ?? []).map((ip) => ip.replace(/\/\d+$/, '')).filter((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !ip.startsWith('127.') && !ip.startsWith('169.254.'));
-  const lan = v4.find((ip) => ip.startsWith('192.168.') || ip.startsWith('10.')) ?? v4.find((ip) => !/^172\.(1[7-9]|2\d|3[01])\./.test(ip)) ?? v4[0];
+  const lan = lanAddress(ips);
   return lan && port ? `https://${lan}:${port}` : '';
 }
 

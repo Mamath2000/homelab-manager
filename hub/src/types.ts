@@ -352,6 +352,9 @@ export interface HostDoc {
   pbsMount?: PbsMount;
   // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied
   // store: datastore the token was given rights on (token created by the command of the UI); unknown otherwise
+  // roles declared on this host, and the services its agent found (undefined: never reported)
+  roles?: HostRole[];
+  roleCandidates?: RoleCandidate[];
   pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date; store?: string };
   backupSync?: { hash: string; at: Date; error?: string | null };
   // Windows: path of the directory CLI of Nimbus Backup, installed by hand (sent with the definition)
@@ -1059,17 +1062,42 @@ export interface ProbeDoc {
   createdAt: Date;
 }
 
+// A service found listening on a host, reported by its agent in the hello (agent/roles.go): the administrator
+// activates it as a role of the host.
+export interface RoleCandidate {
+  type: 'mqtt-broker';
+  process: string;
+  port: number;
+  scheme: string;
+  // loopback only: not reachable from the hub
+  local?: boolean;
+}
+
+export const BROKER_SCHEMES = ['mqtt', 'mqtts', 'ws', 'wss'] as const;
+export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
+
+// What a host is for, declared by the administrator. The id is unique among all the hosts: probes name a broker by it.
+// mqtt-broker: an MQTT broker the probes listen to (distinct from the one of the Home Assistant bridge); it is
+// reached at address (the first private IP of the host when absent) and port.
+export interface HostRole {
+  id: string;
+  type: 'mqtt-broker';
+  name: string;
+  scheme: BrokerScheme;
+  port: number;
+  address?: string;
+  username: string;
+  password: string;
+}
+
+// A broker as the probes use it: a role of a host with its address resolved ('' when the host has none yet).
 export interface MqttBroker {
   id: string;
   name: string;
   url: string; // mqtt://host:1883, mqtts://...
   username: string;
   password: string;
-}
-// Brokers the probes listen to, distinct from the one of the Home Assistant bridge.
-export interface MqttBrokersSettings {
-  _id: 'mqttBrokers';
-  brokers: MqttBroker[];
+  hostId: ObjectId;
 }
 
 // --- Equipment (what has no agent: network gear, gateways, home automation modules; see equipments.ts) ---

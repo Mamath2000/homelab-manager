@@ -20,7 +20,7 @@ import { isUpsReport } from './ups.js';
 import { isSessionReport } from './sessions.js';
 import { healthConfigForHost, receiveHealthReport } from './health.js';
 import { randomUUID } from 'node:crypto';
-import type { AptReport, HostDoc, HostInfo } from './types.js';
+import { BROKER_SCHEMES, type AptReport, type HostDoc, type HostInfo, type RoleCandidate } from './types.js';
 import { removeStackProbes } from './probes.js';
 
 declare module 'fastify' {
@@ -140,11 +140,24 @@ function isReport(r: unknown): r is AptReport {
   return !!x && Array.isArray(x.upgradable) && Array.isArray(x.held) && typeof x.checkedAt === 'number';
 }
 
+// What an agent reports it found listening: only the known shapes are kept.
+function cleanCandidates(raw: unknown[]): RoleCandidate[] {
+  const out: RoleCandidate[] = [];
+  for (const c of raw as Record<string, unknown>[]) {
+    if (!c || c.type !== 'mqtt-broker' || typeof c.process !== 'string' || !Number.isInteger(c.port) || (c.port as number) < 1 || (c.port as number) > 65535) continue;
+    const scheme = typeof c.scheme === 'string' && (BROKER_SCHEMES as readonly string[]).includes(c.scheme) ? c.scheme : 'mqtt';
+    out.push({ type: 'mqtt-broker', process: c.process.slice(0, 32), port: c.port as number, scheme, ...(c.local ? { local: true } : {}) });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
 interface AgentMessage {
   type: string;
   version?: string;
   info?: HostInfo;
   capabilities?: unknown;
+  roleCandidates?: unknown;
   binaryHash?: unknown;
   report?: unknown;
   docker?: unknown;
@@ -214,7 +227,7 @@ export function registerAgentSocket(app: FastifyInstance) {
         try {
           switch (msg.type) {
             case 'hello': {
-              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1, 'info.osId': 1 } });
+              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1, 'info.osId': 1, 'info.ips': 1, roles: 1 } });
               // first hello of a Windows workstation: switched off at night, it is roaming (can be unset)
               const roaming = msg.info?.osId === 'windows' && !before?.info ? { roaming: true } : {};
               await hosts.updateOne(
@@ -227,10 +240,14 @@ export function registerAgentSocket(app: FastifyInstance) {
                     agentHash: typeof msg.binaryHash === 'string' ? msg.binaryHash : '',
                     lastSeenAt: new Date(),
                     ...roaming,
+                    // absent: this agent cannot tell (old, or no `ss`): what was known stays
+                    ...(Array.isArray(msg.roleCandidates) ? { roleCandidates: cleanCandidates(msg.roleCandidates) } : {}),
                   },
                 },
               );
               await emitHost(host._id);
+              // the address of a broker follows the IPs of its host
+              if (before?.roles?.length && JSON.stringify(before.info?.ips ?? null) !== JSON.stringify(msg.info?.ips ?? null)) publish('probe.config', {});
               const healthHost = await hosts.findOne({ _id: host._id });
               if (healthHost?.capabilities?.includes('health')) sendToAgent(id, await healthConfigForHost(healthHost));
               await maybeAutoUpdate(host._id);

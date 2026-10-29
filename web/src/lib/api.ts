@@ -367,6 +367,9 @@ export interface Host {
   pve: HostPveLink | null;
   // snapshot of a PBS mounted here (hub/src/pbsMount.ts); null: none
   pbsMount: PbsMount | null;
+  // roles declared on this host, and the services its agent found (null: never reported)
+  roles: HostRole[];
+  roleCandidates: RoleCandidate[] | null;
   // OS of the agent (windows: presence, info and sessions only)
   osFamily: 'linux' | 'windows';
   // Windows: path of the backup CLI set in the options (checked by the agent: capability backup:cli)
@@ -1250,12 +1253,39 @@ export interface ProbeMeasure {
   message?: string;
 }
 
+export type BrokerScheme = 'mqtt' | 'mqtts' | 'ws' | 'wss';
+
+// Service found listening on a host by its agent (agent/roles.go); local: loopback only, not reachable by the hub
+export interface RoleCandidate {
+  type: 'mqtt-broker';
+  process: string;
+  port: number;
+  scheme: string;
+  local?: boolean;
+}
+
+// What a host is for (hub/src/types.ts HostRole): an MQTT broker the probes listen to. url: resolved address ('' unknown)
+export interface HostRole {
+  id: string;
+  type: 'mqtt-broker';
+  name: string;
+  scheme: BrokerScheme;
+  port: number;
+  address: string | null;
+  url: string;
+  username: string;
+  hasPassword: boolean;
+  status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
+}
+
 export interface MqttBrokerView {
   id: string;
   name: string;
   url: string;
   username: string;
   hasPassword: boolean;
+  hostId: string;
+  hostName: string;
   status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
   probes: number;
 }
@@ -1288,9 +1318,11 @@ export interface EquipmentInput {
 }
 
 // password: absent keeps the stored one, "" clears it
-export interface MqttBrokerInput {
+export interface HostRoleInput {
   name: string;
-  url: string;
+  scheme: BrokerScheme;
+  port: number;
+  address?: string;
   username: string;
   password?: string;
 }
@@ -1345,10 +1377,10 @@ export const api = {
   deleteProbe: (id: string) => request<void>('DELETE', `/api/probes/${id}`),
   testProbe: (target: ProbeTarget, timeoutSec: number) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec }),
   mqttBrokers: () => request<{ brokers: MqttBrokerView[] }>('GET', '/api/settings/mqtt-brokers'),
-  createMqttBroker: (b: MqttBrokerInput) => request<{ id: string }>('POST', '/api/settings/mqtt-brokers', b),
-  updateMqttBroker: (id: string, b: MqttBrokerInput) => request<{ id: string }>('PUT', `/api/settings/mqtt-brokers/${id}`, b),
-  deleteMqttBroker: (id: string) => request<void>('DELETE', `/api/settings/mqtt-brokers/${id}`),
-  testMqttBroker: (b: MqttBrokerInput & { id?: string }) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/mqtt-brokers/test', b),
+  createHostRole: (hostId: string, r: HostRoleInput) => request<{ id: string }>('POST', `/api/hosts/${hostId}/roles`, r),
+  updateHostRole: (hostId: string, roleId: string, r: HostRoleInput) => request<{ id: string }>('PUT', `/api/hosts/${hostId}/roles/${roleId}`, r),
+  deleteHostRole: (hostId: string, roleId: string) => request<void>('DELETE', `/api/hosts/${hostId}/roles/${roleId}`),
+  testHostRole: (hostId: string, r: Omit<HostRoleInput, 'name'> & { roleId?: string }) => request<{ ok: boolean; error?: string }>('POST', `/api/hosts/${hostId}/roles/test`, r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),

@@ -25,6 +25,7 @@ import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache }
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
+import { HostRolesPanel } from '../components/MqttBrokers';
 import { ProbesPanel } from '../components/Probes';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel, toneBadge, type Tone } from '../lib/status';
@@ -388,6 +389,7 @@ function HostDetailPage({ id }: { id: string }) {
   if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
+  blocks.push(<HostRolesPanel key="roles" host={host} />);
   blocks.push(<ProbesPanel key="probes" owner={{ kind: 'host', host }} />);
   if (isWindows(host)) blocks.push(<SessionsPanel key="sessions" host={host} />);
   else if (!hasApt(host) && !host.docker) {

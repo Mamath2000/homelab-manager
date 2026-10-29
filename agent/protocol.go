@@ -99,12 +99,14 @@ type Outbound struct {
 	HealthSmart  *HealthSmart    `json:"healthSmart,omitempty"`
 	HealthRaid   *HealthRaid     `json:"healthRaid,omitempty"`
 	Offsite      *OffsiteReport  `json:"offsite,omitempty"`
-	ReqID        string          `json:"reqId,omitempty"`
-	Result       any             `json:"result,omitempty"`
-	JobID        string          `json:"jobId,omitempty"`
-	Data         string          `json:"data,omitempty"`
-	ExitCode     int             `json:"exitCode,omitempty"`
-	Error        string          `json:"error,omitempty"`
+	// hello: services found listening (roles.go); absent when the sockets cannot be listed, [] when none
+	RoleCandidates *[]RoleCandidate `json:"roleCandidates,omitempty"`
+	ReqID          string           `json:"reqId,omitempty"`
+	Result         any              `json:"result,omitempty"`
+	JobID          string           `json:"jobId,omitempty"`
+	Data           string           `json:"data,omitempty"`
+	ExitCode       int              `json:"exitCode,omitempty"`
+	Error          string           `json:"error,omitempty"`
 	// jobs_known: the jobs this agent has a record of (running, or result not acknowledged)
 	Jobs []string `json:"jobs,omitempty"`
 }

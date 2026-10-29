@@ -1,10 +1,11 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { ObjectId } from 'mongodb';
-import { hosts, probes, settings } from './db.js';
+import { hosts, probes } from './db.js';
+import { lanAddress } from './hostAddress.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
-import type { MqttBroker, MqttBrokersSettings, ProbeDoc, ProbeState, ProbeTarget } from './types.js';
+import type { HostRole, MqttBroker, ProbeDoc, ProbeState, ProbeTarget } from './types.js';
 
 // Probes: checks that the service is rendered, seen from outside, on top of what the agents report from inside.
 // The hub runs them (mqtt, ping, tcp, http) and only keeps the current state of each: no series of measures.
@@ -15,9 +16,22 @@ export const INTERVAL_RANGE = { min: 10, max: 3600, default: 60 } as const;
 export const TIMEOUT_RANGE = { min: 1, max: 60, default: 10 } as const;
 export const MAX_RETRIES = 3;
 
-export async function loadMqttBrokers(): Promise<MqttBrokersSettings> {
-  const s = (await settings.findOne({ _id: 'mqttBrokers' })) as MqttBrokersSettings | null;
-  return { _id: 'mqttBrokers', brokers: s?.brokers ?? [] };
+// Address a broker role is reached at: the one typed, else the first private IP of its host ('' when unknown).
+export function roleUrl(role: Pick<HostRole, 'scheme' | 'port' | 'address'>, ips: string[] | null | undefined) {
+  const addr = role.address || lanAddress(ips);
+  return addr ? `${role.scheme}://${addr.includes(':') && !addr.startsWith('[') ? `[${addr}]` : addr}:${role.port}` : '';
+}
+
+// The MQTT brokers the probes listen to: the mqtt-broker roles of the hosts.
+export async function loadMqttBrokers(): Promise<{ brokers: MqttBroker[] }> {
+  const list = await hosts.find({ 'roles.type': 'mqtt-broker' }, { projection: { roles: 1, 'info.ips': 1 } }).toArray();
+  const brokers: MqttBroker[] = [];
+  for (const h of list) {
+    for (const r of h.roles ?? []) {
+      if (r.type === 'mqtt-broker') brokers.push({ id: r.id, name: r.name, url: roleUrl(r, h.info?.ips), username: r.username, password: r.password, hostId: h._id });
+    }
+  }
+  return { brokers };
 }
 
 // --- validation (the routes use it) --------------------------------------------------------------
@@ -125,7 +139,8 @@ export class ProbeEngine {
       set.add(p.target.topic);
       wanted.set(p.target.brokerId, set);
     }
-    this.pool.sync(brokers, wanted);
+    // a broker whose host has no address yet is not connected: its probes are unknown
+    this.pool.sync(brokers.filter((b) => b.url), wanted);
     for (const m of [this.running, this.nextAt, this.live]) for (const id of m.keys()) if (!ids.has(id)) m.delete(id);
     this.loadedAt = Date.now();
     this.dirty = false;
@@ -191,6 +206,7 @@ export async function testTarget(target: ProbeTarget, timeoutSec: number): Promi
   if (target.type !== 'mqtt') return measure({ target, timeoutSec }, new MqttPool());
   const broker = (await loadMqttBrokers()).brokers.find((b) => b.id === target.brokerId);
   if (!broker) return { state: 'unknown', message: 'broker introuvable' };
+  if (!broker.url) return { state: 'unknown', message: "adresse de l'hôte du broker inconnue" };
   const pool = new MqttPool();
   pool.sync([broker], new Map([[broker.id, new Set([target.topic])]]));
   try {

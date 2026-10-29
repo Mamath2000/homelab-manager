@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Globe, Pencil, Plug, Plus, Save, Trash2 } from 'lucide-react';
-import { api, type MqttBrokerInput, type MqttBrokerView } from '../lib/api';
+import { Globe, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { api, type BrokerScheme, type Host, type HostRole, type HostRoleInput, type RoleCandidate } from '../lib/api';
+import { useMe } from '../lib/auth';
 import type { Tone } from '../lib/status';
 import { stepStates } from '../lib/steps';
 import { useMqttBrokers } from '../lib/queries';
@@ -10,26 +12,35 @@ import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDial
 import { field } from './ProxmoxServer';
 import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
-const BROKER = /^(mqtts?|wss?):\/\/\S+$/;
+const SCHEMES: BrokerScheme[] = ['mqtt', 'mqtts', 'ws', 'wss'];
 
-const statusMeta = (b: MqttBrokerView): { label: string; tone: Tone } =>
-  !b.status ? { label: 'Inactif', tone: 'neutral' }
-    : b.status.state === 'connected' ? { label: 'Connecté', tone: 'ok' }
-      : b.status.state === 'connecting' ? { label: 'Connexion…', tone: 'info' }
-        : { label: 'Injoignable', tone: 'warn' };
+const statusMeta = (b: { status: HostRole['status']; url: string }): { label: string; tone: Tone } =>
+  !b.url ? { label: 'Adresse inconnue', tone: 'warn' }
+    : !b.status ? { label: 'Inactif', tone: 'neutral' }
+      : b.status.state === 'connected' ? { label: 'Connecté', tone: 'ok' }
+        : b.status.state === 'connecting' ? { label: 'Connexion…', tone: 'info' }
+          : { label: 'Injoignable', tone: 'warn' };
 
 interface Form {
   name: string;
-  url: string;
+  scheme: BrokerScheme;
+  port: string;
+  address: string;
   username: string;
 }
 
-// A broker the probes listen to, in four steps (PbsDialog.tsx): name, address, account, test. As for Home Assistant,
-// saving needs a successful test; the password is never sent back by the hub.
-function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClose: () => void }) {
+// A broker role of a host, from a service its agent found, from an existing role, or typed. Four steps (PbsDialog.tsx):
+// name, address, account, test. As for Home Assistant, saving needs a successful test; the password is never sent back.
+function BrokerModal({ host, role, candidate, onClose }: { host: Host; role: HostRole | null; candidate: RoleCandidate | null; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [initial] = useState<Form>(() => ({ name: broker?.name ?? '', url: broker?.url ?? '', username: broker?.username ?? '' }));
+  const [initial] = useState<Form>(() => ({
+    name: role?.name ?? '',
+    scheme: role?.scheme ?? (SCHEMES.includes(candidate?.scheme as BrokerScheme) ? (candidate!.scheme as BrokerScheme) : 'mqtt'),
+    port: String(role?.port ?? candidate?.port ?? 1883),
+    address: role?.address ?? '',
+    username: role?.username ?? '',
+  }));
   const [form, setForm] = useState<Form>(initial);
   const [password, setPassword] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
@@ -40,20 +51,30 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
     setForm({ ...form, ...patch });
     setTest(null);
   };
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || !!password || clearPassword;
+  // a role from a candidate starts unsaved: leaving it is not a loss
+  const dirty = !!role && (JSON.stringify(form) !== JSON.stringify(initial) || !!password || clearPassword);
   const requestClose = () => {
     if (busy) return;
     if (dirty) setConfirmDiscard(true);
     else onClose();
   };
-  const input = (): MqttBrokerInput => ({ name: form.name.trim(), url: form.url, username: form.username, ...(clearPassword ? { password: '' } : password ? { password } : {}) });
+  const port = Number(form.port);
+  const input = (): HostRoleInput => ({
+    name: form.name.trim(),
+    scheme: form.scheme,
+    port,
+    ...(form.address.trim() ? { address: form.address.trim() } : {}),
+    username: form.username,
+    ...(clearPassword ? { password: '' } : password ? { password } : {}),
+  });
 
   const runTest = async () => {
     setBusy('test');
     setTest(null);
     try {
-      const r = await api.testMqttBroker({ ...input(), ...(broker ? { id: broker.id } : {}) });
-      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: form.url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      const { name: _name, ...rest } = input();
+      const r = await api.testHostRole(host.id, { ...rest, ...(role ? { roleId: role.id } : {}) });
+      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: shown } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
@@ -63,10 +84,10 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
   const save = async () => {
     setBusy('save');
     try {
-      if (broker) await api.updateMqttBroker(broker.id, input());
-      else await api.createMqttBroker(input());
+      if (role) await api.updateHostRole(host.id, role.id, input());
+      else await api.createHostRole(host.id, input());
       await qc.invalidateQueries({ queryKey: ['settings', 'mqtt-brokers'] });
-      toast.success(broker ? 'Broker modifié' : 'Broker ajouté');
+      toast.success(role ? 'Broker modifié' : 'Broker ajouté');
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -76,9 +97,11 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
   };
 
   const nameOk = form.name.trim().length > 0;
-  const urlOk = BROKER.test(form.url);
+  const portOk = Number.isInteger(port) && port >= 1 && port <= 65535;
+  const addressOk = /^[A-Za-z0-9.:_-]*$/.test(form.address);
+  const shown = `${form.scheme}://${form.address.trim() || "IP de l'hôte"}:${form.port}`;
   // the account is optional (anonymous broker): done with the address
-  const [named, address, account, tested] = stepStates([nameOk, urlOk, urlOk, test?.level === 'ok']);
+  const [named, address, account, tested] = stepStates([nameOk, portOk && addressOk, portOk && addressOk, test?.level === 'ok']);
 
   return (
     <>
@@ -88,7 +111,7 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
         wide="screen"
         wider
         fixed
-        title={broker ? `Broker MQTT · ${broker.name}` : 'Nouveau broker MQTT'}
+        title={role ? `Broker MQTT · ${role.name}` : `Broker MQTT sur ${host.name}`}
         footer={
           <>
             <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
@@ -100,14 +123,26 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
           <Step n={1} title="Nom" state={named} intro="Comment le broker s'appelle dans les sondes.">
             <label className="block">
               <span className={field}>Nom</span>
-              <input className="input" autoFocus maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="vouille, jarsay…" />
+              <input className="input" autoFocus maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="zigbee2mqtt, esphome…" />
             </label>
           </Step>
-          <Step n={2} title="Adresse" state={address} intro="Le broker que les sondes écoutent, distinct de celui de Home Assistant.">
+          <Step n={2} title="Adresse" state={address} intro="Le broker que les sondes écoutent, distinct de celui de Home Assistant. Par défaut, l'adresse est la première IP privée de l'hôte.">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className={field}>Protocole</span>
+                <select className="input" value={form.scheme} onChange={(e) => set({ scheme: e.target.value as BrokerScheme })}>
+                  {SCHEMES.map((x) => <option key={x} value={x}>{x}://</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className={field}>Port</span>
+                <input className="input" inputMode="numeric" value={form.port} onChange={(e) => set({ port: e.target.value.replace(/\D/g, '') })} />
+              </label>
+            </div>
             <label className="block">
-              <span className={field}>Adresse</span>
-              <input className="input font-mono text-xs" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder="mqtt://192.168.100.10:1883" spellCheck={false} />
-              <span className="mt-1 block text-xs text-muted">mqtt://, mqtts://, ws:// ou wss://</span>
+              <span className={field}>Adresse (facultatif)</span>
+              <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder="IP de l'hôte" spellCheck={false} />
+              <span className="mt-1 block text-xs text-muted">À renseigner si l'IP choisie par défaut n'est pas la bonne, ou pour un nom DNS.</span>
             </label>
           </Step>
           <Step n={3} title="Compte" state={account} intro="Facultatif : laisser vide pour un broker anonyme.">
@@ -123,12 +158,12 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
                 value={password}
                 disabled={clearPassword}
                 onChange={(e) => (setPassword(e.target.value), setTest(null))}
-                placeholder={broker?.hasPassword ? '••••••••' : ''}
+                placeholder={role?.hasPassword ? '••••••••' : ''}
                 autoComplete="new-password"
               />
-              {broker?.hasPassword && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
+              {role?.hasPassword && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
             </label>
-            {broker?.hasPassword && (
+            {role?.hasPassword && (
               <label className="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" checked={clearPassword} onChange={(e) => (setClearPassword(e.target.checked), setTest(null))} className="accent-emerald-500" />
                 Supprimer le mot de passe
@@ -141,7 +176,7 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
             state={tested}
             intro="Le hub se connecte au broker avec ce compte ; l'enregistrement n'est possible qu'après un test réussi."
             footer={
-              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !nameOk || !urlOk} onClick={() => void runTest()}>
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !nameOk || !portOk || !addressOk} onClick={() => void runTest()}>
                 {test ? 'Tester à nouveau' : 'Tester la connexion'}
               </Button>
             }
@@ -149,11 +184,12 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
             <DetectedRows
               rows={[
                 { label: 'Nom', value: form.name, empty: 'non renseigné' },
-                { label: 'Broker', value: form.url, empty: 'non renseigné' },
+                { label: 'Hôte', value: host.name, empty: '' },
+                { label: 'Broker', value: shown, empty: 'non renseigné' },
                 { label: 'Utilisateur', value: form.username, empty: 'anonyme' },
               ]}
             />
-            <CheckLine label="Broker MQTT" check={test} idle={form.url || undefined} />
+            <CheckLine label="Broker MQTT" check={test} idle={shown} />
           </Step>
         </Steps>
       </Modal>
@@ -164,54 +200,96 @@ function BrokerModal({ broker, onClose }: { broker: MqttBrokerView | null; onClo
   );
 }
 
-// Paramètres › Sondes: the MQTT brokers the probes of the hosts listen to.
-export function MqttBrokersSettings() {
+// Fiche hôte: what this host is for. The brokers found by its agent are offered; an admin activates them or adds one.
+export function HostRolesPanel({ host }: { host: Host }) {
+  const { canManage } = useMe();
   const qc = useQueryClient();
   const toast = useToast();
-  const { data: brokers, isLoading, error } = useMqttBrokers();
-  const [editing, setEditing] = useState<MqttBrokerView | 'new' | null>(null);
-  const [removing, setRemoving] = useState<MqttBrokerView | null>(null);
+  const [editing, setEditing] = useState<{ role: HostRole | null; candidate: RoleCandidate | null } | null>(null);
+  const [removing, setRemoving] = useState<HostRole | null>(null);
   const [busy, setBusy] = useState(false);
+  // already activated: a role on the same port
+  const offered = (host.roleCandidates ?? []).filter((c) => !host.roles.some((r) => r.port === c.port));
+  if (!host.roles.length && !(canManage && (offered.length || host.roleCandidates))) return null;
 
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
     try {
-      await api.deleteMqttBroker(removing.id);
+      await api.deleteHostRole(host.id, removing.id);
       await qc.invalidateQueries({ queryKey: ['settings', 'mqtt-brokers'] });
       toast.success(`Broker ${removing.name} supprimé`);
-      setRemoving(null);
     } catch (err) {
       toast.error((err as Error).message);
-      setRemoving(null);
     } finally {
+      setRemoving(null);
       setBusy(false);
     }
   };
 
-  const actions = (b: MqttBrokerView) => (
-    <div className="flex shrink-0 items-center justify-end gap-1.5">
-      <Button size="sm" icon={Pencil} aria-label={`Modifier ${b.name}`} title="Modifier" onClick={() => setEditing(b)} />
-      <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${b.name}`} title="Supprimer" onClick={() => setRemoving(b)} />
-    </div>
-  );
-
   return (
     <Panel
-      title="Brokers MQTT des sondes"
-      icon={Globe}
+      title="Rôles"
+      icon={Radio}
       bodyClassName=""
-      actions={<Button size="sm" icon={Plus} onClick={() => setEditing('new')}>Ajouter un broker</Button>}
+      actions={canManage && <Button size="sm" icon={Plus} onClick={() => setEditing({ role: null, candidate: null })}>Broker MQTT</Button>}
     >
+      <ul className="divide-y divide-line">
+        {host.roles.map((r) => (
+          <li key={r.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
+            <div className="min-w-0">
+              <p className="truncate font-medium text-zinc-100">Broker MQTT · {r.name}</p>
+              <p className="break-all font-mono text-xs text-muted">{r.url || `${r.scheme}://?:${r.port}`}</p>
+              {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Badge tone={statusMeta(r).tone}>{statusMeta(r).label}</Badge>
+              {canManage && (
+                <>
+                  <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => setEditing({ role: r, candidate: null })} />
+                  <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title="Supprimer" onClick={() => setRemoving(r)} />
+                </>
+              )}
+            </div>
+          </li>
+        ))}
+        {canManage &&
+          offered.map((c) => (
+            <li key={`${c.process}:${c.port}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-zinc-200">Broker MQTT détecté · {c.process}</p>
+                <p className="text-xs text-muted">
+                  port {c.port}
+                  {c.local ? ' · écoute en local seulement : injoignable par le hub' : ''}
+                </p>
+              </div>
+              <Button size="sm" icon={Plus} onClick={() => setEditing({ role: null, candidate: c })}>Activer</Button>
+            </li>
+          ))}
+        {canManage && !host.roles.length && !offered.length && <li className="px-4 py-3 text-sm text-muted">Aucun broker détecté sur cet hôte.</li>}
+      </ul>
+      {editing && <BrokerModal host={host} role={editing.role} candidate={editing.candidate} onClose={() => setEditing(null)} />}
+      <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer le broker" confirmLabel="Supprimer" danger loading={busy}>
+        Le broker <b>{removing?.name}</b> ne sera plus écouté. Un broker utilisé par des sondes ne peut pas être supprimé : supprimez ou déplacez ces sondes d'abord.
+      </ConfirmModal>
+    </Panel>
+  );
+}
+
+// Paramètres › Sondes: overview of the MQTT brokers the probes listen to. They are declared on the host that runs them.
+export function MqttBrokersSettings() {
+  const { data: brokers, isLoading, error } = useMqttBrokers();
+  return (
+    <Panel title="Brokers MQTT des sondes" icon={Globe} bodyClassName="">
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
-        Les sondes MQTT écoutent ces brokers, distincts de celui du pont Home Assistant. Un broker injoignable met ses sondes en « inconnu » : le service n'est pas jugé.
+        Un broker se déclare sur la fiche de l'hôte qui l'héberge (panneau Rôles) : son agent signale les brokers qu'il détecte. Un broker injoignable met ses sondes en « inconnu » : le service n'est pas jugé.
       </p>
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
       ) : error ? (
         <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>
       ) : !brokers?.length ? (
-        <p className="p-4 text-sm text-muted">Aucun broker. Ajoutez-en un pour créer des sondes MQTT (disponibilité Zigbee2MQTT, LWT ESPHome…).</p>
+        <p className="p-4 text-sm text-muted">Aucun broker. Ouvrez la fiche d'un hôte pour activer celui que son agent a détecté.</p>
       ) : (
         <>
           <ResponsiveList mode="mobile">
@@ -221,11 +299,8 @@ export function MqttBrokersSettings() {
                   <span className="min-w-0 truncate font-medium text-zinc-100">{b.name}</span>
                   <Badge tone={statusMeta(b).tone}>{statusMeta(b).label}</Badge>
                 </div>
-                <p className="break-all font-mono text-xs text-muted">{b.url}</p>
-                <div className="flex items-center justify-between gap-2 text-xs text-muted">
-                  <span>{b.probes} sonde(s)</span>
-                  {actions(b)}
-                </div>
+                <p className="break-all font-mono text-xs text-muted">{b.url || 'adresse inconnue'}</p>
+                <p className="text-xs text-muted"><Link className="underline" to={`/hosts/${b.hostId}`}>{b.hostName}</Link> · {b.probes} sonde(s)</p>
               </article>
             ))}
           </ResponsiveList>
@@ -234,25 +309,25 @@ export function MqttBrokersSettings() {
               <thead className="border-b border-line">
                 <tr>
                   <th className="th">Nom</th>
+                  <th className="th">Hôte</th>
                   <th className="th">Adresse</th>
                   <th className="th">Compte</th>
                   <th className="th">Connexion</th>
                   <th className="th">Sondes</th>
-                  <th className="th text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {brokers.map((b) => (
                   <tr key={b.id} className="hover:bg-raised/40">
                     <td className="td font-medium text-zinc-100">{b.name}</td>
-                    <td className="td font-mono text-xs text-zinc-300">{b.url}</td>
+                    <td className="td"><Link className="underline" to={`/hosts/${b.hostId}`}>{b.hostName}</Link></td>
+                    <td className="td font-mono text-xs text-zinc-300">{b.url || 'inconnue'}</td>
                     <td className="td text-muted">{b.username || 'anonyme'}</td>
                     <td className="td">
                       <Badge tone={statusMeta(b).tone}>{statusMeta(b).label}</Badge>
                       {b.status?.error && <p className="mt-0.5 max-w-[240px] truncate text-xs text-amber-300" title={b.status.error}>{b.status.error}</p>}
                     </td>
                     <td className="td text-muted">{b.probes}</td>
-                    <td className="td">{actions(b)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -260,10 +335,6 @@ export function MqttBrokersSettings() {
           </ResponsiveList>
         </>
       )}
-      {editing && <BrokerModal broker={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
-      <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer le broker" confirmLabel="Supprimer" danger loading={busy}>
-        Le broker <b>{removing?.name}</b> ne sera plus écouté. Un broker utilisé par des sondes ne peut pas être supprimé : supprimez ou déplacez ces sondes d'abord.
-      </ConfirmModal>
     </Panel>
   );
 }
