@@ -183,19 +183,19 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
             <table className="w-full text-sm">
               <thead className="border-b border-line">
                 <tr>
-                  <th className="th">Sonde</th>
+                  <th className="th pl-4">Sonde</th>
                   <th className="th">Type</th>
                   <th className="th">Cible</th>
                   <th className="th">État</th>
                   <th className="th">Depuis</th>
                   <th className="th">30 derniers jours</th>
-                  {canManage && <th className="th text-right">Actions</th>}
+                  {canManage && <th className="th pr-4 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {probes.map((p) => (
                   <tr key={p.id} className="hover:bg-raised/40">
-                    <td className="td">
+                    <td className="td pl-4">
                       <span className="font-medium text-zinc-100">{p.name}</span>
                       {p.stack && <Badge className="ml-2">{p.stack}</Badge>}
                     </td>
@@ -207,7 +207,7 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                     </td>
                     <td className="td text-muted">{p.since ? elapsed(p.since) : '—'}</td>
                     <td className="td"><ProbeTimeline probeId={p.id} className="w-44" /></td>
-                    {canManage && <td className="td"><div className="flex justify-end"><ProbeActions probe={p} owner={owner} /></div></td>}
+                    {canManage && <td className="td pr-4"><div className="flex justify-end"><ProbeActions probe={p} owner={owner} /></div></td>}
                   </tr>
                 ))}
               </tbody>

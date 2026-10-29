@@ -228,17 +228,17 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
           <table className="w-full text-sm">
             <thead className="border-b border-line">
               <tr>
-                <th className="th">Stack</th>
+                <th className="th pl-4">Stack</th>
                 <th className="th">État</th>
                 <th className="th">Images</th>
                 <th className="th hidden md:table-cell">Services</th>
-                {canWrite && <th className="th text-right">Actions</th>}
+                {canWrite && <th className="th pr-4 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {d.stacks.map((st) => (
                 <tr key={st.name} className="hover:bg-raised/40">
-                  <td className="td">
+                  <td className="td pl-4">
                     <Link to={stackPath(host.id, st.name)} className="font-medium text-zinc-100 hover:text-emerald-300">
                       {st.name}
                     </Link>
@@ -250,7 +250,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                     <ServiceTags services={st.services} />
                   </td>
                   {canWrite && (
-                    <td className="td">
+                    <td className="td pr-4">
                       <div className="flex justify-end"><StackActions host={host} stack={st} disabled={running} compact onStarted={onStarted} /></div>
                     </td>
                   )}
