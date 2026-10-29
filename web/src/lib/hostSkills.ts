@@ -1,5 +1,5 @@
 import { Archive, ArchiveRestore, BatteryCharging, Cloud, Container, Database, HardDrive, Home, Layers, Radio, Server, type LucideIcon } from 'lucide-react';
-import type { DatabaseKind, Host, HostBackupJobs } from './api';
+import type { Host, HostBackupJobs } from './api';
 import { backupClient, databaseKindLabel } from './backups';
 
 // What a host does, for the badges of its options: nature (Proxmox node, PBS), roles declared on it and what its agent reads.
