@@ -1,4 +1,4 @@
-import type { BackupGroup, Host, SiteConfig, SiteKind } from './api';
+import type { BackupGroup, Equipment, Host, SiteConfig, SiteKind } from './api';
 import { hostBackups } from './backups';
 import { connection, hasApt, type Tone } from './status';
 
@@ -16,15 +16,26 @@ export interface Site {
   name: string;
   kind: SiteKind | null;
   hosts: Host[];
+  equipments: Equipment[];
 }
 
-// Sites in the order of the settings, hosts without (known) site last. Sites without host are left out.
-export function groupSites(hosts: Host[], config: SiteConfig[]): Site[] {
-  const sorted = (list: Host[]) => [...list].sort((a, b) => a.name.localeCompare(b.name));
-  const sites = config.map((c) => ({ name: c.name, kind: c.kind, hosts: sorted(hosts.filter((h) => h.siteId === c.id)) }));
+// Sites in the order of the settings, hosts and equipments without (known) site last. Sites with neither are left out.
+export function groupSites(hosts: Host[], config: SiteConfig[], equipments: Equipment[] = []): Site[] {
+  const sorted = <T extends { name: string }>(list: T[]) => [...list].sort((a, b) => a.name.localeCompare(b.name));
   const known = new Set(config.map((c) => c.id));
-  const none = hosts.filter((h) => !h.siteId || !known.has(h.siteId));
-  return [...sites, { name: NO_SITE, kind: null, hosts: sorted(none) }].filter((s) => s.hosts.length > 0);
+  const sites: Site[] = config.map((c) => ({
+    name: c.name,
+    kind: c.kind,
+    hosts: sorted(hosts.filter((h) => h.siteId === c.id)),
+    equipments: sorted(equipments.filter((e) => e.siteId === c.id)),
+  }));
+  const none: Site = {
+    name: NO_SITE,
+    kind: null,
+    hosts: sorted(hosts.filter((h) => !h.siteId || !known.has(h.siteId))),
+    equipments: sorted(equipments.filter((e) => !e.siteId || !known.has(e.siteId))),
+  };
+  return [...sites, none].filter((s) => s.hosts.length > 0 || s.equipments.length > 0);
 }
 
 // Name of the site of a host, for the lists.

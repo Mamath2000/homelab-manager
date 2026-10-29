@@ -4,13 +4,12 @@ import { LayoutDashboard, Plus, Server } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { DashboardActions } from '../components/DashboardActions';
 import { DashboardTodo } from '../components/DashboardTodo';
-import { EquipmentOverview } from '../components/EquipmentOverview';
 import { MountBanner } from '../components/PbsMount';
 import { SiteOverview } from '../components/SiteOverview';
 import { SiteTimeline } from '../components/SiteTimeline';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Button, Empty, Spinner } from '../components/ui';
-import { useBackups, useHosts, useJobs, useSites } from '../lib/queries';
+import { useBackups, useEquipments, useHosts, useJobs, useSites } from '../lib/queries';
 import { aptTile, backupTile, count, groupSites, oldestBackup } from '../lib/sites';
 import { allStacks, hasApt, type Tone } from '../lib/status';
 import { useMe } from '../lib/auth';
@@ -93,12 +92,13 @@ export function Dashboard() {
   const { data: jobs, dataUpdatedAt: jobsAt } = useJobs();
   const { data: backups } = useBackups();
   const { data: siteConfig } = useSites();
+  const { data: equipments } = useEquipments();
   const { canWrite, canManage } = useMe();
   const [adding, setAdding] = useState(false);
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
 
-  const sites = groupSites(hosts, siteConfig ?? []);
+  const sites = groupSites(hosts, siteConfig ?? [], equipments ?? []);
   // only the backups attached to a host are followed (without PBS: those of Home Assistant)
   const withBackups = !!backups && (backups.connected || backups.groups.length > 0);
   const groups = withBackups ? backups.groups : undefined;
@@ -124,7 +124,6 @@ export function Dashboard() {
           <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_400px]">
             <div className="flex min-w-0 flex-col gap-4">
               <SiteOverview sites={sites} />
-              <EquipmentOverview />
               <SiteTimeline sites={sites} />
             </div>
             <div className="flex min-w-0 flex-col gap-4">

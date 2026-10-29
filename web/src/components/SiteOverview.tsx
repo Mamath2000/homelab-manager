@@ -1,13 +1,14 @@
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { MapPin, RefreshCw } from 'lucide-react';
-import type { DomainMeta, Host, StatusView } from '../lib/api';
+import type { DomainMeta, Equipment, Host, StatusView } from '../lib/api';
 import { cellCls, cellLabel, cellOf, domainCells, domainText, hostsDomains, levelTone, worstLevel, type Cell } from '../lib/monitoring';
 import { useMe } from '../lib/auth';
 import { useRunBulk, useStatus } from '../lib/queries';
 import { inColumn, kindColumns } from '../lib/hostOverview';
 import { count, siteKindMeta, type Site } from '../lib/sites';
 import { hasApt, toneStroke, type Tone } from '../lib/status';
+import { SOURCE_LABELS, equipmentTone, probeCls, probeText } from '../lib/equipment';
 import { Badge, Button, Panel } from './ui';
 
 // Looks for APT updates on the online hosts of the given sites.
@@ -46,6 +47,45 @@ function Tile({ host, status, domains, small }: { host: Host; status: StatusView
   );
 }
 
+// Equipment column: one small square per probe, grouped by equipment (the connection reported by an automatic
+// source first). Hover for the detail, click opens the equipment.
+function ProbeSquares({ equipments, status }: { equipments: Equipment[]; status: StatusView | undefined }) {
+  return (
+    <div className="flex max-w-[150px] flex-wrap items-start gap-x-2 gap-y-1.5">
+      {equipments.map((e) => {
+        const native = status?.equipments[e.id]?.domains.system;
+        const squares = [
+          ...(native ? [{ key: 'native', cls: cellCls[native.level], text: `connexion (${SOURCE_LABELS[e.source]})` }] : []),
+          ...e.probes.map((p) => ({ key: p.id, cls: probeCls[p.state], text: probeText(p) })),
+        ];
+        return (
+          <div key={e.id} className="flex flex-wrap gap-px" style={{ width: `${Math.min(squares.length, 3) * 15 - 1}px` }}>
+            {squares.length ? squares.map((q) => {
+              const title = `${e.name} · ${q.text}`;
+              return (
+                <Link key={q.key} to={`/equipments/${e.id}`} title={title} aria-label={title} className={clsx('block h-3.5 w-3.5 rounded-[3px] transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-emerald-400', q.cls)} />
+              );
+            }) : (
+              <Link to={`/equipments/${e.id}`} title={`${e.name} · aucune sonde`} aria-label={`${e.name} · aucune sonde`} className="block h-3.5 w-3.5 rounded-[3px] ring-1 ring-inset ring-zinc-600" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EquipmentColumn({ equipments, status }: { equipments: Equipment[]; status: StatusView | undefined }) {
+  if (!equipments.length) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] text-muted">Équipements · <b className="font-medium tabular-nums text-zinc-300">{equipments.length}</b></span>
+      <span aria-hidden className="mb-0.5 h-1.5 rounded-t-[2px] border-x border-t border-zinc-600" />
+      <ProbeSquares equipments={equipments} status={status} />
+    </div>
+  );
+}
+
 // Stacked bar of a domain over the hosts of a site: one segment per state, worst first.
 const barColor: Record<Cell, string> = { alert: '#ef4444', warn: '#f59e0b', unknown: '#3f3f46', ok: '#10b981', none: 'transparent' };
 const barOrder: Cell[] = ['alert', 'warn', 'ok', 'unknown'];
@@ -80,13 +120,21 @@ function Meters({ site, status, domains, stacked }: { site: Site; status: Status
   );
 }
 
+// Worst tone of the hosts and equipments of a site.
+function siteTone(status: StatusView, site: Site): Tone {
+  const tones = [levelTone[worstLevel(status, site.hosts)], ...site.equipments.map((e) => equipmentTone(status, e))];
+  return tones.includes('bad') ? 'bad' : tones.includes('warn') ? 'warn' : 'ok';
+}
+
 function SiteHeader({ site, status }: { site: Site; status: StatusView | undefined }) {
   return (
     <header className="flex flex-wrap items-center gap-2.5">
-      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: status ? toneStroke[levelTone[worstLevel(status, site.hosts)]] : toneStroke.neutral }} />
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: status ? toneStroke[siteTone(status, site)] : toneStroke.neutral }} />
       <b className="text-[15px] font-medium text-zinc-100">{site.name}</b>
       {site.kind && <Badge tone="neutral">{siteKindMeta[site.kind].label}</Badge>}
-      <span className="text-xs text-muted">{site.hosts.length} hôte{site.hosts.length > 1 ? 's' : ''}</span>
+      <span className="text-xs text-muted">
+        {[site.hosts.length > 0 && `${site.hosts.length} hôte${site.hosts.length > 1 ? 's' : ''}`, site.equipments.length > 0 && `${site.equipments.length} équipement${site.equipments.length > 1 ? 's' : ''}`].filter(Boolean).join(' · ')}
+      </span>
       <span className="ml-auto"><CheckButton hosts={site.hosts} label="Vérifier" title={`Rechercher les mises à jour sur les hôtes de ${site.name}`} /></span>
     </header>
   );
@@ -113,13 +161,17 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
               </div>
             );
           })}
+          <EquipmentColumn equipments={site.equipments} status={status} />
         </div>
       ) : (
-        <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
-          {site.hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
+        <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
+          <div className="flex flex-wrap items-start gap-x-1.5 gap-y-2">
+            {site.hosts.map((h) => <Tile key={h.id} host={h} status={status} domains={domains} small={small} />)}
+          </div>
+          <EquipmentColumn equipments={site.equipments} status={status} />
         </div>
       )}
-      <Meters site={site} status={status} domains={domains} stacked={small} />
+      {site.hosts.length > 0 && <Meters site={site} status={status} domains={domains} stacked={small} />}
     </div>
   );
 }
@@ -191,7 +243,7 @@ function Legend({ domains }: { domains: DomainMeta[] }) {
 // sites of a single host, grouped in one card.
 export function SiteOverview({ sites }: { sites: Site[] }) {
   const { data: status } = useStatus();
-  const external = sites.filter((s) => s.kind === 'external' && s.hosts.length === 1);
+  const external = sites.filter((s) => s.kind === 'external' && s.hosts.length === 1 && s.equipments.length === 0);
   const rest = sites.filter((s) => !external.includes(s));
   // the biggest sites take the whole width, the small ones share a row
   const large = rest.filter((s) => s.kind === 'main' || s.hosts.length > 8);
