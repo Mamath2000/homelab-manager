@@ -18,6 +18,11 @@ services:
       # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
       # FEATURE_BACKUP_NEXTCLOUD_AIO: "true"  # affiche le plugin Nextcloud AIO des sauvegardes (absente : désactivé)
       # FEATURE_STANDARDISATION: "true"  # affiche et active la standardisation des hôtes (absente : désactivée)
+    # Sondes « Ping » : le hub tourne en utilisateur non root (node), sans CAP_NET_RAW effectif ; ce réglage (propre au
+    # conteneur) autorise le ping ICMP non privilégié, sans ajouter de capacité. Borne haute 65535 : dans un LXC non privilégié
+    # les gid du conteneur s'arrêtent là, une valeur plus grande est refusée au démarrage.
+    sysctls:
+      net.ipv4.ping_group_range: "0 65535"
     depends_on:
       - mongo
 
