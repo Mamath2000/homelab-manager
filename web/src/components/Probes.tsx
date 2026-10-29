@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import clsx from 'clsx';
 import { Globe, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeTarget, type ProbeType } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { timeAgo } from '../lib/format';
-import { useMqttBrokers, useProbes } from '../lib/queries';
+import { elapsed } from '../lib/format';
+import { useMqttBrokers, useProbeDays, useProbes } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
@@ -13,7 +14,7 @@ import { CheckLine, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
 import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
-const TYPES: { id: ProbeType; label: string; hint: string }[] = [
+export const TYPES: { id: ProbeType; label: string; hint: string }[] = [
   { id: 'mqtt', label: 'MQTT', hint: "Le payload d'un topic contient une valeur, ou un message arrive dans le délai." },
   { id: 'ping', label: 'Ping', hint: "L'adresse répond au ping depuis le hub." },
   { id: 'tcp', label: 'Port TCP', hint: 'Un port accepte la connexion (DNS, SSH, base de données…).' },
@@ -27,7 +28,7 @@ const stateMeta: Record<Probe['state'], { label: string; tone: Tone }> = {
   unknown: { label: 'inconnu', tone: 'neutral' },
 };
 
-function targetText(t: ProbeTarget) {
+export function targetText(t: ProbeTarget) {
   switch (t.type) {
     case 'mqtt': return `${t.topic}${t.contains ? ` ≙ ${t.contains}` : ' (message reçu)'}`;
     case 'ping': return t.host;
@@ -36,34 +37,64 @@ function targetText(t: ProbeTarget) {
   }
 }
 
-function StateBadge({ p }: { p: Probe }) {
+// Type of a probe as a small coloured label, one colour per type.
+const typeTint: Record<ProbeType, string> = {
+  mqtt: 'bg-violet-500/15 text-violet-300 ring-violet-500/30',
+  ping: 'bg-sky-500/15 text-sky-300 ring-sky-500/30',
+  tcp: 'bg-amber-500/15 text-amber-300 ring-amber-500/30',
+  http: 'bg-teal-500/15 text-teal-300 ring-teal-500/30',
+};
+
+export function ProbeTypeLabel({ type }: { type: ProbeType }) {
+  return <span className={clsx('shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset', typeTint[type])}>{TYPES.find((t) => t.id === type)?.label}</span>;
+}
+
+export function StateBadge({ p }: { p: Probe }) {
   const m = stateMeta[p.state];
   return <Badge tone={m.tone}>{m.label}{p.state === 'up' && p.latencyMs ? ` · ${p.latencyMs} ms` : ''}</Badge>;
 }
 
 // What the probes are attached to: a host (a probe may follow one of its Docker stacks) or an equipment (its IP is
 // the address offered to a new probe).
+// One block per day over the last 30 days, like the backups: green when every measure of the day answered, orange under 1 %
+// of failures, red beyond; neutral when nothing was measured (probe younger than the day, hub stopped).
+const DAYS = 30;
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export function ProbeTimeline({ probeId, className }: { probeId: string; className?: string }) {
+  const { data } = useProbeDays();
+  const mine = data?.get(probeId);
+  const today = new Date();
+  const cells = Array.from({ length: DAYS }, (_, i) => {
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (DAYS - 1 - i));
+    const d = mine?.get(dayKey(date));
+    const total = d ? d.up + d.down + d.unknown : 0;
+    const known = d ? d.up + d.down : 0;
+    const down = d && known ? d.down / known : 0;
+    const cls = !d || !total ? 'bg-raised' : !known ? 'bg-zinc-600' : d.down === 0 ? 'bg-emerald-500' : down < 0.01 ? 'bg-amber-500' : 'bg-red-500';
+    const text = !d || !total ? 'aucune mesure' : `${known ? `${Math.round((1 - down) * 1000) / 10} % disponible` : 'mesure impossible'} · ${total} mesure${total > 1 ? 's' : ''}${d.down ? `, ${d.down} en échec` : ''}`;
+    return { key: dayKey(date), cls, title: `${date.toLocaleDateString('fr-FR')} : ${text}` };
+  });
+  return (
+    <div className={clsx('flex gap-[2px]', className ?? 'w-full')} aria-label="État de la sonde sur les 30 derniers jours">
+      {cells.map((c) => <span key={c.key} title={c.title} className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.cls)} />)}
+    </div>
+  );
+}
+
 export type ProbeOwner = { kind: 'host'; host: Host } | { kind: 'equipment'; equipment: Equipment };
 const ownerOf = (o: ProbeOwner) => (o.kind === 'host' ? o.host : o.equipment);
 
-// Probes of a host or an equipment, on its page: what is seen from outside, on top of what its agent or its source
-// reports. Admins edit.
-export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
-  const { canManage } = useMe();
+// Test, edit and delete buttons of a probe, with their dialogs (its page, or the Probes page).
+export function ProbeActions({ probe: p, owner }: { probe: Probe; owner: ProbeOwner }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const { data: probes, isLoading } = useProbes(owner.kind, ownerOf(owner).id);
-  const { data: brokers } = useMqttBrokers(canManage);
-  const [editing, setEditing] = useState<Probe | 'new' | null>(null);
-  const [removing, setRemoving] = useState<Probe | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  if (!canManage && !probes?.length) return null;
+  const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [busy, setBusy] = useState<'test' | 'remove' | null>(null);
 
-  const brokerName = (id: string) => brokers?.find((b) => b.id === id)?.name ?? id;
-  const where = (p: Probe) => (p.target.type === 'mqtt' ? `${brokerName(p.target.brokerId)} · ${targetText(p.target)}` : targetText(p.target));
-
-  const test = async (p: Probe) => {
-    setBusy(`test:${p.id}`);
+  const test = async () => {
+    setBusy('test');
     try {
       const m = await api.testProbe(p.target, p.timeoutSec);
       const text = m.state === 'up' ? `${p.name} : up${m.latencyMs ? ` en ${m.latencyMs} ms` : ''}` : `${p.name} : ${m.state === 'down' ? 'down' : 'mesure impossible'}${m.message ? ` (${m.message})` : ''}`;
@@ -76,13 +107,12 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
     }
   };
   const remove = async () => {
-    if (!removing) return;
     setBusy('remove');
     try {
-      await api.deleteProbe(removing.id);
+      await api.deleteProbe(p.id);
       await qc.invalidateQueries({ queryKey: ['probes'] });
-      toast.success(`Sonde ${removing.name} supprimée`);
-      setRemoving(null);
+      toast.success(`Sonde ${p.name} supprimée`);
+      setRemoving(false);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -90,16 +120,35 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
     }
   };
 
-  const actions = (p: Probe) =>
-    canManage && (
+  return (
+    <>
       <IconGroup
         actions={[
-          { icon: Play, title: 'Tester', loading: busy === `test:${p.id}`, onClick: () => void test(p) },
-          { icon: Pencil, title: `Modifier ${p.name}`, onClick: () => setEditing(p) },
-          { icon: Trash2, title: `Supprimer ${p.name}`, danger: true, onClick: () => setRemoving(p) },
+          { icon: Play, title: 'Tester', loading: busy === 'test', onClick: () => void test() },
+          { icon: Pencil, title: `Modifier ${p.name}`, onClick: () => setEditing(true) },
+          { icon: Trash2, title: `Supprimer ${p.name}`, danger: true, onClick: () => setRemoving(true) },
         ]}
       />
-    );
+      {editing && <ProbeModal owner={owner} probe={p} onClose={() => setEditing(false)} />}
+      <ConfirmModal open={removing} onClose={() => setRemoving(false)} onConfirm={() => void remove()} title="Supprimer la sonde" confirmLabel="Supprimer" danger loading={busy === 'remove'}>
+        La sonde <b>{p.name}</b> ne sera plus mesurée. Son historique dans la frise des alertes est conservé.
+      </ConfirmModal>
+    </>
+  );
+}
+
+// Probes of a host or an equipment, on its page: what is seen from outside, on top of what its agent or its source
+// reports. Admins edit.
+export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
+  const { canManage } = useMe();
+  const { data: probes, isLoading } = useProbes(owner.kind, ownerOf(owner).id);
+  const { data: brokers } = useMqttBrokers(canManage);
+  const [editing, setEditing] = useState<'new' | null>(null);
+  if (!canManage && !probes?.length) return null;
+
+  const brokerName = (id: string) => brokers?.find((b) => b.id === id)?.name ?? id;
+  const where = (p: Probe) => (p.target.type === 'mqtt' ? `${brokerName(p.target.brokerId)} · ${targetText(p.target)}` : targetText(p.target));
+
   return (
     <Panel
       title="Sondes & Services"
@@ -121,10 +170,11 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                   <StateBadge p={p} />
                 </div>
                 <p className="break-all font-mono text-xs text-muted">{where(p)}</p>
+                <ProbeTimeline probeId={p.id} />
                 {p.message && p.state !== 'up' && <p className="break-words text-xs text-amber-300">{p.message}</p>}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-                  <span>{p.stack ? `Stack ${p.stack} · ` : ''}{p.since ? `depuis ${timeAgo(p.since)}` : 'pas encore mesurée'}</span>
-                  {actions(p)}
+                  <span>{p.stack ? `Stack ${p.stack} · ` : ''}{p.since ? `depuis ${elapsed(p.since)}` : 'pas encore mesurée'}</span>
+                  {canManage && <ProbeActions probe={p} owner={owner} />}
                 </div>
               </article>
             ))}
@@ -138,6 +188,7 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                   <th className="th">Cible</th>
                   <th className="th">État</th>
                   <th className="th">Depuis</th>
+                  <th className="th">30 derniers jours</th>
                   {canManage && <th className="th text-right">Actions</th>}
                 </tr>
               </thead>
@@ -154,8 +205,9 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                       <StateBadge p={p} />
                       {p.message && p.state !== 'up' && <p className="mt-0.5 max-w-[260px] truncate text-xs text-amber-300" title={p.message}>{p.message}</p>}
                     </td>
-                    <td className="td text-muted">{p.since ? timeAgo(p.since) : '—'}</td>
-                    {canManage && <td className="td"><div className="flex justify-end">{actions(p)}</div></td>}
+                    <td className="td text-muted">{p.since ? elapsed(p.since) : '—'}</td>
+                    <td className="td"><ProbeTimeline probeId={p.id} className="w-44" /></td>
+                    {canManage && <td className="td"><div className="flex justify-end"><ProbeActions probe={p} owner={owner} /></div></td>}
                   </tr>
                 ))}
               </tbody>
@@ -163,10 +215,7 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
           </ResponsiveList>
         </>
       )}
-      {editing && <ProbeModal owner={owner} probe={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
-      <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer la sonde" confirmLabel="Supprimer" danger loading={busy === 'remove'}>
-        La sonde <b>{removing?.name}</b> ne sera plus mesurée. Son historique dans la frise des alertes est conservé.
-      </ConfirmModal>
+      {editing === 'new' && <ProbeModal owner={owner} probe={null} onClose={() => setEditing(null)} />}
     </Panel>
   );
 }

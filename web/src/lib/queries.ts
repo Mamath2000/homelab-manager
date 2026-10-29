@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Host, type Job, type JobAction, type ProbeSubjectKind, type SetupOption } from './api';
+import { api, type Host, type Job, type JobAction, type ProbeDay, type ProbeSubjectKind, type SetupOption } from './api';
 import { useToast } from './toast';
 
 export const keys = {
@@ -65,6 +65,25 @@ export function useStatus() {
 
 export function useProbes(kind: ProbeSubjectKind, id: string) {
   return useQuery({ queryKey: keys.probes(id), queryFn: () => api.probes(kind, id), select: (d) => d.probes });
+}
+
+// Every probe (Probes page): states change with the measures of the hub, refreshed every 30 s.
+export function useAllProbes() {
+  return useQuery({ queryKey: ['probes', 'all'], queryFn: api.allProbes, select: (d) => d.probes, refetchInterval: 30_000 });
+}
+
+// Measures by day of every probe (blocks of the last 30 days), grouped by probe.
+export function useProbeDays() {
+  return useQuery({
+    queryKey: ['probes', 'days'],
+    queryFn: api.probeDays,
+    refetchInterval: 60_000,
+    select: (d) => {
+      const by = new Map<string, Map<string, ProbeDay>>();
+      for (const x of d.days) by.set(x.probeId, (by.get(x.probeId) ?? new Map()).set(x.day, x));
+      return by;
+    },
+  });
 }
 
 export function useEquipments() {

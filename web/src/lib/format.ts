@@ -11,6 +11,16 @@ export function timeAgo(value: string | number | null | undefined) {
   return rtf.format(Math.round(diff / 86400), 'day');
 }
 
+// Elapsed time since a date, as a short duration: "17 min", "3 h", "2 j".
+export function elapsed(value: string | number | null | undefined) {
+  if (!value) return '—';
+  const secs = Math.max(0, (Date.now() - (typeof value === 'number' ? value : Date.parse(value))) / 1000);
+  if (secs < 45) return "moins d'une minute";
+  if (secs < 3600) return `${Math.round(secs / 60)} min`;
+  if (secs < 86400) return `${Math.round(secs / 3600)} h`;
+  return `${Math.round(secs / 86400)} j`;
+}
+
 export function dateTime(value: string | number | null | undefined) {
   if (!value) return '—';
   return new Date(value).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });

@@ -1062,6 +1062,17 @@ export interface ProbeDoc {
   createdAt: Date;
 }
 
+// Measures of a probe over one day, by state (small history of the Probes page): kept a little longer than shown.
+export interface ProbeDayDoc {
+  _id: ObjectId;
+  probeId: ObjectId;
+  day: string; // YYYY-MM-DD, time zone of the hub
+  up: number;
+  down: number;
+  unknown: number;
+  expiresAt: Date;
+}
+
 // A service found listening on a host, reported by its agent in the hello (agent/roles.go): the administrator
 // activates it as a role of the host.
 export interface RoleCandidate {

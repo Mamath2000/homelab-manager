@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ObjectId } from 'mongodb';
-import { equipments, hosts, parseId, probes } from '../db.js';
+import { dayKey, ALERT_DAYS } from '../alerts.js';
+import { equipments, hosts, parseId, probeDays, probes } from '../db.js';
 import { STACK_RE } from '../docker.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
@@ -156,6 +157,17 @@ const subjectOf = (kind: 'host' | 'equipment', id: ObjectId, stack?: string): Pr
   kind === 'host' ? { kind, id, ...(stack ? { stack } : {}) } : { kind, id };
 
 export function registerProbeRoutes(app: FastifyInstance) {
+  // measures by state and day of every probe over the last days (blocks of the Probes page)
+  app.get('/api/probes/days', async () => {
+    const from = new Date();
+    from.setDate(from.getDate() - (ALERT_DAYS - 1));
+    const list = await probeDays.find({ day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
+    return { days: list.map((d) => ({ probeId: d.probeId.toHexString(), day: d.day, up: d.up ?? 0, down: d.down ?? 0, unknown: d.unknown ?? 0 })) };
+  });
+
+  // every probe, of hosts and equipments (Probes page)
+  app.get('/api/probes', async () => ({ probes: (await probes.find({}).sort({ name: 1 }).toArray()).map(dto) }));
+
   for (const { kind, path, exists, missing } of SUBJECTS) {
     app.get<{ Params: { id: string } }>(path, async (req, reply) => {
       const _id = parseId(req.params.id);

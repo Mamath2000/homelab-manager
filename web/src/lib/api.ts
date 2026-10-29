@@ -1238,6 +1238,15 @@ export interface Probe {
   latencyMs: number | null;
 }
 
+// Measures of a probe over one day, by state
+export interface ProbeDay {
+  probeId: string;
+  day: string; // YYYY-MM-DD
+  up: number;
+  down: number;
+  unknown: number;
+}
+
 export interface ProbeInput {
   name: string;
   stack?: string;
@@ -1371,6 +1380,8 @@ export const api = {
 
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
+  probeDays: () => request<{ days: ProbeDay[] }>('GET', '/api/probes/days'),
+  allProbes: () => request<{ probes: Probe[] }>('GET', '/api/probes'),
   probes: (kind: ProbeSubjectKind, id: string) => request<{ probes: Probe[] }>('GET', `/api/${kind}s/${id}/probes`),
   createProbe: (kind: ProbeSubjectKind, id: string, p: ProbeInput) => request<Probe>('POST', `/api/${kind}s/${id}/probes`, p),
   updateProbe: (id: string, p: ProbeInput) => request<Probe>('PUT', `/api/probes/${id}`, p),
