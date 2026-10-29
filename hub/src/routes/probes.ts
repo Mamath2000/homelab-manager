@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { dayKey, ALERT_DAYS } from '../alerts.js';
-import { equipments, hosts, parseId, probeDays, probes } from '../db.js';
+import { equipments, hosts, parseId, probeDays, probeMeasures, probes } from '../db.js';
 import { STACK_RE } from '../docker.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { testConnection } from '../homeassistant/bridge.js';
-import { BROKER_ID_RE, INTERVAL_RANGE, MAX_RETRIES, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, roleUrl, targetError, testTarget } from '../probes.js';
+import { BROKER_ID_RE, INTERVAL_RANGE, MAX_RETRIES, RECENT_MS, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, roleUrl, targetError, testTarget } from '../probes.js';
 import { BROKER_SCHEMES, type BrokerScheme, type HostRole, type ProbeDoc, type ProbeSubject, type ProbeTarget } from '../types.js';
 
 // Probes of the hosts and equipment, and the MQTT brokers they listen to. Writes are for admins only (roles.ts refuses what it
@@ -163,6 +163,12 @@ export function registerProbeRoutes(app: FastifyInstance) {
     from.setDate(from.getDate() - (ALERT_DAYS - 1));
     const list = await probeDays.find({ day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
     return { days: list.map((d) => ({ probeId: d.probeId.toHexString(), day: d.day, up: d.up ?? 0, down: d.down ?? 0, unknown: d.unknown ?? 0 })) };
+  });
+
+  // every measure of every probe over the last hour, oldest first (status lines of the Probes page)
+  app.get('/api/probes/recent', async () => {
+    const list = await probeMeasures.find({ at: { $gte: new Date(Date.now() - RECENT_MS) } }).sort({ at: 1 }).toArray();
+    return { measures: list.map((m) => ({ probeId: m.probeId.toHexString(), at: m.at, state: m.state })) };
   });
 
   // every probe, of hosts and equipments (Probes page)

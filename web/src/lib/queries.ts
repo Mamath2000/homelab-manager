@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Host, type Job, type JobAction, type ProbeDay, type ProbeSubjectKind, type SetupOption } from './api';
+import { api, type Host, type Job, type JobAction, type ProbeDay, type ProbeMeasure, type ProbeSubjectKind, type SetupOption } from './api';
 import { useToast } from './toast';
 
 export const keys = {
@@ -81,6 +81,20 @@ export function useProbeDays() {
     select: (d) => {
       const by = new Map<string, Map<string, ProbeDay>>();
       for (const x of d.days) by.set(x.probeId, (by.get(x.probeId) ?? new Map()).set(x.day, x));
+      return by;
+    },
+  });
+}
+
+// Every measure of the last hour, grouped by probe (status lines of the Probes page).
+export function useProbeRecent() {
+  return useQuery({
+    queryKey: ['probes', 'recent'],
+    queryFn: api.probeRecent,
+    refetchInterval: 30_000,
+    select: (d) => {
+      const by = new Map<string, ProbeMeasure[]>();
+      for (const m of d.measures) by.set(m.probeId, [...(by.get(m.probeId) ?? []), m]);
       return by;
     },
   });

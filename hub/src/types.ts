@@ -1073,6 +1073,15 @@ export interface ProbeDayDoc {
   expiresAt: Date;
 }
 
+// One measure of a probe (last hour of the Probes page): kept a little longer than shown.
+export interface ProbeMeasureDoc {
+  _id: ObjectId;
+  probeId: ObjectId;
+  at: Date;
+  state: ProbeState;
+  expiresAt: Date;
+}
+
 // A service found listening on a host, reported by its agent in the hello (agent/roles.go): the administrator
 // activates it as a role of the host.
 export interface RoleCandidate {

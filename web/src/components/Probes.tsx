@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Globe, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
-import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeTarget, type ProbeType } from '../lib/api';
+import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeMeasure, type ProbeTarget, type ProbeType } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { elapsed } from '../lib/format';
-import { useMqttBrokers, useProbeDays, useProbes } from '../lib/queries';
+import { useMqttBrokers, useProbeDays, useProbeRecent, useProbes } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
@@ -63,6 +63,30 @@ export function ProbeTimeline({ probeId, className }: { probeId: string; classNa
   return (
     <div className={clsx('flex gap-[2px]', className ?? 'w-full')} aria-label="État de la sonde sur les 30 derniers jours">
       {cells.map((c) => <span key={c.key} title={c.title} className={clsx('h-3.5 min-w-0 flex-1 rounded-[2px]', c.cls)} />)}
+    </div>
+  );
+}
+
+// One block per measure over the last hour: green up, red down, grey when the measure was impossible. Beyond MAX_BLOCKS
+// measures (short interval, narrow card) neighbours are merged so a block stays readable; a merged block shows its worst state.
+const MAX_BLOCKS = 60;
+const SEVERITY = { up: 0, unknown: 1, down: 2 } as const;
+const TINT = { up: 'bg-emerald-500', down: 'bg-red-500', unknown: 'bg-zinc-600' };
+const LABEL = { up: 'up', down: 'down', unknown: 'mesure impossible' };
+
+export function ProbeRecent({ probeId, className }: { probeId: string; className?: string }) {
+  const { data } = useProbeRecent();
+  const mine = data?.get(probeId) ?? [];
+  const size = Math.ceil(mine.length / MAX_BLOCKS) || 1;
+  const blocks = Array.from({ length: Math.ceil(mine.length / size) }, (_, i) => {
+    const group = mine.slice(i * size, (i + 1) * size);
+    const state = group.reduce<ProbeMeasure['state']>((w, m) => (SEVERITY[m.state] > SEVERITY[w] ? m.state : w), 'up');
+    const time = new Date(group[0].at).toLocaleTimeString('fr-FR');
+    return { key: group[0].at, state, title: group.length > 1 ? `${time} : ${group.length} mesures, ${group.filter((m) => m.state !== 'up').length} en échec ou impossibles` : `${time} : ${LABEL[state]}` };
+  });
+  return (
+    <div className={clsx('flex h-3.5 min-w-0 gap-[2px]', className ?? 'w-full')} aria-label="Mesures de la sonde sur la dernière heure">
+      {blocks.length ? blocks.map((b) => <span key={b.key} title={b.title} className={clsx('min-w-0 flex-1 rounded-[2px]', TINT[b.state])} />) : <span className="flex-1 rounded-[2px] bg-raised" title="aucune mesure sur la dernière heure" />}
     </div>
   );
 }
@@ -155,7 +179,7 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                   <StateBadge p={p} />
                 </div>
                 <p className="break-all font-mono text-xs text-muted">{where(p)}</p>
-                <ProbeTimeline probeId={p.id} />
+                <ProbeRecent probeId={p.id} />
                 {p.message && p.state !== 'up' && <p className="break-words text-xs text-amber-300">{p.message}</p>}
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
                   <span>{p.stack ? `Stack ${p.stack} · ` : ''}{p.since ? `depuis ${elapsed(p.since)}` : 'pas encore mesurée'}</span>
@@ -169,11 +193,11 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
               <thead className="border-b border-line">
                 <tr>
                   <th className="th pl-4">Sonde</th>
-                  <th className="th">Type</th>
+                  <th className="th hidden 2xl:table-cell">Type</th>
                   <th className="th">Cible</th>
                   <th className="th">État</th>
-                  <th className="th">Depuis</th>
-                  <th className="th">30 derniers jours</th>
+                  <th className="th hidden 2xl:table-cell">Depuis</th>
+                  <th className="th">Dernière heure</th>
                   {canManage && <th className="th pr-4 text-right">Actions</th>}
                 </tr>
               </thead>
@@ -184,14 +208,14 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                       <span className="font-medium text-zinc-100">{p.name}</span>
                       {p.stack && <Badge className="ml-2">{p.stack}</Badge>}
                     </td>
-                    <td className="td text-muted">{TYPES.find((t) => t.id === p.target.type)?.label}</td>
-                    <td className="td max-w-[320px]"><span className="block truncate font-mono text-xs text-zinc-300" title={where(p)}>{where(p)}</span></td>
+                    <td className="td hidden text-muted 2xl:table-cell">{TYPES.find((t) => t.id === p.target.type)?.label}</td>
+                    <td className="td max-w-[180px] 2xl:max-w-[320px]"><span className="block truncate font-mono text-xs text-zinc-300" title={where(p)}>{where(p)}</span></td>
                     <td className="td">
                       <StateBadge p={p} />
                       {p.message && p.state !== 'up' && <p className="mt-0.5 max-w-[260px] truncate text-xs text-amber-300" title={p.message}>{p.message}</p>}
                     </td>
-                    <td className="td text-muted">{p.since ? elapsed(p.since) : '—'}</td>
-                    <td className="td"><ProbeTimeline probeId={p.id} className="w-44" /></td>
+                    <td className="td hidden text-muted 2xl:table-cell">{p.since ? elapsed(p.since) : '—'}</td>
+                    <td className="td"><ProbeRecent probeId={p.id} className="w-full min-w-[6rem] max-w-44" /></td>
                     {canManage && <td className="td pr-4"><div className="flex justify-end"><ProbeActions probe={p} owner={owner} /></div></td>}
                   </tr>
                 ))}

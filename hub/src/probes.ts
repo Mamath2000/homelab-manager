@@ -1,22 +1,24 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { dayKey, ALERT_DAYS } from './alerts.js';
-import { hosts, probeDays, probes } from './db.js';
+import { hosts, probeDays, probeMeasures, probes } from './db.js';
 import { lanAddress } from './hostAddress.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
-import type { HostRole, MqttBroker, ProbeDoc, ProbeState, ProbeTarget } from './types.js';
+import type { HostRole, MqttBroker, ProbeDoc, ProbeMeasureDoc, ProbeState, ProbeTarget } from './types.js';
 
 // Probes: checks that the service is rendered, seen from outside, on top of what the agents report from inside.
 // The hub runs them (mqtt, ping, tcp, http) and only keeps the current state of each: no series of measures.
-// Each measure is counted by state and day (probeDays: the small history of the Probes page).
+// Each measure is counted by state and day (probeDays: the history of the Probes page) and kept for an hour (probeMeasures).
 // The transitions reach the alert history through the 'probe' event (see alerts.ts).
 
 export const BROKER_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const INTERVAL_RANGE = { min: 10, max: 3600, default: 60 } as const;
 export const TIMEOUT_RANGE = { min: 1, max: 60, default: 10 } as const;
 export const MAX_RETRIES = 3;
+// window of the individual measures shown by the Probes page
+export const RECENT_MS = 3600 * 1000;
 
 // Address a broker role is reached at: the one typed, else the first private IP of its host ('' when unknown).
 export function roleUrl(role: Pick<HostRole, 'scheme' | 'port' | 'address'>, ips: string[] | null | undefined) {
@@ -191,6 +193,9 @@ async function countMeasure(probeId: ObjectId, state: ProbeState) {
       { $inc: { [state]: 1 }, $setOnInsert: { expiresAt: new Date(now.getTime() + (ALERT_DAYS + 10) * 24 * 3600 * 1000) } },
       { upsert: true },
     )
+    .catch(() => undefined);
+  await probeMeasures
+    .insertOne({ _id: new ObjectId(), probeId, at: now, state, expiresAt: new Date(now.getTime() + 2 * RECENT_MS) } as ProbeMeasureDoc)
     .catch(() => undefined);
 }
 

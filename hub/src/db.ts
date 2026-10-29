@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -19,6 +19,7 @@ export let hostAlerts: Collection<HostAlertDoc>;
 export let healthMetrics: Collection<HealthMetricDoc>;
 export let probes: Collection<ProbeDoc>;
 export let probeDays: Collection<ProbeDayDoc>;
+export let probeMeasures: Collection<ProbeMeasureDoc>;
 export let equipments: Collection<EquipmentDoc>;
 export let equipmentAlerts: Collection<EquipmentAlertDoc>;
 
@@ -40,6 +41,7 @@ export async function connectDb() {
   healthMetrics = db.collection('healthMetrics');
   probes = db.collection('probes');
   probeDays = db.collection('probeDays');
+  probeMeasures = db.collection('probeMeasures');
   equipments = db.collection('equipments');
   equipmentAlerts = db.collection('equipmentAlerts');
 
@@ -74,6 +76,9 @@ export async function connectDb() {
     // one document per probe and day
     probeDays.createIndex({ probeId: 1, day: 1 }, { unique: true }),
     probeDays.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'probe_days_ttl' }),
+    // one document per measure, kept a little longer than the hour the Probes page shows
+    probeMeasures.createIndex({ probeId: 1, at: 1 }),
+    probeMeasures.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'probe_measures_ttl' }),
     equipments.createIndex({ siteId: 1, name: 1 }),
     // one equipment per id of its source
     equipments.createIndex({ source: 1, externalId: 1 }, { unique: true, partialFilterExpression: { externalId: { $exists: true } } }),

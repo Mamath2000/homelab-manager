@@ -3,7 +3,7 @@ import { AlertTriangle, Globe, Network } from 'lucide-react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { ProbeActions, ProbeTimeline, ProbeTypeLabel, StateBadge } from '../components/Probes';
+import { ProbeActions, ProbeRecent, ProbeTypeLabel, StateBadge } from '../components/Probes';
 import { ProbesOverviewHeader, type ProbeItem, type ProbeRow } from '../components/ProbesOverviewHeader';
 import { Empty, Panel, Spinner } from '../components/ui';
 import { elapsed } from '../lib/format';
@@ -58,18 +58,19 @@ export function Probes() {
               return (
                 <article key={p.id} className={clsx('panel flex min-w-0 flex-col gap-1.5 px-3 py-2.5', p.state === 'down' && '!border-red-500/60 bg-red-500/5', p.state === 'unknown' && '!border-amber-500/50 bg-amber-500/5')}>
                   <div className="flex min-w-0 items-center gap-2">
-                    <b className="min-w-0 truncate text-sm font-medium text-zinc-100" title={p.name}>{p.name}</b>
+                    <b className="min-w-0 truncate text-sm font-medium text-zinc-100" title={`${ownerName} · ${p.name}`}>
+                      <Link className="hover:text-emerald-300" to={ownerPath}>{ownerName}</Link>
+                      <span className="mx-1 font-normal text-muted">·</span>
+                      {p.name}
+                    </b>
                     <ProbeTypeLabel type={p.target.type} />
                     <span className="flex-1" />
                     <StateBadge p={p} />
                     {canManage && <ProbeActions probe={p} owner={owner} />}
                   </div>
                   <p className="truncate font-mono text-[11px] text-zinc-400" title={targetText(p.target)}>{targetText(p.target)}</p>
-                  <p className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted">
-                    <Link className="truncate font-medium text-zinc-300 hover:text-emerald-300" to={ownerPath}>{ownerName}</Link>
-                    <span className="shrink-0">{p.since ? `depuis ${elapsed(p.since)}` : 'pas encore mesurée'}</span>
-                  </p>
-                  <ProbeTimeline probeId={p.id} />
+                  <p className="text-[11px] text-muted">{p.since ? `depuis ${elapsed(p.since)}` : 'pas encore mesurée'}</p>
+                  <ProbeRecent probeId={p.id} />
                   {p.message && p.state !== 'up' && <p className="truncate text-[11px] text-amber-300" title={p.message}>{p.message}</p>}
                 </article>
               );

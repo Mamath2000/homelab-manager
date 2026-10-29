@@ -1247,6 +1247,13 @@ export interface ProbeDay {
   unknown: number;
 }
 
+// One measure of a probe, over the last hour
+export interface ProbeMeasure {
+  probeId: string;
+  at: string;
+  state: 'up' | 'down' | 'unknown';
+}
+
 export interface ProbeInput {
   name: string;
   stack?: string;
@@ -1381,6 +1388,7 @@ export const api = {
   jobs: (limit = 100) => request<Job[]>('GET', `/api/jobs?limit=${limit}`),
   hostJobs: (id: string) => request<Job[]>('GET', `/api/hosts/${id}/jobs`),
   probeDays: () => request<{ days: ProbeDay[] }>('GET', '/api/probes/days'),
+  probeRecent: () => request<{ measures: ProbeMeasure[] }>('GET', '/api/probes/recent'),
   allProbes: () => request<{ probes: Probe[] }>('GET', '/api/probes'),
   probes: (kind: ProbeSubjectKind, id: string) => request<{ probes: Probe[] }>('GET', `/api/${kind}s/${id}/probes`),
   createProbe: (kind: ProbeSubjectKind, id: string, p: ProbeInput) => request<Probe>('POST', `/api/${kind}s/${id}/probes`, p),
