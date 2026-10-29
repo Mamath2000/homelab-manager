@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { LayoutDashboard, Plus, Server } from 'lucide-react';
+import { LayoutDashboard, Plus, Server, Zap } from 'lucide-react';
 import { AddHostModal } from '../components/AddHostModal';
 import { DashboardActions } from '../components/DashboardActions';
 import { DashboardTodo } from '../components/DashboardTodo';
+import { FloatingAside, useAsideDocked } from '../components/FloatingAside';
 import { MountBanner } from '../components/PbsMount';
 import { SiteOverview } from '../components/SiteOverview';
 import { SiteTimeline } from '../components/SiteTimeline';
@@ -95,6 +96,7 @@ export function Dashboard() {
   const { data: equipments } = useEquipments();
   const { canWrite, canManage } = useMe();
   const [adding, setAdding] = useState(false);
+  const [docked, setDocked] = useAsideDocked();
 
   if (isLoading || !hosts) return <div className="flex justify-center p-20"><Spinner /></div>;
 
@@ -118,23 +120,15 @@ export function Dashboard() {
         <div className="space-y-4">
           <MountBanner hosts={hosts} />
           <Kpis hosts={hosts} groups={groups} backups={withBackups} />
-          <div className="min-[1100px]:hidden">
-            <DashboardTodo section="others" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
-          </div>
-          <div className="grid items-start gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_400px]">
+          <div className={clsx('grid items-start gap-4', docked && 'grid-cols-[minmax(0,1fr)_400px]')}>
             <div className="flex min-w-0 flex-col gap-4">
               <SiteOverview sites={sites} />
               <SiteTimeline sites={sites} />
             </div>
-            <div className="flex min-w-0 flex-col gap-4">
+            <FloatingAside label="Actions et à-faire" icon={Zap} docked={docked} onDock={setDocked}>
               {canWrite && <DashboardActions hosts={hosts} groups={groups} />}
-              <div className="hidden min-[1100px]:block">
-                <DashboardTodo hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
-              </div>
-              <div className="min-[1100px]:hidden">
-                <DashboardTodo section="regular" hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
-              </div>
-            </div>
+              <DashboardTodo hosts={hosts} groups={groups} jobs={jobs} jobsAt={jobsAt} />
+            </FloatingAside>
           </div>
         </div>
       )}

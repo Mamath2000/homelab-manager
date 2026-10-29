@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
 import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal, X } from 'lucide-react';
+import { FloatingAside, useAsideDocked } from '../components/FloatingAside';
 import { HostOptionsModal } from '../components/HostOptionsModal';
 import { HostTagList, SiteChip } from '../components/HostTags';
 import { InstallInstructions, WINDOWS_UNINSTALL } from '../components/InstallInstructions';
@@ -244,6 +245,7 @@ function HostDetailPage({ id }: { id: string }) {
   const navigate = useNavigate();
   const toast = useToast();
   const [jobId, setJobId] = useState<string | null>(null);
+  const [docked, setDocked] = useAsideDocked();
   const [editing, setEditing] = useState(false);
   // section of the options to open on (the notice of a detected service)
   const [editingRoles, setEditingRoles] = useState(false);
@@ -573,7 +575,7 @@ function HostDetailPage({ id }: { id: string }) {
       </div>
 
       {/* large screens: the content on the left, history and console on the right, fixed */}
-      <div style={{ '--sh': `${stripHeight}px` } as CSSProperties} className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_480px] 2xl:items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]">
+      <div style={{ '--sh': `${stripHeight}px` } as CSSProperties} className={clsx('grid gap-5', docked && 'grid-cols-[minmax(0,1fr)_480px] items-start min-[2200px]:grid-cols-[minmax(0,1fr)_640px]')}>
         <div className="min-w-0 @container">
           <div className={clsx('2xl:sticky 2xl:top-[calc(3.5rem+var(--sh))] 2xl:z-10 2xl:bg-bg', scrolled ? 'pb-2.5' : 'pb-4')}>
             <AlertTimeline id={host.id} />
@@ -655,9 +657,16 @@ function HostDetailPage({ id }: { id: string }) {
           </div>
         </div>
 
-        {/* below the bar of the layout and the top padding of the page, up to the bottom of the window */}
-        <aside className="flex min-w-0 flex-col gap-5 2xl:sticky 2xl:top-[calc(3.5rem+var(--sh))] 2xl:h-[calc(100vh-5rem-var(--sh))]">
-        <Panel title="Historique" icon={History} className="2xl:flex 2xl:max-h-[35%] 2xl:shrink-0 2xl:flex-col" bodyClassName="max-h-[420px] overflow-auto 2xl:max-h-none 2xl:min-h-0">
+        {/* docked: below the bar of the layout and the top padding of the page, up to the bottom of the window */}
+        <FloatingAside
+          label="Historique et console"
+          icon={Terminal}
+          docked={docked}
+          onDock={setDocked}
+          openKey={jobId}
+          dockedClassName="!gap-5 sticky top-[calc(3.5rem+var(--sh))] h-[calc(100vh-5rem-var(--sh))]"
+        >
+          <Panel title="Historique" icon={History} className={clsx(docked && 'flex max-h-[35%] shrink-0 flex-col')} bodyClassName={clsx('overflow-auto', docked ? 'min-h-0' : 'max-h-[420px]')}>
           {!jobs?.length ? (
             <p className="p-4 text-sm text-muted">Aucune tâche.</p>
           ) : (
@@ -679,16 +688,16 @@ function HostDetailPage({ id }: { id: string }) {
           <Panel
             title="Console"
             icon={Terminal}
-            className="2xl:relative 2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col 2xl:transition-[width,transform] 2xl:duration-200 2xl:focus-within:z-30 2xl:focus-within:w-[800px] 2xl:focus-within:-translate-x-[320px] min-[2200px]:focus-within:w-[960px]"
-            bodyClassName="p-4 2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col"
+            className={clsx(docked && 'relative flex min-h-0 flex-1 flex-col transition-[width,transform] duration-200 focus-within:z-30 focus-within:w-[800px] focus-within:-translate-x-[320px] min-[2200px]:focus-within:w-[960px]')}
+            bodyClassName={clsx('p-4', docked && 'flex min-h-0 flex-1 flex-col')}
           >
             {shownJob ? (
-              <JobConsole jobId={shownJob} className="2xl:flex 2xl:min-h-0 2xl:flex-1 2xl:flex-col" height="h-[360px] 2xl:h-auto 2xl:min-h-0 2xl:flex-1" />
+              <JobConsole jobId={shownJob} className={clsx(docked && 'flex min-h-0 flex-1 flex-col')} height={docked ? 'h-auto min-h-0 flex-1' : 'h-[360px]'} />
             ) : (
               <p className="text-sm text-muted">Les sorties des tâches s'affichent ici en direct.</p>
             )}
           </Panel>
-        </aside>
+        </FloatingAside>
       </div>
 
       {editing && (
