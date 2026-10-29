@@ -270,7 +270,7 @@ export function registerHostRoutes(app: FastifyInstance) {
   });
 
   // the same for every host (timeline of the dashboard, by site)
-  app.get('/api/alerts', async () => ({ days: await allAlertDays() }));
+  app.get('/api/alerts', async () => allAlertDays());
 
   // live status of every host and equipment by domain and followed element (monitoring.ts); every role reads
   app.get('/api/status', async () => ({

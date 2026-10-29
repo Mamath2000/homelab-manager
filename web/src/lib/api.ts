@@ -1397,7 +1397,7 @@ export const api = {
   saveHostHealthOverrides: (id: string, overrides: HealthOverrides) => request<HealthOverridesResponse>('PUT', `/api/hosts/${id}/health/overrides`, overrides),
   resetHostHealthOverrides: (id: string) => request<HealthOverridesResponse>('DELETE', `/api/hosts/${id}/health/overrides`),
   healthOverview: () => request<{ hosts: HealthOverviewHost[] }>('GET', '/api/health/overview'),
-  alerts: () => request<{ days: (HostAlertDay & { hostId: string })[] }>('GET', '/api/alerts'),
+  alerts: () => request<{ days: (HostAlertDay & { hostId: string })[]; equipmentDays: (HostAlertDay & { equipmentId: string })[] }>('GET', '/api/alerts'),
   status: () => request<StatusView>('GET', '/api/status'),
   sites: () => request<{ sites: SiteConfig[] }>('GET', '/api/sites'),
   // a new site has no id yet

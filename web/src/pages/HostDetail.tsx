@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal, X } from 'lucide-react';
 import { HostOptionsModal } from '../components/HostOptionsModal';
 import { HostTagList, SiteChip } from '../components/HostTags';
 import { InstallInstructions, WINDOWS_UNINSTALL } from '../components/InstallInstructions';
@@ -247,6 +247,16 @@ function HostDetailPage({ id }: { id: string }) {
   const [editing, setEditing] = useState(false);
   // section of the options to open on (the notice of a detected service)
   const [editingRoles, setEditingRoles] = useState(false);
+  // "broker detected" banner hidden by the user: remembered per host for the ports it was hidden with (a new port brings it back)
+  const brokerPorts = host ? offeredCandidates(host).map((c) => c.port).sort().join(',') : '';
+  const brokerKey = `hm.brokerBanner.${id}`;
+  const [brokerHidden, setBrokerHidden] = useState(() => {
+    try { return localStorage.getItem(brokerKey); } catch { return null; }
+  });
+  const hideBroker = () => {
+    setBrokerHidden(brokerPorts);
+    try { localStorage.setItem(brokerKey, brokerPorts); } catch { /* private mode: hidden until reload */ }
+  };
   const [setupOpen, setSetupOpen] = useState(false);
   const backupsData = useBackups().data;
   // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
@@ -596,7 +606,7 @@ function HostDetailPage({ id }: { id: string }) {
               )}
             </div>
           )}
-          {canManage && offeredCandidates(host).length > 0 && (
+          {canManage && offeredCandidates(host).length > 0 && brokerHidden !== brokerPorts && (
             <div className="panel mb-5 flex flex-wrap items-center gap-3 border-sky-500/40 bg-sky-500/5 px-4 py-3 text-sm">
               <Radio className="h-4 w-4 text-sky-300" />
               <span className="text-zinc-200">
@@ -605,6 +615,9 @@ function HostDetailPage({ id }: { id: string }) {
               <span className="ml-auto">
                 <Button size="sm" icon={Settings} onClick={() => { setEditingRoles(true); setEditing(true); }}>Configurer</Button>
               </span>
+              <button type="button" className="text-muted transition hover:text-zinc-200" aria-label="Masquer ce message" title="Masquer" onClick={hideBroker}>
+                <X className="h-4 w-4" />
+              </button>
             </div>
           )}
           {host.agentOutdated && (

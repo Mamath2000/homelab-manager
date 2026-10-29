@@ -105,12 +105,19 @@ export const hostAlertDays = (hostId: ObjectId, days = ALERT_DAYS, now = new Dat
 // The same for an equipment (its page).
 export const equipmentAlertDays = (equipmentId: ObjectId, days = ALERT_DAYS, now = new Date()) => subjectDays({ kind: 'equipment', id: equipmentId }, days, now);
 
-// Days of every host (dashboard, one row per site), oldest first.
+// Days of every host and equipment (dashboard, one row per site), oldest first.
 export async function allAlertDays(days = ALERT_DAYS, now = new Date()) {
   const from = new Date(now);
   from.setDate(from.getDate() - (days - 1));
-  const list = await hostAlerts.find({ day: { $gte: dayKey(from) } }).sort({ day: 1 }).toArray();
-  return list.map((d) => ({ hostId: d.hostId.toHexString(), ...dayDto(d) }));
+  const query = { day: { $gte: dayKey(from) } };
+  const [hostList, equipmentList] = await Promise.all([
+    hostAlerts.find(query).sort({ day: 1 }).toArray(),
+    equipmentAlerts.find(query).sort({ day: 1 }).toArray(),
+  ]);
+  return {
+    days: hostList.map((d) => ({ hostId: d.hostId.toHexString(), ...dayDto(d) })),
+    equipmentDays: equipmentList.map((d) => ({ equipmentId: d.equipmentId.toHexString(), ...dayDto(d) })),
+  };
 }
 
 // Identifiers of the first versions: agent -> system, backups -> backup.

@@ -44,9 +44,9 @@ export function domainText(d: DomainStatus | undefined) {
 }
 
 // Domains met in at least one host of the list, in the order of the hub.
-export function hostsDomains(status: StatusView | undefined, hosts: Pick<Host, 'id'>[]): DomainMeta[] {
+export function hostsDomains(status: StatusView | undefined, hosts: Pick<Host, 'id'>[], equipments: Pick<Host, 'id'>[] = []): DomainMeta[] {
   if (!status) return [];
-  return status.domains.filter((d) => hosts.some((h) => status.hosts[h.id]?.domains[d.id]));
+  return status.domains.filter((d) => hosts.some((h) => status.hosts[h.id]?.domains[d.id]) || equipments.some((e) => status.equipments[e.id]?.domains[d.id]));
 }
 
 // Worst level of the hosts (a host is the worst of its read domains).
@@ -75,20 +75,37 @@ function liveLevel(status: StatusView['hosts'][string], filter: string): AlertLe
 
 // Past days come from the history of the hub; today, from the live status, so that the timeline
 // always agrees with the squares and the colour of the site.
-export function siteDays(hosts: Pick<Host, 'id'>[], days: (HostAlertDay & { hostId: string })[], keys: string[], filter: string, status: StatusView | undefined): SiteCell[] {
-  const ids = new Set(hosts.map((h) => h.id));
+export function siteDays(
+  hosts: Pick<Host, 'id'>[],
+  equipments: Pick<Host, 'id'>[],
+  days: (HostAlertDay & { hostId: string })[],
+  equipmentDays: (HostAlertDay & { equipmentId: string })[],
+  keys: string[],
+  filter: string,
+  status: StatusView | undefined,
+): SiteCell[] {
   const byDay = new Map<string, (AlertLevel | 'none')[]>();
   const today = keys[keys.length - 1];
-  for (const d of days) {
-    if (!ids.has(d.hostId) || (status?.hosts[d.hostId] && d.day === today)) continue;
-    let worst: AlertLevel | 'none' = 'none';
-    for (const [dom, a] of Object.entries(d.domains)) {
-      if (!a || (filter !== 'all' && dom !== filter)) continue;
-      if (cellRank[a.level] > cellRank[worst]) worst = a.level;
+  const past = (ids: Set<string>, list: (HostAlertDay & { id: string })[], live: StatusView['hosts']) => {
+    for (const d of list) {
+      if (!ids.has(d.id) || (live[d.id] && d.day === today)) continue;
+      let worst: AlertLevel | 'none' = 'none';
+      for (const [dom, a] of Object.entries(d.domains)) {
+        if (!a || (filter !== 'all' && dom !== filter)) continue;
+        if (cellRank[a.level] > cellRank[worst]) worst = a.level;
+      }
+      byDay.set(d.day, [...(byDay.get(d.day) ?? []), worst]);
     }
-    byDay.set(d.day, [...(byDay.get(d.day) ?? []), worst]);
+  };
+  past(new Set(hosts.map((h) => h.id)), days.map((d) => ({ ...d, id: d.hostId })), status?.hosts ?? {});
+  past(new Set(equipments.map((e) => e.id)), equipmentDays.map((d) => ({ ...d, id: d.equipmentId })), status?.equipments ?? {});
+  if (status) {
+    byDay.set(today, [
+      ...(byDay.get(today) ?? []),
+      ...hosts.map((h) => liveLevel(status.hosts[h.id], filter)),
+      ...equipments.map((e) => liveLevel(status.equipments[e.id], filter)),
+    ]);
   }
-  if (status) byDay.set(today, [...(byDay.get(today) ?? []), ...hosts.map((h) => liveLevel(status.hosts[h.id], filter))]);
   return keys.map((k) => {
     const cell: SiteCell = { level: 'none', alert: 0, warn: 0 };
     for (const l of byDay.get(k) ?? []) {

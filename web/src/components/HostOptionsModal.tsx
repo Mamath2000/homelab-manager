@@ -2,9 +2,11 @@ import { useState } from 'react';
 import clsx from 'clsx';
 import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, Radio, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
+import { useQuery } from '@tanstack/react-query';
 import { useUpdateHostCache } from '../lib/queries';
 import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib/status';
 import { backupClient } from '../lib/backups';
+import { hostSkills } from '../lib/hostSkills';
 import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
 import { HostHaDetail } from './HostHaDetail';
@@ -138,6 +140,9 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
   const healthEditor = useHostHealthEditor(host.id, { canManage: true, enabled: host.capabilities.includes('health') });
   const upsert = useUpdateHostCache();
   const toast = useToast();
+  // same query as the backups of the host: the engines are found by its agent
+  const { data: jobs } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: host.osFamily === 'linux' });
+  const skills = hostSkills(host, jobs);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,10 +188,20 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
       fixed
       onClose={onClose}
       title={
-        <>
-          Options de {host.name}
-          <span className="block text-xs font-normal text-muted">{[osLabel(host), host.agentVersion && `agent ${host.agentVersion}`].filter(Boolean).join(' · ')}</span>
-        </>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div>
+            Options de {host.name}
+            <span className="block text-xs font-normal text-muted">{[osLabel(host), host.agentVersion && `agent ${host.agentVersion}`].filter(Boolean).join(' · ')}</span>
+          </div>
+          <div className="ml-auto flex flex-wrap justify-end gap-2">
+            {skills.map((k, i) => (
+              <span key={`${k.label}${i}`} title={`${k.label} — ${k.title}`} aria-label={k.label} className={clsx('inline-flex h-10 w-10 items-center justify-center rounded-lg ring-1 ring-inset', k.cls)}>
+                <k.icon className="h-5 w-5" />
+              </span>
+            ))}
+          </div>
+        </div>
+
       }
       footer={
         isForm ? (

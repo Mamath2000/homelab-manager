@@ -11,7 +11,7 @@ import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
 import { CheckLine, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
-import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
 const TYPES: { id: ProbeType; label: string; hint: string }[] = [
   { id: 'mqtt', label: 'MQTT', hint: "Le payload d'un topic contient une valeur, ou un message arrive dans le délai." },
@@ -92,16 +92,17 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
 
   const actions = (p: Probe) =>
     canManage && (
-      <div className="flex shrink-0 items-center justify-end gap-1.5">
-        <Button size="sm" icon={Play} loading={busy === `test:${p.id}`} onClick={() => void test(p)}>Tester</Button>
-        <Button size="sm" icon={Pencil} aria-label={`Modifier ${p.name}`} title="Modifier" onClick={() => setEditing(p)} />
-        <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${p.name}`} title="Supprimer" onClick={() => setRemoving(p)} />
-      </div>
+      <IconGroup
+        actions={[
+          { icon: Play, title: 'Tester', loading: busy === `test:${p.id}`, onClick: () => void test(p) },
+          { icon: Pencil, title: `Modifier ${p.name}`, onClick: () => setEditing(p) },
+          { icon: Trash2, title: `Supprimer ${p.name}`, danger: true, onClick: () => setRemoving(p) },
+        ]}
+      />
     );
-
   return (
     <Panel
-      title={<>Sondes <span className="text-muted">({probes?.length ?? 0})</span></>}
+      title="Sondes & Services"
       icon={Globe}
       bodyClassName=""
       actions={canManage && <Button size="sm" icon={Plus} onClick={() => setEditing('new')}>Ajouter une sonde</Button>}
@@ -154,7 +155,7 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
                       {p.message && p.state !== 'up' && <p className="mt-0.5 max-w-[260px] truncate text-xs text-amber-300" title={p.message}>{p.message}</p>}
                     </td>
                     <td className="td text-muted">{p.since ? timeAgo(p.since) : '—'}</td>
-                    {canManage && <td className="td">{actions(p)}</td>}
+                    {canManage && <td className="td"><div className="flex justify-end">{actions(p)}</div></td>}
                   </tr>
                 ))}
               </tbody>

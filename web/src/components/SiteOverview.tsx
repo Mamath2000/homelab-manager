@@ -116,6 +116,16 @@ function Meters({ site, status, domains, stacked }: { site: Site; status: Status
   return (
     <div className={clsx('grid gap-x-5 gap-y-2', !stacked && 'grid-cols-[repeat(auto-fit,minmax(170px,1fr))]')}>
       {domains.map((d) => <Meter key={d.id} domain={d} cells={domainCells(status, site.hosts, d.id)} />)}
+      {site.equipments.length > 0 && (
+        // one cell per equipment: its worst level, unknown when nothing can be read
+        <Meter
+          domain={{ id: 'equipments', label: 'Équipements', icon: '' }}
+          cells={site.equipments.map((e): Cell => {
+            const st = status?.equipments[e.id];
+            return st && Object.values(st.domains).some((d) => d && d.level !== 'unknown') ? st.level : 'unknown';
+          })}
+        />
+      )}
     </div>
   );
 }
@@ -171,7 +181,7 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
           <EquipmentColumn equipments={site.equipments} status={status} />
         </div>
       )}
-      {site.hosts.length > 0 && <Meters site={site} status={status} domains={domains} stacked={small} />}
+      <Meters site={site} status={status} domains={domains} stacked={small} />
     </div>
   );
 }

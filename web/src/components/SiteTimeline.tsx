@@ -31,10 +31,10 @@ const shortDate = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', m
 
 function cellText(c: SiteCell) {
   if (c.level === 'none' || c.level === 'ok') return levelLabel[c.level];
-  return [c.alert && `${c.alert} hôte${c.alert > 1 ? 's' : ''} en alerte`, c.warn && `${c.warn} en avertissement`].filter(Boolean).join(', ');
+  return [c.alert && `${c.alert} élément${c.alert > 1 ? 's' : ''} en alerte`, c.warn && `${c.warn} en avertissement`].filter(Boolean).join(', ');
 }
 
-// Arrival of the alerts over 30 days, one row per site: worst level of the day over its hosts and
+// Arrival of the alerts over 30 days, one row per site: worst level of the day over its hosts, equipments and
 // domains (today: the live status). The filter lists the domains met in the hosts.
 export function SiteTimeline({ sites }: { sites: Site[] }) {
   const { data } = useAllAlerts();
@@ -52,7 +52,7 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
           label="Type d'alerte"
           value={filter}
           onChange={setFilter}
-          options={[{ id: 'all', label: 'Toutes' }, ...hostsDomains(status, sites.flatMap((site) => site.hosts)).map((d) => ({ id: d.id, label: d.label }))]}
+          options={[{ id: 'all', label: 'Toutes' }, ...hostsDomains(status, sites.flatMap((site) => site.hosts), sites.flatMap((site) => site.equipments)).map((d) => ({ id: d.id, label: d.label }))]}
         />
       }
     >
@@ -66,7 +66,7 @@ export function SiteTimeline({ sites }: { sites: Site[] }) {
       </div>
       <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-[3px]">
         {sites.map((site) => {
-          const cells = siteDays(site.hosts, data?.days ?? [], keys, filter, status);
+          const cells = siteDays(site.hosts, site.equipments, data?.days ?? [], data?.equipmentDays ?? [], keys, filter, status);
           return [
             <span key={`${site.name}-l`} className="max-w-36 truncate text-xs text-muted" title={site.name}>{site.name}</span>,
             <div key={`${site.name}-d`} className="grid grid-cols-[repeat(30,minmax(0,1fr))] gap-[3px]">
