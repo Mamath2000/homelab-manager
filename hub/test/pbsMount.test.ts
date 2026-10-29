@@ -102,7 +102,7 @@ test('host DTO: the mount without the agent link', () => {
   assert.equal('link' in dto.pbsMount!, false);
 });
 
-test('roles: mounting and unmounting are for admins', () => {
+test('profiles: mounting and unmounting are for admins', () => {
   for (const route of ['/api/pbs-mount', '/api/pbs-mount/unmount']) {
     assert.equal(authorize('admin', 'POST', route), true);
     assert.equal(authorize('operator', 'POST', route), false);

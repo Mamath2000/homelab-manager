@@ -163,7 +163,7 @@ test('fingerprints are normalised to upper case with colons', () => {
   assert.equal(normalizeFingerprint('ab:'.repeat(31) + 'ab'), 'AB:'.repeat(31) + 'AB');
 });
 
-test('roles: settings admin only, every role reads the backups, operators refresh', () => {
+test('profiles: settings admin only, every profile reads the backups, operators refresh', () => {
   assert.ok(!authorize('operator', 'GET', '/api/settings/pbs'));
   assert.ok(authorize('viewer', 'GET', '/api/backups'));
   assert.ok(authorize('operator', 'POST', '/api/backups/refresh'));

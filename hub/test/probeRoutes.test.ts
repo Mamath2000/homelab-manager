@@ -45,16 +45,13 @@ test('probe test: measures a tcp port without saving anything', async () => {
   assert.equal(down.json().state, 'down');
 });
 
-test('probe and broker bodies: bad values are refused before any handler', async () => {
+test('probe bodies: bad values are refused before any handler', async () => {
   const a = await app();
   const send = (method: 'POST' | 'PUT', url: string, payload: unknown) => a.inject({ method, url, payload });
   const target = { type: 'ping', host: '192.168.1.1' };
   assert.equal((await send('POST', '/api/hosts/x/probes', { name: '', target })).statusCode, 400);
   assert.equal((await send('POST', '/api/hosts/x/probes', { name: 'ok', target, retries: 9 })).statusCode, 400);
   assert.equal((await send('POST', '/api/hosts/x/probes', { name: 'ok', target, intervalSec: 1 })).statusCode, 400);
-  assert.equal((await send('POST', '/api/hosts/x/roles', { name: 'v', scheme: 'http', port: 1883, username: '' })).statusCode, 400);
-  assert.equal((await send('POST', '/api/hosts/x/roles', { name: 'v', scheme: 'mqtt', port: 0, username: '' })).statusCode, 400);
-  assert.equal((await send('POST', '/api/hosts/x/roles', { name: 'v', scheme: 'mqtt', port: 1883 })).statusCode, 400);
   // past the schema: refused afterwards for the unknown host (404 once the database answers), not by the schema
   assert.notEqual((await send('POST', '/api/hosts/x/probes', { name: 'ok', target })).statusCode, 400);
 });

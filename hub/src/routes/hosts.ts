@@ -18,6 +18,7 @@ import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostDetail, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
 import { haLevelSchema, normalizeHostDetail } from '../homeassistant/detail.js';
+import { carriedBy } from '../roles.js';
 
 const hostBody = {
   type: 'object',
@@ -221,6 +222,8 @@ export function registerHostRoutes(app: FastifyInstance) {
     const _id = parseId(req.params.id);
     // its record is what revokes the token of the mount
     if (_id && (await hosts.countDocuments({ _id, pbsMount: { $exists: true } }))) return reply.code(409).send({ error: 'une sauvegarde est montée sur cet hôte : la démonter d’abord' });
+    const carried = _id ? carriedBy(_id) : [];
+    if (carried.length) return reply.code(409).send({ error: `cet hôte porte ${carried.length > 1 ? 'les rôles' : 'le rôle'} ${carried.map((r) => r.name).join(', ')} : le réaffecter ou le supprimer d’abord` });
     const res = _id && (await hosts.deleteOne({ _id }));
     if (!res || res.deletedCount === 0) return reply.code(404).send({ error: 'host not found' });
     disconnectAgent(req.params.id);

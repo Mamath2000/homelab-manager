@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import Fastify from 'fastify';
+import { ObjectId } from 'mongodb';
+import { authorize } from '../src/profiles.js';
+import { fromLegacy, newRoleId, ROLE_DEFS, roleConflict } from '../src/roles.js';
+import { registerRoleRoutes } from '../src/routes/roles.js';
+import type { MqttBrokerConfig, RoleDoc } from '../src/types.js';
+
+const broker = (name: string, hostId: ObjectId, port = 1883): RoleDoc => ({
+  _id: newRoleId(name, () => false),
+  type: 'mqtt-broker',
+  name,
+  carrier: { kind: 'host', id: hostId },
+  config: { scheme: 'mqtt', port, username: '', password: '' },
+  createdAt: new Date(),
+});
+const config = (port: number): MqttBrokerConfig => ({ scheme: 'mqtt', port, username: '', password: '' });
+
+test('roles: id from the name, unique among the roles', () => {
+  assert.equal(newRoleId('Mosquitto Vouillé', () => false), 'mosquitto-vouille');
+  assert.equal(newRoleId('***', () => false), 'role');
+  const taken = new Set(['mqtt', 'mqtt-2']);
+  assert.equal(newRoleId('MQTT', (id) => taken.has(id)), 'mqtt-3');
+});
+
+test('roles: a broker is activated only on a port its agent detected', () => {
+  const def = ROLE_DEFS['mqtt-broker'];
+  const host = { roleCandidates: [{ type: 'mqtt-broker' as const, process: 'mosquitto', port: 1883, scheme: 'mqtt' }] };
+  assert.equal(def.carrierError(host, config(1883)), null);
+  assert.ok(def.carrierError(host, config(8883)));
+  assert.ok(def.carrierError({}, config(1883)));
+});
+
+test('roles: same broker on a carrier, name taken, the role edited is not its own conflict', () => {
+  const a = new ObjectId();
+  const b = new ObjectId();
+  const list = [broker('Vouille', a)];
+  assert.equal(roleConflict(list, 'mqtt-broker', 'Jarsay', b, config(1883)), null);
+  assert.equal(roleConflict(list, 'mqtt-broker', 'Autre', a, config(8883)), null);
+  assert.equal(roleConflict(list, 'mqtt-broker', 'Autre', a, config(1883)), 'ce rôle est déjà déclaré sur cet hôte');
+  assert.equal(roleConflict(list, 'mqtt-broker', 'VOUILLE', b, config(1883)), 'un rôle de ce type porte déjà ce nom');
+  assert.equal(roleConflict(list, 'mqtt-broker', 'Vouille', a, config(1883), 'vouille'), null);
+});
+
+test('roles: a role of a host keeps its id, its settings and its host', () => {
+  const hostId = new ObjectId();
+  const at = new Date();
+  const r = fromLegacy(hostId, { id: 'vouille', type: 'mqtt-broker', name: 'Vouille', scheme: 'mqtts', port: 8883, address: 'mqtt.lan', username: 'u', password: 'p' }, at);
+  assert.deepEqual(r, { _id: 'vouille', type: 'mqtt-broker', name: 'Vouille', carrier: { kind: 'host', id: hostId }, config: { scheme: 'mqtts', port: 8883, address: 'mqtt.lan', username: 'u', password: 'p' }, createdAt: at });
+  assert.equal('address' in fromLegacy(hostId, { id: 'x', type: 'mqtt-broker', name: 'X', scheme: 'mqtt', port: 1883, username: '', password: '' }, at).config, false);
+});
+
+test('roles: bad bodies are refused before any handler', async () => {
+  const a = Fastify();
+  registerRoleRoutes(a);
+  const carrier = { kind: 'host', id: new ObjectId().toHexString() };
+  const post = (url: string, payload: unknown) => a.inject({ method: 'POST', url, payload });
+  assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: 'v', config: { scheme: 'http', port: 1883, username: '' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: 'v', config: { scheme: 'mqtt', port: 0, username: '' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: 'v', config: { scheme: 'mqtt', port: 1883 } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'pbs', carrier, name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier: { kind: 'equipment', id: carrier.id }, name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: '', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
+  assert.equal((await a.inject({ method: 'PUT', url: '/api/roles/x', payload: { name: 'v' } })).statusCode, 400);
+  // past the schema: unknown role, from the cache (empty without a database)
+  assert.equal((await a.inject({ method: 'PUT', url: '/api/roles/x', payload: { name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } } })).statusCode, 404);
+  assert.equal((await a.inject({ method: 'DELETE', url: '/api/roles/x' })).statusCode, 404);
+});
+
+test('roles: every profile reads them, only the admins write them', () => {
+  for (const p of ['admin', 'operator', 'viewer'] as const) assert.ok(authorize(p, 'GET', '/api/roles'), p);
+  for (const [m, r] of [['POST', '/api/roles'], ['PUT', '/api/roles/:id'], ['DELETE', '/api/roles/:id'], ['POST', '/api/roles/test']]) {
+    assert.ok(authorize('admin', m, r), `admin ${m} ${r}`);
+    assert.ok(!authorize('operator', m, r), `operator ${m} ${r}`);
+    assert.ok(!authorize('viewer', m, r), `viewer ${m} ${r}`);
+  }
+});

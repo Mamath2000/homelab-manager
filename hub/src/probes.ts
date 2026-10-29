@@ -6,14 +6,14 @@ import { lanAddress } from './hostAddress.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
-import type { HostRole, MqttBroker, ProbeDoc, ProbeMeasureDoc, ProbeState, ProbeTarget } from './types.js';
+import { allRoles, ROLE_ID_RE } from './roles.js';
+import type { MqttBroker, MqttBrokerConfig, ProbeDoc, ProbeMeasureDoc, ProbeState, ProbeTarget } from './types.js';
 
 // Probes: checks that the service is rendered, seen from outside, on top of what the agents report from inside.
 // The hub runs them (mqtt, ping, tcp, http) and only keeps the current state of each: no series of measures.
 // Each measure is counted by state and day (probeDays: the history of the Probes page) and kept for an hour (probeMeasures).
 // The transitions reach the alert history through the 'probe' event (see alerts.ts).
 
-export const BROKER_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const INTERVAL_RANGE = { min: 10, max: 3600, default: 60 } as const;
 export const TIMEOUT_RANGE = { min: 1, max: 60, default: 10 } as const;
 export const MAX_RETRIES = 3;
@@ -21,20 +21,17 @@ export const MAX_RETRIES = 3;
 export const RECENT_MS = 3600 * 1000;
 
 // Address a broker role is reached at: the one typed, else the first private IP of its host ('' when unknown).
-export function roleUrl(role: Pick<HostRole, 'scheme' | 'port' | 'address'>, ips: string[] | null | undefined) {
+export function roleUrl(role: Pick<MqttBrokerConfig, 'scheme' | 'port' | 'address'>, ips: string[] | null | undefined) {
   const addr = role.address || lanAddress(ips);
   return addr ? `${role.scheme}://${addr.includes(':') && !addr.startsWith('[') ? `[${addr}]` : addr}:${role.port}` : '';
 }
 
-// The MQTT brokers the probes listen to: the mqtt-broker roles of the hosts.
+// The MQTT brokers the probes listen to: the mqtt-broker roles of the hub.
 export async function loadMqttBrokers(): Promise<{ brokers: MqttBroker[] }> {
-  const list = await hosts.find({ 'roles.type': 'mqtt-broker' }, { projection: { roles: 1, 'info.ips': 1 } }).toArray();
-  const brokers: MqttBroker[] = [];
-  for (const h of list) {
-    for (const r of h.roles ?? []) {
-      if (r.type === 'mqtt-broker') brokers.push({ id: r.id, name: r.name, url: roleUrl(r, h.info?.ips), username: r.username, password: r.password, hostId: h._id });
-    }
-  }
+  const list = allRoles().filter((r) => r.type === 'mqtt-broker');
+  const carriers = await hosts.find({ _id: { $in: list.map((r) => r.carrier.id) } }, { projection: { 'info.ips': 1 } }).toArray();
+  const ips = new Map(carriers.map((h) => [h._id.toHexString(), h.info?.ips]));
+  const brokers = list.map((r) => ({ id: r._id, name: r.name, url: roleUrl(r.config, ips.get(r.carrier.id.toHexString())), username: r.config.username, password: r.config.password, hostId: r.carrier.id }));
   return { brokers };
 }
 
@@ -46,7 +43,7 @@ const hostOk = (h: unknown) => typeof h === 'string' && PING_HOST_RE.test(h);
 export function targetError(t: ProbeTarget): string | null {
   switch (t.type) {
     case 'mqtt':
-      if (typeof t.brokerId !== 'string' || !BROKER_ID_RE.test(t.brokerId)) return 'broker invalide';
+      if (typeof t.brokerId !== 'string' || !ROLE_ID_RE.test(t.brokerId)) return 'broker invalide';
       if (typeof t.topic !== 'string' || !t.topic || t.topic.length > 256 || /[+#\0]/.test(t.topic)) return 'topic invalide (pas de joker + ni #)';
       if (t.contains !== undefined && t.contains.length > 256) return 'valeur attendue trop longue';
       return null;

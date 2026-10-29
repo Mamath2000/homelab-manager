@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, ApiKeyDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, ApiKeyDoc, RoleDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -22,6 +22,7 @@ export let probeDays: Collection<ProbeDayDoc>;
 export let probeMeasures: Collection<ProbeMeasureDoc>;
 export let equipments: Collection<EquipmentDoc>;
 export let equipmentAlerts: Collection<EquipmentAlertDoc>;
+export let roles: Collection<RoleDoc>;
 
 export async function connectDb() {
   await client.connect();
@@ -44,6 +45,7 @@ export async function connectDb() {
   probeMeasures = db.collection('probeMeasures');
   equipments = db.collection('equipments');
   equipmentAlerts = db.collection('equipmentAlerts');
+  roles = db.collection('roles');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -54,6 +56,7 @@ export async function connectDb() {
     // keep 90 days of job history
     jobs.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 3600, name: 'jobs_ttl' }),
     users.createIndex({ username: 1 }, { unique: true }),
+    roles.createIndex({ 'carrier.id': 1 }),
     apiKeys.createIndex({ hash: 1 }, { unique: true }),
     apiKeys.createIndex({ userId: 1 }),
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),

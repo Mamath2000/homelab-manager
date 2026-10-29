@@ -1282,7 +1282,7 @@ export interface RoleCandidate {
   local?: boolean;
 }
 
-// What a host is for (hub/src/types.ts HostRole): an MQTT broker the probes listen to. url: resolved address ('' unknown)
+// A role of the hub carried by a host (hub/src/hostDto.ts): an MQTT broker the probes listen to. url: resolved address ('' unknown)
 export interface HostRole {
   id: string;
   type: 'mqtt-broker';
@@ -1345,6 +1345,15 @@ export interface HostRoleInput {
   password?: string;
 }
 
+// config of a mqtt-broker role, as the hub takes it
+const brokerConfig = ({ scheme, port, address, username, password }: HostRoleInput) => ({
+  scheme,
+  port,
+  ...(address ? { address } : {}),
+  username,
+  ...(password !== undefined ? { password } : {}),
+});
+
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
   login: (username: string, password: string) =>
@@ -1398,10 +1407,13 @@ export const api = {
   deleteProbe: (id: string) => request<void>('DELETE', `/api/probes/${id}`),
   testProbe: (target: ProbeTarget, timeoutSec: number) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec }),
   mqttBrokers: () => request<{ brokers: MqttBrokerView[] }>('GET', '/api/settings/mqtt-brokers'),
-  createHostRole: (hostId: string, r: HostRoleInput) => request<{ id: string }>('POST', `/api/hosts/${hostId}/roles`, r),
-  updateHostRole: (hostId: string, roleId: string, r: HostRoleInput) => request<{ id: string }>('PUT', `/api/hosts/${hostId}/roles/${roleId}`, r),
-  deleteHostRole: (hostId: string, roleId: string) => request<void>('DELETE', `/api/hosts/${hostId}/roles/${roleId}`),
-  testHostRole: (hostId: string, r: HostRoleInput & { roleId?: string }) => request<{ ok: boolean; error?: string }>('POST', `/api/hosts/${hostId}/roles/test`, r),
+  // mqtt-broker roles of the hub carried by a host (hub/src/routes/roles.ts)
+  createHostRole: (hostId: string, r: HostRoleInput) =>
+    request<{ id: string }>('POST', '/api/roles', { type: 'mqtt-broker', carrier: { kind: 'host', id: hostId }, name: r.name, config: brokerConfig(r) }),
+  updateHostRole: (_hostId: string, roleId: string, r: HostRoleInput) => request<{ id: string }>('PUT', `/api/roles/${roleId}`, { name: r.name, config: brokerConfig(r) }),
+  deleteHostRole: (_hostId: string, roleId: string) => request<void>('DELETE', `/api/roles/${roleId}`),
+  testHostRole: (hostId: string, r: HostRoleInput & { roleId?: string }) =>
+    request<{ ok: boolean; error?: string }>('POST', '/api/roles/test', { type: 'mqtt-broker', carrier: { kind: 'host', id: hostId }, config: brokerConfig(r), ...(r.roleId ? { roleId: r.roleId } : {}) }),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),

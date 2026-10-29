@@ -352,8 +352,7 @@ export interface HostDoc {
   pbsMount?: PbsMount;
   // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied
   // store: datastore the token was given rights on (token created by the command of the UI); unknown otherwise
-  // roles declared on this host, and the services its agent found (undefined: never reported)
-  roles?: HostRole[];
+  // services its agent found that may become roles of the hub (undefined: never reported)
   roleCandidates?: RoleCandidate[];
   pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date; store?: string };
   backupSync?: { hash: string; at: Date; error?: string | null };
@@ -1089,7 +1088,7 @@ export interface ProbeMeasureDoc {
 }
 
 // A service found listening on a host, reported by its agent in the hello (agent/roles.go): the administrator
-// activates it as a role of the host.
+// activates it as a role of the hub carried by this host.
 export interface RoleCandidate {
   type: 'mqtt-broker';
   process: string;
@@ -1102,13 +1101,22 @@ export interface RoleCandidate {
 export const BROKER_SCHEMES = ['mqtt', 'mqtts', 'ws', 'wss'] as const;
 export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
-// What a host is for, declared by the administrator. The id is unique among all the hosts: probes name a broker by it.
-// mqtt-broker: an MQTT broker the probes listen to (distinct from the one of the Home Assistant bridge); it is
-// reached at address (the first private IP of the host when absent) and port.
-export interface HostRole {
-  id: string;
-  type: 'mqtt-broker';
-  name: string;
+// --- Roles of the hub (see roles.ts) ------------------------------------------------------------
+
+export const ROLE_TYPES = ['mqtt-broker'] as const;
+export type RoleType = (typeof ROLE_TYPES)[number];
+export const CARRIER_KINDS = ['host'] as const;
+export type CarrierKind = (typeof CARRIER_KINDS)[number];
+
+// What carries a role: the host it runs on.
+export interface RoleCarrier {
+  kind: CarrierKind;
+  id: ObjectId;
+}
+
+// mqtt-broker: an MQTT broker the probes listen to (distinct from the one of the Home Assistant bridge), reached at
+// address (the first private IP of its host when absent) and port.
+export interface MqttBrokerConfig {
   scheme: BrokerScheme;
   port: number;
   address?: string;
@@ -1116,7 +1124,27 @@ export interface HostRole {
   password: string;
 }
 
-// A broker as the probes use it: a role of a host with its address resolved ('' when the host has none yet).
+// What the hub can do through something of the homelab, declared by the administrator. _id: unique among all the
+// roles (probes name a broker by it).
+export interface MqttBrokerRole {
+  _id: string;
+  type: 'mqtt-broker';
+  name: string;
+  carrier: RoleCarrier;
+  config: MqttBrokerConfig;
+  createdAt: Date;
+}
+
+export type RoleDoc = MqttBrokerRole;
+
+// Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
+export interface LegacyHostRole extends MqttBrokerConfig {
+  id: string;
+  type: 'mqtt-broker';
+  name: string;
+}
+
+// A broker as the probes use it: a mqtt-broker role with its address resolved ('' when its host has none yet).
 export interface MqttBroker {
   id: string;
   name: string;

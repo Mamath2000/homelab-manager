@@ -138,7 +138,7 @@ test('drift counts modules that differ or failed to check', () => {
   assert.equal(setupDto(h), null);
 });
 
-test('roles: the profile is admin only, operators apply and check', () => {
+test('profiles: the setup profile is admin only, operators apply and check', () => {
   assert.ok(!authorize('operator', 'GET', '/api/settings/setup'));
   assert.ok(!authorize('operator', 'PUT', '/api/settings/setup'));
   assert.ok(authorize('operator', 'GET', '/api/setup'));

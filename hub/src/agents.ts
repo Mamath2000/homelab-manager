@@ -22,6 +22,7 @@ import { healthConfigForHost, receiveHealthReport } from './health.js';
 import { randomUUID } from 'node:crypto';
 import { BROKER_SCHEMES, type AptReport, type HostDoc, type HostInfo, type RoleCandidate } from './types.js';
 import { removeStackProbes } from './probes.js';
+import { carriedBy } from './roles.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -227,7 +228,7 @@ export function registerAgentSocket(app: FastifyInstance) {
         try {
           switch (msg.type) {
             case 'hello': {
-              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1, 'info.osId': 1, 'info.ips': 1, roles: 1 } });
+              const before = await hosts.findOne({ _id: host._id }, { projection: { 'info.macs': 1, 'info.osId': 1, 'info.ips': 1 } });
               // first hello of a Windows workstation: switched off at night, it is roaming (can be unset)
               const roaming = msg.info?.osId === 'windows' && !before?.info ? { roaming: true } : {};
               await hosts.updateOne(
@@ -247,7 +248,7 @@ export function registerAgentSocket(app: FastifyInstance) {
               );
               await emitHost(host._id);
               // the address of a broker follows the IPs of its host
-              if (before?.roles?.length && JSON.stringify(before.info?.ips ?? null) !== JSON.stringify(msg.info?.ips ?? null)) publish('probe.config', {});
+              if (carriedBy(host._id).length && JSON.stringify(before?.info?.ips ?? null) !== JSON.stringify(msg.info?.ips ?? null)) publish('probe.config', {});
               const healthHost = await hosts.findOne({ _id: host._id });
               if (healthHost?.capabilities?.includes('health')) sendToAgent(id, await healthConfigForHost(healthHost));
               await maybeAutoUpdate(host._id);

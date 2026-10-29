@@ -14,6 +14,8 @@ import { registerHostRoutes } from './routes/hosts.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerSiteRoutes } from './routes/sites.js';
 import { registerProbeRoutes } from './routes/probes.js';
+import { registerRoleRoutes } from './routes/roles.js';
+import { loadRoles, migrateHostRoles } from './roles.js';
 import { registerEquipmentRoutes } from './routes/equipments.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerBackupRoutes } from './routes/backups.js';
@@ -47,6 +49,8 @@ const app = Fastify({
 await connectDb();
 await migrateGroups();
 await migrateEnabled();
+await migrateHostRoles();
+await loadRoles();
 await recoverJobs();
 await bootstrapSuperadmin();
 // groups of the backup jobs: also covers the definitions stored by an older hub
@@ -60,6 +64,7 @@ registerHostRoutes(app);
 registerJobRoutes(app);
 registerSiteRoutes(app);
 registerProbeRoutes(app);
+registerRoleRoutes(app);
 registerEquipmentRoutes(app);
 registerSetupRoutes(app);
 registerBackupRoutes(app);

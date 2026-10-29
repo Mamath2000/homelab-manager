@@ -4,10 +4,8 @@ import { dayKey, ALERT_DAYS } from '../alerts.js';
 import { equipments, hosts, parseId, probeDays, probeMeasures, probes } from '../db.js';
 import { STACK_RE } from '../docker.js';
 import { publish } from '../events.js';
-import { hostDto } from '../hostDto.js';
-import { testConnection } from '../homeassistant/bridge.js';
-import { BROKER_ID_RE, INTERVAL_RANGE, MAX_RETRIES, RECENT_MS, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, roleUrl, targetError, testTarget } from '../probes.js';
-import { BROKER_SCHEMES, type BrokerScheme, type HostRole, type ProbeDoc, type ProbeSubject, type ProbeTarget } from '../types.js';
+import { INTERVAL_RANGE, MAX_RETRIES, RECENT_MS, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, targetError, testTarget } from '../probes.js';
+import type { ProbeDoc, ProbeSubject, ProbeTarget } from '../types.js';
 
 // Probes of the hosts and equipment, and the MQTT brokers they listen to. Writes are for admins only (profiles.ts refuses what it
 // does not list): the hub opens connections to what is typed here.
@@ -107,46 +105,6 @@ async function invalid(b: ProbeBody, subject: Pick<ProbeSubject, 'kind' | 'id'>,
   return null;
 }
 
-const idOf = (name: string) =>
-  name
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32);
-
-const roleBody = {
-  type: 'object',
-  required: ['name', 'scheme', 'port', 'username'],
-  additionalProperties: false,
-  properties: {
-    name: { type: 'string', minLength: 1, maxLength: 64 },
-    scheme: { enum: BROKER_SCHEMES },
-    port: { type: 'integer', minimum: 1, maximum: 65535 },
-    // absent or "": the first private IP of the host
-    address: { type: 'string', maxLength: 253, pattern: '^[A-Za-z0-9.:_-]*$' },
-    username: { type: 'string', maxLength: 128 },
-    password: { type: 'string', maxLength: 256 }, // absent: unchanged, "": cleared
-  },
-} as const;
-
-interface RoleBody {
-  name: string;
-  scheme: BrokerScheme;
-  port: number;
-  address?: string;
-  username: string;
-  password?: string;
-}
-
-async function saveRoles(hostId: ObjectId, roles: HostRole[]) {
-  await hosts.updateOne({ _id: hostId }, { $set: { roles } });
-  publish('probe.config', {});
-  const h = await hosts.findOne({ _id: hostId });
-  if (h) publish('host', hostDto(h));
-}
-
 // What a probe can be attached to, with the path of its probes
 const SUBJECTS = [
   { kind: 'host', path: '/api/hosts/:id/probes', exists: (_id: ObjectId) => hosts.countDocuments({ _id }, { limit: 1 }), missing: 'host not found' },
@@ -239,11 +197,12 @@ export function registerProbeRoutes(app: FastifyInstance) {
     return testTarget(clean(req.body.target), req.body.timeoutSec ?? TIMEOUT_RANGE.default);
   });
 
-  // --- MQTT brokers of the probes: roles of the hosts (the agent reports the candidates, see hostDto) --------
+  // --- MQTT brokers of the probes: the mqtt-broker roles of the hub (routes/roles.ts) ------------------------
 
   // all the brokers, for the form of a probe
   app.get('/api/settings/mqtt-brokers', async () => {
-    const [{ brokers }, used, list] = await Promise.all([loadMqttBrokers(), probes.find({ 'target.type': 'mqtt' }).toArray(), hosts.find({ 'roles.0': { $exists: true } }, { projection: { name: 1 } }).toArray()]);
+    const { brokers } = await loadMqttBrokers();
+    const [used, list] = await Promise.all([probes.find({ 'target.type': 'mqtt' }).toArray(), hosts.find({ _id: { $in: brokers.map((b) => b.hostId) } }, { projection: { name: 1 } }).toArray()]);
     const names = new Map(list.map((h) => [h._id.toHexString(), h.name]));
     return {
       brokers: brokers.map((b) => ({
@@ -259,86 +218,5 @@ export function registerProbeRoutes(app: FastifyInstance) {
       })),
     };
   });
-
-  const hostOf = async (id: string) => {
-    const _id = parseId(id);
-    return _id ? hosts.findOne({ _id }, { projection: { roles: 1, info: 1, roleCandidates: 1 } }) : null;
-  };
-
-  app.post<{ Params: { id: string }; Body: RoleBody }>('/api/hosts/:id/roles', { schema: { body: roleBody } }, async (req, reply) => {
-    const host = await hostOf(req.params.id);
-    if (!host) return reply.code(404).send({ error: 'host not found' });
-    // a broker is activated from what the agent detected, never declared by hand
-    if (!host.roleCandidates?.some((c) => c.type === 'mqtt-broker' && c.port === req.body.port)) return reply.code(409).send({ error: "aucun broker détecté par l'agent sur ce port" });
-    if (host.roles?.some((r) => r.port === req.body.port)) return reply.code(409).send({ error: 'ce broker est déjà activé' });
-    const name = req.body.name.trim();
-    const all = (await loadMqttBrokers()).brokers;
-    if (all.some((b) => b.name.toLowerCase() === name.toLowerCase())) return reply.code(409).send({ error: 'un broker porte déjà ce nom' });
-    const base = idOf(name) || 'broker';
-    let id = base;
-    for (let n = 2; all.some((b) => b.id === id); n++) id = `${base.slice(0, 29)}-${n}`;
-    if (!BROKER_ID_RE.test(id)) return reply.code(400).send({ error: 'nom invalide' });
-    const role: HostRole = {
-      id,
-      type: 'mqtt-broker',
-      name,
-      scheme: req.body.scheme,
-      port: req.body.port,
-      ...(req.body.address ? { address: req.body.address } : {}),
-      username: req.body.username,
-      password: req.body.password ?? '',
-    };
-    await saveRoles(host._id, [...(host.roles ?? []), role]);
-    return reply.code(201).send({ id });
-  });
-
-  app.put<{ Params: { id: string; roleId: string }; Body: RoleBody }>('/api/hosts/:id/roles/:roleId', { schema: { body: roleBody } }, async (req, reply) => {
-    const host = await hostOf(req.params.id);
-    const current = host?.roles?.find((r) => r.id === req.params.roleId);
-    if (!host || !current) return reply.code(404).send({ error: 'rôle inconnu' });
-    if (req.body.port !== current.port) return reply.code(400).send({ error: 'le port est celui détecté par l’agent' });
-    const name = req.body.name.trim();
-    const all = (await loadMqttBrokers()).brokers;
-    if (all.some((b) => b.id !== current.id && b.name.toLowerCase() === name.toLowerCase())) return reply.code(409).send({ error: 'un broker porte déjà ce nom' });
-    const next: HostRole = {
-      id: current.id,
-      type: 'mqtt-broker',
-      name,
-      scheme: req.body.scheme,
-      port: req.body.port,
-      ...(req.body.address ? { address: req.body.address } : {}),
-      username: req.body.username,
-      password: req.body.password ?? current.password,
-    };
-    await saveRoles(host._id, (host.roles ?? []).map((r) => (r.id === current.id ? next : r)));
-    return { id: current.id };
-  });
-
-  app.delete<{ Params: { id: string; roleId: string } }>('/api/hosts/:id/roles/:roleId', async (req, reply) => {
-    const host = await hostOf(req.params.id);
-    if (!host || !host.roles?.some((r) => r.id === req.params.roleId)) return reply.code(404).send({ error: 'rôle inconnu' });
-    const used = await probes.find({ 'target.type': 'mqtt', 'target.brokerId': req.params.roleId }).toArray();
-    if (used.length) return reply.code(409).send({ error: `utilisé par ${used.length} sonde(s) : ${used.slice(0, 5).map((p) => p.name).join(', ')}${used.length > 5 ? '…' : ''}` });
-    await saveRoles(host._id, host.roles.filter((r) => r.id !== req.params.roleId));
-    return reply.code(204).send();
-  });
-
-  // connection test of a broker being edited; `roleId`: the stored password is used when none is typed
-  app.post<{ Params: { id: string }; Body: Omit<RoleBody, 'name'> & { roleId?: string } }>(
-    '/api/hosts/:id/roles/test',
-    { schema: { body: { ...roleBody, required: ['scheme', 'port', 'username'], properties: { ...roleBody.properties, name: { type: 'string', maxLength: 64 }, roleId: { type: 'string', maxLength: 32 } } } } },
-    async (req, reply) => {
-      const host = await hostOf(req.params.id);
-      if (!host) return reply.code(404).send({ error: 'host not found' });
-      const url = roleUrl(req.body, host.info?.ips);
-      if (!url) return { ok: false, error: "adresse de l'hôte inconnue : la saisir" };
-      const stored = req.body.roleId ? host.roles?.find((r) => r.id === req.body.roleId) : undefined;
-      try {
-        await testConnection(url, req.body.username, req.body.password ?? stored?.password ?? '');
-        return { ok: true };
-      } catch (err) {
-        return { ok: false, error: (err as Error).message };
-      }
-    },
-  );
 }
+
