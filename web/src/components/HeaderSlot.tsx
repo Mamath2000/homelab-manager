@@ -11,7 +11,7 @@ export function HeaderTitle({ icon: Icon, title, children, overflow = false, bac
   return createPortal(
     <>
       {back}
-      <Icon className="h-5 w-5 shrink-0 text-zinc-300" />
+      <Icon className="hidden h-5 w-5 shrink-0 text-zinc-300 sm:block" />
       <h1 className={clsx('min-w-0 text-lg font-medium text-zinc-100', overflow ? 'overflow-visible' : 'truncate')}>{title}</h1>
       {status}
       {children && <div className="hidden min-w-0 items-center gap-2 md:flex">{children}</div>}

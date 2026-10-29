@@ -176,7 +176,7 @@ export function Hosts() {
                         <div className="min-w-0">
                           <Link
                             to={`/hosts/${h.id}${params.size ? `?${params.toString()}` : ''}`}
-                            className="break-all font-medium text-zinc-100 hover:text-emerald-300"
+                            className="break-words font-medium text-zinc-100 hover:text-emerald-300"
                           >
                             {h.name}
                           </Link>

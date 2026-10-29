@@ -493,7 +493,7 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
       title={job ? `Sauvegarde ${job.name}` : cached ? `Restaurer la sauvegarde ${cached.name}` : `Nouvelle sauvegarde de ${host.name}`}
       footer={
         <>
-          <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken ? 'text-amber-400' : 'text-muted')} title={summary}>
+          <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken ? 'text-amber-400' : 'hidden text-muted sm:block')} title={summary}>
             {taken ? 'Identifiant déjà pris sur le PBS (onglet Destination)' : summary}
           </span>
           <Button onClick={onClose}>Annuler</Button>
@@ -544,9 +544,9 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
                     <div className="space-y-2">
                       <div ref={archivesRef} className="space-y-2">
                         {form.archives.map((a, i) => (
-                          <div key={i} className="flex gap-2">
-                            <input className="input w-36 font-mono text-xs" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
-                            <input className="input flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
+                          <div key={i} className="flex flex-wrap gap-2">
+                            <input className="input w-full font-mono text-xs sm:w-36" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
+                            <input className="input min-w-0 flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
                             <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
                           </div>
                         ))}

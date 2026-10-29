@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, Container, DatabaseBackup, Globe, History, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { Activity, Container, DatabaseBackup, Globe, History, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
@@ -41,12 +41,12 @@ const sections: { title?: string; items: NavItem[] }[] = [
 
 function Logo() {
   return (
-    <NavLink to="/" className="flex items-center gap-2.5">
+    <NavLink to="/" aria-label="Accueil" className="flex items-center gap-2.5">
       <svg viewBox="0 0 32 32" className="h-7 w-7">
         <circle cx="16" cy="16" r="11" fill="none" stroke="#22c55e" strokeWidth="3.5" />
         <circle cx="16" cy="16" r="3.5" fill="#22c55e" />
       </svg>
-      <span className="text-lg font-semibold tracking-[0.18em] text-zinc-100">HOMELAB</span>
+      <span className="hidden text-lg font-semibold tracking-[0.18em] text-zinc-100 sm:inline">HOMELAB</span>
     </NavLink>
   );
 }
@@ -172,9 +172,9 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
+      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b sm:gap-4 border-line bg-bg/95 px-4 backdrop-blur-sm md:px-6">
         {me.channel === 'dev' && <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-amber-500" />}
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <button className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 hover:bg-raised lg:hidden" onClick={() => setDrawer(!drawer)} aria-label="Menu">
             <Menu className="h-5 w-5" />
           </button>
@@ -186,7 +186,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
         <div ref={setTitleSlot} className="flex min-w-0 flex-1 items-center gap-3" />
         {/* centred on the bar: the site of the host, wide screens only (it would cover the title otherwise) */}
         <div ref={setExtraSlot} className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 items-center xl:flex [&>*]:pointer-events-auto" />
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex shrink-0 items-center gap-2 text-sm sm:gap-4">
           {me.canManage && !me.isSuperAdmin && (
             <button
               type="button"
@@ -197,6 +197,11 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
             >
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Ajouter</span>
+            </button>
+          )}
+          {!me.isSuperAdmin && (
+            <button type="button" onClick={openQuickSwitch} aria-label="Accéder à un hôte" title="Accéder à un hôte (H)" className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-zinc-400 transition hover:bg-raised hover:text-zinc-100 md:hidden">
+              <Search className="h-4 w-4" />
             </button>
           )}
           <Versions />

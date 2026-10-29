@@ -91,8 +91,8 @@ export function ThresholdFields({ form, onChange, enabled, onEnabledChange, refe
             <Field title={title} unit={u} value={form[key]} onChange={(v) => onChange(key, v)} min={min} max={max} step={step} disabled={disabled || !on} dim={!on} reference={reference?.[key]} />
           );
           return (
-            <li key={r.label} className={clsx('grid grid-cols-3 items-center gap-x-3 gap-y-2 px-4 py-3 md:items-center', cols)}>
-              <div className="col-span-2 min-w-0 md:col-span-1">
+            <li key={r.label} className={clsx('grid grid-cols-2 items-center gap-x-3 sm:grid-cols-3 gap-y-2 px-4 py-3 md:items-center', cols)}>
+              <div className="min-w-0 sm:col-span-2 md:col-span-1">
                 <p className={clsx('text-sm font-medium', on ? 'text-zinc-100' : 'text-muted')}>{r.label}</p>
                 {HINTS[r.warning] && <p className="text-xs text-muted">{HINTS[r.warning]}</p>}
               </div>
@@ -107,7 +107,7 @@ export function ThresholdFields({ form, onChange, enabled, onEnabledChange, refe
                 {r.duration ? field(r.duration, 'Durée', 'min', 0, r.durationMax ?? 2880) : r.rearm ? field(r.rearm, 'Réactivation', 'min', 0, r.durationMax ?? 2880) : <span className="self-center text-right text-xs text-muted">immédiat</span>}
               </div>
               {reference && (
-                <p className={clsx('col-span-3 text-xs md:col-span-1', differs(r, form, reference) ? 'text-amber-300' : 'text-muted')}>
+                <p className={clsx('col-span-2 text-xs sm:col-span-3 md:col-span-1', differs(r, form, reference) ? 'text-amber-300' : 'text-muted')}>
                   <span className="md:hidden">Défaut : </span>{defaultsOf(r, reference, unit)}
                 </p>
               )}

@@ -66,9 +66,9 @@ export function SessionsPanel({ host }: { host: Host }) {
               {sessions.map((s) => {
                 const Icon = isRemote(s) ? MonitorSmartphone : Monitor;
                 return (
-                  <li key={s.id} className="flex items-start gap-3 px-4 py-3 text-sm">
+                  <li key={s.id} className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3 text-sm">
                     <Icon size={18} className="mt-0.5 shrink-0 text-muted" aria-hidden />
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 basis-40">
                       <div className="flex items-center gap-2">
                         {!stale && s.interactive && <StatusDot tone="ok" pulse />}
                         <span className="min-w-0 truncate text-zinc-100">
@@ -86,8 +86,8 @@ export function SessionsPanel({ host }: { host: Host }) {
                         {s.logonAt ? <span>ouverte le {dateTime(s.logonAt)}</span> : null}
                       </div>
                     </div>
-                    <div className="ml-auto flex shrink-0 items-center gap-2">
-                      <div className="flex flex-col items-end gap-1">
+                    <div className="ml-auto flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-between max-sm:pl-[30px]">
+                      <div className="flex flex-col items-start gap-1 sm:items-end">
                         <Badge tone={stale ? 'neutral' : STATE[s.state].tone}>
                           {stale ? `Dernier état : ${STATE[s.state].label}` : STATE[s.state].label}
                         </Badge>

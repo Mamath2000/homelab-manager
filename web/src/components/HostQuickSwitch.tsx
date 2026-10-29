@@ -100,7 +100,7 @@ export function HostQuickSwitch({ open, onOpen, onClose }: { open: boolean; onOp
           id="host-quick-switch-list"
           role="listbox"
           aria-label="Hôtes"
-          className="max-h-72 overflow-y-auto rounded-md border border-line"
+          className="max-h-[35vh] overflow-y-auto rounded-md border border-line md:max-h-72"
         >
           {isLoading ? (
             <p className="px-3 py-4 text-sm text-muted">Chargement des hôtes…</p>

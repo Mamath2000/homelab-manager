@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
+import { useScrollMore } from '../lib/useScrollMore';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
@@ -71,7 +72,7 @@ export function IconGroup({ actions, className }: { actions: IconAction[]; class
 
 export function ResponsiveList({ mode, className, children }: { mode: 'mobile' | 'desktop'; className?: string; children: ReactNode }) {
   return (
-    <div className={clsx(mode === 'mobile' ? 'divide-y divide-line md:hidden' : 'hidden overflow-x-auto md:block', className)}>
+    <div className={clsx(mode === 'mobile' ? 'divide-y divide-line lg:hidden' : 'hidden overflow-x-auto lg:block', className)}>
       {children}
     </div>
   );
@@ -92,9 +93,10 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; 
 }
 
 // Komodo-style label chip (groups, OS, virtualisation...)
-export function Tag({ children }: { children: ReactNode }) {
+// `wrap`: long names (stacks, hosts) break instead of overflowing a narrow dialog
+export function Tag({ children, wrap }: { children: ReactNode; wrap?: boolean }) {
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded-sm bg-zinc-800/80 px-2 py-0.5 text-xs font-semibold text-zinc-200">
+    <span className={clsx('inline-flex items-center rounded-sm bg-zinc-800/80 px-2 py-0.5 text-xs font-semibold text-zinc-200', wrap ? 'min-w-0 max-w-full break-all' : 'whitespace-nowrap')}>
       {children}
     </span>
   );
@@ -116,7 +118,7 @@ export function Panel({ title, icon: Icon, actions, children, className, bodyCla
             {Icon && <Icon className="h-4 w-4 text-muted" />}
             {title}
           </h2>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+          {actions && <div className="flex min-w-0 max-w-full items-center gap-2">{actions}</div>}
         </header>
       )}
       <div className={clsx(bodyClassName ?? 'p-4')}>{children}</div>
@@ -161,22 +163,7 @@ export function VerticalTabs<T extends string>({ tabs, value, onChange, children
   children: ReactNode;
   bodyClassName?: string;
 }) {
-  const tabsRef = useRef<HTMLElement>(null);
-  const [hasMoreTabs, setHasMoreTabs] = useState(false);
-
-  useEffect(() => {
-    const tabList = tabsRef.current;
-    if (!tabList) return;
-    const updateOverflow = () => setHasMoreTabs(tabList.scrollLeft + tabList.clientWidth < tabList.scrollWidth - 1);
-    updateOverflow();
-    tabList.addEventListener('scroll', updateOverflow);
-    const observer = new ResizeObserver(updateOverflow);
-    observer.observe(tabList);
-    return () => {
-      tabList.removeEventListener('scroll', updateOverflow);
-      observer.disconnect();
-    };
-  }, [tabs.length]);
+  const [tabsRef, hasMoreTabs] = useScrollMore<HTMLElement>(tabs.length);
 
   return (
     <div className="flex flex-col md:flex-row">

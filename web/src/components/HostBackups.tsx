@@ -335,7 +335,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
       {canManage && jobs?.cache && (
         <ul className="mb-3 space-y-1.5" title={`Mises de côté à la déconnexion du PBS (${dateTime(jobs.cache.at)})`}>
           {jobs.cache.jobs.map((j) => (
-            <li key={j.id} className="flex items-center gap-2 rounded-md border border-dashed border-amber-500/50 bg-amber-500/[0.06] px-3 py-2">
+            <li key={j.id} className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-amber-500/50 bg-amber-500/[0.06] px-3 py-2">
               <span className="min-w-0 truncate font-medium text-amber-100">{j.name}</span>
               <Badge tone="warn">à restaurer</Badge>
               <span className="min-w-0 truncate text-xs text-muted">
@@ -365,7 +365,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
               // name, badges and actions on top; below, the details and the timeline side by side (half each)
               // when the card is wide enough (container query), the timeline below the details otherwise
               <li key={g.id} className="space-y-1.5 py-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="min-w-0 truncate font-medium text-zinc-100">{groupLabel(g)}</span>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
                   <span title={backupKind(g).title}>

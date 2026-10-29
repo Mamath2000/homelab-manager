@@ -98,6 +98,19 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
   const chosenIp = hostOf(form.url);
   const [node, found, token, tested] = stepStates([!!form.agent, !!form.url, !!saved?.hasSecret, test?.level === 'ok']);
 
+  const options = (
+    <>
+      <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2" title="Fixé à la création du jeton">
+            <span className="shrink-0">Identifiant</span>
+            <input className="input h-10 w-full lg:h-8 lg:w-36 py-1 font-mono text-xs" value={clusterId} disabled={!!saved} onChange={(e) => setId(slug(e.target.value))} placeholder="vouille" spellCheck={false} />
+          </label>
+          <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2">
+            <span className="shrink-0">Nom affiché</span>
+            <input className="input h-10 w-full lg:h-8 lg:w-44 py-1" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Vouillé" />
+          </label>
+    </>
+  );
+
   return (
     <>
       <Modal
@@ -108,16 +121,7 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
         title={cluster ? `Cluster ${cluster.name}` : 'Nouveau cluster Proxmox VE'}
         footer={
           <>
-            <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <label className="flex items-center gap-2 text-xs text-muted" title="Fixé à la création du jeton">
-                <span className="shrink-0">Identifiant</span>
-                <input className="input h-8 w-36 py-1 font-mono text-xs" value={clusterId} disabled={!!saved} onChange={(e) => setId(slug(e.target.value))} placeholder="vouille" spellCheck={false} />
-              </label>
-              <label className="flex items-center gap-2 text-xs text-muted">
-                <span className="shrink-0">Nom affiché</span>
-                <input className="input h-8 w-44 py-1" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Vouillé" />
-              </label>
-            </div>
+            <div className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm lg:flex">{options}</div>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !saved?.hasSecret} onClick={() => void save()}>Enregistrer</Button>
           </>
@@ -222,6 +226,8 @@ function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null
             <CheckLine label="API" check={test} idle={form.url || undefined} />
           </Step>
         </Steps>
+        {/* narrow windows: the options leave the footer (buttons only) and follow the steps */}
+        <div className="mt-3 flex flex-col gap-3 lg:hidden">{options}</div>
       </Modal>
       <ConfirmModal
         open={confirmDiscard}
