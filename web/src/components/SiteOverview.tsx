@@ -186,13 +186,13 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
   );
 }
 
-// External sites of a single host: one line each instead of a card.
+// External sites of a single host: a "Services" frame, one block per site, its domains on two rows.
 function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | undefined }) {
   return (
     <div>
       <header className="mb-1 flex items-center gap-2.5">
-        <b className="text-[15px] font-medium text-zinc-100">Sites externes</b>
-        <Badge tone="neutral">supervisés</Badge>
+        <b className="text-[15px] font-medium text-zinc-100">Services</b>
+        <Badge tone="neutral">sites externes</Badge>
         <span className="ml-auto"><CheckButton hosts={sites.flatMap((s) => s.hosts)} label="Tout vérifier" title="Rechercher les mises à jour sur tous les sites externes" /></span>
       </header>
       {sites.map((s) => {
@@ -210,11 +210,12 @@ function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | 
                 <span className="font-medium text-zinc-200">{s.name}</span> <span className="text-muted">{h.name}</span>
               </span>
             </span>
-            <span className="flex w-full gap-2">
+            {/* two rows: half of the domains each, so the labels fit */}
+            <span className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.ceil(domains.length / 2)}, minmax(0, 1fr))` }}>
               {domains.map((d) => {
                 const c = cellOf(status?.hosts[h.id]?.domains[d.id]);
                 return (
-                  <Badge key={d.id} tone={cellTone[c]} className="min-w-0 flex-1 basis-0 flex-col !gap-0 whitespace-normal text-center leading-tight">
+                  <Badge key={d.id} tone={cellTone[c]} className="min-w-0 flex-col !gap-0 whitespace-normal text-center leading-tight">
                     <span>{d.label}</span>
                     <span>{cellLabel[c]}</span>
                   </Badge>
