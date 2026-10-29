@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Globe, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { api, type BrokerScheme, type Host, type HostRole, type HostRoleInput, type RoleCandidate } from '../lib/api';
 import { useMe } from '../lib/auth';
 import type { Tone } from '../lib/status';
