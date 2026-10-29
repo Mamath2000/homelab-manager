@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, Container, DatabaseBackup, Globe, History, KeyRound, LayoutDashboard, LogOut, Menu, PackageCheck, Plus, Router, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { Activity, Container, DatabaseBackup, Globe, History, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { ROLE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
@@ -51,32 +51,49 @@ function Logo() {
   );
 }
 
-function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
+const COLLAPSED_KEY = 'sidebar-collapsed';
+
+function useSidebarCollapsed() {
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_KEY) === '1'; } catch { return false; }
+  });
+  const toggle = () => setCollapsed((v) => {
+    try { localStorage.setItem(COLLAPSED_KEY, v ? '0' : '1'); } catch { /* private mode: not remembered */ }
+    return !v;
+  });
+  return [collapsed, toggle] as const;
+}
+
+function SideLink({ item, onClick, collapsed }: { item: NavItem; onClick?: () => void; collapsed?: boolean }) {
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
       onClick={onClick}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         clsx(
           'flex items-center gap-2.5 rounded-md px-3 py-3 text-sm font-medium transition md:py-2',
+          collapsed && 'justify-center',
           isActive ? 'bg-raised text-zinc-50 ring-1 ring-inset ring-line' : 'text-zinc-400 hover:bg-raised/60 hover:text-zinc-100',
         )
       }
     >
-      <item.icon className="h-4 w-4" />
-      {item.label}
+      <item.icon className="h-4 w-4 shrink-0" />
+      {!collapsed && item.label}
     </NavLink>
   );
 }
 
-function Sidebar({ onNavigate, onPassword, onLogout }: { onNavigate?: () => void; onPassword: () => void; onLogout: () => void }) {
+function Sidebar({ onNavigate, onPassword, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onPassword: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const me = useMe();
   return (
-    <nav className="flex h-full flex-col gap-1 p-4">
+    <nav className={clsx('flex h-full flex-col gap-1', collapsed ? 'p-2' : 'p-4')}>
       {!me.isSuperAdmin && sections.map((s, i) => (
         <div key={i} className="flex flex-col gap-1">
-          {s.title && (
+          {s.title && collapsed && i > 0 && <div className="my-1.5 h-px bg-line" />}
+          {s.title && !collapsed && (
             <div className="mb-1 mt-3 flex items-center gap-2 px-1 text-[11px] uppercase tracking-wider text-zinc-500">
               <span className="h-px flex-1 bg-line" />
               {s.title}
@@ -84,32 +101,39 @@ function Sidebar({ onNavigate, onPassword, onLogout }: { onNavigate?: () => void
             </div>
           )}
           {s.items.map((item) => (
-            <SideLink key={item.to} item={item} onClick={onNavigate} />
+            <SideLink key={item.to} item={item} onClick={onNavigate} collapsed={collapsed} />
           ))}
         </div>
       ))}
       {me.canAccounts && (
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-3">
-          <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} />
+          <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} collapsed={collapsed} />
         </div>
       )}
       <div className={clsx('flex flex-col gap-2 border-t border-line pt-3', !me.canAccounts && 'mt-auto')}>
-        <div className="flex min-w-0 items-start gap-2 px-3 text-zinc-300" title={ROLE_LABELS[me.role]}>
+        <div className={clsx('flex min-w-0 items-start gap-2 px-3 text-zinc-300', collapsed && 'justify-center px-0')} title={collapsed ? `${me.displayName || me.username} — ${ROLE_LABELS[me.role]}` : ROLE_LABELS[me.role]}>
           <User className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-          <span className="min-w-0">
-            <span className="block truncate text-sm">{me.displayName || me.username}</span>
-            <span className="block truncate text-xs text-muted">{ROLE_LABELS[me.role]}</span>
-          </span>
+          {!collapsed && (
+            <span className="min-w-0">
+              <span className="block truncate text-sm">{me.displayName || me.username}</span>
+              <span className="block truncate text-xs text-muted">{ROLE_LABELS[me.role]}</span>
+            </span>
+          )}
         </div>
-        <div className="flex gap-1">
+        <div className={clsx('flex gap-1', collapsed && 'flex-col')}>
           {!me.isSuperAdmin && (
-            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className="flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0">
-              <KeyRound className="h-4 w-4" /> Mot de passe
+            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
+              <KeyRound className="h-4 w-4 shrink-0" /> {!collapsed && 'Mot de passe'}
             </button>
           )}
-          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className="flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0">
-            <LogOut className="h-4 w-4" /> Déconnexion
+          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
+            <LogOut className="h-4 w-4 shrink-0" /> {!collapsed && 'Déconnexion'}
           </button>
+          {onToggle && (
+            <button onClick={onToggle} title={collapsed ? 'Déplier le menu' : 'Réduire le menu'} aria-label={collapsed ? 'Déplier le menu' : 'Réduire le menu'} className={clsx('flex min-h-10 items-center justify-center rounded-md px-3 py-2 text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', !collapsed && 'shrink-0')}>
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </button>
+          )}
         </div>
       </div>
     </nav>
@@ -139,6 +163,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
   const openQuickSwitch = useCallback(() => setQuickSwitchOpen(true), []);
   const closeQuickSwitch = useCallback(() => setQuickSwitchOpen(false), []);
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const { pathname } = useLocation();
   // drawer is open for the path it was opened on: any navigation closes it
   const [drawerPath, setDrawerPath] = useState<string | null>(null);
@@ -188,8 +213,8 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
         </div>
       </header>
 
-      <aside className="fixed bottom-0 left-0 top-14 hidden w-60 border-r border-line bg-bg lg:block">
-        <Sidebar onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
+      <aside className={clsx('fixed bottom-0 left-0 top-14 hidden border-r border-line bg-bg lg:block', collapsed ? 'w-16' : 'w-60')}>
+        <Sidebar onPassword={() => setPasswordOpen(true)} onLogout={onLogout} collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
       {drawer && (
         <div className="fixed inset-0 top-14 z-20 bg-black/60 lg:hidden" onClick={() => setDrawer(false)}>
@@ -203,7 +228,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
-      <main className="px-4 py-6 lg:ml-60 lg:px-8">
+      <main className={clsx('px-4 py-6 lg:px-8', collapsed ? 'lg:ml-16' : 'lg:ml-60')}>
         <div>
           {/* pages are lazy chunks: the menu stays in place while one loads */}
           <HeaderSlotContext.Provider value={slots}>
