@@ -545,12 +545,12 @@ export interface TagConfig {
   color: TagColor;
 }
 
-export type Role = 'admin' | 'operator' | 'viewer';
+export type Profile = 'admin' | 'operator' | 'viewer';
 
 export interface Me {
   username: string;
   displayName: string;
-  role: Role | 'superadmin';
+  profile: Profile | 'superadmin';
   // temporary password: it must be replaced before using the app
   mustChangePassword: boolean;
   // optional features of the hub (environment variables, e.g. FEATURE_STANDARDISATION)
@@ -578,7 +578,7 @@ export interface Account {
   id: string;
   username: string;
   displayName: string;
-  role: Role;
+  profile: Profile;
   createdAt: string;
   lastLoginAt: string | null;
   mustChangePassword: boolean;
@@ -1354,9 +1354,9 @@ export const api = {
     request('POST', '/api/account/password', { currentPassword, newPassword }),
 
   users: () => request<Account[]>('GET', '/api/users'),
-  createUser: (username: string, displayName: string, role: Role, noPassword = false) =>
-    request<AccountSecret>('POST', '/api/users', { username, displayName, role, noPassword }),
-  updateUser: (id: string, patch: { username?: string; displayName?: string; role?: Role }) =>
+  createUser: (username: string, displayName: string, profile: Profile, noPassword = false) =>
+    request<AccountSecret>('POST', '/api/users', { username, displayName, profile, noPassword }),
+  updateUser: (id: string, patch: { username?: string; displayName?: string; profile?: Profile }) =>
     request<Account>('PATCH', `/api/users/${id}`, patch),
   deleteUser: (id: string) => request<void>('DELETE', `/api/users/${id}`),
   resetPassword: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/reset-password`),

@@ -146,7 +146,7 @@ async function changed(hostId: ObjectId) {
 }
 
 // Backups of directories run by the agent of a host (see backupJobs.ts). Settings of a host: admin;
-// running a job now: operator too (roles.ts).
+// running a job now: operator too (profiles.ts).
 export function registerBackupJobRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/api/hosts/:id/backup-jobs', async (req, reply) => {
     const _id = parseId(req.params.id);

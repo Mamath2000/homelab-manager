@@ -272,7 +272,7 @@ export function registerHostRoutes(app: FastifyInstance) {
   // the same for every host (timeline of the dashboard, by site)
   app.get('/api/alerts', async () => allAlertDays());
 
-  // live status of every host and equipment by domain and followed element (monitoring.ts); every role reads
+  // live status of every host and equipment by domain and followed element (monitoring.ts); every profile reads
   app.get('/api/status', async () => ({
     domains: DOMAINS,
     hosts: evaluateAll(await hosts.find().toArray(), await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), await hostProbes()),
@@ -303,7 +303,7 @@ export function registerHostRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas éteindre : mets-le à jour" });
       }
       // shutdown: operators restart and lock, only an admin powers a host off
-      if (req.body.action === 'shutdown' && req.user!.role !== 'admin') return reply.code(403).send({ error: 'forbidden' });
+      if (req.body.action === 'shutdown' && req.user!.profile !== 'admin') return reply.code(403).send({ error: 'forbidden' });
       if (req.body.action === 'lock') {
         if (!host.capabilities?.includes('lock')) return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas verrouiller une session : mets-le à jour" });
         if (!host.sessions?.sessions.some((s) => s.id === req.body.sessionId)) return reply.code(400).send({ error: 'session inconnue sur cet hôte' });

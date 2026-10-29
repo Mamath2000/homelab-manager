@@ -5,7 +5,7 @@ import { alertsOf } from '../src/homeassistant/alerts.js';
 import { backupStatus } from '../src/monitoring.js';
 import { backupState, effectiveThreshold } from '../src/pbs.js';
 import { configMacs, followedCluster, followedStorages, guestResult, jobCovers, matchGuests, parseVzdumpLog, type ApiJob } from '../src/pve.js';
-import { authorize } from '../src/roles.js';
+import { authorize } from '../src/profiles.js';
 import type { BackupDoc, PveJobRef } from '../src/types.js';
 
 // shapes of /cluster/backup, /storage and a task log of PVE 9 (vouille, 2026-10-11)

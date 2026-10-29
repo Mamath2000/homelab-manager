@@ -25,7 +25,7 @@ import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, ensurePbsToken, offsiteHubAcl
 import type { BackupDoc, BackupOffsite, PbsAgentLink, PbsRemoteSettings } from '../types.js';
 
 // Secondary PBS and the copy of the backups to it (offsite.ts). Settings: admin (/api/settings/*); running
-// a copy now: operator too (roles.ts).
+// a copy now: operator too (profiles.ts).
 
 async function remoteDto(r: PbsRemoteSettings) {
   const { _id, tokenSecret, readerTokenSecret, remoteHash, agentAck, agentError, agentReport, ...rest } = r;

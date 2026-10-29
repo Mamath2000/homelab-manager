@@ -6,13 +6,13 @@ import { SUPERADMIN } from './types.js';
 // A new password invalidates the previous one and closes a running superadmin session.
 export async function issueSuperadminPassword(validityMinutes: number) {
   const existing = await users.findOne({ username: SUPERADMIN });
-  if (existing && existing.role !== SUPERADMIN) throw new Error(`a regular account is named "${SUPERADMIN}"`);
+  if (existing && existing.profile !== SUPERADMIN) throw new Error(`a regular account is named "${SUPERADMIN}"`);
   const password = randomToken(12);
   await users.updateOne(
     { username: SUPERADMIN },
     {
       $set: {
-        role: SUPERADMIN,
+        profile: SUPERADMIN,
         passwordHash: await hashPassword(password),
         passwordExpiresAt: new Date(Date.now() + validityMinutes * 60_000),
       },
@@ -25,7 +25,7 @@ export async function issueSuperadminPassword(validityMinutes: number) {
 }
 
 export function hasAccounts() {
-  return users.countDocuments({ role: { $ne: SUPERADMIN } }).then((n) => n > 0);
+  return users.countDocuments({ profile: { $ne: SUPERADMIN } }).then((n) => n > 0);
 }
 
 // a password already issued and not expired survives restarts (only its hash is stored, it cannot be shown again)
@@ -57,7 +57,7 @@ export async function bootstrapSuperadmin() {
   }
 
   if (await hasAccounts()) return;
-  if (hasActiveSuperadminPassword(await users.findOne({ username: SUPERADMIN, role: SUPERADMIN }))) {
+  if (hasActiveSuperadminPassword(await users.findOne({ username: SUPERADMIN, profile: SUPERADMIN }))) {
     process.stdout.write(
       [
         '',

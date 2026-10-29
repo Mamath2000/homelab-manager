@@ -117,7 +117,7 @@ export function registerSetupRoutes(app: FastifyInstance) {
     return p;
   });
 
-  // what every role sees on a host page: the standard values, shown next to the host ones
+  // what every profile sees on a host page: the standard values, shown next to the host ones
   app.get('/api/setup', async () => {
     const p = await loadSetupProfile();
     return { autoApply: p.autoApply, options: p.options };

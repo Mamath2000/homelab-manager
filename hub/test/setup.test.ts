@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { authorize } from '../src/roles.js';
+import { authorize } from '../src/profiles.js';
 import { DEFAULT_SETUP, buildSpec, effectiveValues, overridesError, profileError, resetError } from '../src/setup.js';
 import { setupDto } from '../src/hostDto.js';
 import { config } from '../src/config.js';

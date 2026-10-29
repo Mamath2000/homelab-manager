@@ -226,7 +226,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     }
   });
 
-  // --- groups (every role reads)
+  // --- groups (every profile reads)
   app.get('/api/backups', async () => {
     const s = await loadPbsSettings();
     const list = await backups.find().sort({ store: 1, ns: 1, backupId: 1 }).toArray();
@@ -234,7 +234,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     // jobs set aside when the main PBS was disconnected (to restore from the host card)
     const cachedHosts = await hosts.find({ 'backupCache.jobs.0': { $exists: true } }, { projection: { name: 1, backupCache: 1 } }).toArray();
     return {
-      // secondary PBS of the copies, for every role (its settings are admin only): where and how much room
+      // secondary PBS of the copies, for every profile (its settings are admin only): where and how much room
       offsite: remoteReady(r)
         ? { host: new URL(r.url).hostname, store: r.store, polledAt: r.polledAt ?? null, pollError: r.pollError ?? null, usage: r.usage ?? null, series: await seriesView(r) }
         : null,
@@ -266,11 +266,11 @@ export function registerBackupRoutes(app: FastifyInstance) {
     };
   });
 
-  // what the backups uploaded and how long they took, per day over 30 or 60 days and per group (every role reads)
+  // what the backups uploaded and how long they took, per day over 30 or 60 days and per group (every profile reads)
   // (30 to 180 days: the weeks and months of the page are added up from the days)
   app.get<{ Querystring: { days?: 30 | 60 | 90 | 180 } }>('/api/backups/stats', { schema: { querystring: { type: 'object', properties: { days: { type: 'integer', enum: [30, 60, 90, 180] } } } } }, async (req) => statsView(req.query.days ?? 30));
 
-  // fill level of the datastores of the main PBS and of the secondary one, per day (every role reads)
+  // fill level of the datastores of the main PBS and of the secondary one, per day (every profile reads)
   app.get('/api/backups/usage', async () => usageView(90));
 
   app.post('/api/backups/refresh', async (req, reply) => {

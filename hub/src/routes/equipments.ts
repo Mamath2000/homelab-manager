@@ -8,7 +8,7 @@ import { publish } from '../events.js';
 import { INTERVAL_RANGE, TIMEOUT_RANGE } from '../probes.js';
 import { EQUIPMENT_TYPES, type EquipmentDoc, type ProbeDoc } from '../types.js';
 
-// Equipment (equipments.ts): read by every account, written by the admins (roles.ts). Only the manual ones are
+// Equipment (equipments.ts): read by every account, written by the admins (profiles.ts). Only the manual ones are
 // created here; an empty siteId, ip or uplinkId clears it.
 
 const fields = {

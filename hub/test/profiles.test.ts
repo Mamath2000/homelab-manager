@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowedBeforePasswordChange, authorize } from '../src/roles.js';
+import { allowedBeforePasswordChange, authorize } from '../src/profiles.js';
 
 test('admin may do everything', () => {
   for (const [m, r] of [

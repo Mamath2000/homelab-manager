@@ -5,7 +5,7 @@ import { ARCHIVE_RE, MOUNT_USER, mountAclPath, mountTokenId, mountable, normaliz
 import { parseTokenId } from '../src/apiTokens.js';
 import { dayOf, evaluate, mountStatus } from '../src/monitoring.js';
 import { hostDto } from '../src/hostDto.js';
-import { authorize } from '../src/roles.js';
+import { authorize } from '../src/profiles.js';
 import type { BackupDoc, HostDoc, PbsMount } from '../src/types.js';
 
 const group = (o: Partial<BackupDoc> = {}) => ({ _id: 'ds0/Vouille/ct/101', store: 'ds0', ns: 'Vouille', type: 'ct', backupId: '101', ...o }) as BackupDoc;

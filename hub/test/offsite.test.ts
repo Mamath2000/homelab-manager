@@ -24,7 +24,7 @@ import {
   updateBody,
   upidStart,
 } from '../src/offsite.js';
-import { authorize } from '../src/roles.js';
+import { authorize } from '../src/profiles.js';
 import type { BackupOffsite, PbsRemoteSettings } from '../src/types.js';
 
 const remote = { store: 'ds9', tokenId: 'homelab@pbs!hub' };

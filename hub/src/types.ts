@@ -517,8 +517,8 @@ export interface JobDoc {
   log: string;
 }
 
-export const ROLES = ['admin', 'operator', 'viewer'] as const;
-export type Role = (typeof ROLES)[number];
+export const PROFILES = ['admin', 'operator', 'viewer'] as const;
+export type Profile = (typeof PROFILES)[number];
 // built-in recovery account, see hub/src/cli.ts
 export const SUPERADMIN = 'superadmin';
 
@@ -527,7 +527,7 @@ export interface UserDoc {
   username: string;
   // optional full name shown in the UI; the username stays the login
   displayName?: string;
-  role: Role | typeof SUPERADMIN;
+  profile: Profile | typeof SUPERADMIN;
   passwordHash: string | null;
   // temporary password (new account or reset): everything but changing it is refused
   mustChangePassword?: boolean;
@@ -538,7 +538,7 @@ export interface UserDoc {
 }
 
 // API key of an account (`Authorization: Bearer hm_…`): only its hash is stored. The key has the rights
-// of the account's role.
+// of the account's profile.
 export interface ApiKeyDoc {
   _id: ObjectId;
   userId: ObjectId;

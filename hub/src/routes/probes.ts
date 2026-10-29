@@ -9,7 +9,7 @@ import { testConnection } from '../homeassistant/bridge.js';
 import { BROKER_ID_RE, INTERVAL_RANGE, MAX_RETRIES, RECENT_MS, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, roleUrl, targetError, testTarget } from '../probes.js';
 import { BROKER_SCHEMES, type BrokerScheme, type HostRole, type ProbeDoc, type ProbeSubject, type ProbeTarget } from '../types.js';
 
-// Probes of the hosts and equipment, and the MQTT brokers they listen to. Writes are for admins only (roles.ts refuses what it
+// Probes of the hosts and equipment, and the MQTT brokers they listen to. Writes are for admins only (profiles.ts refuses what it
 // does not list): the hub opens connections to what is typed here.
 
 // One flat shape for all the types (an anyOf of closed objects would have the validator strip the fields of the

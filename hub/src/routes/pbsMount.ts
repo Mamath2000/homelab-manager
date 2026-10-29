@@ -4,7 +4,7 @@ import { loadPbsSettings } from '../pbs.js';
 import type { PbsMountSource } from '../types.js';
 
 // Read-only mount of a snapshot of a PBS (pbsMount.ts): the steps of the window (PBS, backup, snapshot and
-// archive, destination), the mount and the unmount. Mounting is for admins (roles.ts: no other role writes here).
+// archive, destination), the mount and the unmount. Mounting is for admins (profiles.ts: no other profile writes here).
 
 const sourceParam = {
   type: 'object',

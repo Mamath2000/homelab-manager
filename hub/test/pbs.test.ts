@@ -5,7 +5,7 @@ import { alertsOf } from '../src/homeassistant/alerts.js';
 import { backupStatus, evaluate } from '../src/monitoring.js';
 import { ROOT_ID, build } from '../src/homeassistant/discovery.js';
 import { backupState, effectiveThreshold, learnedInterval, mergeGroups, normalizeFingerprint, retentionInterval, retentionMap } from '../src/pbs.js';
-import { authorize } from '../src/roles.js';
+import { authorize } from '../src/profiles.js';
 import type { HostDoc } from '../src/types.js';
 
 // shapes of /admin/datastore/{store}/groups and /snapshots (PBS 3.x)

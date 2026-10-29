@@ -32,7 +32,7 @@ export default function App() {
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.authStatus, staleTime: Infinity });
   const user = auth.data?.user ?? null;
   // the superadmin may only use the accounts page, not the live feed
-  const live = useLiveEvents(!!user && user.role !== 'superadmin' && !user.mustChangePassword);
+  const live = useLiveEvents(!!user && user.profile !== 'superadmin' && !user.mustChangePassword);
 
   // Switch user state without detaching the ['auth'] observer (qc.clear() would).
   const setUser = (me: Me | null) => {

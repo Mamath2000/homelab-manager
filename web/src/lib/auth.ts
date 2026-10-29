@@ -1,17 +1,17 @@
 import { createContext, useContext } from 'react';
 import type { Me } from './api';
 
-// What the signed-in user may see and do. The hub enforces the same rules (hub/src/roles.ts).
+// What the signed-in user may see and do. The hub enforces the same rules (hub/src/profiles.ts).
 export function rights(me: Me) {
   return {
     ...me,
-    isSuperAdmin: me.role === 'superadmin',
+    isSuperAdmin: me.profile === 'superadmin',
     // run jobs: checks, updates, cleanup, reboot, lock, agent updates
-    canWrite: me.role === 'admin' || me.role === 'operator',
+    canWrite: me.profile === 'admin' || me.profile === 'operator',
     // add / edit / delete hosts, agent tokens
-    canManage: me.role === 'admin',
-    canSettings: me.role === 'admin',
-    canAccounts: me.role === 'admin' || me.role === 'superadmin',
+    canManage: me.profile === 'admin',
+    canSettings: me.profile === 'admin',
+    canAccounts: me.profile === 'admin' || me.profile === 'superadmin',
   };
 }
 
@@ -25,7 +25,7 @@ export function useMe() {
   return me;
 }
 
-export const ROLE_LABELS: Record<Me['role'], string> = {
+export const PROFILE_LABELS: Record<Me['profile'], string> = {
   admin: 'Admin',
   operator: 'Opérateur',
   viewer: 'Lecture',

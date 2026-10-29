@@ -3,7 +3,7 @@ import { MongoServerError, ObjectId } from 'mongodb';
 import { newApiKey, revokeSessions } from '../auth.js';
 import { hashPassword, randomToken } from '../crypto.js';
 import { apiKeys, parseId, users } from '../db.js';
-import { ROLES, SUPERADMIN, type ApiKeyDoc, type Role, type UserDoc } from '../types.js';
+import { PROFILES, SUPERADMIN, type ApiKeyDoc, type Profile, type UserDoc } from '../types.js';
 
 function keyDto(k: ApiKeyDoc) {
   return { id: k._id.toHexString(), name: k.name, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt ?? null };
@@ -14,7 +14,7 @@ function dto(u: UserDoc, keys: ApiKeyDoc[] = []) {
     id: u._id.toHexString(),
     username: u.username,
     displayName: u.displayName ?? '',
-    role: u.role,
+    profile: u.profile,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt ?? null,
     mustChangePassword: !!u.mustChangePassword,
@@ -32,7 +32,7 @@ async function temporaryPassword() {
 
 const username = { type: 'string', minLength: 1, maxLength: 64, pattern: '\\S' } as const;
 const displayName = { type: 'string', maxLength: 64 } as const;
-const role = { type: 'string', enum: ROLES } as const;
+const profile = { type: 'string', enum: PROFILES } as const;
 const keyName = { type: 'string', maxLength: 64 } as const;
 
 function reserved(name: string) {
@@ -43,12 +43,12 @@ function duplicate(err: unknown) {
   return err instanceof MongoServerError && err.code === 11000;
 }
 
-// Only admins reach these routes, except listing, creation and reset, also open to the superadmin (roles.ts).
+// Only admins reach these routes, except listing, creation and reset, also open to the superadmin (profiles.ts).
 export function registerUserRoutes(app: FastifyInstance) {
   // the superadmin account is managed with `hm-admin` only, never through the API
   async function target(id: string) {
     const _id = parseId(id);
-    return _id && users.findOne({ _id, role: { $ne: SUPERADMIN } });
+    return _id && users.findOne({ _id, profile: { $ne: SUPERADMIN } });
   }
 
   async function insertKey(userId: ObjectId, name: string | undefined, hash: string) {
@@ -60,26 +60,26 @@ export function registerUserRoutes(app: FastifyInstance) {
   const userKeys = (u: UserDoc) => apiKeys.find({ userId: u._id }).sort({ createdAt: 1 }).toArray();
 
   async function lastAdmin(u: UserDoc) {
-    return u.role === 'admin' && (await users.countDocuments({ role: 'admin' })) <= 1;
+    return u.profile === 'admin' && (await users.countDocuments({ profile: 'admin' })) <= 1;
   }
 
   app.get('/api/users', async () => {
-    const list = await users.find({ role: { $ne: SUPERADMIN } }).sort({ username: 1 }).toArray();
+    const list = await users.find({ profile: { $ne: SUPERADMIN } }).sort({ username: 1 }).toArray();
     const keys = await apiKeys.find({ userId: { $in: list.map((u) => u._id) } }).sort({ createdAt: 1 }).toArray();
     return list.map((u) => dto(u, keys.filter((k) => k.userId.equals(u._id))));
   });
 
   // New accounts get a temporary password, returned once; with `noPassword` they get none and cannot log in
   // (keys are added afterwards, see below).
-  app.post<{ Body: { username: string; displayName?: string; role: Role; noPassword?: boolean } }>(
+  app.post<{ Body: { username: string; displayName?: string; profile: Profile; noPassword?: boolean } }>(
     '/api/users',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['username', 'role'],
+          required: ['username', 'profile'],
           additionalProperties: false,
-          properties: { username, displayName, role, noPassword: { type: 'boolean' } },
+          properties: { username, displayName, profile, noPassword: { type: 'boolean' } },
         },
       },
     },
@@ -90,7 +90,7 @@ export function registerUserRoutes(app: FastifyInstance) {
       const doc = {
         username: name,
         displayName: req.body.displayName?.trim() ?? '',
-        role: req.body.role,
+        profile: req.body.profile,
         ...(temp ? temp.fields : { passwordHash: null }),
         createdAt: new Date(),
       };
@@ -105,11 +105,11 @@ export function registerUserRoutes(app: FastifyInstance) {
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { username?: string; displayName?: string; role?: Role } }>(
+  app.patch<{ Params: { id: string }; Body: { username?: string; displayName?: string; profile?: Profile } }>(
     '/api/users/:id',
     {
       schema: {
-        body: { type: 'object', additionalProperties: false, properties: { username, displayName, role } },
+        body: { type: 'object', additionalProperties: false, properties: { username, displayName, profile } },
       },
     },
     async (req, reply) => {
@@ -122,16 +122,16 @@ export function registerUserRoutes(app: FastifyInstance) {
         set.username = name;
       }
       if (req.body.displayName !== undefined) set.displayName = req.body.displayName.trim();
-      const roleChanged = req.body.role !== undefined && req.body.role !== user.role;
-      if (roleChanged) {
+      const profileChanged = req.body.profile !== undefined && req.body.profile !== user.profile;
+      if (profileChanged) {
         if (await lastAdmin(user)) return reply.code(409).send({ error: 'cannot demote the last admin' });
-        set.role = req.body.role;
+        set.profile = req.body.profile;
       }
       try {
         const updated = await users.findOneAndUpdate({ _id: user._id }, { $set: set }, { returnDocument: 'after' });
         if (!updated) return reply.code(404).send({ error: 'user not found' });
-        // sessions carry no role, but log the user out so the UI reloads with the new rights
-        if (roleChanged) await revokeSessions(user);
+        // sessions carry no profile, but log the user out so the UI reloads with the new rights
+        if (profileChanged) await revokeSessions(user);
         return dto(updated, await userKeys(updated));
       } catch (err) {
         if (duplicate(err)) return reply.code(409).send({ error: 'username already taken' });

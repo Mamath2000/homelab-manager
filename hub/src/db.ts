@@ -87,10 +87,12 @@ export async function connectDb() {
     equipmentAlerts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'equipment_alerts_ttl' }),
     healthMetrics.createIndex({ hostId: 1, category: 1, sampledAt: -1 }),
     healthMetrics.createIndex({ sampledAt: 1 }, { expireAfterSeconds: 48 * 3600, name: 'health_metrics_ttl' }),
-    // accounts created before roles existed keep full access
-    users.updateMany({ role: { $exists: false } }, { $set: { role: 'admin' } }),
-    // "monitor" was renamed "operator" (and lost the settings)
-    users.updateMany({ role: 'monitor' as never }, { $set: { role: 'operator' } }),
+    // "role" was renamed "profile" (the roles are now the ones of the hub); accounts created before roles existed keep
+    // full access, "monitor" was renamed "operator" (and lost the settings)
+    users.updateMany({ profile: { $exists: false } }, [
+      { $set: { profile: { $cond: [{ $eq: ['$role', 'monitor'] }, 'operator', { $ifNull: ['$role', 'admin'] }] } } },
+      { $unset: 'role' },
+    ]),
     // the history of the snapshots was plain dates before it carried their verification
     backups.updateMany({ 'times.0': { $type: 'number' } } as never, [
       { $set: { times: { $map: { input: '$times', in: { $cond: [{ $isNumber: '$$this' }, { t: '$$this', verify: null }, '$$this'] } } } } },

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
 import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, normDatabase, pbsServer, runError, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
-import { authorize } from '../src/roles.js';
+import { authorize } from '../src/profiles.js';
 import type { BackupDoc, BackupJobDoc, DatabaseDump, PbsSettings } from '../src/types.js';
 
 const input = (o: Partial<JobInput> = {}): JobInput => ({

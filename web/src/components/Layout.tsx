@@ -5,7 +5,7 @@ import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
 import { Activity, Container, DatabaseBackup, Globe, History, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
-import { ROLE_LABELS, useMe } from '../lib/auth';
+import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { HostQuickSwitch } from './HostQuickSwitch';
@@ -111,12 +111,12 @@ function Sidebar({ onNavigate, onPassword, onLogout, collapsed, onToggle }: { on
         </div>
       )}
       <div className={clsx('flex flex-col gap-2 border-t border-line pt-3', !me.canAccounts && 'mt-auto')}>
-        <div className={clsx('flex min-w-0 items-start gap-2 px-3 text-zinc-300', collapsed && 'justify-center px-0')} title={collapsed ? `${me.displayName || me.username} — ${ROLE_LABELS[me.role]}` : ROLE_LABELS[me.role]}>
+        <div className={clsx('flex min-w-0 items-start gap-2 px-3 text-zinc-300', collapsed && 'justify-center px-0')} title={collapsed ? `${me.displayName || me.username} — ${PROFILE_LABELS[me.profile]}` : PROFILE_LABELS[me.profile]}>
           <User className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
           {!collapsed && (
             <span className="min-w-0">
               <span className="block truncate text-sm">{me.displayName || me.username}</span>
-              <span className="block truncate text-xs text-muted">{ROLE_LABELS[me.role]}</span>
+              <span className="block truncate text-xs text-muted">{PROFILE_LABELS[me.profile]}</span>
             </span>
           )}
         </div>

@@ -1,12 +1,12 @@
 import type { UserDoc } from './types.js';
 
-// What each role may call, decided on the matched route pattern (see isPublic in auth.ts).
+// What each profile may call, decided on the matched route pattern (see isPublic in auth.ts).
 // Anything not explicitly allowed is refused.
 //   admin     everything
 //   operator  reads + runs jobs (updates, cleanup, reboot, lock, agent updates; not shutdown: checked on the job route) + standardisation of a host; no hosts, settings or accounts
 //   viewer    reads only
 //   superadmin  accounts only: list, create, reset passwords (first install and recovery)
-export function authorize(role: UserDoc['role'], method: string, route: string) {
+export function authorize(profile: UserDoc['profile'], method: string, route: string) {
   const read = method === 'GET' || method === 'HEAD';
   const accounts = route === '/api/users' || route.startsWith('/api/users/');
   // agent settings only expose the distributed agent version (shown in the header)
@@ -14,7 +14,7 @@ export function authorize(role: UserDoc['role'], method: string, route: string) 
   const ownPassword = method === 'POST' && route === '/api/account/password';
   // container logs and compose files may hold secrets: not for read-only accounts
   const stackDetails = route === '/api/hosts/:id/stacks/:stack/logs' || route === '/api/hosts/:id/stacks/:stack/compose';
-  switch (role) {
+  switch (profile) {
     case 'admin':
       return true;
     case 'operator':

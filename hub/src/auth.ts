@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 import { hashPassword, randomToken, sha256, verifyPassword } from './crypto.js';
 import { apiKeys, sessions, users } from './db.js';
-import { allowedBeforePasswordChange, authorize } from './roles.js';
+import { allowedBeforePasswordChange, authorize } from './profiles.js';
 import { SUPERADMIN, type UserDoc } from './types.js';
 
 const COOKIE = 'hm_session';
@@ -41,7 +41,7 @@ const SUPERADMIN_SESSION_MS = 15 * 60_000;
 
 async function startSession(reply: FastifyReply, user: UserDoc) {
   const token = randomToken();
-  const ttl = user.role === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionDays * 24 * 3600 * 1000;
+  const ttl = user.profile === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionDays * 24 * 3600 * 1000;
   const expiresAt = new Date(Date.now() + ttl);
   await sessions.insertOne({ _id: sha256(token), userId: user._id, expiresAt });
   reply.setCookie(COOKIE, token, {
@@ -66,7 +66,7 @@ async function userFromApiKey(req: FastifyRequest) {
   if (!match) return undefined;
   const key = await apiKeys.findOneAndUpdate({ hash: sha256(match[1]) }, { $set: { lastUsedAt: new Date() } });
   if (!key) return null;
-  return users.findOne({ _id: key.userId, role: { $ne: SUPERADMIN } });
+  return users.findOne({ _id: key.userId, profile: { $ne: SUPERADMIN } });
 }
 
 async function userFromRequest(req: FastifyRequest) {
@@ -97,7 +97,7 @@ function me(user: UserDoc) {
   return {
     username: user.username,
     displayName: user.displayName ?? '',
-    role: user.role,
+    profile: user.profile,
     mustChangePassword: !!user.mustChangePassword,
     // optional features of the hub (environment variables)
     features: { standardisation: config.featureStandardisation },
@@ -107,12 +107,12 @@ function me(user: UserDoc) {
 
 async function checkPassword(user: UserDoc, password: string) {
   if (!user.passwordHash || !password) return false;
-  if (user.role === SUPERADMIN && !(user.passwordExpiresAt && user.passwordExpiresAt > new Date())) return false;
+  if (user.profile === SUPERADMIN && !(user.passwordExpiresAt && user.passwordExpiresAt > new Date())) return false;
   return verifyPassword(password, user.passwordHash);
 }
 
 async function consumeSuperadminPassword() {
-  const admin = await users.findOne({ role: SUPERADMIN });
+  const admin = await users.findOne({ profile: SUPERADMIN });
   if (!admin) return;
   await users.updateOne({ _id: admin._id }, { $set: { passwordHash: null }, $unset: { passwordExpiresAt: '' } });
   await sessions.deleteMany({ userId: admin._id });
@@ -132,14 +132,14 @@ export function registerAuth(app: FastifyInstance) {
     if (byKey === undefined && user.mustChangePassword && !allowedBeforePasswordChange(req.method, route)) {
       return reply.code(403).send({ error: 'password_change_required' });
     }
-    if (!authorize(user.role, req.method, route)) return reply.code(403).send({ error: 'forbidden' });
+    if (!authorize(user.profile, req.method, route)) return reply.code(403).send({ error: 'forbidden' });
     req.user = user;
   });
 
   app.get('/api/auth/status', async (req) => {
     const user = await userFromRequest(req);
     // fresh install: log in as superadmin with the password printed in the hub logs
-    const noAccounts = !user && (await users.countDocuments({ role: { $ne: SUPERADMIN } })) === 0;
+    const noAccounts = !user && (await users.countDocuments({ profile: { $ne: SUPERADMIN } })) === 0;
     return { noAccounts, cookieSecure: config.cookieSecure, user: user ? me(user) : null };
   });
 

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Pencil, Plus, Trash2, TriangleAlert, Users } from 'lucide-react';
-import { api, type Account, type AccountSecret, type ApiKey, type Role } from '../lib/api';
-import { ROLE_LABELS, useMe } from '../lib/auth';
+import { api, type Account, type AccountSecret, type ApiKey, type Profile } from '../lib/api';
+import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, ConfirmModal, CopyField, Modal, ResponsiveList, Spinner } from '../components/ui';
 
-const ROLES: { value: Role; hint: string }[] = [
+const PROFILES: { value: Profile; hint: string }[] = [
   { value: 'admin', hint: 'tout : hôtes, paramètres, comptes' },
   { value: 'operator', hint: 'lance les vérifications, mises à jour, nettoyages et redémarrages' },
   { value: 'viewer', hint: 'lecture seule' },
@@ -35,16 +35,16 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-function RolePicker({ value, onChange }: { value: Role; onChange: (r: Role) => void }) {
+function ProfilePicker({ value, onChange }: { value: Profile; onChange: (p: Profile) => void }) {
   return (
     <div className="grid gap-2 sm:grid-cols-3">
-      {ROLES.map((r) => (
+      {PROFILES.map((r) => (
         <label
           key={r.value}
           className={`cursor-pointer rounded-md border p-3 text-sm transition-colors ${value === r.value ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-line hover:border-zinc-600'}`}
         >
-          <input type="radio" name="role" className="sr-only" checked={value === r.value} onChange={() => onChange(r.value)} />
-          <div className="font-medium text-zinc-100">{ROLE_LABELS[r.value]}</div>
+          <input type="radio" name="profile" className="sr-only" checked={value === r.value} onChange={() => onChange(r.value)} />
+          <div className="font-medium text-zinc-100">{PROFILE_LABELS[r.value]}</div>
           <div className="mt-0.5 text-xs text-muted">{r.hint}</div>
         </label>
       ))}
@@ -53,7 +53,7 @@ function RolePicker({ value, onChange }: { value: Role; onChange: (r: Role) => v
 }
 
 // API keys of an account: one per consumer (Homepage, a script…), each revoked on its own.
-// They carry the rights of the account's role. A new key is shown once, here.
+// They carry the rights of the account's profile. A new key is shown once, here.
 function ApiKeysSection({ account }: { account: Account }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -83,7 +83,7 @@ function ApiKeysSection({ account }: { account: Account }) {
   return (
     <Section
       title="Clés d'API"
-      hint="Accès sans mot de passe, en-tête « Authorization: Bearer <clé> », avec les droits du rôle. Une clé par service."
+      hint="Accès sans mot de passe, en-tête « Authorization: Bearer <clé> », avec les droits du profil. Une clé par service."
     >
       {issued && (
         <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
@@ -183,13 +183,13 @@ function AccountModal({ accountId, onClose, onCreated }: {
   const account = accountId ? data?.find((a) => a.id === accountId) ?? null : null;
   const [username, setUsername] = useState(account?.username ?? '');
   const [displayName, setDisplayName] = useState(account?.displayName ?? '');
-  const [role, setRole] = useState<Role>(account?.role ?? 'viewer');
+  const [profile, setProfile] = useState<Profile>(account?.profile ?? 'viewer');
   const [noPassword, setNoPassword] = useState(false);
   const save = useMutation({
     mutationFn: async () =>
       account
-        ? (await api.updateUser(account.id, { username, displayName, role }), null)
-        : api.createUser(username, displayName, role, noPassword),
+        ? (await api.updateUser(account.id, { username, displayName, profile }), null)
+        : api.createUser(username, displayName, profile, noPassword),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['users'] });
       // own username / name may have changed
@@ -232,8 +232,8 @@ function AccountModal({ accountId, onClose, onCreated }: {
               </label>
             </div>
           </Section>
-          <Section title="Rôle">
-            <RolePicker value={role} onChange={setRole} />
+          <Section title="Profil">
+            <ProfilePicker value={profile} onChange={setProfile} />
           </Section>
           {!editing && (
             <Section title="Mot de passe">
@@ -342,7 +342,7 @@ export function Accounts() {
                     </div>
                     {a.displayName && <div className="break-all font-mono text-xs text-muted">{a.username}</div>}
                   </div>
-                  <Badge tone={a.role === 'admin' ? 'warn' : a.role === 'operator' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge>
+                  <Badge tone={a.profile === 'admin' ? 'warn' : a.profile === 'operator' ? 'info' : 'neutral'}>{PROFILE_LABELS[a.profile]}</Badge>
                 </div>
                 <div className="space-y-2 text-xs">
                   <div>
@@ -399,7 +399,7 @@ export function Accounts() {
             <thead className="border-b border-line">
               <tr className="text-left">
                 <th className="th">Compte</th>
-                <th className="th">Rôle</th>
+                <th className="th">Profil</th>
                 <th className="th">Mot de passe</th>
                 <th className="th">Clés d'API</th>
                 <th className="th">Dernière connexion</th>
@@ -417,7 +417,7 @@ export function Accounts() {
                     </div>
                     {a.displayName && <div className="font-mono text-xs text-muted">{a.username}</div>}
                   </td>
-                  <td className="td"><Badge tone={a.role === 'admin' ? 'warn' : a.role === 'operator' ? 'info' : 'neutral'}>{ROLE_LABELS[a.role]}</Badge></td>
+                  <td className="td"><Badge tone={a.profile === 'admin' ? 'warn' : a.profile === 'operator' ? 'info' : 'neutral'}>{PROFILE_LABELS[a.profile]}</Badge></td>
                   <td className="td text-xs">
                     {issued[a.id] ? (
                       <div className="max-w-xs space-y-1.5">
