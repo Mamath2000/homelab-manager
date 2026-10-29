@@ -394,7 +394,7 @@ export function OffsiteCell({ g }: { g: BackupGroup }) {
 // daily series of the secondary. One snapshot per run, the last verified one (hub TRANSFER_LAST).
 export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGroup | undefined; remote: BackupsView['offsite']; value: OffsiteForm; onChange: (f: OffsiteForm) => void }) {
   const field = 'mb-1.5 block text-xs font-medium text-muted';
-  if (!remote) return <p className="text-sm text-muted">Aucun PBS de secours connecté (Paramètres › Sauvegardes).</p>;
+  if (!remote) return <p className="text-sm text-muted">Aucun PBS hors site connecté (Paramètres › Rôles).</p>;
   const why = !g ? 'sauvegarde pas encore écrite sur le PBS' : offsiteNotCopiable(g);
   if (why || !g) return <p className="text-sm text-muted">Copie impossible pour l’instant : {why}. Elle se règle une fois la première sauvegarde faite.</p>;
   const set = (patch: Partial<OffsiteForm>) => onChange({ ...value, ...patch });
@@ -415,7 +415,7 @@ export function OffsiteSettingsTab({ g, remote, value, onChange }: { g: BackupGr
       {value.enabled ? (
         <div className="text-xs text-muted">
           <span className={field}>Quand</span>
-          L’agent du PBS de secours lance les copies {seriesRule(remote.series)} (Paramètres › Sauvegardes). Cette sauvegarde est copiée avec les autres de{' '}
+          L’agent du PBS hors site lance les copies {seriesRule(remote.series)} (heure réglée dans sa fenêtre, Paramètres › Rôles). Cette sauvegarde est copiée avec les autres de{' '}
           <span className="font-mono">{g.store} › {g.ns || 'racine'}</span> (un job de copie par namespace).
         </div>
       ) : (

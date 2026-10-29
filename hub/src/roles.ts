@@ -1,11 +1,11 @@
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { hosts, probes, roles, settings } from './db.js';
-import type { CarrierKind, HostDoc, LegacyHostRole, RoleDoc, RoleType } from './types.js';
+import type { CarrierKind, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
 
 export type RoleOf<T extends RoleType> = Extract<RoleDoc, { type: T }>;
 
 // Roles of the hub: what the hub can do through something of the homelab (an MQTT broker the probes listen to, the
-// reporting of a Proxmox VE cluster; later the PBS of the backups…). The administrator declares them in the settings of
+// reporting of a Proxmox VE cluster, the PBS of the backups and the one that copies them). The administrator declares them in the settings of
 // the hub, each carried by a host; never an agent alone: the agents report candidates (agent/roles.go). Without a
 // role, what consumes it is off.
 
@@ -49,6 +49,24 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     // its guests and the groups it attaches go with it
     uses: async () => [],
   },
+  // kept in the settings of the backups, declared and disconnected through routes/backups.ts and routes/offsite.ts (the
+  // disconnection of the main PBS also disconnects the secondary one, its window says so)
+  'pbs-primary': {
+    label: 'PBS principal',
+    carriers: ['host'],
+    single: true,
+    carrierError: (host) => (host.capabilities?.includes('pbs') ? null : "cet hôte n'est pas un Proxmox Backup Server"),
+    same: () => true,
+    uses: async () => [],
+  },
+  'pbs-offsite': {
+    label: 'PBS hors site',
+    carriers: ['host'],
+    single: true,
+    carrierError: (host) => (host.capabilities?.includes('pbs') ? null : "cet hôte n'est pas un Proxmox Backup Server"),
+    same: () => true,
+    uses: async () => [],
+  },
 };
 
 // The definition of the type of a role, for code that handles any role.
@@ -58,8 +76,27 @@ export const defOf = (type: RoleType) => ROLE_DEFS[type] as unknown as RoleTypeD
 let cache: RoleDoc[] = [];
 
 export async function loadRoles() {
-  cache = await roles.find().sort({ name: 1 }).toArray();
+  const [stored, kept] = await Promise.all([roles.find().sort({ name: 1 }).toArray(), settingsRoles()]);
+  cache = [...kept, ...stored];
   return cache;
+}
+
+const carrierOf = (agent?: { hostId: string }) => (agent?.hostId && ObjectId.isValid(agent.hostId) ? { kind: 'host' as const, id: new ObjectId(agent.hostId) } : null);
+
+// The PBS of the backups (settings pbs and pbs-remote), roles once connected: an address and the token of the hub,
+// made by the agent of their host.
+export function pbsRoles(pbs: PbsSettings | null, remote: PbsRemoteSettings | null): RoleDoc[] {
+  const out: RoleDoc[] = [];
+  const main = carrierOf(pbs?.agent);
+  if (pbs && main && pbs.url && pbs.tokenId && pbs.tokenSecret) out.push({ _id: 'pbs-primary', type: 'pbs-primary', name: 'PBS principal', carrier: main, config: pbs, createdAt: new Date(0) });
+  const copy = carrierOf(remote?.agent);
+  if (remote && copy && remote.url && remote.tokenId && remote.tokenSecret) out.push({ _id: 'pbs-offsite', type: 'pbs-offsite', name: 'PBS hors site', carrier: copy, config: remote, createdAt: new Date(0) });
+  return out;
+}
+
+async function settingsRoles() {
+  const [pbs, remote] = await Promise.all([settings.findOne({ _id: 'pbs' }), settings.findOne({ _id: 'pbs-remote' })]);
+  return pbsRoles(pbs as PbsSettings | null, remote as PbsRemoteSettings | null);
 }
 
 export const allRoles = () => cache;
@@ -94,7 +131,7 @@ export function newRoleId(name: string, taken: (id: string) => boolean) {
 // --- migration: the roles were stored on their host (hosts[].roles) before they were the hub's ----------------------
 
 // Same id: the probes name their broker by it.
-export function fromLegacy(hostId: ObjectId, r: LegacyHostRole, createdAt: Date): RoleDoc {
+export function fromLegacy(hostId: ObjectId, r: LegacyHostRole, createdAt: Date): MqttBrokerRole {
   return {
     _id: r.id,
     type: 'mqtt-broker',

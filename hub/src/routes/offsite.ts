@@ -129,7 +129,7 @@ export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
   const why = notCopiable(b);
   if (why) return { ok: false, error: why };
   const r = await loadRemoteSettings();
-  if (!remoteReady(r)) return { ok: false, error: 'PBS de secours non connecté (Paramètres › Sauvegardes)' };
+  if (!remoteReady(r)) return { ok: false, error: 'PBS hors site non connecté (Paramètres › Rôles)' };
   const others = await backups.find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1 } }).toArray();
   const twin = sameGroupElsewhere(b, others);
   if (twin) return { ok: false, error: `${b.ns || 'racine'}/${b.type}/${b.backupId} est déjà copié depuis le datastore ${twin.store} : une seule copie par groupe` };
@@ -227,6 +227,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       }
       // the remote entry belongs to the token: written again with the next one
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agent, store, tokenId: t.tokenId, tokenSecret: t.tokenSecret }, $unset: { remoteHash: '' } }, { upsert: true });
+      publish('backups', {});
       req.log.info({ tokenId: t.tokenId, store, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'secondary PBS token set by the agent');
       pollOffsite(req.log).catch(() => {});
       return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
@@ -239,7 +240,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     { schema: { body: { type: 'object', required: ['tokenId'], additionalProperties: false, properties: { tokenId: { type: 'string', maxLength: 128 } } } } },
     async (req, reply) => {
       const main = await loadPbsSettings();
-      if (!main.agent) return reply.code(409).send({ error: 'PBS principal non relié à son agent (Paramètres › Sauvegardes)' });
+      if (!main.agent) return reply.code(409).send({ error: 'PBS principal non relié à son agent (Paramètres › Rôles)' });
       const current = await loadRemoteSettings();
       let t;
       try {
@@ -249,6 +250,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
         throw err;
       }
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { readerTokenId: t.tokenId, readerTokenSecret: t.tokenSecret } }, { upsert: true });
+      publish('backups', {});
       req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'reader token of the main PBS set by the agent');
       pollOffsite(req.log).catch(() => {});
       return { settings: await remoteDto(await loadRemoteSettings()), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };

@@ -208,8 +208,8 @@ export function Backups() {
       {!shown ? (
         <div className="panel">
           <Empty icon={DatabaseBackup} title="Aucune sauvegarde suivie">
-            Connecte ton Proxmox Backup Server
-            {canSettings ? <> dans <Link to="/settings?tab=backups" className="text-emerald-400 hover:underline">Paramètres › Sauvegardes</Link></> : ' (Paramètres › Sauvegardes, administrateur)'}.
+            Déclare ton Proxmox Backup Server comme rôle PBS principal
+            {canSettings ? <> dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link></> : ' (Paramètres › Rôles, administrateur)'}.
           </Empty>
         </div>
       ) : (

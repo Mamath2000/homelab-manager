@@ -1323,7 +1323,7 @@ export interface EquipmentInput {
 // A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
 // hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
 // role in use is not deleted (absent from the roles of a host).
-export type HubRoleType = 'mqtt-broker' | 'pve-reporting';
+export type HubRoleType = 'mqtt-broker' | 'pve-reporting' | 'pbs-primary' | 'pbs-offsite';
 interface HubRoleBase {
   id: string;
   name: string;
@@ -1337,7 +1337,10 @@ interface HubRoleBase {
 }
 export type HubRole =
   | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string } })
-  | (HubRoleBase & { type: 'pve-reporting'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } });
+  | (HubRoleBase & { type: 'pve-reporting'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
+  // kept in the settings of the backups (pbsSettings, pbsRemoteSettings), roles once connected
+  | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
+  | (HubRoleBase & { type: 'pbs-offsite'; config: { url: string; tailscaleUrl: string; store: string; startTime: string } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-reporting' }>;

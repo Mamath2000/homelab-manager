@@ -1109,7 +1109,7 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting', 'pbs-primary', 'pbs-offsite'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
@@ -1154,7 +1154,29 @@ export interface PveReportingRole {
   createdAt: Date;
 }
 
-export type RoleDoc = MqttBrokerRole | PveReportingRole;
+// pbs-primary / pbs-offsite: the main PBS of the backups and the secondary one that copies them. Kept in the settings of
+// the backups (pbs, pbs-remote), shown as roles once connected (settingsRoles in roles.ts): never in the roles collection.
+export interface PbsPrimaryRole {
+  _id: 'pbs-primary';
+  type: 'pbs-primary';
+  name: string;
+  carrier: RoleCarrier;
+  config: PbsSettings;
+  createdAt: Date;
+}
+
+export interface PbsOffsiteRole {
+  _id: 'pbs-offsite';
+  type: 'pbs-offsite';
+  name: string;
+  carrier: RoleCarrier;
+  config: PbsRemoteSettings;
+  createdAt: Date;
+}
+
+export type RoleDoc = MqttBrokerRole | PveReportingRole | PbsPrimaryRole | PbsOffsiteRole;
+// the ones of the roles collection
+export type StoredRoleDoc = MqttBrokerRole | PveReportingRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {

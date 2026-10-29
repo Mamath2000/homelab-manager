@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import Fastify from 'fastify';
 import { ObjectId } from 'mongodb';
 import { authorize } from '../src/profiles.js';
-import { fromLegacy, newRoleId, ROLE_DEFS, roleConflict } from '../src/roles.js';
+import { fromLegacy, newRoleId, pbsRoles, ROLE_DEFS, roleConflict } from '../src/roles.js';
 import { clusterOf, roleOf } from '../src/pve.js';
 import { roleView } from '../src/roleView.js';
 import { registerRoleRoutes } from '../src/routes/roles.js';
 import { matchHaBroker, registerSettingsRoutes } from '../src/routes/settings.js';
 import type { HomeAssistantBridge } from '../src/homeassistant/bridge.js';
-import type { MqttBroker, MqttBrokerConfig, RoleDoc } from '../src/types.js';
+import type { MqttBroker, MqttBrokerConfig, PbsRemoteSettings, PbsSettings, RoleDoc } from '../src/types.js';
 
 const broker = (name: string, hostId: ObjectId, port = 1883): RoleDoc => ({
   _id: newRoleId(name, () => false),
@@ -125,4 +125,25 @@ test('roles: a Proxmox VE cluster is a pve-reporting role carried by its node, i
   assert.equal(v.account, 'homelab@pve!monitor');
   assert.equal(v.summary, '12 VM / CT');
   assert.equal(roleView({ ...r, config: { ...r.config, polledAt: at, pollError: 'refusé' } }, null).status?.state, 'error');
+});
+
+test('roles: the PBS of the backups are roles once connected, carried by the host of their agent, never a secret shown', () => {
+  const node = new ObjectId();
+  const copy = new ObjectId();
+  const pbs = { _id: 'pbs', url: 'https://pbs:8007', fingerprint: '', tokenId: 'homelab@pbs!monitor', tokenSecret: 'SECRET-MAIN', mountRoot: '/srv/pbs-restore', agent: { hostId: node.toHexString(), mode: 'native' }, datastores: [{ store: 'main', total: 1, used: 0, avail: 1 }] } as PbsSettings;
+  const remote = { _id: 'pbs-remote', url: 'https://copy:8007', fingerprint: '', store: 'copy', tokenId: 'hub@pbs!copy', tokenSecret: 'SECRET-COPY', readerTokenId: 'r@pbs!r', readerTokenSecret: 'SECRET-READER', agent: { hostId: copy.toHexString(), mode: 'container', container: 'pbs' } } as PbsRemoteSettings;
+  const list = pbsRoles(pbs, remote);
+  assert.deepEqual(list.map((r) => [r._id, r.carrier.id.toHexString()]), [['pbs-primary', node.toHexString()], ['pbs-offsite', copy.toHexString()]]);
+  // typed but not connected (no token yet), or without its agent: not a role
+  assert.equal(pbsRoles({ ...pbs, tokenSecret: '' }, null).length, 0);
+  assert.equal(pbsRoles({ ...pbs, agent: undefined }, null).length, 0);
+  assert.equal(pbsRoles(null, { ...remote, tokenSecret: '' }).length, 0);
+  for (const r of list) {
+    const v = JSON.stringify(roleView(r, null));
+    assert.ok(!v.includes('SECRET'), v);
+  }
+  assert.equal(roleView(list[0], null).summary, '1 datastore');
+  // one of each in the homelab
+  assert.equal(roleConflict(list, 'pbs-primary', 'PBS principal', node, list[0].config), 'un rôle PBS principal est déjà déclaré');
+  assert.equal(ROLE_DEFS['pbs-primary'].carrierError({ capabilities: ['pbs'] }, pbs), null);
 });

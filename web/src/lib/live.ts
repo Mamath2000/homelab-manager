@@ -71,6 +71,10 @@ export function useLiveEvents(enabled: boolean) {
       }
       qc.invalidateQueries({ queryKey: keys.alerts });
     });
+    // a PBS connected, disconnected or polled: the roles of the hub (Paramètres › Rôles)
+    es.addEventListener('roles', () => {
+      qc.invalidateQueries({ queryKey: keys.roles });
+    });
     es.addEventListener('probe.config', () => {
       qc.invalidateQueries({ queryKey: ['probes'] });
       qc.invalidateQueries({ queryKey: keys.equipments });

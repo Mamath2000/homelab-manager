@@ -15,6 +15,7 @@ import { registerJobRoutes } from './routes/jobs.js';
 import { registerSiteRoutes } from './routes/sites.js';
 import { registerProbeRoutes } from './routes/probes.js';
 import { registerRoleRoutes } from './routes/roles.js';
+import { watchSettingsRoles } from './roleEvents.js';
 import { loadRoles, migrateHostRoles } from './roles.js';
 import { registerEquipmentRoutes } from './routes/equipments.js';
 import { registerSetupRoutes } from './routes/setup.js';
@@ -111,6 +112,7 @@ const stopMountReconciler = startMountReconciler(app.log);
 const stopPvePoller = startPvePoller(app.log);
 const stopProbes = startProbes(app.log);
 await bridge.apply(await loadHaBridgeSettings());
+watchSettingsRoles();
 // the broker role of the bridge changed (edited, moved, its host got other IPs): apply does nothing when the address and
 // account are the same
 subscribe((event) => {

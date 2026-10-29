@@ -1,5 +1,5 @@
 import { Archive, ArchiveRestore, BatteryCharging, Cloud, Container, Database, HardDrive, Home, Layers, Radio, Server, type LucideIcon } from 'lucide-react';
-import type { Host, HostBackupJobs } from './api';
+import type { Host, HostBackupJobs, HubRoleType } from './api';
 import { backupClient, databaseKindLabel } from './backups';
 import { roleTypeLabel } from './roles';
 
@@ -26,6 +26,9 @@ const tint = {
   cyan: 'bg-cyan-500/15 text-cyan-300 ring-cyan-500/30',
 };
 
+const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-reporting': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive };
+const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-reporting': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky };
+
 // jobs: backup view of the host (engines found by its agent, Nextcloud AIO instance), undefined while not loaded
 export function hostSkills(h: Host, jobs?: Pick<HostBackupJobs, 'databases' | 'nextcloudPlugin' | 'nextcloud'>): HostSkill[] {
   const databases = jobs?.databases ?? null;
@@ -36,7 +39,7 @@ export function hostSkills(h: Host, jobs?: Pick<HostBackupJobs, 'databases' | 'n
     caps.includes('pbs') && { label: 'PBS', title: 'Serveur Proxmox Backup Server', icon: Archive, cls: tint.sky },
     client.mode && { label: 'Client PBS', title: `Client de sauvegarde PBS installé (${client.mode})`, icon: ArchiveRestore, cls: tint.teal },
     // roles of the hub it carries
-    ...h.roles.map((r) => ({ label: roleTypeLabel(r.type), title: `${r.name} · ${r.url || (r.type === 'mqtt-broker' ? `port ${r.config.port}` : '')}`, icon: r.type === 'mqtt-broker' ? Radio : Server, cls: r.type === 'mqtt-broker' ? tint.violet : tint.orange })),
+    ...h.roles.map((r) => ({ label: roleTypeLabel(r.type), title: `${r.name} · ${r.url || (r.type === 'mqtt-broker' ? `port ${r.config.port}` : '')}`, icon: roleIcon[r.type], cls: roleTint[r.type] })),
     ...(databases ?? []).map((k) => ({ label: databaseKindLabel[k], title: `Moteur ${databaseKindLabel[k]} détecté par l’agent`, icon: Database, cls: tint.rose })),
     jobs?.nextcloudPlugin && jobs.nextcloud && { label: 'Nextcloud AIO', title: 'Instance Nextcloud AIO détectée (plugin de sauvegarde activé)', icon: Cloud, cls: tint.indigo },
     h.docker && { label: 'Docker', title: `${h.docker.engine} · Compose ${h.docker.compose}`, icon: Container, cls: tint.blue },

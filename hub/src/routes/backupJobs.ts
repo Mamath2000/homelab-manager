@@ -113,7 +113,7 @@ function jobDoc(hostId: ObjectId, body: ReturnType<typeof normInput> & { ns: str
 // its own), else the default one. Nothing to do when the host has one.
 export async function restoreCredential(host: HostDoc, pbs: PbsSettings) {
   if (host.pbsCredential) return;
-  if (!pbs.agent) throw new PbsAgentError("agent du PBS non configuré : relier le PBS à son agent dans Paramètres › Sauvegardes");
+  if (!pbs.agent) throw new PbsAgentError("PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)");
   const t = await ensurePbsToken(pbs.agent, host.backupCache?.tokenId ?? defaultHostTokenId(host.name), PBS_TOKEN_ACLS.host, null);
   await hosts.updateOne({ _id: host._id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
 }
@@ -195,7 +195,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const pbs = await loadPbsSettings();
-      if (!pbs.agent) return reply.code(409).send({ error: "agent du PBS non configuré : relier le PBS à son agent dans Paramètres › Sauvegardes" });
+      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)" });
       let t;
       try {
         t = await ensurePbsToken(pbs.agent, req.body.tokenId.trim(), PBS_TOKEN_ACLS.host, host.pbsCredential);
@@ -218,7 +218,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     if (!host) return reply.code(404).send({ error: 'host not found' });
     if (host.pbsCredential) {
       const pbs = await loadPbsSettings();
-      if (!pbs.agent) return reply.code(409).send({ error: "agent du PBS non configuré : relier le PBS à son agent dans Paramètres › Sauvegardes" });
+      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)" });
       try {
         await deletePbsToken(pbs.agent, host.pbsCredential.tokenId);
       } catch (err) {

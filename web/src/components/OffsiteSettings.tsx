@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plug, Save, ServerCog, Unplug } from 'lucide-react';
+import { Link } from 'react-router';
+import { Plug, Save, ServerCog } from 'lucide-react';
 import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
 import { formatBytes, seriesRule } from '../lib/backups';
 import { dateTime } from '../lib/format';
@@ -10,13 +11,12 @@ import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDial
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
-import { PbsDisconnectModal } from './PbsDisconnect';
 import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
 
 const DEFAULT_HUB_TOKEN = 'homelab@pbs!hub';
 const DEFAULT_READER_TOKEN = 'homelab@pbs!reader';
 
-function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: boolean; onClose: () => void }) {
+export function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: main } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
@@ -256,18 +256,16 @@ function SeriesStatus({ data }: { data: PbsRemoteSettings }) {
   );
 }
 
-// Secondary PBS: copy of chosen backups (Paramètres > Sauvegardes).
+// Paramètres › Sauvegardes: state of the secondary PBS, a role of the hub (PBS hors site) declared in Paramètres › Rôles.
 export function OffsiteSettings() {
   const { data } = useQuery({ queryKey: ['settings', 'pbs-remote'], queryFn: api.pbsRemoteSettings });
-  const { data: main } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
-  const [editing, setEditing] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
   const usage = data?.usage;
   return (
-    <Panel title="PBS de secours (copie déportée)" icon={ServerCog} actions={data && <Button size="sm" icon={Pencil} disabled={!main?.connected && !data.url} title={!main?.connected && !data.url ? 'Connecter d’abord le PBS principal' : undefined} onClick={() => setEditing(true)}>{data.url ? 'Modifier' : 'Configurer'}</Button>}>
+    <Panel title="PBS de secours (copie déportée)" icon={ServerCog}>
       <p className="mb-4 text-sm text-muted">
         Un second Proxmox Backup Server, distant, qui tire du PBS principal les sauvegardes choisies une à une. Son agent lance les copies chaque jour ; le hub
-        relève leur état toutes les 15 minutes.
+        relève leur état toutes les 15 minutes. Il se déclare, se modifie et se déconnecte comme rôle <b className="text-zinc-300">PBS hors site</b> dans{' '}
+        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
       </p>
       {!data ? (
         <div className="flex justify-center p-6"><Spinner /></div>
@@ -283,15 +281,10 @@ export function OffsiteSettings() {
             polledAt={data.polledAt}
             pollError={data.pollError}
             details={usage ? `${formatBytes(usage.avail)} libres sur ${formatBytes(usage.total)}` : data.tokenId ? `jeton ${data.tokenId}` : 'aucun jeton'}
-            onRemove={() => setDisconnecting(true)}
-            removeTitle="Déconnecter"
-            removeIcon={Unplug}
           />
         </ul>
       )}
       {data?.connected && <SeriesStatus data={data} />}
-      {data && editing && <RemoteModal data={data} open onClose={() => setEditing(false)} />}
-      {data && disconnecting && <PbsDisconnectModal open remote={data} onClose={() => setDisconnecting(false)} />}
     </Panel>
   );
 }

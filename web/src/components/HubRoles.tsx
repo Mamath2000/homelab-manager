@@ -5,11 +5,14 @@ import { Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Host, type HubRole, type HubRoleType, type MqttHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useHosts, useRoles } from '../lib/queries';
-import { ROLE_TYPES, roleStatus, roleTypeLabel } from '../lib/roles';
+import { ROLE_TYPES, SINGLE_ROLES, roleStatus, roleTypeLabel } from '../lib/roles';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
+import { PbsModal } from './BackupSettings';
+import { RemoteModal } from './OffsiteSettings';
+import { PbsDisconnectModal } from './PbsDisconnect';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
@@ -252,23 +255,33 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   );
 }
 
+// Why a role of this type cannot be declared now (null: it can).
+function notNow(t: HubRoleType, roles: HubRole[]) {
+  if (SINGLE_ROLES.includes(t) && roles.some((r) => r.type === t)) return 'déjà déclaré : un seul dans le homelab';
+  if (t === 'pbs-offsite' && !roles.some((r) => r.type === 'pbs-primary')) return 'déclarer d’abord le PBS principal';
+  return null;
+}
+
 // What is declared: the type first, then the window of that type.
-function TypePicker({ onPick, onClose }: { onPick: (t: HubRoleType) => void; onClose: () => void }) {
+function TypePicker({ roles, onPick, onClose }: { roles: HubRole[]; onPick: (t: HubRoleType) => void; onClose: () => void }) {
   return (
     <Modal open onClose={onClose} title="Déclarer un rôle">
       <div className="space-y-2">
-        {ROLE_TYPES.map((t) => (
-          <button key={t.id} type="button" className="block w-full rounded-md border border-line px-4 py-3 text-left transition hover:border-emerald-500/60 hover:bg-raised/40" onClick={() => onPick(t.id)}>
-            <div className="font-medium text-zinc-100">{t.label}</div>
-            <div className="text-xs text-muted">{t.hint}</div>
-          </button>
-        ))}
+        {ROLE_TYPES.map((t) => {
+          const why = notNow(t.id, roles);
+          return (
+            <button key={t.id} type="button" disabled={!!why} className="block w-full rounded-md border border-line px-4 py-3 text-left transition enabled:hover:border-emerald-500/60 enabled:hover:bg-raised/40 disabled:opacity-50" onClick={() => onPick(t.id)}>
+              <div className="font-medium text-zinc-100">{t.label}</div>
+              <div className="text-xs text-muted">{why ?? t.hint}</div>
+            </button>
+          );
+        })}
       </div>
     </Modal>
   );
 }
 
-type Editing = { type: 'mqtt-broker'; role: MqttHubRole | null } | { type: 'pve-reporting'; role: PveHubRole | null };
+type Editing = { type: 'mqtt-broker'; role: MqttHubRole | null } | { type: 'pve-reporting'; role: PveHubRole | null } | { type: 'pbs-primary' | 'pbs-offsite' };
 
 // Paramètres › Rôles: every role of the hub, declared, edited and removed here.
 export function RolesSettings() {
@@ -277,6 +290,8 @@ export function RolesSettings() {
   const { data: roles, isLoading, error } = useRoles();
   // the clusters as their window edits them (token, detection)
   const { data: pve } = useQuery({ queryKey: ['settings', 'pve'], queryFn: api.pveSettings });
+  const { data: pbs } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
+  const { data: remote } = useQuery({ queryKey: ['settings', 'pbs-remote'], queryFn: api.pbsRemoteSettings });
   const [picking, setPicking] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<HubRole | null>(null);
@@ -286,7 +301,7 @@ export function RolesSettings() {
     Promise.all([
       qc.invalidateQueries({ queryKey: keys.roles }),
       qc.invalidateQueries({ queryKey: keys.mqttBrokers }),
-      qc.invalidateQueries({ queryKey: ['settings', 'pve'] }),
+      qc.invalidateQueries({ queryKey: ['settings'] }),
       qc.invalidateQueries({ queryKey: ['backups'] }),
     ]);
   const remove = async () => {
@@ -308,12 +323,16 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
-  const edit = (r: HubRole) => setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : { type: r.type, role: r });
+  const edit = (r: HubRole) =>
+    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-reporting' ? { type: r.type, role: r } : { type: r.type });
+  // the PBS are disconnected by their own window (what the disconnection does, then its report)
+  const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
+  const askRemove = (r: HubRole) => (r.type === 'pbs-primary' || r.type === 'pbs-offsite' ? setDisconnecting(r.type) : setRemoving(r));
   const uses = (r: HubRole) => r.uses ?? [];
   const actions = (r: HubRole) => (
     <div className="flex shrink-0 items-center gap-1.5">
       <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => edit(r)} />
-      <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => setRemoving(r)} />
+      <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : r.type.startsWith('pbs-') ? 'Déconnecter' : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => askRemove(r)} />
     </div>
   );
   const cluster = editing?.type === 'pve-reporting' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
@@ -322,15 +341,15 @@ export function RolesSettings() {
     <Panel title="Rôles du hub" icon={Radio} bodyClassName="" actions={<Button size="sm" icon={Plus} onClick={() => setPicking(true)}>Déclarer un rôle</Button>}>
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
         Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
-        reporting d'un cluster Proxmox VE relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump. Un rôle utilisé ne peut pas être supprimé, et
-        l'hôte qui le porte non plus.
+        reporting d'un cluster Proxmox VE relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
+        PBS hors site en copie chaque jour une sélection. Un rôle utilisé ne peut pas être supprimé, et l'hôte qui le porte non plus.
       </p>
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
       ) : error ? (
         <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>
       ) : !roles?.length ? (
-        <p className="p-4 text-sm text-muted">Aucun rôle : pas de sonde MQTT, d'intégration Home Assistant ni de reporting Proxmox VE.</p>
+        <p className="p-4 text-sm text-muted">Aucun rôle : pas de sauvegarde, de sonde MQTT, d'intégration Home Assistant ni de reporting Proxmox VE.</p>
       ) : (
         <>
           <ResponsiveList mode="mobile">
@@ -384,7 +403,17 @@ export function RolesSettings() {
           </ResponsiveList>
         </>
       )}
-      {picking && <TypePicker onClose={() => setPicking(false)} onPick={(t) => (setPicking(false), setEditing(t === 'mqtt-broker' ? { type: t, role: null } : { type: t, role: null }))} />}
+      {picking && (
+        <TypePicker
+          roles={roles ?? []}
+          onClose={() => setPicking(false)}
+          onPick={(t) => (setPicking(false), setEditing(t === 'mqtt-broker' ? { type: t, role: null } : t === 'pve-reporting' ? { type: t, role: null } : { type: t }))}
+        />
+      )}
+      {editing?.type === 'pbs-primary' && pbs && <PbsModal data={pbs} open onClose={() => (setEditing(null), void refresh())} />}
+      {editing?.type === 'pbs-offsite' && remote && <RemoteModal data={remote} open onClose={() => (setEditing(null), void refresh())} />}
+      {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
+      {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-reporting' && (!editing.role || cluster) && (
         <ClusterModal
