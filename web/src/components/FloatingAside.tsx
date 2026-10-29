@@ -46,9 +46,12 @@ export function FloatingAside({ label, icon: Icon, docked, onDock, dockedClassNa
 }) {
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
+  // adjusting state during render rather than in an effect (react-hooks/set-state-in-effect)
+  const [seenKey, setSeenKey] = useState(openKey);
+  if (openKey !== seenKey) {
+    setSeenKey(openKey);
     if (openKey) setOpen(true);
-  }, [openKey]);
+  }
 
   useEffect(() => {
     if (!open || docked) return;
