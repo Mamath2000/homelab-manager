@@ -12,14 +12,8 @@ import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
 import { CheckLine, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
+import { TYPES, targetText } from '../lib/probes';
 import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, ResponsiveList, Spinner } from './ui';
-
-export const TYPES: { id: ProbeType; label: string; hint: string }[] = [
-  { id: 'mqtt', label: 'MQTT', hint: "Le payload d'un topic contient une valeur, ou un message arrive dans le délai." },
-  { id: 'ping', label: 'Ping', hint: "L'adresse répond au ping depuis le hub." },
-  { id: 'tcp', label: 'Port TCP', hint: 'Un port accepte la connexion (DNS, SSH, base de données…).' },
-  { id: 'http', label: 'HTTP(S)', hint: 'Une URL répond avec le bon code, et un mot-clé dans la réponse si demandé.' },
-];
 
 const stateMeta: Record<Probe['state'], { label: string; tone: Tone }> = {
   up: { label: 'up', tone: 'ok' },
@@ -27,15 +21,6 @@ const stateMeta: Record<Probe['state'], { label: string; tone: Tone }> = {
   // the measure is impossible (broker unreachable...): grey, the service is not judged
   unknown: { label: 'inconnu', tone: 'neutral' },
 };
-
-export function targetText(t: ProbeTarget) {
-  switch (t.type) {
-    case 'mqtt': return `${t.topic}${t.contains ? ` ≙ ${t.contains}` : ' (message reçu)'}`;
-    case 'ping': return t.host;
-    case 'tcp': return `${t.host}:${t.port}`;
-    case 'http': return `${t.url}${t.status ? ` → ${t.status}` : ''}${t.keyword ? ` ∋ ${t.keyword}` : ''}`;
-  }
-}
 
 // Type of a probe as a small coloured label, one colour per type.
 const typeTint: Record<ProbeType, string> = {

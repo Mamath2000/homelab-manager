@@ -3,10 +3,11 @@ import { AlertTriangle, Globe, Network } from 'lucide-react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { ProbeActions, ProbeTimeline, ProbeTypeLabel, StateBadge, targetText } from '../components/Probes';
+import { ProbeActions, ProbeTimeline, ProbeTypeLabel, StateBadge } from '../components/Probes';
 import { ProbesOverviewHeader, type ProbeItem, type ProbeRow } from '../components/ProbesOverviewHeader';
 import { Empty, Panel, Spinner } from '../components/ui';
 import { elapsed } from '../lib/format';
+import { targetText } from '../lib/probes';
 import { useMe } from '../lib/auth';
 import { useAllProbes, useEquipments, useHosts, useSites } from '../lib/queries';
 

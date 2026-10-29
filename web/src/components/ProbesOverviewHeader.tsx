@@ -2,7 +2,8 @@ import clsx from 'clsx';
 import { Link } from 'react-router';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import type { Probe, ProbeType } from '../lib/api';
-import { TYPES, type ProbeOwner } from './Probes';
+import { TYPES } from '../lib/probes';
+import type { ProbeOwner } from './Probes';
 
 export interface ProbeItem {
   probe: Probe;
