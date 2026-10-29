@@ -72,8 +72,7 @@ function BrokerModal({ host, role, candidate, onClose }: { host: Host; role: Hos
     setBusy('test');
     setTest(null);
     try {
-      const { name: _name, ...rest } = input();
-      const r = await api.testHostRole(host.id, { ...rest, ...(role ? { roleId: role.id } : {}) });
+      const r = await api.testHostRole(host.id, { ...input(), ...(role ? { roleId: role.id } : {}) });
       setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: shown } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
