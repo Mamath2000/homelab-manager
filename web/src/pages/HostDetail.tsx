@@ -420,6 +420,38 @@ function HostDetailPage({ id }: { id: string }) {
   // Windows: only once the agent found the backup CLI set in the options of the host (homelab#208)
   if (backupsOn && (!isWindows(host) || host.capabilities.includes('backup:cli'))) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
 
+  const hostNav = (
+    <>
+      <button
+        type="button"
+        aria-label="Hôte précédent"
+        title={currentIndex > 0 ? `Précédent : ${hostList[currentIndex - 1].name} (←)` : 'Aucun hôte précédent'}
+        disabled={currentIndex <= 0}
+        onClick={() => goToHost(hostList[currentIndex - 1].id)}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-muted md:h-auto md:w-auto md:p-1 hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        aria-label="Hôte suivant"
+        title={currentIndex >= 0 && currentIndex < hostList.length - 1 ? `Suivant : ${hostList[currentIndex + 1].name} (→)` : 'Aucun hôte suivant'}
+        disabled={currentIndex < 0 || currentIndex >= hostList.length - 1}
+        onClick={() => goToHost(hostList[currentIndex + 1].id)}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-sm text-muted md:h-auto md:w-auto md:p-1 hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </>
+  );
+  const conn = connectionMeta(host);
+  const statusBadge = (
+    <span className={clsx('inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', toneBadge[conn.tone])}>
+      <StatusDot tone={conn.tone} pulse={conn.label === 'En ligne'} />
+      {conn.label}
+    </span>
+  );
+
   return (
     <>
       {/* the system strip spans the page and stays on top while the content scrolls (below the 3.5rem bar of the layout) */}
@@ -439,13 +471,10 @@ function HostDetailPage({ id }: { id: string }) {
               </button>
             }
             status={
-              <span className={clsx('inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', toneBadge[connectionMeta(host).tone])}>
-                <StatusDot tone={connectionMeta(host).tone} pulse={connectionMeta(host).label === 'En ligne'} />
-                {connectionMeta(host).label}
-              </span>
+              <span className="hidden md:inline-flex">{statusBadge}</span>
             }
             title={
-              <span ref={hostPickerRef} className="relative inline-flex items-center gap-1">
+              <span ref={hostPickerRef} className="relative flex max-w-full items-center gap-1">
                 <button
                   type="button"
                   aria-haspopup="listbox"
@@ -454,10 +483,10 @@ function HostDetailPage({ id }: { id: string }) {
                     setHostSearch('');
                     setHostPickerOpen((open) => !open);
                   }}
-                  className="inline-flex items-center gap-1 rounded-sm text-left hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                  className="flex min-w-0 items-center gap-1 rounded-sm text-left hover:text-emerald-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
                 >
-                  {host.name}
-                  <ChevronDown className={clsx('h-4 w-4 text-muted transition-transform', hostPickerOpen && 'rotate-180')} />
+                  <span className="truncate">{host.name}</span>
+                  <ChevronDown className={clsx('h-4 w-4 shrink-0 text-muted transition-transform', hostPickerOpen && 'rotate-180')} />
                 </button>
                 {hostPickerOpen && (
                   <span role="dialog" aria-label="Sélectionner un hôte" className="absolute left-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-line bg-panel p-2 text-left shadow-xl">
@@ -495,26 +524,7 @@ function HostDetailPage({ id }: { id: string }) {
                     </span>
                   </span>
                 )}
-                <button
-                  type="button"
-                  aria-label="Hôte précédent"
-                  title={currentIndex > 0 ? `Précédent : ${hostList[currentIndex - 1].name} (←)` : 'Aucun hôte précédent'}
-                  disabled={currentIndex <= 0}
-                  onClick={() => goToHost(hostList[currentIndex - 1].id)}
-                  className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Hôte suivant"
-                  title={currentIndex >= 0 && currentIndex < hostList.length - 1 ? `Suivant : ${hostList[currentIndex + 1].name} (→)` : 'Aucun hôte suivant'}
-                  disabled={currentIndex < 0 || currentIndex >= hostList.length - 1}
-                  onClick={() => goToHost(hostList[currentIndex + 1].id)}
-                  className="rounded-sm p-1 text-muted hover:bg-raised hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+                <span className="hidden items-center gap-1 md:inline-flex">{hostNav}</span>
               </span>
             }
           >
@@ -522,6 +532,15 @@ function HostDetailPage({ id }: { id: string }) {
             {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
             {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
           </HeaderTitle>
+
+      {/* narrow screens: the bar only keeps the name, the status and the host selector move to the content */}
+      <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 md:hidden">
+        {statusBadge}
+        {hostNav}
+        {host.roaming && <Tag>Itinérant</Tag>}
+        {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
+        {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
+      </div>
 
       <div
         ref={setStripEl}

@@ -89,6 +89,18 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
 
   const [host, detected, tokens, tested] = stepStates([!!form.agent, !!form.url && !!store, saved.hasSecret && saved.hasReaderSecret, test?.level === 'ok']);
 
+  const options = (
+    <>
+      <label
+            className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2"
+            title="Chaque jour à cette heure, l’agent du PBS de secours lance les jobs de copie l’un après l’autre (un par datastore et namespace copié) ; les copies continuent quand le hub est arrêté. Seuls les snapshots vérifiés sont copiés : laisser aux sauvegardes du PBS principal le temps de finir et d’être vérifiées."
+          >
+            <span className="shrink-0">Départ des copies</span>
+            <input type="time" className="input h-10 w-full lg:h-8 lg:w-28 py-1 font-mono text-xs" value={form.startTime ?? data.startTime} onChange={(e) => set({ startTime: e.target.value })} />
+          </label>
+    </>
+  );
+
   return (
     <>
       <Modal
@@ -99,15 +111,7 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
         title="PBS de secours"
         footer={
           <>
-            <div className="mr-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-              <label
-                className="flex items-center gap-2 text-xs text-muted"
-                title="Chaque jour à cette heure, l’agent du PBS de secours lance les jobs de copie l’un après l’autre (un par datastore et namespace copié) ; les copies continuent quand le hub est arrêté. Seuls les snapshots vérifiés sont copiés : laisser aux sauvegardes du PBS principal le temps de finir et d’être vérifiées."
-              >
-                <span className="shrink-0">Départ des copies</span>
-                <input type="time" className="input h-8 w-28 py-1 font-mono text-xs" value={form.startTime ?? data.startTime} onChange={(e) => set({ startTime: e.target.value })} />
-              </label>
-            </div>
+            <div className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm lg:flex">{options}</div>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>Enregistrer</Button>
           </>
@@ -218,6 +222,8 @@ function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; open: b
             <CheckLine label="Namespaces" check={namespaces} idle={saved.store ? `dans ${saved.store}` : undefined} />
           </Step>
         </Steps>
+        {/* narrow windows: the options leave the footer (buttons only) and follow the steps */}
+        <div className="mt-3 flex flex-col gap-3 lg:hidden">{options}</div>
       </Modal>
       <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
         Les paramètres du PBS de secours modifiés ne seront pas enregistrés.

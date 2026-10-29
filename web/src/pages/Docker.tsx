@@ -234,7 +234,7 @@ export function Docker() {
       >
         docker compose pull puis up -d sur chaque stack, sur les hôtes en ligne :
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {toUpdate.map((s) => <Tag key={`${s.host.id}/${s.name}`}>{s.host.name} · {s.name}</Tag>)}
+          {toUpdate.map((s) => <Tag wrap key={`${s.host.id}/${s.name}`}>{s.host.name} · {s.name}</Tag>)}
         </div>
       </ConfirmModal>
     </>

@@ -35,6 +35,7 @@ export function SnapshotsModal({ group, open, onClose }: { group: BackupGroup; o
       {list.length === 0 ? (
         <p className="text-sm text-muted">Aucun snapshot.</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b border-line">
             <tr>
@@ -60,6 +61,7 @@ export function SnapshotsModal({ group, open, onClose }: { group: BackupGroup; o
             ))}
           </tbody>
         </table>
+        </div>
       )}
       {list.length > FIRST && (
         <button type="button" className="mt-3 text-xs text-emerald-400 hover:underline" onClick={() => setAll(!all)}>

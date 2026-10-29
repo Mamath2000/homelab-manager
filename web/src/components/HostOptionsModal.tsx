@@ -18,6 +18,7 @@ import { HostHealthFooter, HostHealthThresholds } from './HostHealthThresholds';
 import { useHostHealthEditor } from '../lib/useHostHealthEditor';
 import { Badge, Button, Checkbox, Modal } from './ui';
 import { useMe } from '../lib/auth';
+import { useScrollMore } from '../lib/useScrollMore';
 
 // Actions of the « Danger » zone, owned by the caller (its confirmations); no zone without them (host list).
 export interface HostDangerActions {
@@ -137,6 +138,7 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
   const [enrolling, setEnrolling] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [section, setSection] = useState<SectionId>(initialSection ?? 'settings');
+  const [navRef, navMore] = useScrollMore<HTMLElement>();
   const healthEditor = useHostHealthEditor(host.id, { canManage: true, enabled: host.capabilities.includes('health') });
   const upsert = useUpdateHostCache();
   const toast = useToast();
@@ -217,7 +219,8 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
       }
     >
       <div className="flex min-h-[26rem] min-w-0 flex-col gap-4 sm:flex-row sm:gap-7">
-        <nav aria-label="Sections" className="flex min-w-0 shrink-0 gap-1 overflow-x-auto sm:w-52 sm:flex-col sm:overflow-visible">
+        <div className="relative min-w-0 shrink-0 sm:w-52">
+        <nav ref={navRef} aria-label="Sections" className="flex min-w-0 gap-1 overflow-x-auto sm:flex-col sm:overflow-visible">
           {sections.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -235,6 +238,8 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
             </button>
           ))}
         </nav>
+        {navMore && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-panel to-transparent sm:hidden" />}
+        </div>
 
         <div className="min-w-0 flex-1">
           {/* One form keeps all editable options together. */}

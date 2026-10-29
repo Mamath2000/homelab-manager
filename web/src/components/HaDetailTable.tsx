@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Check, Minus } from 'lucide-react';
 import type { HaSection } from '../lib/api';
 import { HA_SECTIONS } from '../lib/haDetail';
+import { useScrollMore } from '../lib/useScrollMore';
 
 // One choice of level: the sections it publishes; null: nothing at all (host set to « Aucun »).
 export interface HaColumn {
@@ -32,6 +33,7 @@ export function HaDetailTable({ title, columns, rows, value, custom, disabled, o
   const toggle = (id: HaSection, on: boolean) => onChange('custom', rows.filter((s) => (s === id ? on : current.includes(s))));
   const shade = (id: string) => (value === id ? 'bg-emerald-500/5' : '');
   const sections = HA_SECTIONS.filter((s) => rows.includes(s.id));
+  const [scrollRef, more] = useScrollMore<HTMLDivElement>();
 
   return (
     <div className="space-y-4">
@@ -53,7 +55,8 @@ export function HaDetailTable({ title, columns, rows, value, custom, disabled, o
           ))}
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="relative">
+      <div ref={scrollRef} className="overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-line">
@@ -108,6 +111,8 @@ export function HaDetailTable({ title, columns, rows, value, custom, disabled, o
             ))}
           </tbody>
         </table>
+      </div>
+      {more && <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-bg to-transparent" />}
       </div>
       {children}
     </div>

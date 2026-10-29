@@ -78,6 +78,23 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
 
   const [host, detected, token, tested] = stepStates([!!form.agent, !!form.url, saved.hasSecret, test?.level === 'ok']);
 
+  const options = (
+    <>
+      <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2" title="Répertoire racine des snapshots montés en lecture seule sur les hôtes de destination">
+            <span className="shrink-0">Racine des montages</span>
+            <input className="input h-10 w-full lg:h-8 lg:w-56 py-1 font-mono text-xs" value={form.mountRoot} onChange={(e) => set({ mountRoot: e.target.value.trim() })} placeholder="/srv/pbs-restore" spellCheck={false} />
+          </label>
+          <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2" title="Une sauvegarde (ou une copie vers le PBS de secours) qui n'a pas réussi repart une fois, ce nombre d'heures après son heure prévue ; 0 : pas de rejeu">
+            <span className="shrink-0">Rejeu après échec (h)</span>
+            <input className="input h-10 w-full lg:h-8 lg:w-16 py-1 text-xs" type="number" min={0} max={24} step={0.5} value={form.retryAfterHours ?? 4} onChange={(e) => set({ retryAfterHours: Math.min(24, Math.max(0, Number(e.target.value) || 0)) })} />
+          </label>
+          <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2" title="Image Docker du client PBS, pour les hôtes sans client installé">
+            <span className="shrink-0">Image du client</span>
+            <input className="input h-10 w-full lg:h-8 lg:w-60 py-1 font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />
+          </label>
+    </>
+  );
+
   return (
     <>
       <Modal
@@ -88,20 +105,7 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
         title="Proxmox Backup Server"
         footer={
           <>
-            <div className="mr-auto flex w-full min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm md:w-auto">
-              <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Répertoire racine des snapshots montés en lecture seule sur les hôtes de destination">
-                <span className="shrink-0">Racine des montages</span>
-                <input className="input h-8 w-56 py-1 font-mono text-xs" value={form.mountRoot} onChange={(e) => set({ mountRoot: e.target.value.trim() })} placeholder="/srv/pbs-restore" spellCheck={false} />
-              </label>
-              <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Une sauvegarde (ou une copie vers le PBS de secours) qui n'a pas réussi repart une fois, ce nombre d'heures après son heure prévue ; 0 : pas de rejeu">
-                <span className="shrink-0">Rejeu après échec (h)</span>
-                <input className="input h-8 w-16 py-1 text-xs" type="number" min={0} max={24} step={0.5} value={form.retryAfterHours ?? 4} onChange={(e) => set({ retryAfterHours: Math.min(24, Math.max(0, Number(e.target.value) || 0)) })} />
-              </label>
-              <label className="flex min-w-0 items-center gap-2 text-xs text-muted" title="Image Docker du client PBS, pour les hôtes sans client installé">
-                <span className="shrink-0">Image du client</span>
-                <input className="input h-8 w-60 py-1 font-mono text-xs" value={form.clientImage ?? ''} onChange={(e) => set({ clientImage: e.target.value.trim() })} placeholder="mathmath350/pbs-client:latest" spellCheck={false} />
-              </label>
-            </div>
+            <div className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm lg:flex">{options}</div>
             <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>Enregistrer</Button>
           </>
@@ -181,6 +185,8 @@ function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boolean; o
             )}
           </Step>
         </Steps>
+        {/* narrow windows: the options leave the footer (buttons only) and follow the steps */}
+        <div className="mt-3 flex flex-col gap-3 lg:hidden">{options}</div>
       </Modal>
       <ConfirmModal
         open={confirmDiscard}

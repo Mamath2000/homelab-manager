@@ -150,7 +150,7 @@ export function DashboardActions({ hosts, groups }: { hosts: Host[]; groups: Bac
           onConfirm={() => current.run(() => setOpen(null))}
         >
           <p className="mb-3">{current.intro}</p>
-          <div className="flex flex-wrap gap-1.5">{current.targets.map((t) => <Tag key={t.key}>{t.label}</Tag>)}</div>
+          <div className="flex flex-wrap gap-1.5">{current.targets.map((t) => <Tag wrap key={t.key}>{t.label}</Tag>)}</div>
           <p className="mt-3 text-xs text-muted">Le résultat se suit hôte par hôte dans l'activité (une tâche par hôte{current.id === 'docker' ? ' et par stack' : ''}).</p>
         </ConfirmModal>
       )}
