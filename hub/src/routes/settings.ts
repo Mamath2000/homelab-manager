@@ -8,6 +8,9 @@ import { SAFE_URL, TAILSCALE_HOST, agentCommands } from '../hubUrl.js';
 import { loadPki } from '../pkiStore.js';
 import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
 import { DEFAULT_DETAIL, HA_PRESETS, HA_SECTIONS, haLevelSchema, normalizeDetail, normalizeHostDetail } from '../homeassistant/detail.js';
+import { loadMqttBrokers } from '../probes.js';
+import { ROLE_ID_RE } from '../roles.js';
+import type { MqttBroker } from '../types.js';
 
 const DEFAULTS: HomeAssistantSettings = {
   _id: 'homeassistant',
@@ -26,18 +29,40 @@ export async function loadHomeAssistantSettings() {
   return { ...DEFAULTS, ...stored, detail: normalizeDetail(stored?.detail) };
 }
 
-// the password never leaves the hub
+// What the bridge connects with: the address and account of its broker role ('' when the role is gone or its host has
+// no address yet), else the broker typed before the roles.
+export async function loadHaBridgeSettings(): Promise<HomeAssistantSettings> {
+  const s = await loadHomeAssistantSettings();
+  if (!s.brokerRoleId) return s;
+  const b = (await loadMqttBrokers()).brokers.find((x) => x.id === s.brokerRoleId);
+  return { ...s, broker: b?.url ?? '', username: b?.username ?? '', password: b?.password ?? '' };
+}
+
+// The broker role that is the broker typed before the roles: same address and account.
+export function matchHaBroker(brokers: MqttBroker[], s: Pick<HomeAssistantSettings, 'broker' | 'username' | 'password'>) {
+  const url = (u: string) => u.trim().replace(/\/+$/, '').toLowerCase();
+  return brokers.find((b) => b.url && url(b.url) === url(s.broker) && b.username === s.username && b.password === s.password) ?? null;
+}
+
+// The bridge publishes to a broker role: the broker typed before the roles is linked to the role that matches it,
+// else kept (and shown to be linked by hand) so that the publication goes on.
+export async function migrateHaBroker() {
+  const s = (await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null;
+  if (!s || s.brokerRoleId || !s.broker) return;
+  const role = matchHaBroker((await loadMqttBrokers()).brokers, s);
+  if (role) await settings.updateOne({ _id: 'homeassistant' }, { $set: { brokerRoleId: role.id, broker: '', username: '', password: '' } });
+}
+
+// the account is the one of the role, never sent; legacyBroker: broker typed before the roles, not linked to one yet
 function dto(s: HomeAssistantSettings, bridge: HomeAssistantBridge) {
-  const { password, _id, ...rest } = s;
+  const { password: _password, username: _username, broker, _id, brokerRoleId, ...rest } = s;
   // presets: sections of each level, for the custom picker
-  return { ...rest, hasPassword: !!password, presets: HA_PRESETS, status: bridge.status() };
+  return { ...rest, brokerRoleId: brokerRoleId ?? null, legacyBroker: brokerRoleId ? null : broker || null, presets: HA_PRESETS, status: bridge.status() };
 }
 
 interface Body {
   enabled: boolean;
-  broker: string;
-  username: string;
-  password?: string; // absent: unchanged, "": cleared
+  brokerRoleId?: string; // absent: unchanged, "": none (the broker typed before the roles is dropped once one is given)
   topic: string;
   discoveryPrefix: string;
   publicUrl?: string;
@@ -57,13 +82,11 @@ const detailBody = {
 const TOPIC = '^[A-Za-z0-9_\\-]+(/[A-Za-z0-9_\\-]+)*$';
 const body = {
   type: 'object',
-  required: ['enabled', 'broker', 'username', 'topic', 'discoveryPrefix'],
+  required: ['enabled', 'topic', 'discoveryPrefix'],
   additionalProperties: false,
   properties: {
     enabled: { type: 'boolean' },
-    broker: { type: 'string', maxLength: 256, pattern: '^$|^(mqtts?|wss?)://[^\\s]+$' },
-    username: { type: 'string', maxLength: 128 },
-    password: { type: 'string', maxLength: 256 },
+    brokerRoleId: { type: 'string', maxLength: 32, pattern: `^(|${ROLE_ID_RE.source.slice(1, -1)})$` },
     topic: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
     discoveryPrefix: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
     publicUrl: { type: 'string', maxLength: 256 },
@@ -76,18 +99,22 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
 
   app.put<{ Body: Body }>('/api/settings/homeassistant', { schema: { body } }, async (req, reply) => {
     const current = await loadHomeAssistantSettings();
+    const { brokerRoleId, ...rest } = req.body;
     const next: HomeAssistantSettings = {
       ...current,
-      ...req.body,
-      password: req.body.password ?? current.password,
+      ...rest,
+      // a role chosen (or none) replaces the broker typed before the roles
+      ...(brokerRoleId === undefined ? {} : { brokerRoleId: brokerRoleId || undefined, broker: '', username: '', password: '' }),
       detail: normalizeDetail(req.body.detail ?? current.detail),
       _id: 'homeassistant',
     };
+    if (!next.brokerRoleId) delete next.brokerRoleId;
     next.publicUrl = next.publicUrl.trim().replace(/\/+$/, '');
     if (next.publicUrl && !SAFE_URL.test(next.publicUrl)) return reply.code(400).send({ error: "URL de l'interface invalide (http(s)://hôte[:port][/chemin])" });
-    if (next.enabled && !next.broker) return reply.code(400).send({ error: "l'adresse du broker est requise" });
+    if (next.brokerRoleId && !(await loadMqttBrokers()).brokers.some((b) => b.id === next.brokerRoleId)) return reply.code(400).send({ error: 'broker MQTT inconnu' });
+    if (next.enabled && !next.brokerRoleId && !next.broker) return reply.code(400).send({ error: 'choisir un broker MQTT' });
     await settings.replaceOne({ _id: 'homeassistant' }, next, { upsert: true });
-    await bridge.apply(next);
+    await bridge.apply(await loadHaBridgeSettings());
     return dto(next, bridge);
   });
 
@@ -124,16 +151,22 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
     return { ok: true };
   });
 
-  app.post<{ Body: Body }>('/api/settings/homeassistant/test', { schema: { body } }, async (req, reply) => {
-    if (!req.body.broker) return reply.code(400).send({ error: "l'adresse du broker est requise" });
-    const current = await loadHomeAssistantSettings();
-    try {
-      await testConnection(req.body.broker, req.body.username, req.body.password ?? current.password);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: (err as Error).message };
-    }
-  });
+  // connection test with the address and account of a broker role
+  app.post<{ Body: { brokerRoleId: string } }>(
+    '/api/settings/homeassistant/test',
+    { schema: { body: { type: 'object', required: ['brokerRoleId'], additionalProperties: false, properties: { brokerRoleId: body.properties.brokerRoleId } } } },
+    async (req, reply) => {
+      const b = (await loadMqttBrokers()).brokers.find((x) => x.id === req.body.brokerRoleId);
+      if (!b) return reply.code(400).send({ error: 'broker MQTT inconnu' });
+      if (!b.url) return { ok: false, error: "adresse de l'hôte du broker inconnue" };
+      try {
+        await testConnection(b.url, b.username, b.password);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+  );
 }
 
 // Agents: automatic update, hub URL, apt-get update interval and the binaries the hub distributes.

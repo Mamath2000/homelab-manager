@@ -75,6 +75,7 @@ export function useLiveEvents(enabled: boolean) {
       qc.invalidateQueries({ queryKey: ['probes'] });
       qc.invalidateQueries({ queryKey: keys.equipments });
       qc.invalidateQueries({ queryKey: keys.mqttBrokers });
+      qc.invalidateQueries({ queryKey: keys.roles });
       qc.invalidateQueries({ queryKey: keys.status });
     });
     // an equipment added, edited (by hand or by its source) or removed

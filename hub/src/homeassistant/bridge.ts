@@ -57,7 +57,11 @@ export class HomeAssistantBridge {
     const removeDevices = !next?.enabled || prev?.topic !== next.topic || prev?.discoveryPrefix !== next.discoveryPrefix;
     await this.stop(removeDevices);
     this.settings = next;
-    if (next?.enabled) this.start(next);
+    // broker role gone or its host without an address yet: nothing to connect to
+    if (next?.enabled && !next.broker) {
+      this.state = 'error';
+      this.error = "adresse du broker MQTT inconnue (rôle supprimé ou hôte sans adresse)";
+    } else if (next?.enabled) this.start(next);
   }
 
   private start(s: HomeAssistantSettings) {

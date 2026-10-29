@@ -7,6 +7,7 @@ import { HA_LEVELS, HA_SECTIONS } from '../lib/haDetail';
 import { timeAgo } from '../lib/format';
 import type { Tone } from '../lib/status';
 import { stepStates } from '../lib/steps';
+import { keys, useRoles } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { HaDetailTable } from './HaDetailTable';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
@@ -22,37 +23,34 @@ const stateMeta: Record<HomeAssistantSettings['status']['state'], { label: strin
   error: { label: 'Erreur', tone: 'bad' },
 };
 
-const BROKER = /^(mqtts?|wss?):\/\/\S+$/;
 const TOPIC = /^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/;
 
-// Settings saved as they are, with the broker part replaced.
+// Settings saved as they are (the broker kept), with what is edited replaced.
 const inputOf = (s: HomeAssistantSettings): HomeAssistantInput => ({
   enabled: s.enabled,
-  broker: s.broker,
-  username: s.username,
   topic: s.topic,
   discoveryPrefix: s.discoveryPrefix,
   publicUrl: s.publicUrl,
   detail: s.detail,
 });
 
-type BrokerForm = Pick<HomeAssistantInput, 'broker' | 'username' | 'topic' | 'discoveryPrefix' | 'publicUrl'>;
+type BrokerForm = Required<Pick<HomeAssistantInput, 'brokerRoleId' | 'topic' | 'discoveryPrefix' | 'publicUrl'>>;
 
-// The MQTT broker the hub publishes to, in four steps (PbsDialog.tsx): address, account, topics, test.
-// Saving it turns publication on; the password is never sent back by the hub.
+// The MQTT broker the hub publishes to, in four steps (PbsDialog.tsx): broker role (its address and account), topics,
+// interface, test. Saving it turns publication on.
 function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const navigate = useNavigate();
+  const { data: roles } = useRoles();
+  const brokers = (roles ?? []).filter((r) => r.type === 'mqtt-broker');
   const [initial] = useState<BrokerForm>(() => ({
-    broker: data.broker,
-    username: data.username,
+    brokerRoleId: data.brokerRoleId ?? '',
     topic: data.topic || 'homelab-manager',
     discoveryPrefix: data.discoveryPrefix || 'homeassistant',
     publicUrl: data.publicUrl,
   }));
   const [form, setForm] = useState<BrokerForm>(initial);
-  const [password, setPassword] = useState('');
-  const [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -61,25 +59,20 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
     setForm({ ...form, ...patch });
     setTest(null);
   };
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || !!password || clearPassword;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const requestClose = () => {
     if (busy) return;
     if (dirty) setConfirmDiscard(true);
     else onClose();
   };
-  const input = (): HomeAssistantInput => ({
-    ...inputOf(data),
-    ...form,
-    enabled: true,
-    ...(clearPassword ? { password: '' } : password ? { password } : {}),
-  });
+  const broker = brokers.find((b) => b.id === form.brokerRoleId);
 
   const runTest = async () => {
     setBusy('test');
     setTest(null);
     try {
-      const r = await api.testHomeAssistant(input());
-      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: form.broker } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      const r = await api.testHomeAssistant(form.brokerRoleId);
+      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: broker?.url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
@@ -89,8 +82,9 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
   const save = async () => {
     setBusy('save');
     try {
-      const next = await api.saveHomeAssistant(input());
+      const next = await api.saveHomeAssistant({ ...inputOf(data), ...form, enabled: true });
       qc.setQueryData(['settings', 'homeassistant'], next);
+      await qc.invalidateQueries({ queryKey: keys.roles });
       toast.success('Broker enregistré : publication dans Home Assistant');
       onClose();
     } catch (err) {
@@ -100,10 +94,8 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
     }
   };
 
-  const brokerOk = BROKER.test(form.broker);
   const topicsOk = TOPIC.test(form.topic) && TOPIC.test(form.discoveryPrefix);
-  // the account is optional (anonymous broker): done with the address
-  const [address, account, topics, tested] = stepStates([brokerOk, brokerOk, topicsOk, test?.level === 'ok']);
+  const [chosen, topics, ui, tested] = stepStates([!!broker, topicsOk, topicsOk, test?.level === 'ok']);
 
   return (
     <>
@@ -121,39 +113,25 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
         }
       >
         <Steps fill>
-          <Step n={1} title="Broker" state={address} intro="Adresse du broker MQTT auquel Home Assistant est relié (intégration MQTT).">
+          <Step n={1} title="Broker" state={chosen} intro="Le broker MQTT auquel Home Assistant est relié (intégration MQTT) : un rôle du hub, avec son adresse et son compte.">
             <label className="block">
-              <span className={field}>Adresse</span>
-              <input className="input font-mono text-xs" value={form.broker} onChange={(e) => set({ broker: e.target.value.trim() })} placeholder="mqtt://192.168.1.10:1883" spellCheck={false} />
-              <span className="mt-1 block text-xs text-muted">mqtt://, mqtts://, ws:// ou wss://</span>
+              <span className={field}>Rôle Broker MQTT</span>
+              <select className="input" value={form.brokerRoleId} onChange={(e) => set({ brokerRoleId: e.target.value })}>
+                <option value="">Choisir un broker…</option>
+                {brokers.map((b) => <option key={b.id} value={b.id}>{b.name} · {b.carrier.name}</option>)}
+              </select>
             </label>
-          </Step>
-          <Step n={2} title="Compte" state={account} intro="Facultatif : laisser vide pour un broker anonyme.">
-            <label className="block">
-              <span className={field}>Utilisateur</span>
-              <input className="input" value={form.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
-            </label>
-            <label className="block">
-              <span className={field}>Mot de passe</span>
-              <input
-                className="input"
-                type="password"
-                value={password}
-                disabled={clearPassword}
-                onChange={(e) => (setPassword(e.target.value), setTest(null))}
-                placeholder={data.hasPassword ? '••••••••' : ''}
-                autoComplete="new-password"
-              />
-              {data.hasPassword && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
-            </label>
-            {data.hasPassword && (
-              <label className="flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" checked={clearPassword} onChange={(e) => (setClearPassword(e.target.checked), setTest(null))} className="accent-emerald-500" />
-                Supprimer le mot de passe
-              </label>
+            {broker && <p className="font-mono text-xs break-all text-muted">{broker.url || 'adresse inconnue'} · {broker.config.username || 'anonyme'}</p>}
+            {data.legacyBroker && !broker && (
+              <p className="text-xs text-amber-300">Broker saisi avant les rôles : <code>{data.legacyBroker}</code>. Choisir le rôle qui lui correspond.</p>
+            )}
+            {roles && !brokers.length && (
+              <button type="button" className="text-xs text-emerald-400 hover:underline" onClick={() => navigate('/settings?tab=roles')}>
+                Aucun broker : en déclarer un dans Paramètres › Rôles
+              </button>
             )}
           </Step>
-          <Step n={3} title="Topics" state={topics} intro="Valeurs par défaut à confirmer ; en changer retire les appareils publiés sous les anciens préfixes.">
+          <Step n={2} title="Topics" state={topics} intro="Valeurs par défaut à confirmer ; en changer retire les appareils publiés sous les anciens préfixes.">
             <label className="block">
               <span className={field}>Préfixe de découverte</span>
               <input className="input font-mono text-xs" value={form.discoveryPrefix} onChange={(e) => set({ discoveryPrefix: e.target.value.trim() })} spellCheck={false} />
@@ -164,25 +142,27 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
               <input className="input font-mono text-xs" value={form.topic} onChange={(e) => set({ topic: e.target.value.trim() })} spellCheck={false} />
               <span className="mt-1 block text-xs text-muted">États et commandes : préfixe/appareil/entité/state</span>
             </label>
+            {!topicsOk && <p className="text-xs text-amber-400">Préfixe : lettres, chiffres, _ et -, niveaux séparés par /.</p>}
+          </Step>
+          <Step n={3} title="Interface" state={ui} intro="Facultatif.">
             <label className="block">
               <span className={field}>URL de l'interface</span>
               <input className="input" value={form.publicUrl} onChange={(e) => set({ publicUrl: e.target.value })} placeholder="https://homelab-manager.example.org" />
               <span className="mt-1 block text-xs text-muted">Lien « Visiter » des appareils dans Home Assistant ; vide : URL du hub (Paramètres &gt; Agent)</span>
             </label>
-            {!topicsOk && <p className="text-xs text-amber-400">Préfixe : lettres, chiffres, _ et -, niveaux séparés par /.</p>}
           </Step>
           <Step
             n={4}
             title="Test de connexion"
             state={tested}
-            intro="Le hub se connecte au broker avec ce compte ; l'enregistrement n'est possible qu'après un test réussi."
+            intro="Le hub se connecte au broker avec le compte du rôle ; l'enregistrement n'est possible qu'après un test réussi."
             footer={
               <Button
                 className="w-full"
                 variant={tested === 'active' ? 'primary' : 'secondary'}
                 icon={Plug}
                 loading={busy === 'test'}
-                disabled={busy !== null || !brokerOk || !topicsOk}
+                disabled={busy !== null || !broker || !topicsOk}
                 onClick={() => void runTest()}
               >
                 {test ? 'Tester à nouveau' : 'Tester la connexion'}
@@ -191,13 +171,13 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
           >
             <DetectedRows
               rows={[
-                { label: 'Broker', value: form.broker, empty: 'non renseigné' },
-                { label: 'Utilisateur', value: form.username, empty: 'anonyme' },
+                { label: 'Broker', value: broker && `${broker.name} · ${broker.url}`, empty: 'non choisi' },
+                { label: 'Utilisateur', value: broker?.config.username, empty: 'anonyme' },
                 { label: 'Découverte', value: `${form.discoveryPrefix}/…` },
                 { label: 'États', value: `${form.topic}/…` },
               ]}
             />
-            <CheckLine label="Broker MQTT" check={test} idle={form.broker || undefined} />
+            <CheckLine label="Broker MQTT" check={test} idle={broker?.url || undefined} />
           </Step>
         </Steps>
       </Modal>
@@ -215,6 +195,8 @@ export function HomeAssistantPanel() {
   const navigate = useNavigate();
   // poll while the page is open to follow the connection state
   const { data } = useQuery({ queryKey: ['settings', 'homeassistant'], queryFn: api.homeAssistant, refetchInterval: 5000 });
+  const { data: roles } = useRoles();
+  const broker = roles?.find((r) => r.id === data?.brokerRoleId);
   // level of detail being edited, server value until then
   const [draft, setDraft] = useState<HaDetail | null>(null);
   const [busy, setBusy] = useState<'save' | 'republish' | 'remove' | null>(null);
@@ -276,7 +258,7 @@ export function HomeAssistantPanel() {
   const remove = async () => {
     setBusy('remove');
     try {
-      const next = await api.saveHomeAssistant({ ...inputOf(data), enabled: false, broker: '', username: '', password: '' });
+      const next = await api.saveHomeAssistant({ ...inputOf(data), enabled: false, brokerRoleId: '' });
       qc.setQueryData(['settings', 'homeassistant'], next);
       setDraft(null);
       setRemoving(false);
@@ -333,14 +315,26 @@ export function HomeAssistantPanel() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <StatusDot tone={stateMeta[st.state].tone} pulse={st.state === 'connecting'} />
             <span className="font-medium text-zinc-100">{stateMeta[st.state].label}</span>
-            <span className="font-mono text-xs text-zinc-300">{data.broker}</span>
-            <span className="text-xs text-muted">{data.username ? `compte ${data.username}` : 'anonyme'}</span>
+            {broker ? (
+              <>
+                <span className="text-zinc-200">{broker.name}</span>
+                <span className="font-mono text-xs text-zinc-300">{broker.url || 'adresse inconnue'}</span>
+                <span className="text-xs text-muted">{broker.config.username ? `compte ${broker.config.username}` : 'anonyme'}</span>
+              </>
+            ) : (
+              <span className="font-mono text-xs text-zinc-300">{data.legacyBroker}</span>
+            )}
           </div>
           <p className="text-xs text-muted">
             Découverte <code>{data.discoveryPrefix}/…</code> · états <code>{data.topic}/…</code>
             {st.state === 'connected' && <> · {st.devices} appareil(s) publié(s){st.lastPublishAt && `, dernière publication ${timeAgo(st.lastPublishAt)}`}</>}
           </p>
           {st.error && <p className="text-xs text-red-300">{st.error}</p>}
+          {data.legacyBroker && (
+            <p className="text-xs text-amber-300">
+              Broker saisi avant les rôles du hub : la publication continue, mais il est à rattacher à un rôle Broker MQTT (Modifier le broker).
+            </p>
+          )}
         </div>
         <Button size="sm" variant="ghost" icon={Pencil} title="Modifier le broker" onClick={() => setEditing(true)} />
         <Button size="sm" variant="ghost" icon={Trash2} title="Retirer le broker" onClick={() => setRemoving(true)} />
@@ -379,7 +373,7 @@ export function HomeAssistantPanel() {
       />
       {modal}
       <ConfirmModal open={removing} onClose={() => setRemoving(false)} onConfirm={remove} title="Retirer le broker" confirmLabel="Retirer" danger loading={busy === 'remove'}>
-        Le hub cesse de publier : les appareils du homelab sont retirés de Home Assistant (<code>{data.broker}</code>). Le niveau de détail est conservé
+        Le hub cesse de publier : les appareils du homelab sont retirés de Home Assistant (<code>{broker?.url || data.legacyBroker}</code>). Le niveau de détail est conservé
         pour un prochain broker.
       </ConfirmModal>
     </Panel>

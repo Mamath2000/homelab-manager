@@ -98,7 +98,8 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const list = allRoles();
     const carriers = await hosts.find({ _id: { $in: list.map((r) => r.carrier.id) } }, { projection: { name: 1, info: 1 } }).toArray();
     const byId = new Map(carriers.map((h) => [h._id.toHexString(), h]));
-    return { roles: list.map((r) => roleDto(r, byId.get(r.carrier.id.toHexString()) ?? null)) };
+    const uses = await Promise.all(list.map((r) => ROLE_DEFS[r.type].uses(r._id)));
+    return { roles: list.map((r, i) => ({ ...roleDto(r, byId.get(r.carrier.id.toHexString()) ?? null), uses: uses[i] })) };
   });
 
   app.post<{ Body: { type: RoleType; carrier: CarrierBody; name: string; config: ConfigBody } }>('/api/roles', { schema: { body: createBody } }, async (req, reply) => {
@@ -138,8 +139,8 @@ export function registerRoleRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/api/roles/:id', async (req, reply) => {
     const current = allRoles().find((r) => r._id === req.params.id);
     if (!current) return reply.code(404).send({ error: 'rôle inconnu' });
-    const used = await ROLE_DEFS[current.type].usedBy(current._id);
-    if (used) return reply.code(409).send({ error: used });
+    const uses = await ROLE_DEFS[current.type].uses(current._id);
+    if (uses.length) return reply.code(409).send({ error: `utilisé par : ${uses.join(', ')}` });
     await roles.deleteOne({ _id: current._id });
     await saved([current.carrier.id]);
     return reply.code(204).send();

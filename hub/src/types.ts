@@ -592,6 +592,10 @@ export interface HaDetail {
 export interface HomeAssistantSettings {
   _id: 'homeassistant';
   enabled: boolean;
+  // mqtt-broker role the bridge publishes to (roles.ts), with its address and account; absent: none chosen yet
+  brokerRoleId?: string;
+  // broker typed before the roles, kept while no role is chosen (migrateHaBroker links it when a role matches);
+  // the bridge is given the address and account of the role here (loadHaBridgeSettings)
   broker: string; // mqtt://host:1883, mqtts://...
   username: string;
   password: string;

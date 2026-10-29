@@ -18,6 +18,7 @@ export const keys = {
   // host or equipment: their ids never meet
   probes: (subjectId: string) => ['probes', subjectId] as const,
   mqttBrokers: ['settings', 'mqtt-brokers'] as const,
+  roles: ['roles'] as const,
 };
 
 export function useBackups() {
@@ -111,6 +112,10 @@ export function useEquipment(id: string | undefined) {
 
 export function useEquipmentAlerts(id: string) {
   return useQuery({ queryKey: keys.equipmentAlerts(id), queryFn: () => api.equipmentAlerts(id) });
+}
+
+export function useRoles() {
+  return useQuery({ queryKey: keys.roles, queryFn: api.roles, select: (d) => d.roles });
 }
 
 export function useMqttBrokers(enabled = true) {

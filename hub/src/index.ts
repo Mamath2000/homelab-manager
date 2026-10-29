@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { closeDb, connectDb } from './db.js';
 import { migrateGroups } from './catalog.js';
 import { migrateEnabled } from './disconnect.js';
-import { registerEvents } from './events.js';
+import { registerEvents, subscribe } from './events.js';
 import { flushLogs, recoverJobs } from './jobs.js';
 import { bootstrapSuperadmin } from './superadmin.js';
 import { registerHostRoutes } from './routes/hosts.js';
@@ -32,7 +32,7 @@ import { startProbes } from './probes.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
 import { registerHealthRoutes } from './health.js';
-import { loadHomeAssistantSettings, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
+import { loadHaBridgeSettings, migrateHaBroker, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
 import { registerAgentDownloadRoute } from './routes/install.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
@@ -51,6 +51,7 @@ await migrateGroups();
 await migrateEnabled();
 await migrateHostRoles();
 await loadRoles();
+await migrateHaBroker();
 await recoverJobs();
 await bootstrapSuperadmin();
 // groups of the backup jobs: also covers the definitions stored by an older hub
@@ -108,7 +109,12 @@ const stopOffsitePoller = startOffsitePoller(app.log);
 const stopMountReconciler = startMountReconciler(app.log);
 const stopPvePoller = startPvePoller(app.log);
 const stopProbes = startProbes(app.log);
-await bridge.apply(await loadHomeAssistantSettings());
+await bridge.apply(await loadHaBridgeSettings());
+// the broker role of the bridge changed (edited, moved, its host got other IPs): apply does nothing when the address and
+// account are the same
+subscribe((event) => {
+  if (event === 'probe.config') loadHaBridgeSettings().then((s) => bridge.apply(s), (err) => app.log.error({ err }, 'Home Assistant: broker role'));
+});
 
 let agentServer: Awaited<ReturnType<typeof startAgentServer>> | null = null;
 let shuttingDown = false;

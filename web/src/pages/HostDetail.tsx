@@ -27,8 +27,9 @@ import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache }
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
-import { offeredCandidates } from '../lib/roles';
+import { offeredCandidates, roleTypeLabel } from '../lib/roles';
 import { ProbesPanel } from '../components/Probes';
+import { RoleWizard } from '../components/HubRoles';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, listsStale, needsReinstall, osLabel, toneBadge, type Tone } from '../lib/status';
 import { useAgentTls } from '../lib/agentTls';
@@ -249,7 +250,8 @@ function HostDetailPage({ id }: { id: string }) {
   const [docked, setDocked] = useAsideDocked();
   const [editing, setEditing] = useState(false);
   // section of the options to open on (the notice of a detected service)
-  const [editingRoles, setEditingRoles] = useState(false);
+  // broker found by the agent being declared as a role of the hub (banner below)
+  const [declaring, setDeclaring] = useState<{ hostId: string; port: number } | null>(null);
   // "broker detected" banner hidden by the user: remembered per host for the ports it was hidden with (a new port brings it back)
   const brokerPorts = host ? offeredCandidates(host).map((c) => c.port).sort().join(',') : '';
   const brokerKey = `hm.brokerBanner.${id}`;
@@ -378,6 +380,12 @@ function HostDetailPage({ id }: { id: string }) {
   if (!host) return <Empty icon={Server} title="Hôte introuvable"><Link className="text-emerald-400" to={`/hosts${listSearch ? `?${listSearch}` : ''}`}>Retour aux hôtes</Link></Empty>;
 
   const c = connection(host);
+  // roles of the hub this host carries: what stops with it
+  const carriedRoles = host.roles.length > 0 && (
+    <p className="mt-2 text-xs text-amber-300">
+      Cet hôte porte {host.roles.length > 1 ? 'les rôles' : 'le rôle'} {host.roles.map((r) => `${roleTypeLabel(r.type)} ${r.name}`).join(', ')} : ce qui en dépend (sondes, Home Assistant) s'arrête avec lui.
+    </p>
+  );
 
   // new single-use code; the current agent keeps working until the new installation enrolls
   const newInstall = async () => {
@@ -586,7 +594,7 @@ function HostDetailPage({ id }: { id: string }) {
                   />
                 )}
                 {canManage && (
-                  <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => { setEditingRoles(false); setEditing(true); }} />
+                  <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setEditing(true)} />
                 )}
               </div>
             )}
@@ -632,10 +640,10 @@ function HostDetailPage({ id }: { id: string }) {
             <div className="panel mb-5 flex flex-wrap items-center gap-3 border-sky-500/40 bg-sky-500/5 px-4 py-3 text-sm">
               <Radio className="h-4 w-4 text-sky-300" />
               <span className="text-zinc-200">
-                Broker MQTT détecté sur cet hôte (port {offeredCandidates(host).map((c) => c.port).join(', ')}). Le déclarer permet aux sondes de l'écouter.
+                Broker MQTT détecté sur cet hôte (port {offeredCandidates(host).map((c) => c.port).join(', ')}). Le déclarer comme rôle du hub permet aux sondes de l'écouter et à l'intégration Home Assistant d'y publier.
               </span>
               <span className="ml-auto">
-                <Button size="sm" icon={Settings} onClick={() => { setEditingRoles(true); setEditing(true); }}>Configurer</Button>
+                <Button size="sm" icon={Settings} onClick={() => setDeclaring({ hostId: host.id, port: offeredCandidates(host)[0].port })}>Déclarer</Button>
               </span>
               <button type="button" className="text-muted transition hover:text-zinc-200" aria-label="Masquer ce message" title="Masquer" onClick={hideBroker}>
                 <X className="h-4 w-4" />
@@ -723,7 +731,6 @@ function HostDetailPage({ id }: { id: string }) {
       {editing && (
         <HostOptionsModal
           host={host}
-          initialSection={editingRoles ? 'roles' : undefined}
           onClose={() => setEditing(false)}
           danger={{
             onReboot: host.capabilities.includes('reboot') ? () => { setEditing(false); setConfirmReboot(true); } : undefined,
@@ -735,6 +742,7 @@ function HostDetailPage({ id }: { id: string }) {
         />
       )}
       <SetupModal host={host} open={setupOpen} onClose={() => setSetupOpen(false)} running={!!running} onStarted={setJobId} />
+      {declaring && <RoleWizard role={null} preset={declaring} onClose={() => setDeclaring(null)} />}
       <ConfirmModal
         open={confirmReboot}
         onClose={() => setConfirmReboot(false)}
@@ -746,6 +754,7 @@ function HostDetailPage({ id }: { id: string }) {
       >
         L'hôte redémarre dans les secondes qui suivent{isWindows(host) ? '' : <> (<code className="text-zinc-100">systemctl reboot</code>)</>}. Il repasse « En ligne » dès que l'agent se reconnecte.
         {host.info?.virt === 'none' || !host.info?.virt ? null : <p className="mt-2 text-xs text-muted">Virtualisation : {host.info.virt} (seul ce conteneur ou cette VM redémarre).</p>}
+        {carriedRoles}
       </ConfirmModal>
       <ConfirmModal
         open={confirmShutdown}
@@ -759,6 +768,7 @@ function HostDetailPage({ id }: { id: string }) {
         L'hôte s'éteint dans les secondes qui suivent{isWindows(host) ? '' : <> (<code className="text-zinc-100">systemctl poweroff</code>)</>}. Il ne redémarre pas seul : il faut le rallumer sur place ou par Wake-on-LAN.
         {host.online && host.sessionSummary?.interactive && <p className="mt-2 text-xs text-amber-300">Une session est en cours d'utilisation (activité clavier/souris).</p>}
         {host.info?.virt === 'none' || !host.info?.virt ? null : <p className="mt-2 text-xs text-muted">Virtualisation : {host.info.virt} (seul ce conteneur ou cette VM s'éteint).</p>}
+        {carriedRoles}
       </ConfirmModal>
       <ConfirmModal open={confirmRevoke} onClose={() => setConfirmRevoke(false)} title={`Révoquer l'agent de ${host.name}`} confirmLabel="Révoquer" danger onConfirm={revoke}>
         L'agent est déconnecté immédiatement et son certificat est refusé, de même que toute commande d'installation en attente.

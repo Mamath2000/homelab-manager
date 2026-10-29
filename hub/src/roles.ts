@@ -1,5 +1,5 @@
 import type { ObjectId } from 'mongodb';
-import { hosts, probes, roles } from './db.js';
+import { hosts, probes, roles, settings } from './db.js';
 import type { CarrierKind, HostDoc, LegacyHostRole, RoleDoc, RoleType } from './types.js';
 
 // Roles of the hub: what the hub can do through something of the homelab (an MQTT broker the probes listen to; later
@@ -20,8 +20,8 @@ interface RoleTypeDef {
   carrierError(host: Pick<HostDoc, 'roleCandidates'>, config: RoleDoc['config']): string | null;
   // two roles of this type on one carrier that would be the same service
   same(a: RoleDoc['config'], b: RoleDoc['config']): boolean;
-  // null: may be deleted, else what uses it
-  usedBy(id: string): Promise<string | null>;
+  // what uses the role (shown with it, and a role in use is not deleted)
+  uses(id: string): Promise<string[]>;
 }
 
 export const ROLE_DEFS: Record<RoleType, RoleTypeDef> = {
@@ -32,9 +32,9 @@ export const ROLE_DEFS: Record<RoleType, RoleTypeDef> = {
     // a broker is activated from what the agent detected, never declared by hand
     carrierError: (host, c) => (host.roleCandidates?.some((x) => x.type === 'mqtt-broker' && x.port === c.port) ? null : "aucun broker détecté par l'agent sur ce port"),
     same: (a, b) => a.port === b.port,
-    usedBy: async (id) => {
-      const used = await probes.find({ 'target.type': 'mqtt', 'target.brokerId': id }, { projection: { name: 1 } }).toArray();
-      return used.length ? `utilisé par ${used.length} sonde(s) : ${used.slice(0, 5).map((p) => p.name).join(', ')}${used.length > 5 ? '…' : ''}` : null;
+    uses: async (id) => {
+      const [n, ha] = await Promise.all([probes.countDocuments({ 'target.type': 'mqtt', 'target.brokerId': id }), settings.countDocuments({ _id: 'homeassistant', brokerRoleId: id } as never)]);
+      return [...(n ? [`${n} sonde${n > 1 ? 's' : ''}`] : []), ...(ha ? ['Home Assistant'] : [])];
     },
   },
 };

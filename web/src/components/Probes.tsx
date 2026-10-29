@@ -412,8 +412,8 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
                     {brokers?.map((b) => <option key={b.id} value={b.id}>{b.name} · {b.url}</option>)}
                   </select>
                   {brokers && brokers.length === 0 && (
-                    <button type="button" className="mt-1 text-xs text-emerald-400 hover:underline" onClick={() => navigate('/settings?tab=probes')}>
-                      Aucun broker : en ajouter un dans Paramètres › Sondes
+                    <button type="button" className="mt-1 text-xs text-emerald-400 hover:underline" onClick={() => navigate('/settings?tab=roles')}>
+                      Aucun broker : en déclarer un dans Paramètres › Rôles
                     </button>
                   )}
                 </label>

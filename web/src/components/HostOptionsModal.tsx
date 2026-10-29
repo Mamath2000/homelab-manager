@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, Radio, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { useUpdateHostCache } from '../lib/queries';
@@ -10,7 +10,6 @@ import { hostSkills } from '../lib/hostSkills';
 import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
 import { HostHaDetail } from './HostHaDetail';
-import { HostRolesSection } from './MqttBrokers';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
@@ -30,14 +29,13 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'settings' | 'ha' | 'roles' | 'host' | 'health' | 'agent' | 'backup' | 'danger';
+type SectionId = 'settings' | 'ha' | 'host' | 'health' | 'agent' | 'backup' | 'danger';
 
 // Identity, behavior and Home Assistant are saved together; agent, backup and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Identité et comportement', icon: Tag },
   { id: 'ha', label: 'Home Assistant', icon: Home },
   // services hosted here (MQTT broker...), offered from what the agent found; admins only
-  { id: 'roles', label: 'Rôles', icon: Radio },
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
   // thresholds and alerts of the Health screen, for health-capable agents; applies immediately
   { id: 'health', label: 'Santé : seuils et alertes', icon: Activity },
@@ -127,7 +125,7 @@ function BackupClientSection({ host }: { host: Host }) {
 
 // mounted only while open: its state starts from the current host
 export function HostOptionsModal({ host, onClose, danger, initialSection }: { host: Host; onClose: () => void; danger?: HostDangerActions; initialSection?: SectionId }) {
-  const { features, canManage } = useMe();
+  const { features } = useMe();
   const [name, setName] = useState(host.name);
   const [siteId, setSiteId] = useState(host.siteId ?? '');
   const [tags, setTags] = useState(host.tags);
@@ -172,7 +170,7 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
     }
   };
 
-  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'health' || host.capabilities.includes('health')) && (x.id !== 'roles' || (canManage && !isWindows(host))) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
+  const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'health' || host.capabilities.includes('health')) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
   const isForm = section === 'settings' || section === 'ha';
 
   if (install) {
@@ -290,7 +288,6 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
             </div>
           )}
 
-          {section === 'roles' && <HostRolesSection host={host} />}
 
           {section === 'agent' && (
             <div className="space-y-4">

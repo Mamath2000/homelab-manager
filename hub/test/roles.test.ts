@@ -5,7 +5,9 @@ import { ObjectId } from 'mongodb';
 import { authorize } from '../src/profiles.js';
 import { fromLegacy, newRoleId, ROLE_DEFS, roleConflict } from '../src/roles.js';
 import { registerRoleRoutes } from '../src/routes/roles.js';
-import type { MqttBrokerConfig, RoleDoc } from '../src/types.js';
+import { matchHaBroker, registerSettingsRoutes } from '../src/routes/settings.js';
+import type { HomeAssistantBridge } from '../src/homeassistant/bridge.js';
+import type { MqttBroker, MqttBrokerConfig, RoleDoc } from '../src/types.js';
 
 const broker = (name: string, hostId: ObjectId, port = 1883): RoleDoc => ({
   _id: newRoleId(name, () => false),
@@ -75,4 +77,29 @@ test('roles: every profile reads them, only the admins write them', () => {
     assert.ok(!authorize('operator', m, r), `operator ${m} ${r}`);
     assert.ok(!authorize('viewer', m, r), `viewer ${m} ${r}`);
   }
+});
+
+test('roles: the broker of Home Assistant typed before the roles is the role with the same address and account', () => {
+  const hostId = new ObjectId();
+  const brokers: MqttBroker[] = [
+    { id: 'vouille', name: 'Vouille', url: 'mqtt://192.168.100.20:1883', username: '', password: '', hostId },
+    { id: 'tls', name: 'TLS', url: 'mqtts://mqtt.lan:8883', username: 'ha', password: 'p', hostId },
+    { id: 'nowhere', name: 'Nowhere', url: '', username: '', password: '', hostId },
+  ];
+  assert.equal(matchHaBroker(brokers, { broker: 'mqtt://192.168.100.20:1883/', username: '', password: '' })?.id, 'vouille');
+  assert.equal(matchHaBroker(brokers, { broker: 'MQTTS://mqtt.lan:8883', username: 'ha', password: 'p' })?.id, 'tls');
+  // another account: kept as typed, linked by hand
+  assert.equal(matchHaBroker(brokers, { broker: 'mqtts://mqtt.lan:8883', username: 'ha', password: 'other' }), null);
+  assert.equal(matchHaBroker(brokers, { broker: 'mqtt://mqtt.lan:1883', username: '', password: '' }), null);
+  assert.equal(matchHaBroker(brokers, { broker: '', username: '', password: '' }), null);
+});
+
+test('roles: Home Assistant names its broker by a role id', async () => {
+  const a = Fastify();
+  registerSettingsRoutes(a, {} as HomeAssistantBridge);
+  const put = (payload: unknown) => a.inject({ method: 'PUT', url: '/api/settings/homeassistant', payload });
+  const base = { enabled: true, topic: 'homelab-manager', discoveryPrefix: 'homeassistant' };
+  assert.equal((await put({ ...base, brokerRoleId: 'Bad id' })).statusCode, 400);
+  assert.equal((await put({ ...base, brokerRoleId: 'x/../y' })).statusCode, 400);
+  assert.equal((await a.inject({ method: 'POST', url: '/api/settings/homeassistant/test', payload: {} })).statusCode, 400);
 });

@@ -1,5 +1,18 @@
-import type { Host } from './api';
+import type { Host, HubRole, HubRoleType } from './api';
+import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
 // listen on loopback only are left out: the hub cannot reach them.
 export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).filter((c) => !c.local && !host.roles.some((r) => r.port === c.port));
+
+export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
+  { id: 'mqtt-broker', label: 'Broker MQTT', hint: 'écouté par les sondes MQTT, et broker de l’intégration Home Assistant' },
+];
+export const roleTypeLabel = (t: HubRoleType) => ROLE_TYPES.find((x) => x.id === t)?.label ?? t;
+
+export const roleStatus = (b: { status: HubRole['status']; url: string }): { label: string; tone: Tone } =>
+  !b.url ? { label: 'Adresse inconnue', tone: 'warn' }
+    : !b.status ? { label: 'Inactif', tone: 'neutral' }
+      : b.status.state === 'connected' ? { label: 'Connecté', tone: 'ok' }
+        : b.status.state === 'connecting' ? { label: 'Connexion…', tone: 'info' }
+          : { label: 'Injoignable', tone: 'warn' };

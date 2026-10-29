@@ -606,9 +606,9 @@ export interface HaDetail {
 
 export interface HomeAssistantSettings {
   enabled: boolean;
-  broker: string;
-  username: string;
-  hasPassword: boolean;
+  // mqtt-broker role the hub publishes to; legacyBroker: broker typed before the roles, not linked to one yet
+  brokerRoleId: string | null;
+  legacyBroker: string | null;
   topic: string;
   discoveryPrefix: string;
   publicUrl: string;
@@ -623,11 +623,10 @@ export interface HomeAssistantSettings {
   };
 }
 
+// brokerRoleId: absent keeps the broker, "" removes it
 export interface HomeAssistantInput {
   enabled: boolean;
-  broker: string;
-  username: string;
-  password?: string;
+  brokerRoleId?: string;
   topic: string;
   discoveryPrefix: string;
   publicUrl: string;
@@ -1335,24 +1334,28 @@ export interface EquipmentInput {
   ping?: boolean;
 }
 
-// password: absent keeps the stored one, "" clears it
-export interface HostRoleInput {
+// A role of the hub (hub/src/roles.ts): what the hub can do through a host. uses: what relies on it (probes, Home
+// Assistant), a role in use is not deleted.
+export type HubRoleType = 'mqtt-broker';
+export interface HubRole {
+  id: string;
+  type: HubRoleType;
   name: string;
-  scheme: BrokerScheme;
-  port: number;
-  address?: string;
-  username: string;
-  password?: string;
+  carrier: { kind: 'host'; id: string; name: string };
+  config: { scheme: BrokerScheme; port: number; address: string | null; username: string };
+  hasPassword: boolean;
+  url: string;
+  status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
+  uses: string[];
 }
 
-// config of a mqtt-broker role, as the hub takes it
-const brokerConfig = ({ scheme, port, address, username, password }: HostRoleInput) => ({
-  scheme,
-  port,
-  ...(address ? { address } : {}),
-  username,
-  ...(password !== undefined ? { password } : {}),
-});
+// config.password: absent keeps the stored one, "" clears it; carrier on an edit: moves the role
+export interface HubRoleInput {
+  type: HubRoleType;
+  carrier?: { kind: 'host'; id: string };
+  name: string;
+  config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string };
+}
 
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
@@ -1384,8 +1387,7 @@ export const api = {
 
   homeAssistant: () => request<HomeAssistantSettings>('GET', '/api/settings/homeassistant'),
   saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),
-  testHomeAssistant: (s: HomeAssistantInput) =>
-    request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', s),
+  testHomeAssistant: (brokerRoleId: string) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', { brokerRoleId }),
   republishHomeAssistant: () => request<{ ok: boolean }>('POST', '/api/settings/homeassistant/republish'),
   // devices and entities a level of detail would publish (detail: global level being edited, saved one otherwise);
   // hosts: only the devices of these hosts, with this level for them when given
@@ -1407,13 +1409,12 @@ export const api = {
   deleteProbe: (id: string) => request<void>('DELETE', `/api/probes/${id}`),
   testProbe: (target: ProbeTarget, timeoutSec: number) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec }),
   mqttBrokers: () => request<{ brokers: MqttBrokerView[] }>('GET', '/api/settings/mqtt-brokers'),
-  // mqtt-broker roles of the hub carried by a host (hub/src/routes/roles.ts)
-  createHostRole: (hostId: string, r: HostRoleInput) =>
-    request<{ id: string }>('POST', '/api/roles', { type: 'mqtt-broker', carrier: { kind: 'host', id: hostId }, name: r.name, config: brokerConfig(r) }),
-  updateHostRole: (_hostId: string, roleId: string, r: HostRoleInput) => request<{ id: string }>('PUT', `/api/roles/${roleId}`, { name: r.name, config: brokerConfig(r) }),
-  deleteHostRole: (_hostId: string, roleId: string) => request<void>('DELETE', `/api/roles/${roleId}`),
-  testHostRole: (hostId: string, r: HostRoleInput & { roleId?: string }) =>
-    request<{ ok: boolean; error?: string }>('POST', '/api/roles/test', { type: 'mqtt-broker', carrier: { kind: 'host', id: hostId }, config: brokerConfig(r), ...(r.roleId ? { roleId: r.roleId } : {}) }),
+  // roles of the hub (hub/src/routes/roles.ts)
+  roles: () => request<{ roles: HubRole[] }>('GET', '/api/roles'),
+  createRole: (r: HubRoleInput) => request<{ id: string }>('POST', '/api/roles', r),
+  updateRole: (id: string, r: Omit<HubRoleInput, 'type'>) => request<{ id: string }>('PUT', `/api/roles/${id}`, r),
+  deleteRole: (id: string) => request<void>('DELETE', `/api/roles/${id}`),
+  testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<{ ok: boolean; error?: string }>('POST', '/api/roles/test', r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),
