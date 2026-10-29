@@ -186,7 +186,7 @@ function SiteCard({ site, status, small }: { site: Site; status: StatusView | un
   );
 }
 
-// External sites of a single host: a "Services" frame, one block per site, its domains on two rows.
+// External sites of a single host (equipments not shown): a "Services" frame, one block per site, its domains on two rows.
 function ExternalSites({ sites, status }: { sites: Site[]; status: StatusView | undefined }) {
   return (
     <div>
@@ -254,7 +254,7 @@ function Legend({ domains }: { domains: DomainMeta[] }) {
 // sites of a single host, grouped in one card.
 export function SiteOverview({ sites }: { sites: Site[] }) {
   const { data: status } = useStatus();
-  const external = sites.filter((s) => s.kind === 'external' && s.hosts.length === 1 && s.equipments.length === 0);
+  const external = sites.filter((s) => s.kind === 'external' && s.hosts.length === 1);
   const rest = sites.filter((s) => !external.includes(s));
   // the biggest sites take the whole width, the small ones share a row
   const large = rest.filter((s) => s.kind === 'main' || s.hosts.length > 8);
