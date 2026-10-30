@@ -1,14 +1,15 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeft, Pencil, Radio, Router, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Router, Settings, Trash2 } from 'lucide-react';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { EquipmentModal } from '../components/Equipment';
 import { SOURCE_LABELS, TYPE_LABELS, equipmentTone, useSiteName } from '../lib/equipment';
 import { HeaderTitle } from '../components/HeaderSlot';
+import { StripItem } from '../components/StripItem';
 import { ProbesPanel } from '../components/Probes';
-import { Badge, Button, ConfirmModal, Empty, Panel, Spinner, StatusDot } from '../components/ui';
+import { Badge, Button, ConfirmModal, Empty, Spinner, StatusDot } from '../components/ui';
 import { api, type Equipment } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { dateTime, timeAgo } from '../lib/format';
@@ -19,42 +20,7 @@ import { useToast } from '../lib/toast';
 
 const toneLabel: Record<Tone, string> = { ok: 'OK', warn: 'Avertissement', bad: 'Alerte', neutral: 'Non suivi', unknown: 'Inconnu', info: 'Info' };
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm text-zinc-200">{children}</dd>
-    </div>
-  );
-}
-
 const equipmentLink = (e: Pick<Equipment, 'id' | 'name'>) => <Link key={e.id} to={`/equipments/${e.id}`} className="text-emerald-400 hover:underline">{e.name}</Link>;
-
-// What the source of a synced equipment reports (connection, firmware...), at its last synchronisation.
-function NativePanel({ equipment }: { equipment: Equipment }) {
-  const { data: status } = useStatus();
-  const d = status?.equipments[equipment.id]?.domains.system;
-  const source = SOURCE_LABELS[equipment.source];
-  return (
-    <Panel title={`Remonté par ${source}`} icon={Radio} actions={equipment.native && <span className="text-xs text-muted">synchronisé {timeAgo(equipment.native.syncedAt)}</span>}>
-      {!d || d.level === 'unknown' ? (
-        <p className="text-sm text-muted">{d?.reason ?? 'Pas encore synchronisé'} : l'état remonté par {source} n'est pas connu.</p>
-      ) : !d.checks.length ? (
-        <p className="text-sm text-muted">Rien à signaler.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {d.checks.map((c) => (
-            <li key={c.key} className="flex items-center gap-2.5 text-sm">
-              <Badge tone={levelTone[c.level]}>{cellLabel[c.level]}</Badge>
-              <span className="text-zinc-200">{c.label}</span>
-              {c.reason && <span className="min-w-0 truncate text-muted">{c.reason}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
-  );
-}
 
 export function EquipmentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -84,9 +50,27 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const synced = e.source !== 'manual';
+  // what the source reports (connection, load...), as the facts of the equipment
+  const native = status?.equipments[e.id]?.domains.system;
   const tone = equipmentTone(status, e);
   const uplink = all?.find((x) => x.id === e.uplinkId);
   const below = (all ?? []).filter((x) => x.uplinkId === e.id);
+
+  // a new poll of the source now (all the controllers; the equipments are rewritten as at each poll)
+  const refresh = async () => {
+    setRefreshing(true);
+    try {
+      await api.pollOmada();
+      qc.invalidateQueries({ queryKey: keys.equipments });
+      qc.invalidateQueries({ queryKey: keys.status });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const remove = async () => {
     setBusy(true);
@@ -121,31 +105,41 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
       />
 
       <div className="space-y-5">
-        <Panel
-          title="Équipement"
-          icon={Router}
-          actions={
-            canManage && (
+        <section className="panel">
+          <dl className="flex flex-wrap lg:flex-nowrap">
+            <StripItem label="Type">{TYPE_LABELS[e.type]}</StripItem>
+            <StripItem label="Site">{siteName(e.siteId) ?? '—'}</StripItem>
+            <StripItem label="Adresse IP"><span className="font-mono text-xs">{e.ip ?? '—'}</span></StripItem>
+            <StripItem label="Amont">{uplink ? equipmentLink(uplink) : '—'}</StripItem>
+            {below.length > 0 && <StripItem label="En aval">{below.flatMap((x, i) => (i ? [', ', equipmentLink(x)] : [equipmentLink(x)]))}</StripItem>}
+            <StripItem label="Source" grow>{SOURCE_LABELS[e.source]}{e.externalId && <span className="ml-1.5 font-mono text-xs text-muted">{e.externalId}</span>}</StripItem>
+            {synced && (
               <>
-                <Button size="sm" icon={Pencil} onClick={() => setEditing(true)}>Modifier</Button>
-                <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${e.name}`} title="Supprimer" onClick={() => setRemoving(true)} />
+                {!native || native.level === 'unknown' ? (
+                  <StripItem label="Connexion"><span className="text-muted">{native?.reason ?? 'Pas encore synchronisé'}</span></StripItem>
+                ) : (
+                  native.checks.map((c) => (
+                    <StripItem key={c.key} label={c.label}>
+                      <Badge tone={levelTone[c.level]}>{cellLabel[c.level]}</Badge>
+                      {c.reason && <span className="ml-1.5 text-xs text-muted">{c.reason}</span>}
+                    </StripItem>
+                  ))
+                )}
+                <StripItem label="Synchronisé">{e.native ? <span title={dateTime(e.native.syncedAt)}>{timeAgo(e.native.syncedAt)}</span> : '—'}</StripItem>
               </>
-            )
-          }
-        >
-          <dl className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-6 gap-y-3">
-            <Fact label="Type">{TYPE_LABELS[e.type]}</Fact>
-            <Fact label="Site">{siteName(e.siteId) ?? '—'}</Fact>
-            <Fact label="Adresse IP"><span className="font-mono text-xs">{e.ip ?? '—'}</span></Fact>
-            <Fact label="Amont">{uplink ? equipmentLink(uplink) : '—'}</Fact>
-            {below.length > 0 && <Fact label="En aval">{below.flatMap((x, i) => (i ? [', ', equipmentLink(x)] : [equipmentLink(x)]))}</Fact>}
-            <Fact label="Source">{SOURCE_LABELS[e.source]}{e.externalId && <span className="ml-1.5 font-mono text-xs text-muted">{e.externalId}</span>}</Fact>
-            <Fact label="Ajouté le">{dateTime(e.createdAt)}</Fact>
+            )}
+            <StripItem label="Ajouté le">{dateTime(e.createdAt)}</StripItem>
+            {canManage && (
+              <div className="flex shrink-0 items-center gap-2 self-center px-4 py-2.5">
+                {synced && <Button icon={RefreshCw} loading={refreshing} title={`Actualiser : relire ${SOURCE_LABELS[e.source]} maintenant`} aria-label="Actualiser" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={refresh} />}
+                <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setEditing(true)} />
+                <Button variant="danger" icon={Trash2} aria-label={`Supprimer ${e.name}`} title="Supprimer" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setRemoving(true)} />
+              </div>
+            )}
           </dl>
-        </Panel>
+        </section>
 
         <AlertTimeline kind="equipment" id={e.id} />
-        {e.source !== 'manual' && <NativePanel equipment={e} />}
         <ProbesPanel owner={{ kind: 'equipment', equipment: e }} />
       </div>
 

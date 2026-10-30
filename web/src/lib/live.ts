@@ -46,6 +46,8 @@ export function useLiveEvents(enabled: boolean) {
       qc.setQueryData<Job>(keys.job(job.id), (old) => (old ? { ...old, ...job, log: old.log } : old));
       if (job.status !== 'running') qc.invalidateQueries({ queryKey: keys.job(job.id) });
     });
+    // the sites and devices of an Omada controller (Paramètres › Omada)
+    es.addEventListener('omada', () => qc.invalidateQueries({ queryKey: ['settings', 'omada'] }));
     es.addEventListener('backups', () => {
       qc.invalidateQueries({ queryKey: keys.backups });
       qc.invalidateQueries({ queryKey: keys.status });

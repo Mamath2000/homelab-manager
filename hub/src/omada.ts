@@ -1,5 +1,5 @@
 import { ApiError, fetchFingerprint, FingerprintError, tlsRequest, type TlsServer } from './tlsApi.js';
-import type { OmadaControllerConfig } from './types.js';
+import type { EquipmentType, OmadaControllerConfig, OmadaDevice } from './types.js';
 
 // Open API of an Omada controller (omada-controller role, roles.ts), as tools/omada/client.mjs of the homelab uses it:
 // the id of the controller from /api/info, a token in client mode (POST /openapi/authorize/token?grant_type=
@@ -60,6 +60,83 @@ export async function omadaCheck(c: OmadaControllerConfig): Promise<OmadaCheck> 
   if (!auth?.accessToken) throw new ApiError('aucun jeton rendu par le contrôleur');
   const sites = await call<{ totalRows?: number }>(c, 'GET', `/openapi/v1/${encodeURIComponent(info.omadacId)}/sites?page=1&pageSize=1`, { token: auth.accessToken });
   return { omadacId: info.omadacId, version: info.controllerVer ?? '', sites: sites?.totalRows ?? 0 };
+}
+
+// A token for the application of the role, and the id of its controller.
+async function login(c: OmadaControllerConfig) {
+  const info = await call<{ omadacId?: string }>(c, 'GET', '/api/info');
+  if (!info?.omadacId) throw new ApiError('omadacId absent de /api/info : est-ce bien un contrôleur Omada ?');
+  const auth = await call<{ accessToken?: string }>(c, 'POST', '/openapi/authorize/token?grant_type=client_credentials', {
+    body: { omadacId: info.omadacId, client_id: c.clientId, client_secret: c.clientSecret },
+  });
+  if (!auth?.accessToken) throw new ApiError('aucun jeton rendu par le contrôleur');
+  return { omadacId: info.omadacId, token: auth.accessToken };
+}
+
+interface Page<T> {
+  totalRows?: number;
+  data?: T[];
+}
+
+// All the rows of a paged route (pageSize 1000, the maximum of the Open API).
+async function all<T>(c: Conn, token: string, path: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let page = 1; ; page++) {
+    const r = await call<Page<T>>(c, 'GET', `${path}?page=${page}&pageSize=1000`, { token });
+    out.push(...(r?.data ?? []));
+    if (!r?.data?.length || out.length >= (r.totalRows ?? 0)) return out;
+  }
+}
+
+const DEVICE_TYPES: Record<string, EquipmentType> = { gateway: 'gateway', switch: 'switch', ap: 'ap' };
+
+export const normalizeMac = (mac: string) => mac.trim().toUpperCase().replace(/-/g, ':');
+
+interface RawDevice {
+  mac?: string;
+  name?: string;
+  type?: string;
+  model?: string;
+  modelName?: string;
+  ip?: string;
+  status?: number;
+  firmwareVersion?: string;
+  lastSeen?: number;
+  cpuUtil?: number;
+  memUtil?: number;
+}
+
+export interface OmadaSnapshot {
+  omadacId: string;
+  sites: { id: string; name: string }[];
+  devices: OmadaDevice[];
+}
+
+// What a poll reads: the sites of the controller and the devices of each (status 1: connected).
+export async function omadaSnapshot(c: OmadaControllerConfig): Promise<OmadaSnapshot> {
+  const { omadacId, token } = await login(c);
+  const base = `/openapi/v1/${encodeURIComponent(omadacId)}`;
+  const sites = (await all<{ siteId: string; name: string }>(c, token, `${base}/sites`)).map((s) => ({ id: s.siteId, name: s.name }));
+  const devices: OmadaDevice[] = [];
+  for (const s of sites) {
+    for (const d of await all<RawDevice>(c, token, `${base}/sites/${encodeURIComponent(s.id)}/devices`)) {
+      if (!d.mac) continue;
+      devices.push({
+        mac: normalizeMac(d.mac),
+        name: d.name?.trim() || d.mac,
+        type: DEVICE_TYPES[d.type ?? ''] ?? 'other',
+        model: d.modelName ?? d.model ?? '',
+        ...(d.ip ? { ip: d.ip } : {}),
+        firmware: d.firmwareVersion ?? '',
+        connected: d.status === 1,
+        ...(typeof d.cpuUtil === 'number' ? { cpu: d.cpuUtil } : {}),
+        ...(typeof d.memUtil === 'number' ? { mem: d.memUtil } : {}),
+        siteId: s.id,
+        ...(d.lastSeen ? { lastSeen: d.lastSeen } : {}),
+      });
+    }
+  }
+  return { omadacId, sites, devices };
 }
 
 // What the controller answers without any account: /api/info, the version and the id of the controller. The first thing

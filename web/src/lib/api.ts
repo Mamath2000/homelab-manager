@@ -1216,6 +1216,32 @@ export interface PveCluster {
 
 // Inventory of a cluster (Paramètres › Proxmox VE, hub/src/routes/backups.ts): its nodes with their agent, its guests
 // with the host each one is. host null: no agent (unmanaged); ambiguous: a MAC shared with another guest.
+export interface OmadaDeviceView {
+  mac: string;
+  name: string;
+  type: EquipmentType;
+  model: string;
+  ip?: string;
+  firmware: string;
+  connected: boolean;
+  siteId: string;
+  equipment: { id: string; name: string } | null;
+  candidates: { id: string; name: string; ip: string | null }[];
+}
+export interface OmadaSiteView {
+  id: string;
+  name: string;
+  homelabSiteId: string | null;
+  devices: OmadaDeviceView[];
+}
+export interface OmadaController {
+  id: string;
+  name: string;
+  polledAt: string | null;
+  pollError: string | null;
+  sites: OmadaSiteView[];
+}
+
 export interface PveInventory {
   id: string;
   name: string;
@@ -1576,6 +1602,10 @@ export const api = {
   dropCachedNextcloud: (hostId: string) => request<void>('DELETE', `/api/hosts/${hostId}/backup-cache/nextcloud`),
   createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
+  omadaInventory: () => request<{ controllers: OmadaController[] }>('GET', '/api/settings/omada'),
+  pollOmada: () => request<{ ok: true }>('POST', '/api/settings/omada/poll'),
+  setOmadaSite: (controller: string, siteId: string, homelabSiteId: string) => request<{ ok: true }>('PUT', `/api/settings/omada/${controller}/sites/${siteId}`, { siteId: homelabSiteId }),
+  linkOmadaDevice: (controller: string, mac: string, opts: { equipmentId?: string; name?: string } = {}) => request<{ id: string }>('POST', `/api/settings/omada/${controller}/link`, { mac, ...opts }),
   pveInventory: () => request<{ clusters: PveInventory[] }>('GET', '/api/settings/pve/inventory'),
   installPveAgents: (cluster: string, vmids: number[], dryRun: boolean, nodes: string[] = []) =>
     request<{ dryRun: boolean; targets: PveInstallTarget[] }>('POST', '/api/settings/pve/install', { cluster, vmids, nodes, dryRun }),

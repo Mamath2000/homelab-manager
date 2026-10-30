@@ -1,6 +1,6 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, ApiKeyDoc, StoredRoleDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, ApiKeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 const client = new MongoClient(config.mongoUrl);
 
@@ -23,6 +23,7 @@ export let probeMeasures: Collection<ProbeMeasureDoc>;
 export let equipments: Collection<EquipmentDoc>;
 export let equipmentAlerts: Collection<EquipmentAlertDoc>;
 export let roles: Collection<StoredRoleDoc>;
+export let omada: Collection<OmadaStateDoc>;
 
 export async function connectDb() {
   await client.connect();
@@ -46,6 +47,7 @@ export async function connectDb() {
   equipments = db.collection('equipments');
   equipmentAlerts = db.collection('equipmentAlerts');
   roles = db.collection('roles');
+  omada = db.collection('omada');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),

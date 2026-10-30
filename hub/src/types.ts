@@ -1237,6 +1237,33 @@ export interface OmadaControllerRole {
   createdAt: Date;
 }
 
+// What the hub knows of an Omada controller (collection `omada`, one document per omada-controller role, _id = role id):
+// its sites and devices as read at the last poll, and the sites of the homelab the admin matched to the ones of the
+// controller (siteMap: Omada siteId -> site of the homelab).
+export interface OmadaDevice {
+  mac: string; // normalised: AA:BB:CC:DD:EE:FF
+  name: string;
+  type: EquipmentType;
+  model: string;
+  ip?: string;
+  firmware: string;
+  connected: boolean;
+  cpu?: number; // % of use
+  mem?: number;
+  siteId: string; // Omada site
+  lastSeen?: number;
+}
+
+export interface OmadaStateDoc {
+  _id: string;
+  omadacId?: string;
+  sites: { id: string; name: string }[];
+  siteMap: Record<string, string>;
+  devices: OmadaDevice[];
+  polledAt?: Date;
+  pollError?: string;
+}
+
 export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole;
 // the ones of the roles collection
 export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole;

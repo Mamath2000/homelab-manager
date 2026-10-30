@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { omadaCheck, omadaProbe, presentedFingerprint } from '../src/omada.js';
+import { omadaCheck, omadaProbe, omadaSnapshot, presentedFingerprint } from '../src/omada.js';
 import { certFingerprint, createPki } from '../src/pki.js';
 import { normalizeFingerprint } from '../src/tlsApi.js';
 
@@ -27,8 +27,15 @@ before(async () => {
         if (b.omadacId !== 'abc123' || b.client_id !== 'app' || b.client_secret !== 'secret') return send({ errorCode: -44106, msg: 'The client id or client secret is invalid.' });
         return send({ errorCode: 0, msg: 'Open API Get Access Token successfully.', result: { accessToken: 'AT-1', tokenType: 'bearer', expiresIn: 7200 } });
       }
+      if (req.url?.startsWith('/openapi/v1/abc123/sites/s1/devices')) {
+        return send({ errorCode: 0, result: { totalRows: 2, data: [
+          { mac: '40-AE-30-E0-02-CC', name: 'ER707', type: 'gateway', modelName: 'ER707-M2', ip: '192.168.0.1', status: 1, firmwareVersion: '1.4.5' },
+          { mac: '5c-e9-31-dc-8d-c1', name: 'SG2008P', type: 'switch', model: 'SG2008P v3.20', status: 0, firmwareVersion: '3.20' },
+        ] } });
+      }
       if (req.url?.startsWith('/openapi/v1/abc123/sites')) {
         if (req.headers.authorization !== 'AccessToken=AT-1') return send({ errorCode: -44112, msg: 'The access token has expired.' });
+        if (req.url.includes('page=2')) return send({ errorCode: 0, result: { totalRows: 3, data: [] } });
         return send({ errorCode: 0, msg: 'Success.', result: { totalRows: 3, currentPage: 1, currentSize: 1, data: [{ siteId: 's1', name: 'vouille' }] } });
       }
       res.writeHead(404);
@@ -75,4 +82,15 @@ test('omada: the probe asks /api/info only, without any account', async () => {
   // not pinned: the certificate is refused, and the one it presents is offered
   const err = await omadaProbe({ url, fingerprint: '' }).catch((e: unknown) => e);
   assert.equal(await presentedFingerprint({ url, fingerprint: '' }, err), fingerprint);
+});
+
+test('omada: snapshot of the sites and devices, MAC normalised, status 1 = connected', async () => {
+  const snap = await omadaSnapshot(conf(fingerprint));
+  assert.deepEqual(snap.sites, [{ id: 's1', name: 'vouille' }]);
+  assert.deepEqual(snap.devices.map((d) => [d.mac, d.type, d.connected, d.siteId]), [
+    ['40:AE:30:E0:02:CC', 'gateway', true, 's1'],
+    ['5C:E9:31:DC:8D:C1', 'switch', false, 's1'],
+  ]);
+  assert.equal(snap.devices[0].model, 'ER707-M2');
+  assert.equal(snap.devices[1].ip, undefined);
 });
