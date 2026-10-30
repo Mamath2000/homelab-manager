@@ -125,7 +125,7 @@ func (s *session) hello(ctx context.Context) error {
 	if hasPve() {
 		caps = append(caps, "pve", "pve_token_delete")
 		if _, err := exec.LookPath("pct"); err == nil {
-			caps = append(caps, "pve_guest_check")
+			caps = append(caps, "pve_guest_check", "agent_install:lxc")
 		}
 		// the hub does not offer a node of a cluster it already follows: the cluster name rides along
 		if cluster, _, _ := pveClusterStatus(ctx, pveExec); cluster != "" {
@@ -468,6 +468,8 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}
 	case "docker_up", "docker_stop", "docker_restart", "docker_update":
 		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
+	case "agent_install":
+		code, err = installAgentInLxc(jctx, runStreamingIn, fetchInstaller(s.http, s.hub), in.Install, emit)
 	case "backup_install":
 		code, err = installBackupClient(jctx, in.Method, emit)
 		// the hub learns the new mode from the capabilities

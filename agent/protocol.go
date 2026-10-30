@@ -149,6 +149,8 @@ type Inbound struct {
 	Pve *PveTokenSpec `json:"pve,omitempty"`
 	// pve_guest_check: ids of the CT of this node to inspect (read-only)
 	PveVmids []int `json:"pveVmids,omitempty"`
+	// agent_install: install the agent in a CT of this node (agent_install.go)
+	Install *AgentInstallSpec `json:"install,omitempty"`
 	// offsite_sync: the copy to this secondary PBS (offsite.go)
 	Offsite *OffsiteSpec `json:"offsite,omitempty"`
 	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read
