@@ -1,7 +1,7 @@
 ---
 id: roles
 title: Rôles du hub
-description: Ce que le hub peut faire au travers d'un élément du homelab (broker MQTT, cluster Proxmox VE) : déclaration, hôte porteur, test, réaffectation
+description: "Ce que le hub peut faire au travers d'un élément du homelab (broker MQTT, cluster Proxmox VE) : déclaration, hôte porteur, test, réaffectation"
 sidebar_position: 3.95
 ---
 
