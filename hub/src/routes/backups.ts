@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { backupJobs, backups, guests, hosts, parseId, settings } from '../db.js';
+import { backupJobs, backups, guests, hosts, jobs, parseId, settings } from '../db.js';
 import { isOnline, refreshAgent } from '../agents.js';
 import { publish } from '../events.js';
 import {
@@ -389,6 +389,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const all = await guests.find().sort({ node: 1, vmid: 1 }).toArray();
     const list = await hosts.find({}, { projection: { name: 1, capabilities: 1, 'info.hostname': 1 } }).toArray();
     const names = new Map(list.map((h) => [h._id.toHexString(), h.name]));
+    const installing = new Set((await jobs.find({ action: 'agent_install', status: 'running' }, { projection: { installTarget: 1 } }).toArray()).map((j) => `${j.installTarget?.cluster}/${j.installTarget?.vmid}`));
     const carrierOf = (h?: (typeof list)[number] | null) => (h ? { capabilities: h.capabilities, online: isOnline(h._id.toHexString()) } : null);
     return {
       clusters: s.clusters.map((c) => {
@@ -407,6 +408,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
             return { ...n, host: h ? { id: h._id.toHexString(), name: h.name, online: isOnline(h._id.toHexString()) } : null };
           }),
           guests: mine.map((g) => ({
+            installing: installing.has(`${c.id}/${g.vmid}`),
             install: g.type === 'lxc' && !g.hostId ? staticEligibility(g, carrierOf(carriers.get(g.node))) : null,
             vmid: g.vmid,
             type: g.type,

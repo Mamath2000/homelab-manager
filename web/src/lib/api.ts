@@ -1232,8 +1232,24 @@ export interface PveInventory {
     status: string;
     host: { id: string; name: string } | null;
     ambiguous: boolean;
+    // agent installation (CT without host only): null for the others
+    install: { eligible: boolean; reasons: string[] } | null;
+    installing: boolean;
     jobs: { id: string; enabled: boolean; storage: string; nextRun: number | null; scheduleText: string }[];
   }[];
+}
+
+// Plan / result of the installation of the agent in CT (POST /api/settings/pve/install)
+export interface PveInstallTarget {
+  vmid: number;
+  name: string;
+  node: string;
+  eligible: boolean;
+  reasons: string[];
+  mode: 'create' | 'reuse' | null;
+  hostName: string;
+  installCurl: boolean;
+  jobId?: string;
 }
 
 // the token is created by the agent of a node (createPveToken), not part of the form
@@ -1553,6 +1569,8 @@ export const api = {
   createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
   pveInventory: () => request<{ clusters: PveInventory[] }>('GET', '/api/settings/pve/inventory'),
+  installPveAgents: (cluster: string, vmids: number[], dryRun: boolean) =>
+    request<{ dryRun: boolean; targets: PveInstallTarget[] }>('POST', '/api/settings/pve/install', { cluster, vmids, dryRun }),
   restorePveLink: (hostId: string) => request<void>('POST', `/api/hosts/${hostId}/pve/restore`),
   forgetPveLink: (hostId: string) => request<void>('DELETE', `/api/hosts/${hostId}/pve/lost`),
   savePveCluster: (id: string, c: PveClusterInput) => request<PveCluster>('PUT', `/api/settings/pve/clusters/${encodeURIComponent(id)}`, c),
