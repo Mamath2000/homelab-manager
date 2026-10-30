@@ -26,7 +26,7 @@ const hostOf = (url: string) => {
 // Corosync cluster of a node, announced by its agent (`pve_cluster:<name>`).
 const clusterOf = (caps: string[]) => caps.find((c) => c.startsWith('pve_cluster:'))?.slice('pve_cluster:'.length);
 
-// One cluster (a pve-reporting role of the hub, Paramètres › Rôles), declared from one of its nodes in four steps
+// One cluster (a pve-cluster role of the hub, Paramètres › Rôles), declared from one of its nodes in four steps
 // (PbsDialog.tsx): node and Détecter, what its agent found and the interface the hub reaches the API at, token created
 // by the agent, test. Choosing another node of the cluster moves the role. The secret is never sent back by the hub.
 export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null; others: PveCluster[]; onClose: () => void }) {
@@ -244,18 +244,21 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
   );
 }
 
-// Paramètres › Sauvegardes: the Proxmox VE clusters are roles of the hub (Reporting PVE), declared in Paramètres › Rôles.
+// Paramètres › Sauvegardes: the Proxmox VE clusters are roles of the hub (Cluster Proxmox VE), declared in Paramètres › Rôles,
+// their inventory in Paramètres › Proxmox VE.
 export function PveSettings() {
   const { data } = useQuery({ queryKey: ['settings', 'pve'], queryFn: api.pveSettings });
   return (
     <Panel title="Clusters Proxmox VE" icon={Server}>
       <p className="text-sm text-muted">
         Le hub lit les jobs de sauvegarde (vzdump) de chaque cluster, leur planification et le résultat de leurs tâches. Un hôte est lié à son CT ou sa VM par
-        l'adresse MAC que remonte son agent : les sauvegardes de ce guest lui sont rattachées automatiquement, et leur retard est jugé sur la planification du job.
+        l'adresse MAC que remonte son agent : ses sauvegardes vzdump lui sont rattachées automatiquement, sur le PBS comme sur les autres stockages du cluster, et leur
+        retard est jugé sur la planification du job.
       </p>
       <p className="mt-3 text-sm text-muted">
-        {data ? `${data.clusters.length} cluster(s) suivi(s). ` : ''}Un cluster se déclare comme rôle <b className="text-zinc-300">Reporting PVE</b> dans{' '}
-        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
+        {data ? `${data.clusters.length} cluster(s) suivi(s). ` : ''}Un cluster se déclare comme rôle <b className="text-zinc-300">Cluster Proxmox VE</b> dans{' '}
+        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>
+        {data?.clusters.length ? <>, son inventaire est dans <Link to="/settings?tab=pve" className="text-emerald-400 hover:underline">Paramètres › Proxmox VE</Link></> : null}.
       </p>
     </Panel>
   );

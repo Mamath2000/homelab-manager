@@ -11,7 +11,7 @@ import { BROKER_SCHEMES, CARRIER_KINDS, type BrokerScheme, type CarrierKind, typ
 
 // Roles of the hub (roles.ts): read by every account (never a secret), written by the admins (profiles.ts refuses what
 // it does not list): the hub opens connections to what is declared here. The MQTT brokers and the Omada controllers are
-// declared here; the reporting of a Proxmox VE cluster through routes/backups.ts (its token is made by the agent of the
+// declared here; a Proxmox VE cluster through routes/backups.ts (its token is made by the agent of the
 // node), the PBS by the settings of the backups.
 
 const DECLARED = ['mqtt-broker', 'omada-controller'] as const;

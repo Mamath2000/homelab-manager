@@ -26,8 +26,8 @@ const tint = {
   cyan: 'bg-cyan-500/15 text-cyan-300 ring-cyan-500/30',
 };
 
-const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-reporting': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network };
-const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-reporting': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald };
+const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-cluster': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network };
+const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-cluster': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald };
 
 // jobs: backup view of the host (engines found by its agent, Nextcloud AIO instance), undefined while not loaded
 export function hostSkills(h: Host, jobs?: Pick<HostBackupJobs, 'databases' | 'nextcloudPlugin' | 'nextcloud'>): HostSkill[] {

@@ -55,6 +55,8 @@ export function useLiveEvents(enabled: boolean) {
       // state of the last poll of the PBS and of the secondary PBS (Paramètres › Sauvegardes)
       qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
       qc.invalidateQueries({ queryKey: ['settings', 'pbs-remote'] });
+      // inventory of the Proxmox VE clusters, polled with the backups (Paramètres › Proxmox VE)
+      qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
     });
     // a snapshot mounted or unmounted (the hosts carry it): the mount window
     es.addEventListener('pbs-mount', () => qc.invalidateQueries({ queryKey: ['pbs-mount'] }));

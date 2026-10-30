@@ -13,7 +13,7 @@ export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).fil
 
 export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'mqtt-broker', label: 'Broker MQTT', hint: 'écouté par les sondes MQTT, et broker de l’intégration Home Assistant' },
-  { id: 'pve-reporting', label: 'Reporting PVE', hint: 'VM et CT d’un cluster Proxmox VE, leurs jobs vzdump et le résultat de leurs sauvegardes' },
+  { id: 'pve-cluster', label: 'Cluster Proxmox VE', hint: 'Inventaire d’un cluster Proxmox VE (nœuds, VM et CT, jobs vzdump) : les hôtes y sont reliés à leur VM ou CT' },
   { id: 'pbs-primary', label: 'PBS principal', hint: 'le Proxmox Backup Server des sauvegardes : groupes relevés, jobs des agents, montages' },
   { id: 'pbs-offsite', label: 'PBS hors site', hint: 'un second PBS, distant, qui copie chaque jour les sauvegardes choisies du principal' },
   { id: 'omada-controller', label: 'Contrôleur Omada', hint: 'l’Open API du contrôleur Omada d’un site (application en mode client), source à venir des équipements réseau' },

@@ -5,7 +5,7 @@ import { backups, hosts, parseId } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
 import { loadRemoteSettings, remoteReady } from './offsite.js';
-import { FINGERPRINT_RE, loadPbsSettings, normalizeFingerprint, pbsCall, pbsConnected } from './pbs.js';
+import { FINGERPRINT_RE, loadPbsSettings, normalizeFingerprint, offPbs, pbsCall, pbsConnected } from './pbs.js';
 import { PbsAgentError, deletePbsToken, ensurePbsToken } from './pbsAgent.js';
 import type { BackupDoc, HostDoc, PbsAgentLink, PbsMount, PbsMountSource } from './types.js';
 
@@ -79,7 +79,7 @@ const groupName = (b: Pick<BackupDoc, 'managed' | 'comment' | 'backupId'>) => b.
 // A group of the main PBS that can be mounted from this source: host or ct, on the PBS; on the secondary,
 // a group it holds a copy of (sync jobs hlm-*).
 export function mountable(b: BackupDoc, source: PbsMountSource) {
-  if (!(MOUNTABLE_TYPES as readonly string[]).includes(b.type) || b.gone || b.placeholder || b.source === 'haos') return false;
+  if (!(MOUNTABLE_TYPES as readonly string[]).includes(b.type) || b.gone || b.placeholder || offPbs(b)) return false;
   return source === 'main' || !!(b.offsite?.enabled || b.offsite?.lastBackup);
 }
 

@@ -607,7 +607,7 @@ function TypePicker({ roles, onPick, onClose }: { roles: HubRole[]; onPick: (t: 
 
 type Editing =
   | { type: 'mqtt-broker'; role: MqttHubRole | null }
-  | { type: 'pve-reporting'; role: PveHubRole | null }
+  | { type: 'pve-cluster'; role: PveHubRole | null }
   | { type: 'omada-controller'; role: OmadaHubRole | null }
   | { type: 'pbs-primary' | 'pbs-offsite' };
 
@@ -636,7 +636,7 @@ export function RolesSettings() {
     if (!removing) return;
     setBusy(true);
     try {
-      if (removing.type === 'pve-reporting') {
+      if (removing.type === 'pve-cluster') {
         const r = await api.deletePveCluster(removing.config.cluster);
         toast.success(r.revoked ? `Rôle ${removing.name} supprimé, jeton ${r.revoked} révoqué${r.userDeleted ? ' (utilisateur supprimé)' : ''}` : `Rôle ${removing.name} supprimé`);
       } else {
@@ -652,7 +652,7 @@ export function RolesSettings() {
     }
   };
   const edit = (r: HubRole) =>
-    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-reporting' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : { type: r.type });
+    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   const askRemove = (r: HubRole) => (r.type === 'pbs-primary' || r.type === 'pbs-offsite' ? setDisconnecting(r.type) : setRemoving(r));
@@ -663,13 +663,13 @@ export function RolesSettings() {
       <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : r.type.startsWith('pbs-') ? 'Déconnecter' : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => askRemove(r)} />
     </div>
   );
-  const cluster = editing?.type === 'pve-reporting' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
+  const cluster = editing?.type === 'pve-cluster' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
 
   return (
     <Panel title="Rôles du hub" icon={Radio} bodyClassName="" actions={<Button size="sm" icon={Plus} onClick={() => setPicking(true)}>Déclarer un rôle</Button>}>
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
         Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
-        reporting d'un cluster Proxmox VE relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
+        cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
         PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site. Un rôle utilisé ne peut pas être
         supprimé, et l'hôte qui le porte non plus.
       </p>
@@ -678,7 +678,7 @@ export function RolesSettings() {
       ) : error ? (
         <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>
       ) : !roles?.length ? (
-        <p className="p-4 text-sm text-muted">Aucun rôle : pas de sauvegarde, de sonde MQTT, d'intégration Home Assistant ni de reporting Proxmox VE.</p>
+        <p className="p-4 text-sm text-muted">Aucun rôle : pas de sauvegarde, de sonde MQTT, d'intégration Home Assistant ni d'inventaire Proxmox VE.</p>
       ) : (
         <>
           <ResponsiveList mode="mobile">
@@ -745,7 +745,7 @@ export function RolesSettings() {
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
-      {editing?.type === 'pve-reporting' && (!editing.role || cluster) && (
+      {editing?.type === 'pve-cluster' && (!editing.role || cluster) && (
         <ClusterModal
           key={editing.role?.id ?? 'new'}
           cluster={cluster}
@@ -754,7 +754,7 @@ export function RolesSettings() {
         />
       )}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer le rôle" confirmLabel="Supprimer" danger loading={busy}>
-        {removing?.type === 'pve-reporting' ? (
+        {removing?.type === 'pve-cluster' ? (
           <>
             Le hub ne relèvera plus <b>{removing.name}</b> : son jeton <code>{removing.account}</code> est révoqué par l’agent du nœud (ainsi que l’utilisateur s’il
             n’a plus de jeton), les liens de ses VM et CT avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés (les sauvegardes restent

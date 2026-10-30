@@ -5,7 +5,7 @@ import { describeCalendar, nextRun, parseCalendar, previousRun } from './calenda
 import { adhocBlocker, offsiteState } from './offsite.js';
 import { collectBackupStats, recordUsage } from './pbsStats.js';
 import { ApiError, apiGet, apiRequest, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
-import type { BackupDoc, BackupSnapshot, HostDoc, PbsDatastoreUsage, PbsSettings } from './types.js';
+import { OFF_PBS_SOURCES, type BackupDoc, type BackupSnapshot, type HostDoc, type PbsDatastoreUsage, type PbsSettings } from './types.js';
 
 // Backups kept on a Proxmox Backup Server, read through its API with a read-only token
 // (DatastoreAudit). Nothing runs on the hosts: the PBS is the source of truth.
@@ -157,6 +157,9 @@ export function retentionInterval(k: KeepOptions): number | null {
 
 // none: no rhythm known (no schedule, fewer than 4 snapshots, no retention): never late
 export type ThresholdSource = 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
+
+// a group of these sources is not on the PBS (Home Assistant, other storages of Proxmox VE)
+export const offPbs = (b: Pick<BackupDoc, 'source'>) => (OFF_PBS_SOURCES as readonly string[]).includes(b.source ?? '');
 
 // a scheduled backup is expected at most this long after its start time
 export const SCHEDULE_GRACE = 2 * HOUR;
@@ -426,8 +429,9 @@ async function doPoll(log?: FastifyBaseLogger) {
       );
     }
     // groups pruned from the PBS are kept as gone: an attached one is reported, an orphan can be forgotten
-    // placeholders of PVE jobs (never backed up yet) and the backups of Home Assistant are not on the PBS
-    await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true }, source: { $ne: 'haos' } }, { $set: { gone: true } });
+    // placeholders of PVE jobs (never backed up yet), the backups of Home Assistant and the archives of the other
+    // storages of Proxmox VE are not on the PBS
+    await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true }, source: { $nin: [...OFF_PBS_SOURCES] } }, { $set: { gone: true } });
     await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores, prune } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
     // fill level of the day, for the history of the datastores (never fails the poll)
@@ -441,9 +445,10 @@ async function doPoll(log?: FastifyBaseLogger) {
   publish('backups', {});
 }
 
-// Groups of a deleted host become orphans; its Home Assistant backups are only known through it.
+// Groups of a deleted host become orphans; its Home Assistant backups and its archives on the other storages of Proxmox
+// VE are only known through it.
 export async function forgetHost(hostId: HostDoc['_id']) {
-  await backups.deleteMany({ hostId, $or: [{ placeholder: true }, { source: 'haos' }] });
+  await backups.deleteMany({ hostId, $or: [{ placeholder: true }, { source: { $in: [...OFF_PBS_SOURCES] } }] });
   await backups.updateMany({ hostId }, { $set: { hostId: null }, $unset: { source: '', pve: '', managed: '' } });
 }
 

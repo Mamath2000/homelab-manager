@@ -364,7 +364,8 @@ export function build(all: HostState[], opts: BuildOptions) {
     const backup = alertsOf(status.domains.backup, 'backup');
     if (mine.length && sec.has('backup')) {
       const model = [
-        ...(mine.some((g) => g.source !== 'haos') ? ['Proxmox Backup Server'] : []),
+        ...(mine.some((g) => g.source !== 'haos' && g.source !== 'pve-storage') ? ['Proxmox Backup Server'] : []),
+        ...(mine.some((g) => g.source === 'pve-storage') ? ['Proxmox VE'] : []),
         ...(mine.some((g) => g.source === 'haos') ? ['Home Assistant'] : []),
       ].join(' · ');
       const d = device(`${hostId}_backup`, `${hostKey}_backup`, {

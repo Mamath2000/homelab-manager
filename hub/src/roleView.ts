@@ -18,7 +18,7 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
         summary: null,
       };
     }
-    case 'pve-reporting': {
+    case 'pve-cluster': {
       const { tokenSecret, ...config } = r.config;
       return {
         ...base,

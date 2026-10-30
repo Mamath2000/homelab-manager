@@ -9,7 +9,7 @@ import { loadPbsSettings, pollPbs } from './pbs.js';
 import { checkPbsRevoker, deletePbsToken } from './pbsAgent.js';
 import { pollPve } from './pve.js';
 import type { AgentTokenDeleteResult } from './apiTokens.js';
-import type { BackupCache, CachedBackupJob, PbsAgentLink, PbsRemoteSettings } from './types.js';
+import { OFF_PBS_SOURCES, type BackupCache, type CachedBackupJob, type PbsAgentLink, type PbsRemoteSettings } from './types.js';
 
 // Disconnection of the main PBS and of the secondary (#190): Homelab Manager goes back to a state without
 // PBS. It removes what it created there (its tokens, the users left without token, the hlm-* sync jobs and
@@ -129,11 +129,11 @@ export async function disconnectMain(log?: FastifyBaseLogger): Promise<Disconnec
   for (const t of tokens) await revoke(pbs.agent!, t, report, log);
 
   // 3. the main PBS: monitoring token, settings, then the groups read from it (the backups of Home
-  // Assistant are not on the PBS: they stay)
+  // Assistant and the archives of the other storages of Proxmox VE are not on the PBS: they stay)
   await revoke(pbs.agent!, pbs.tokenId, report, log);
   await settings.deleteOne({ _id: 'pbs' });
   await pollPbs(log); // a poll running meanwhile ends before the groups go
-  report.groups = (await backups.deleteMany({ source: { $ne: 'haos' } })).deletedCount;
+  report.groups = (await backups.deleteMany({ source: { $nin: [...OFF_PBS_SOURCES] } })).deletedCount;
   await pollPve(log).catch(() => {});
   publish('backups', {});
   log?.info({ ...report, errors: report.errors.length }, 'main PBS disconnected');

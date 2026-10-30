@@ -13,7 +13,7 @@ import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, IconGroup, Modal, ResponsiveList, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, formatBytes, groupLabel, hoursLabel, databaseJobText, rhythmLabel, scheduleLabel, thresholdSourceLabel } from '../lib/backups';
+import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, countLabel, formatBytes, groupLabel, hoursLabel, databaseJobText, offPbs, rhythmLabel, scheduleLabel, thresholdSourceLabel, UNLISTED_TITLE } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useBackupStats, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -303,14 +303,14 @@ export function Backups() {
                     {list.map((g) => {
                       const meta = backupStateMeta[g.state];
                       const editDisabled = noEdit(g);
-                      const canMount = canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && g.source !== 'haos' && (data.connected || !!data.offsite);
+                      const canMount = canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && !offPbs(g) && (data.connected || !!data.offsite);
                       return (
                         <article key={g.id} className="min-w-0 space-y-3 p-4">
                           <div className="flex min-w-0 items-start gap-2">
                             <div className="min-w-0 flex-1">
                               <h2 className="break-words font-medium text-zinc-100" title={groupLabel(g)}>{groupLabel(g)}</h2>
                               <p className="mt-1 text-xs text-muted">
-                                {backupKind(g).label} · {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}
+                                {backupKind(g).label} · {g.store}{g.ns ? ` › ${g.ns}` : ''} · <span title={g.unlisted ? UNLISTED_TITLE : undefined}>{countLabel(g)}</span>
                               </p>
                             </div>
                             <IconGroup
@@ -426,7 +426,7 @@ export function Backups() {
                       {list.map((g) => {
                         const meta = backupStateMeta[g.state];
                         const rhythm = rhythmLabel(g.interval);
-                        const canMount = canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && g.source !== 'haos' && (data.connected || !!data.offsite);
+                        const canMount = canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && !offPbs(g) && (data.connected || !!data.offsite);
                         return (
                           <tr key={g.id} className="hover:bg-raised/40">
                             <td className="td">
@@ -452,7 +452,7 @@ export function Backups() {
                                 />
                               </div>
                               <div className="text-xs text-muted">
-                                {g.store}{g.ns ? ` › ${g.ns}` : ''} · {g.count} snapshot{g.count > 1 ? 's' : ''}{!g.pve && !g.managed && !g.ha && rhythm && ` · ${rhythm}`}
+                                {g.store}{g.ns ? ` › ${g.ns}` : ''} · <span title={g.unlisted ? UNLISTED_TITLE : undefined}>{countLabel(g)}</span>{!g.pve && !g.managed && !g.ha && rhythm && ` · ${rhythm}`}
                               </div>
                               {g.pve && (
                                 <div className="text-xs text-muted">
@@ -483,7 +483,7 @@ export function Backups() {
                                 <Link
                                   to={`/hosts/${g.hostId}`}
                                   className="text-zinc-300 hover:text-emerald-300"
-                                  title={g.source === 'vzdump' ? 'Rattachée automatiquement : le guest Proxmox de cet hôte' : g.source === 'haos' ? 'Sauvegarde Home Assistant de cet hôte HAOS' : 'Écrite par une sauvegarde définie sur cet hôte'}
+                                  title={g.source === 'vzdump' ? 'Rattachée automatiquement : la VM / le CT Proxmox de cet hôte' : g.source === 'pve-storage' ? 'Rattachée automatiquement : la VM / le CT Proxmox de cet hôte, sur un stockage de Proxmox VE (hors PBS)' : g.source === 'haos' ? 'Sauvegarde Home Assistant de cet hôte HAOS' : 'Écrite par une sauvegarde définie sur cet hôte'}
                                 >
                                   {hostName(g.hostId)} <span className="text-xs text-muted">· auto</span>
                                 </Link>

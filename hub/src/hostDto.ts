@@ -82,8 +82,9 @@ export function hostDto(h: HostDoc) {
     // roles of the hub this host carries (never a secret), and the services its agent found (null: never reported)
     roles: carriedBy(h._id).map((r) => roleView(r, h)),
     roleCandidates: h.roleCandidates ?? null,
-    // Proxmox VE guest this host is (see pve.ts)
+    // Proxmox VE guest this host is (see pve.ts), and the link set aside when it broke
     pve: h.pve ?? null,
+    pveLost: h.pveLost ?? null,
     // snapshot of a PBS mounted here (pbsMount.ts); the agent link stays in the hub
     pbsMount: h.pbsMount ? (({ link, ...m }) => ({ ...m, pbsHostId: link.hostId }))(h.pbsMount) : null,
   };

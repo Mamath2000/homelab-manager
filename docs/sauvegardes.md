@@ -98,10 +98,11 @@ Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que
 **Ajouter** : la fenêtre en quatre étapes décrite dans [Jeton de Proxmox VE](#jeton-de-proxmox-ve--créé-par-lagent-dun-nœud) ; l'identifiant court (`vouille`, pré-rempli avec le nom du cluster) est fixé à la création du jeton. Plusieurs clusters peuvent écrire sur le même PBS.
 
 Toutes les 15 minutes, le hub lit pour chaque cluster :
-- les guests (CT et VM, hors modèles) et les adresses MAC de leurs interfaces ;
+- les nœuds, les guests (CT et VM, hors modèles) avec leur état, et les adresses MAC de leurs interfaces (inventaire : voir [Proxmox VE](proxmox-ve.md)) ;
 - les jobs de sauvegarde (`/cluster/backup`) : planification, guests couverts (liste, « tous sauf », pool, nœud), stockage cible, actif ou non ;
 - les stockages PBS du cluster : un stockage n'est retenu que s'il pointe vers le PBS suivi (même empreinte, à défaut même serveur), et il donne le **datastore et le namespace** où écrit le job — rien à configurer ;
-- les dernières tâches vzdump de chaque nœud, et le résultat de chaque guest (lu dans le journal quand une tâche sauvegarde plusieurs guests) ;
+- les dernières tâches vzdump de chaque nœud, et le résultat de chaque guest **par stockage cible** (lu dans le journal de la tâche) ;
+- le contenu des stockages cibles autres que le PBS suivi (archives vzdump), quand le jeton peut les lister ;
 - le fuseau horaire des nœuds : les planifications sont des heures de ce fuseau.
 
 **Retirer** un cluster (confirmation) révoque d'abord son jeton par l'agent du nœud relié, puis supprime ses guests, leurs liens et le rattachement automatique de leurs sauvegardes (les snapshots restent sur le PBS, orphelins). Voir [Déconnecter un PBS ou un cluster](#déconnecter-un-pbs-ou-un-cluster).
@@ -253,7 +254,7 @@ Le jeton d'un hôte est recréé avec **le même identifiant** qu'avant : le pro
 
 L'agent remonte les adresses MAC de ses interfaces ; le hub cherche le guest qui porte l'une d'elles, sur tous les clusters. Une correspondance **unique** lie l'hôte à son CT ou sa VM (badge `CT 171 · pve1` sur la carte Sauvegardes) ; une MAC présente sur plusieurs guests, ou un hôte qui en désigne plusieurs, ne lie rien. Rien n'est écrit sur Proxmox.
 
-Les groupes que les jobs de ce guest écrivent sur le PBS (`<datastore>/<namespace>/ct|vm/<vmid>`) sont alors rattachés à l'hôte, sans action ; un job qui n'a encore rien écrit apparaît « jamais sauvegardée ». Un guest lié qu'aucun job actif ne couvre déclenche l'alerte « couvert par aucun job de sauvegarde Proxmox ». Les guests sans agent ne sont pas suivis : leurs sauvegardes restent orphelines. Les VM **Home Assistant OS** ont un agent, sous forme d'application Home Assistant (voir [Installation](installation.md#home-assistant-os)) : leurs sauvegardes se rattachent comme les autres.
+Les groupes que les jobs de ce guest écrivent sur le PBS (`<datastore>/<namespace>/ct|vm/<vmid>`) sont alors rattachés à l'hôte, sans action ; un job qui n'a encore rien écrit apparaît « jamais sauvegardée ». Les jobs qui écrivent **ailleurs que sur le PBS suivi** (`local`, NFS, autre PBS) donnent aussi une sauvegarde par stockage, lue sur Proxmox et alertée de la même façon ; hors PBS, elle n'est ni copiée sur le PBS de secours ni montable. Si la VM ou le CT disparaît de l'inventaire, le lien est mis de côté (Rétablir / Oublier sur la fiche hôte). Tout est décrit dans [Proxmox VE](proxmox-ve.md). Un guest lié qu'aucun job actif ne couvre déclenche l'alerte « couvert par aucun job de sauvegarde Proxmox ». Les guests sans agent (**non gérés**, visibles dans Paramètres › Proxmox VE) ne sont pas suivis : leurs sauvegardes restent orphelines. Les VM **Home Assistant OS** ont un agent, sous forme d'application Home Assistant (voir [Installation](installation.md#home-assistant-os)) : leurs sauvegardes se rattachent comme les autres.
 
 ## Sauvegardes de répertoires
 
@@ -376,7 +377,7 @@ Les sauvegardes image PVE et répertoires ne se rattachent ni ne se détachent �
 | **rétention** | même calcul avec la période la plus fine gardée par l'élagage du PBS (`keep-daily` → quotidienne…) |
 | **aucun** | aucune des sources précédentes (sauvegarde externe récente, moins de 4 snapshots, namespace sans élagage) : pas de seuil, **jamais en retard** ni d'alerte |
 
-Une planification que le hub ne sait pas lire retombe sur le rythme appris.
+Une planification que le hub ne sait pas lire (`yearly`, dates) retombe sur le rythme appris ; sans rythme, pas d'alerte de retard.
 
 | État | Signification |
 |---|---|

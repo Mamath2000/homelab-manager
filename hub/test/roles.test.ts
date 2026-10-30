@@ -64,8 +64,8 @@ test('roles: bad bodies are refused before any handler', async () => {
   assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: 'v', config: { scheme: 'mqtt', port: 0, username: '' } })).statusCode, 400);
   assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: 'v', config: { scheme: 'mqtt', port: 1883 } })).statusCode, 400);
   assert.equal((await post('/api/roles', { type: 'pbs', carrier, name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
-  // the reporting of a Proxmox VE cluster has its own routes (routes/backups.ts)
-  assert.equal((await post('/api/roles', { type: 'pve-reporting', carrier, name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
+  // a Proxmox VE cluster has its own routes (routes/backups.ts)
+  assert.equal((await post('/api/roles', { type: 'pve-cluster', carrier, name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
   assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier: { kind: 'equipment', id: carrier.id }, name: 'v', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
   assert.equal((await post('/api/roles', { type: 'mqtt-broker', carrier, name: '', config: { scheme: 'mqtt', port: 1883, username: '' } })).statusCode, 400);
   assert.equal((await a.inject({ method: 'PUT', url: '/api/roles/x', payload: { name: 'v' } })).statusCode, 400);
@@ -108,14 +108,14 @@ test('roles: Home Assistant names its broker by a role id', async () => {
   assert.equal((await a.inject({ method: 'POST', url: '/api/settings/homeassistant/test', payload: {} })).statusCode, 400);
 });
 
-test('roles: a Proxmox VE cluster is a pve-reporting role carried by its node, its id kept', () => {
+test('roles: a Proxmox VE cluster is a pve-cluster role carried by its node, its id kept', () => {
   const node = new ObjectId();
   const at = new Date();
   const c = { id: 'vouille', name: 'Vouillé', url: 'https://pve1:8006', fingerprint: 'AB', tokenId: 'homelab@pve!monitor', tokenSecret: 's', agent: { hostId: node.toHexString() }, timezone: 'Europe/Paris', guests: 12 };
   const r = roleOf(c, 'pve-vouille', at);
-  assert.deepEqual(r, { _id: 'pve-vouille', type: 'pve-reporting', name: 'Vouillé', carrier: { kind: 'host', id: node }, config: { url: c.url, fingerprint: 'AB', tokenId: c.tokenId, tokenSecret: 's', timezone: 'Europe/Paris', guests: 12, cluster: 'vouille' }, createdAt: at });
+  assert.deepEqual(r, { _id: 'pve-vouille', type: 'pve-cluster', name: 'Vouillé', carrier: { kind: 'host', id: node }, config: { url: c.url, fingerprint: 'AB', tokenId: c.tokenId, tokenSecret: 's', timezone: 'Europe/Paris', guests: 12, cluster: 'vouille' }, createdAt: at });
   assert.deepEqual(clusterOf(r), c);
-  const def = ROLE_DEFS['pve-reporting'];
+  const def = ROLE_DEFS['pve-cluster'];
   assert.equal(def.carrierError({ capabilities: ['pve'] }, r.config), null);
   assert.ok(def.carrierError({ capabilities: ['docker'] }, r.config));
   // never the secret

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Layers } from 'lucide-react';
 import type { BackupGroup, BackupSnapshot } from '../lib/api';
-import { formatBytes, groupLabel } from '../lib/backups';
+import { UNLISTED_TITLE, countLabel, formatBytes, groupLabel, offPbs } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { Badge, Button, Modal } from './ui';
 
@@ -9,7 +9,7 @@ import { Badge, Button, Modal } from './ui';
 const FIRST = 4;
 
 function VerifyBadge({ s, ha }: { s: BackupSnapshot; ha: boolean }) {
-  // Home Assistant does not verify its backups
+  // Home Assistant and the other storages of Proxmox VE do not verify their backups
   if (ha) return <span className="text-muted">—</span>;
   if (s.verify === 'ok') return <Badge tone="ok">vérifiée</Badge>;
   if (s.verify === 'failed') return <Badge tone="bad">en échec</Badge>;
@@ -19,7 +19,7 @@ function VerifyBadge({ s, ha }: { s: BackupSnapshot; ha: boolean }) {
 // Snapshots of a group (history kept by the hub at the last poll or report), newest first.
 export function SnapshotsModal({ group, open, onClose }: { group: BackupGroup; open: boolean; onClose: () => void }) {
   const [all, setAll] = useState(false);
-  const ha = group.source === 'haos';
+  const ha = offPbs(group);
   const list = [...(group.times ?? [])].reverse();
   const shown = all ? list : list.slice(0, FIRST);
   const close = () => {
@@ -29,11 +29,11 @@ export function SnapshotsModal({ group, open, onClose }: { group: BackupGroup; o
   return (
     <Modal open={open} onClose={close} title={`Snapshots · ${groupLabel(group)}`} wide scroll>
       <p className="mb-3 text-xs text-muted">
-        {group.store}{group.ns ? ` › ${group.ns}` : ''} · {group.count} snapshot{group.count > 1 ? 's' : ''}
+        {group.store}{group.ns ? ` › ${group.ns}` : ''} · <span title={group.unlisted ? UNLISTED_TITLE : undefined}>{countLabel(group)}</span>
         {list.length < group.count && ` (les ${list.length} derniers connus du hub)`}
       </p>
       {list.length === 0 ? (
-        <p className="text-sm text-muted">Aucun snapshot.</p>
+        <p className="text-sm text-muted">{group.unlisted ? `${UNLISTED_TITLE}.` : 'Aucun snapshot.'}</p>
       ) : (
         <div className="overflow-x-auto">
         <table className="w-full text-sm">

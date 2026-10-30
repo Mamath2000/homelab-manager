@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, Search, Trash2, Unlink, X } from 'lucide-react';
+import { AlertTriangle, Check, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, RotateCcw, Search, Trash2, Unlink, X } from 'lucide-react';
 import { SnapshotsModal } from './BackupSnapshots';
 import { BackupJobEditModal, CachedJobModal, type JobTab } from './ManagedBackups';
 import { NextcloudPluginModal } from './NextcloudPlugin';
 import { ApiError, api, type BackupGroup, type BackupJob, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, offsiteLane, timeline } from '../lib/backups';
+import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, offPbs, offsiteLane, timeline } from '../lib/backups';
 import { DetailPill } from './OffsiteCopy';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useBackups } from '../lib/queries';
@@ -48,8 +48,8 @@ const offsiteDayLabel: Record<OffsiteDay, string> = {
 };
 
 export function BackupTimeline({ group, days = 30, className, copy }: { group: Pick<BackupGroup, 'times' | 'interval' | 'offsite' | 'placeholder'> & { source?: BackupGroup['source'] }; days?: number; className?: string; copy?: boolean }) {
-  // Home Assistant does not verify its backups
-  const verified = group.source !== 'haos';
+  // Home Assistant and the other storages of Proxmox VE do not verify their backups
+  const verified = !offPbs(group);
   const cells = timeline(group.times, days, undefined, verified);
   const daily = !!group.interval && group.interval <= 1.2 * DAY;
   const oldest = group.times?.[0]?.t ?? Infinity;
@@ -209,6 +209,21 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
   const [deleting, setDeleting] = useState(false);
   const [cacheBusy, setCacheBusy] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<BackupJob | null>(null);
+  // link to Proxmox VE set aside (hub/src/pve.ts): restored at once, forgotten after a confirmation
+  const [pveBusy, setPveBusy] = useState(false);
+  const [forgetting, setForgetting] = useState(false);
+  const pveAction = async (run: () => Promise<void>, done: string) => {
+    setPveBusy(true);
+    try {
+      await run();
+      toast.success(done);
+      setForgetting(false);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setPveBusy(false);
+    }
+  };
   // agent able to run backups of its own (not the HAOS add-on)
   const agentBackups = backupClient(host.capabilities).supported;
   // what a new job needs: the PBS client and the token of the host
@@ -296,7 +311,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
         <>
           Sauvegardes{mine.length > 0 && <span className="text-muted"> ({mine.length})</span>}
           <ClientIcon host={host} />
-          {host.pve && <span className="ml-2 text-xs font-normal text-muted" title={`Guest ${host.pve.name} du cluster ${host.pve.cluster}, trouvé par son adresse MAC`}>{guestLabel(host.pve)} · {host.pve.node}</span>}
+          {host.pve && <span className="ml-2 text-xs font-normal text-muted" title={`${host.pve.name} du cluster ${host.pve.cluster}, trouvé par son adresse MAC`}>{guestLabel(host.pve)} · {host.pve.node}</span>}
         </>
       }
       icon={DatabaseBackup}
@@ -331,6 +346,27 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {guestLabel(host.pve)} n'est couvert par aucun job de sauvegarde actif du cluster {host.pve.cluster}.
         </p>
+      )}
+      {host.pveLost && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-amber-500/50 bg-amber-500/[0.06] px-3 py-2 text-xs">
+          <Unlink className="h-4 w-4 shrink-0 text-amber-300" />
+          <span className="min-w-0 flex-1 text-amber-100" title={dateTime(host.pveLost.at)}>
+            Lien Proxmox VE perdu {timeAgo(host.pveLost.at)} ({guestLabel(host.pveLost.link)} {host.pveLost.link.name}, cluster {host.pveLost.link.cluster})
+            {host.pveLost.candidate
+              ? ` : l'inventaire correspond de nouveau, ${guestLabel(host.pveLost.candidate)} ${host.pveLost.candidate.name}.`
+              : ' : absent de l’inventaire.'}
+          </span>
+          {canManage && (
+            <span className="flex gap-1.5">
+              {host.pveLost.candidate && (
+                <Button size="sm" icon={RotateCcw} loading={pveBusy} onClick={() => void pveAction(() => api.restorePveLink(host.id), 'Lien Proxmox VE rétabli')}>
+                  {host.pveLost.candidate.vmid === host.pveLost.link.vmid && host.pveLost.candidate.cluster === host.pveLost.link.cluster ? 'Rétablir' : `Lier à ${guestLabel(host.pveLost.candidate)}`}
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" icon={X} disabled={pveBusy} onClick={() => setForgetting(true)}>Oublier</Button>
+            </span>
+          )}
+        </div>
       )}
       {canManage && jobs?.cache && (
         <ul className="mb-3 space-y-1.5" title={`Mises de côté à la déconnexion du PBS (${dateTime(jobs.cache.at)})`}>
@@ -441,6 +477,10 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
         const g = history && mine.find((x) => x.id === history);
         return g ? <SnapshotsModal group={g} open onClose={() => setHistory(null)} /> : null;
       })()}
+      <ConfirmModal open={forgetting} onClose={() => setForgetting(false)} onConfirm={() => void pveAction(() => api.forgetPveLink(host.id), 'Lien Proxmox VE oublié')} title="Oublier le lien Proxmox VE" confirmLabel="Oublier" danger loading={pveBusy}>
+        Le lien mis de côté avec <b>{host.pveLost && `${guestLabel(host.pveLost.link)} ${host.pveLost.link.name}`}</b> ne sera plus proposé. Si l'inventaire contient une VM ou un CT
+        avec la même adresse MAC, l'hôte y sera relié comme un nouvel hôte.
+      </ConfirmModal>
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={remove} title="Supprimer la sauvegarde" confirmLabel="Supprimer" danger loading={deleting}>
         L'agent ne lancera plus <b>{removing?.managed?.name}</b>. Les snapshots déjà faits restent sur le PBS (le groupe devient orphelin).
       </ConfirmModal>

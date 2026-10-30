@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { backupJobs, backups, hosts, parseId, settings } from '../db.js';
+import { backupJobs, backups, guests, hosts, parseId, settings } from '../db.js';
 import { isOnline, refreshAgent } from '../agents.js';
 import { publish } from '../events.js';
 import {
@@ -15,8 +15,8 @@ import {
   pbsGet,
   pollPbs,
 } from '../pbs.js';
-import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, followedCluster, loadPveSettings, pollPve, pveClusterOf, pveGet, removePveCluster, savePveCluster } from '../pve.js';
-import { validTimeZone } from '../calendar.js';
+import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, PveLinkError, followedCluster, forgetPveLink, loadPveSettings, nodeHosts, pollPve, pveClusterOf, pveGet, removePveCluster, restorePveLink, savePveCluster } from '../pve.js';
+import { describeCalendar, validTimeZone } from '../calendar.js';
 import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { statsView, usageView } from '../pbsStats.js';
@@ -24,7 +24,7 @@ import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, 
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView, syncOffsiteAgent } from '../offsite.js';
-import type { PbsAgentLink, PbsSettings, PveCluster } from '../types.js';
+import { OFF_PBS_SOURCES, type PbsAgentLink, type PbsSettings, type PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
 function settingsDto(s: PbsSettings) {
@@ -42,7 +42,7 @@ async function pveAlreadyFollowed(clusters: PveCluster[], hostId: string, except
   return c ? `ce cluster est déjà suivi (${c.name}) : modifier cette entrée plutôt que d’en ajouter une` : null;
 }
 
-// The reporting of a cluster moves only to another node of the same corosync cluster: they share the users, so the
+// The role of a cluster moves only to another node of the same corosync cluster: they share the users, so the
 // token of the hub holds there too. null: allowed (or not a move), else why not.
 async function pveMoveError(current: PveCluster | undefined, hostId: string) {
   if (!current?.agent || current.agent.hostId === hostId) return null;
@@ -221,7 +221,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
           nextcloud: !!h.nextcloud,
         })),
       ),
-      groups: await backups.countDocuments({ source: { $ne: 'haos' } }),
+      groups: await backups.countDocuments({ source: { $nin: [...OFF_PBS_SOURCES] } }),
     };
   });
 
@@ -318,7 +318,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       const b = await backups.findOne({ _id: req.params.id });
       if (!b) return reply.code(404).send({ error: 'sauvegarde introuvable' });
       if (req.body.hostId !== undefined && b.source) {
-        const why = { vzdump: 'sauvegarde rattachée automatiquement par Proxmox VE', managed: 'sauvegarde écrite par un job du hub : rattachée à son hôte', haos: 'sauvegarde Home Assistant : rattachée à son hôte HAOS' };
+        const why = { vzdump: 'sauvegarde rattachée automatiquement par Proxmox VE', managed: 'sauvegarde écrite par un job du hub : rattachée à son hôte', haos: 'sauvegarde Home Assistant : rattachée à son hôte HAOS', 'pve-storage': 'sauvegarde rattachée automatiquement par Proxmox VE' };
         return reply.code(409).send({ error: why[b.source] });
       }
       const set: Record<string, unknown> = {};
@@ -380,6 +380,69 @@ export function registerBackupRoutes(app: FastifyInstance) {
     return { clusters: s.clusters.map(pveDto) };
   });
 
+  // Inventory of the clusters (Paramètres › Proxmox VE): their nodes with the agent on each, their guests with the host
+  // each one is (or why none), their jobs. Nothing about health or backup results: that is the subject of the hosts.
+  app.get('/api/settings/pve/inventory', async () => {
+    const s = await loadPveSettings();
+    const all = await guests.find().sort({ node: 1, vmid: 1 }).toArray();
+    const list = await hosts.find({}, { projection: { name: 1, capabilities: 1, 'info.hostname': 1 } }).toArray();
+    const names = new Map(list.map((h) => [h._id.toHexString(), h.name]));
+    return {
+      clusters: s.clusters.map((c) => {
+        const mine = all.filter((g) => g.cluster === c.id);
+        const nodes = c.nodes ?? [...new Set(mine.map((g) => g.node))].sort().map((node) => ({ node, online: true }));
+        const carriers = nodeHosts(c, nodes.map((n) => n.node), list);
+        return {
+          id: c.id,
+          name: c.name,
+          url: c.url,
+          carrier: c.agent ? { id: c.agent.hostId, name: names.get(c.agent.hostId) ?? '' } : null,
+          polledAt: c.polledAt ?? null,
+          pollError: c.pollError ?? null,
+          nodes: nodes.map((n) => {
+            const h = carriers.get(n.node);
+            return { ...n, host: h ? { id: h._id.toHexString(), name: h.name, online: isOnline(h._id.toHexString()) } : null };
+          }),
+          guests: mine.map((g) => ({
+            vmid: g.vmid,
+            type: g.type,
+            name: g.name,
+            node: g.node,
+            status: g.status ?? 'unknown',
+            host: g.hostId ? { id: g.hostId, name: names.get(g.hostId) ?? '' } : null,
+            ambiguous: !!g.ambiguous,
+            jobs: g.jobs.map((j) => ({ id: j.id, enabled: j.enabled, storage: j.storage, nextRun: j.nextRun, scheduleText: describeCalendar(j.schedule) })),
+          })),
+        };
+      }),
+    };
+  });
+
+  // The link of a host set aside when it broke: restored on the guest it matches now, or forgotten (pve.ts).
+  app.post<{ Params: { id: string } }>('/api/hosts/:id/pve/restore', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    if (!_id) return reply.code(404).send({ error: 'hôte introuvable' });
+    try {
+      await restorePveLink(_id);
+    } catch (err) {
+      if (err instanceof PveLinkError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    return reply.code(204).send();
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/hosts/:id/pve/lost', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    if (!_id) return reply.code(404).send({ error: 'hôte introuvable' });
+    try {
+      await forgetPveLink(_id);
+    } catch (err) {
+      if (err instanceof PveLinkError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    return reply.code(204).send();
+  });
+
   // Proxmox VE of a node, found by its agent: cluster, nodes, interfaces, certificate.
   app.post<{ Body: { hostId: string } }>(
     '/api/settings/pve/detect',
@@ -434,8 +497,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
   });
 
   // Removal of a cluster: its token revoked by the agent of its node first (its rights, the token, the user
-  // left without token), then the settings; its guests go, and with them the links and the groups they
-  // attached (the snapshots stay on the PBS).
+  // left without token), then the role; its inventory goes, the links of its hosts are set aside (pveLost) and the
+  // groups they attached become orphans (the snapshots stay on the PBS).
   app.delete<{ Params: { id: string } }>('/api/settings/pve/clusters/:id', async (req, reply) => {
     const s = await loadPveSettings();
     const c = s.clusters.find((x) => x.id === req.params.id);

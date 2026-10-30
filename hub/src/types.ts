@@ -348,6 +348,9 @@ export interface HostDoc {
   haDetail?: HaHostDetail;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
+  // link to a guest set aside when it broke (guest gone from the inventory, cluster removed): offered again (candidate,
+  // from the inventory) or forgotten by hand, never on its own
+  pveLost?: HostPveLost | null;
   // snapshot of a PBS mounted read-only on this host (pbsMount.ts); one in all the hub
   pbsMount?: PbsMount;
   // backups run by the agent (see backupJobs.ts): its PBS token, and the last definition it applied
@@ -398,6 +401,13 @@ export interface HostPveLink {
   name: string;
   // part of an enabled backup job of the cluster
   covered: boolean;
+}
+
+export interface HostPveLost {
+  link: HostPveLink;
+  at: Date;
+  // guest of the inventory the host matches now (the same one: restore the link; another one: link to it), else null
+  candidate: HostPveLink | null;
 }
 
 // Standardisation of the hosts (see setup.ts and agent/setup.go): options in three sections, the
@@ -650,6 +660,10 @@ export interface PbsSettings {
 }
 
 // One backup group of the PBS: datastore + namespace + type + id.
+// sources whose groups are not on the PBS: the PBS poll, its disconnection, its mount and the copies leave them alone
+export const OFF_PBS_SOURCES = ['haos', 'pve-storage'] as const;
+export type BackupSource = 'vzdump' | 'managed' | (typeof OFF_PBS_SOURCES)[number];
+
 export interface BackupDoc {
   _id: string; // <store>/<ns>/<type>/<id>
   store: string;
@@ -671,13 +685,17 @@ export interface BackupDoc {
   gone?: boolean; // no longer on the PBS
   // vzdump: attached by the PVE poll to the host of the guest; managed: written by a backup job of the
   // hub (backupJobs.ts); haos: destination of the Home Assistant backups of a HAOS host, reported by its
-  // agent (haBackups.ts, not on the PBS). None is attached by hand.
-  source?: 'vzdump' | 'managed' | 'haos';
+  // agent (haBackups.ts, not on the PBS); pve-storage: vzdump archives of the guest of a host on a storage of
+  // the cluster that is not the followed PBS (pve.ts, not on the PBS). None is attached by hand.
+  source?: BackupSource;
   pve?: BackupPve;
   managed?: BackupManaged;
   ha?: BackupHa;
   // expected by a PVE job but never seen on the PBS yet
   placeholder?: boolean;
+  // pve-storage: archives hidden from the token (listing them needs VM.Backup, not in PVEAuditor): count unknown,
+  // last backup from the last successful task
+  unlisted?: boolean;
   // copy to the secondary PBS (offsite.ts); written by the routes and the poll of the secondary only
   offsite?: BackupOffsite;
 }
@@ -781,7 +799,7 @@ export interface BackupSnapshot {
 
 // --- Proxmox VE clusters (see pve.ts) -------------------------------------------------------
 
-// A cluster as pve.ts reads it: a pve-reporting role (roles.ts), its node as agent.
+// A cluster as pve.ts reads it: a pve-cluster role (roles.ts), its node as agent.
 export interface PveCluster {
   id: string; // short name, e.g. vouille
   name: string;
@@ -795,6 +813,12 @@ export interface PveCluster {
   polledAt?: Date;
   pollError?: string | null;
   guests?: number;
+  nodes?: PveNode[];
+}
+
+export interface PveNode {
+  node: string;
+  online: boolean;
 }
 
 // Clusters as stored before they were roles of the hub (migrated by migratePveClusters).
@@ -854,8 +878,10 @@ export interface PveTaskResult {
   at: number; // end, unix ms
   ok: boolean;
   error?: string;
+  storage?: string; // target of the task, from its log
 }
 
+// A guest of the inventory of a cluster, replaced at each poll (pve.ts): never a host nor an equipment.
 export interface GuestDoc {
   _id: string; // <cluster>/<vmid>
   cluster: string;
@@ -863,11 +889,21 @@ export interface GuestDoc {
   type: 'lxc' | 'qemu';
   node: string;
   name: string;
+  status: string; // running, stopped, paused; unknown when its node is offline
   macs: string[];
   jobs: PveJobRef[];
   lastTask?: PveTaskResult | null;
+  // last successful backup task (a backup of a storage that cannot be listed dates from it)
+  lastOk?: PveTaskResult | null;
+  // the same, by storage of its jobs
+  results?: { storage: string; lastTask: PveTaskResult | null; lastOk: PveTaskResult | null }[];
+  // vzdump archives on the storages of its jobs other than the followed PBS, by storage; absent: not listed
+  archives?: { storage: string; times: BackupSnapshot[] }[];
   tz: string;
   seenAt: Date;
+  // written by refreshLinks: the host it is (one of its MAC addresses), or a MAC shared with another guest
+  hostId?: string | null;
+  ambiguous?: boolean;
 }
 
 // Backup of directories defined in the hub and run by the agent of the host (see backupJobs.ts).
@@ -1109,12 +1145,12 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting', 'pbs-primary', 'pbs-offsite', 'omada-controller'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host', 'equipment'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
 
-// What carries a role: the host it runs on (pve-reporting: the node whose agent created the token), or the equipment
+// What carries a role: the host it runs on (pve-cluster: the node whose agent created the token), or the equipment
 // it is (an Omada controller that is a box of its own).
 export interface RoleCarrier {
   kind: CarrierKind;
@@ -1142,16 +1178,17 @@ export interface MqttBrokerRole {
   createdAt: Date;
 }
 
-// pve-reporting: the guests, jobs and backup tasks of a Proxmox VE cluster read through its API (pve.ts). cluster: its
-// id, named by the guests (<cluster>/<vmid>) and the groups it attaches; one role per corosync cluster.
-export type PveReportingConfig = Omit<PveCluster, 'id' | 'name' | 'agent'> & { cluster: string };
+// pve-cluster: the inventory of a Proxmox VE cluster (nodes, guests, their jobs and backup tasks) read through its API
+// (pve.ts). cluster: its id, named by the guests (<cluster>/<vmid>) and the groups it attaches; one role per corosync
+// cluster. Was pve-reporting (migrated by migratePveRoleType).
+export type PveClusterConfig = Omit<PveCluster, 'id' | 'name' | 'agent'> & { cluster: string };
 
-export interface PveReportingRole {
+export interface PveClusterRole {
   _id: string;
-  type: 'pve-reporting';
+  type: 'pve-cluster';
   name: string;
   carrier: RoleCarrier;
-  config: PveReportingConfig;
+  config: PveClusterConfig;
   createdAt: Date;
 }
 
@@ -1194,9 +1231,9 @@ export interface OmadaControllerRole {
   createdAt: Date;
 }
 
-export type RoleDoc = MqttBrokerRole | PveReportingRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole;
+export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole;
 // the ones of the roles collection
-export type StoredRoleDoc = MqttBrokerRole | PveReportingRole | OmadaControllerRole;
+export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {

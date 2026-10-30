@@ -426,7 +426,7 @@ function HostDetailPage({ id }: { id: string }) {
     );
   }
   // Windows: only once the agent found the backup CLI set in the options of the host (homelab#208)
-  if (backupsOn && (!isWindows(host) || host.capabilities.includes('backup:cli'))) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
+  if ((backupsOn || !!host.pveLost) && (!isWindows(host) || host.capabilities.includes('backup:cli'))) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
 
   const hostNav = (
     <>

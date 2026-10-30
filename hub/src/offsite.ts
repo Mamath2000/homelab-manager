@@ -54,9 +54,11 @@ const call = <T>(r: PbsRemoteSettings, method: 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 // --- what can be copied -------------------------------------------------------------------
 
-// Groups of Home Assistant are not on the PBS; a placeholder has never been written.
+// Groups of Home Assistant and archives of the other storages of Proxmox VE are not on the PBS; a placeholder has never
+// been written.
 export function notCopiable(b: Pick<BackupDoc, 'source' | 'placeholder'>) {
   if (b.source === 'haos') return 'sauvegarde Home Assistant : elle n’est pas sur le PBS';
+  if (b.source === 'pve-storage') return 'sauvegarde sur un stockage de Proxmox VE : elle n’est pas sur le PBS';
   if (b.placeholder) return 'sauvegarde jamais écrite sur le PBS';
   return null;
 }

@@ -100,9 +100,17 @@ export function timeline(times: BackupGroup['times'], days = 30, now = Date.now(
   return out;
 }
 
+// Not on the PBS (hub pbs.ts offPbs): Home Assistant backups, archives of the other storages of Proxmox VE
+// Snapshots of a group; the archives of a storage of Proxmox VE are hidden from a read-only token.
+export const UNLISTED_TITLE = 'Proxmox VE ne montre pas les archives de ce stockage à un jeton en lecture seule (PVEAuditor) : la dernière sauvegarde est datée par la dernière tâche vzdump réussie';
+export const countLabel = (g: Pick<BackupGroup, 'count' | 'unlisted'>) => (g.unlisted ? 'archives non lisibles' : `${g.count} snapshot${g.count > 1 ? 's' : ''}`);
+
+export const offPbs = (g: Pick<BackupGroup, 'source'>) => g.source === 'haos' || g.source === 'pve-storage';
+
 // Copy of a group to the secondary PBS: why it cannot be (same rules as hub offsite.ts notCopiable), else null
 export function offsiteNotCopiable(g: Pick<BackupGroup, 'source' | 'placeholder'>) {
   if (g.source === 'haos') return 'sauvegarde Home Assistant : elle n’est pas sur le PBS';
+  if (g.source === 'pve-storage') return 'sauvegarde sur un stockage de Proxmox VE : elle n’est pas sur le PBS';
   if (g.placeholder) return 'sauvegarde jamais écrite sur le PBS';
   return null;
 }
@@ -184,7 +192,7 @@ export function backupKindOf(g: Pick<BackupGroup, 'source' | 'managed'>): Backup
     if (g.managed?.plugin?.name === 'nextcloud') return 'nextcloud';
     return g.managed?.kind === 'postgres' || g.managed?.kind === 'mongodb' ? 'database' : 'directories';
   }
-  return g.source === 'vzdump' ? 'image' : g.source === 'haos' ? 'ha' : 'external';
+  return g.source === 'vzdump' || g.source === 'pve-storage' ? 'image' : g.source === 'haos' ? 'ha' : 'external';
 }
 
 export function backupKind(g: Pick<BackupGroup, 'source' | 'managed'>) {

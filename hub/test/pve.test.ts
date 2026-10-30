@@ -4,7 +4,9 @@ import { ObjectId } from 'mongodb';
 import { alertsOf } from '../src/homeassistant/alerts.js';
 import { backupStatus } from '../src/monitoring.js';
 import { backupState, effectiveThreshold } from '../src/pbs.js';
-import { configMacs, followedCluster, followedStorages, guestResult, jobCovers, matchGuests, parseVzdumpLog, type ApiJob } from '../src/pve.js';
+import { configMacs, followedCluster, followedStorages, guestResult, jobCovers, matchGuests, nextLink, nodeHosts, parseVzdumpLog, sharedMacGuests, type ApiJob } from '../src/pve.js';
+import { notCopiable } from '../src/offsite.js';
+import { offPbs } from '../src/pbs.js';
 import { authorize } from '../src/profiles.js';
 import type { BackupDoc, PveJobRef } from '../src/types.js';
 
@@ -64,10 +66,14 @@ test('result of a guest in single and multi-guest vzdump tasks', () => {
   ]);
   const multi = { upid: 'UPID:pve1:2', id: '', node: 'pve1', status: 'job errors', starttime: 1, endtime: 5 };
   assert.equal(guestResult(multi, 191, log)?.ok, true);
-  assert.deepEqual(guestResult(multi, 179, log), { upid: 'UPID:pve1:2', at: 5000, ok: false, error: 'unable to open file' });
-  assert.deepEqual(guestResult(multi, 180, log), { upid: 'UPID:pve1:2', at: 5000, ok: false, error: 'job errors' });
+  assert.deepEqual(guestResult(multi, 179, log), { upid: 'UPID:pve1:2', at: 5000, storage: 'pbs-ds0', ok: false, error: 'unable to open file' });
+  assert.deepEqual(guestResult(multi, 180, log), { upid: 'UPID:pve1:2', at: 5000, storage: 'pbs-ds0', ok: false, error: 'job errors' });
   assert.equal(guestResult(multi, 100, log), undefined);
   assert.equal(guestResult({ ...multi, status: 'WARNINGS: 1' }, 191, log)?.ok, true);
+  assert.equal(guestResult(multi, 191, log)?.storage, 'pbs-ds0');
+  const alone = parseVzdumpLog(['INFO: starting new backup job: vzdump 100 101 --mode snapshot --storage local --all 0', 'INFO: Starting Backup of VM 100 (lxc)']);
+  assert.equal(guestResult(single, 180, alone)?.storage, 'local');
+  assert.equal(guestResult(single, 180)?.storage, undefined);
 });
 
 test('a host is linked to the single guest that has one of its MAC addresses', () => {
@@ -161,4 +167,55 @@ test('a node of an already followed corosync cluster is recognised by the capabi
   assert.equal(followedCluster(clusters, of, caps.c, 'vouille'), null, 'the entry being edited is not a clash');
   assert.equal(followedCluster(clusters, of, caps.e), null);
   assert.equal(followedCluster(clusters, of, caps.d), null, 'standalone node or agent not updated: no name, no block');
+});
+
+const link = (vmid: number, name = 'x') => ({ cluster: 'vouille', vmid, type: 'lxc' as const, node: 'pve1', name, covered: true });
+
+test('a broken link is set aside, offered again, never restored on its own', () => {
+  const now = new Date(1_800_000_000_000);
+  // first link, then kept up to date
+  assert.deepEqual(nextLink(null, null, link(171), now), { pve: link(171), lost: null });
+  assert.deepEqual(nextLink(link(171), null, link(171, 'renamed'), now), { pve: link(171, 'renamed'), lost: null });
+  // guest gone from the inventory (or cluster removed): set aside with its date, no candidate
+  const lost = nextLink(link(171), null, null, now);
+  assert.deepEqual(lost, { pve: null, lost: { link: link(171), at: now, candidate: null } });
+  // the same guest is back: offered, not linked
+  const back = nextLink(null, lost.lost, link(171), new Date(now.getTime() + 1));
+  assert.deepEqual(back, { pve: null, lost: { link: link(171), at: now, candidate: link(171) } });
+  // another guest matches (restored under a new vmid): the link breaks, the new one is offered
+  assert.deepEqual(nextLink(link(171), null, link(205), now), { pve: null, lost: { link: link(171), at: now, candidate: link(205) } });
+});
+
+test('guests sharing a MAC address (clones) designate no host', () => {
+  const all = [
+    { _id: 'v/1', macs: ['aa'] },
+    { _id: 'v/2', macs: ['aa', 'bb'] },
+    { _id: 'v/3', macs: ['cc'] },
+  ];
+  assert.deepEqual([...sharedMacGuests(all)].sort(), ['v/1', 'v/2']);
+  const h = { _id: new ObjectId(), macs: ['AA'] };
+  assert.equal(matchGuests([h], all).get(h._id.toHexString()), null);
+});
+
+test('the host of each node: an agent of the same corosync cluster with the node as hostname', () => {
+  const host = (name: string, caps: string[], hostname?: string) => ({ _id: new ObjectId(), name, capabilities: caps, info: { hostname } });
+  const pve1 = host('pve1', ['pve', 'pve_cluster:home'], 'pve1.lan');
+  const pve2 = host('PVE2', ['pve', 'pve_cluster:home']);
+  const other = host('pve3', ['pve', 'pve_cluster:jar'], 'pve3');
+  const ct = host('pve3', [], 'pve3');
+  const m = nodeHosts({ agent: { hostId: pve1._id.toHexString() } }, ['pve1', 'pve2', 'pve3'], [pve1, pve2, other, ct]);
+  assert.equal(m.get('pve1'), pve1);
+  assert.equal(m.get('pve2'), pve2, 'name of the host when the agent reported no hostname');
+  assert.equal(m.get('pve3'), null, 'a node of another cluster, or a host that is not a node, is not it');
+  // a node without cluster: its carrier
+  const solo = host('pje1', ['pve'], 'proxmox');
+  assert.equal(nodeHosts({ agent: { hostId: solo._id.toHexString() } }, ['pje1'], [solo]).get('pje1'), solo);
+});
+
+test('archives of the other storages of Proxmox VE are not on the PBS', () => {
+  assert.equal(offPbs({ source: 'pve-storage' }), true);
+  assert.equal(offPbs({ source: 'haos' }), true);
+  assert.equal(offPbs({ source: 'vzdump' }), false);
+  assert.equal(offPbs({}), false);
+  assert.match(notCopiable({ source: 'pve-storage' }) ?? '', /stockage de Proxmox VE/);
 });

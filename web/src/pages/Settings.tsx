@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
-import { Activity, Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Radio, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
+import { Activity, Boxes, Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Radio, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { BackupSettings } from '../components/BackupSettings';
 import { OffsiteSettings } from '../components/OffsiteSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { RolesSettings } from '../components/HubRoles';
+import { PveInventory } from '../components/PveInventory';
 import { PveSettings } from '../components/PveSettings';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
 import { SitesSettings } from '../components/SitesSettings';
@@ -17,6 +18,7 @@ import { HeaderTitle } from '../components/HeaderSlot';
 import { Button, Modal, Panel, VerticalTabs } from '../components/ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
+import { useRoles } from '../lib/queries';
 
 const tabs = [
   { id: 'hub', label: 'Hub', icon: Server },
@@ -26,6 +28,7 @@ const tabs = [
   { id: 'agents', label: 'Agents', icon: Terminal },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
   { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
+  { id: 'pve', label: 'Proxmox VE', icon: Boxes },
   { id: 'health', label: 'Santé', icon: Activity },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
   { id: 'about', label: 'À propos', icon: Info, dividerBefore: true },
@@ -36,8 +39,10 @@ type TabId = (typeof tabs)[number]['id'];
 export function Settings() {
   const [params, setParams] = useSearchParams();
   const { features } = useMe();
-  // Standardisation: only with FEATURE_STANDARDISATION on the hub
-  const shown = tabs.filter((item) => item.id !== 'setup' || features.standardisation);
+  const { data: roles } = useRoles();
+  // Standardisation: only with FEATURE_STANDARDISATION on the hub; Proxmox VE: opened by a pve-cluster role
+  const hasPve = !!roles?.some((r) => r.type === 'pve-cluster');
+  const shown = tabs.filter((item) => (item.id !== 'setup' || features.standardisation) && (item.id !== 'pve' || hasPve));
   const tab: TabId = shown.find((item) => item.id === params.get('tab'))?.id ?? 'hub';
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
@@ -109,6 +114,7 @@ export function Settings() {
         <PveSettings />
       </div>
     ),
+    pve: <PveInventory />,
     health: <HealthSettings />,
     homeassistant: <HomeAssistantPanel />,
     about: (

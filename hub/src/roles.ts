@@ -5,7 +5,7 @@ import type { CarrierKind, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSet
 export type RoleOf<T extends RoleType> = Extract<RoleDoc, { type: T }>;
 
 // Roles of the hub: what the hub can do through something of the homelab (an MQTT broker the probes listen to, the
-// reporting of a Proxmox VE cluster, the PBS of the backups and the one that copies them, the Open API of an Omada controller). The administrator declares them in the settings of
+// inventory of a Proxmox VE cluster, the PBS of the backups and the one that copies them, the Open API of an Omada controller). The administrator declares them in the settings of
 // the hub, each carried by a host; never an agent alone: the agents report candidates (agent/roles.go). Without a
 // role, what consumes it is off.
 
@@ -42,13 +42,13 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     },
   },
   // declared, moved and removed through routes/backups.ts (the token is made and revoked by the agent of the node)
-  'pve-reporting': {
-    label: 'Reporting PVE',
+  'pve-cluster': {
+    label: 'Cluster Proxmox VE',
     carriers: ['host'],
     single: false,
     carrierError: (host) => (host.capabilities?.includes('pve') ? null : "cet hôte n'est pas un nœud Proxmox VE"),
     same: (a, b) => a.cluster === b.cluster,
-    // its guests and the groups it attaches go with it
+    // its inventory goes with it, the links of its hosts are set aside
     uses: async () => [],
   },
   // kept in the settings of the backups, declared and disconnected through routes/backups.ts and routes/offsite.ts (the

@@ -7,6 +7,7 @@ import { useMe } from '../lib/auth';
 import {
   type OffsiteForm,
   backupKind,
+  countLabel,
   databaseJobText,
   formatBytes,
   hoursLabel,
@@ -220,7 +221,7 @@ function BackupDetail({ g, remote, onStarted }: { g: BackupGroup; remote: Backup
             [
               'Dernière',
               <>
-                <span title={dateTime(g.lastBackup)}>{g.lastBackup ? timeAgo(g.lastBackup) : 'jamais'}</span> · {formatBytes(g.size)} · {g.count} snapshot{g.count > 1 ? 's' : ''}
+                <span title={dateTime(g.lastBackup)}>{g.lastBackup ? timeAgo(g.lastBackup) : 'jamais'}</span> · {formatBytes(g.size)}{!g.unlisted && ` · ${countLabel(g)}`}
                 {g.verify === 'ok' && <span className="text-emerald-400"> · vérifiée</span>}
                 {g.verify === 'failed' && <span className="text-red-400"> · vérification en échec</span>}
               </>,

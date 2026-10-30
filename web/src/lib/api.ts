@@ -365,6 +365,8 @@ export interface Host {
   setup: SetupState | null;
   // Proxmox VE guest this host is (one of its MAC addresses), null: none or not a single one
   pve: HostPveLink | null;
+  // link set aside when it broke (guest gone from the inventory, cluster removed): restored or forgotten by hand
+  pveLost: HostPveLost | null;
   // snapshot of a PBS mounted here (hub/src/pbsMount.ts); null: none
   pbsMount: PbsMount | null;
   // roles declared on this host, and the services its agent found (null: never reported)
@@ -403,6 +405,13 @@ export interface HostPveLink {
   node: string;
   name: string;
   covered: boolean; // part of an enabled backup job
+}
+
+export interface HostPveLost {
+  link: HostPveLink;
+  at: string;
+  // guest of the inventory the host matches now (the same one: restore; another one: link to it)
+  candidate: HostPveLink | null;
 }
 
 // options of the standardisation (see hub/src/types.ts)
@@ -736,8 +745,9 @@ export interface BackupGroup {
   thresholdSource: 'manual' | 'learned' | 'retention' | 'schedule' | 'none';
   interval: number | null; // rhythm (ms), learned, from the retention or the PVE schedule
   // vzdump: attached by Proxmox VE; managed: written by a backup job of the hub; haos: destination of the
-  // Home Assistant backups of a HAOS host (not on the PBS). None is attached by hand.
-  source?: 'vzdump' | 'managed' | 'haos';
+  // Home Assistant backups of a HAOS host (not on the PBS); pve-storage: vzdump archives of a guest on a storage of
+  // Proxmox VE other than the followed PBS (not on the PBS). None is attached by hand.
+  source?: 'vzdump' | 'managed' | 'haos' | 'pve-storage';
   // copy to the secondary PBS (hub/src/offsite.ts); null: never set
   offsite: BackupOffsite | null;
   pve: { cluster: string; vmid: number; tz: string; jobs: PveJobRef[]; lastTask?: PveTaskResult | null } | null;
@@ -756,6 +766,7 @@ export interface BackupGroup {
     plugin?: JobPlugin | null;
   } | null;
   placeholder?: boolean; // expected by a job, never seen on the PBS
+  unlisted?: boolean; // pve-storage: archives hidden from the token, count unknown, dated from the last successful task
   ha?: {
     agentId: string;
     automatic: boolean; // the automatic backups go to this destination
@@ -1203,6 +1214,28 @@ export interface PveCluster {
   guests?: number;
 }
 
+// Inventory of a cluster (Paramètres › Proxmox VE, hub/src/routes/backups.ts): its nodes with their agent, its guests
+// with the host each one is. host null: no agent (unmanaged); ambiguous: a MAC shared with another guest.
+export interface PveInventory {
+  id: string;
+  name: string;
+  url: string;
+  carrier: { id: string; name: string } | null;
+  polledAt: string | null;
+  pollError: string | null;
+  nodes: { node: string; online: boolean; host: { id: string; name: string; online: boolean } | null }[];
+  guests: {
+    vmid: number;
+    type: 'lxc' | 'qemu';
+    name: string;
+    node: string;
+    status: string;
+    host: { id: string; name: string } | null;
+    ambiguous: boolean;
+    jobs: { id: string; enabled: boolean; storage: string; nextRun: number | null; scheduleText: string }[];
+  }[];
+}
+
 // the token is created by the agent of a node (createPveToken), not part of the form
 export interface PveClusterInput {
   name: string;
@@ -1323,7 +1356,7 @@ export interface EquipmentInput {
 // A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
 // hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
 // role in use is not deleted (absent from the roles of a host).
-export type HubRoleType = 'mqtt-broker' | 'pve-reporting' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller';
+export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller';
 interface HubRoleBase {
   id: string;
   name: string;
@@ -1337,7 +1370,7 @@ interface HubRoleBase {
 }
 export type HubRole =
   | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string } })
-  | (HubRoleBase & { type: 'pve-reporting'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
+  | (HubRoleBase & { type: 'pve-cluster'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
   // kept in the settings of the backups (pbsSettings, pbsRemoteSettings), roles once connected
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
   | (HubRoleBase & { type: 'pbs-offsite'; config: { url: string; tailscaleUrl: string; store: string; startTime: string } })
@@ -1345,10 +1378,10 @@ export type HubRole =
   | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
-export type PveHubRole = Extract<HubRole, { type: 'pve-reporting' }>;
+export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 
-// a broker or an Omada controller (the reporting of a cluster has its own routes, see createPveToken); the secret
+// a broker or an Omada controller (a Proxmox VE cluster has its own routes, see createPveToken); the secret
 // (password, clientSecret): absent keeps the stored one, "" clears it (a controller needs one); carrier on an edit:
 // moves the role
 export type HubRoleInput = { carrier?: { kind: 'host' | 'equipment'; id: string }; name: string } & (
@@ -1519,6 +1552,9 @@ export const api = {
   dropCachedNextcloud: (hostId: string) => request<void>('DELETE', `/api/hosts/${hostId}/backup-cache/nextcloud`),
   createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
+  pveInventory: () => request<{ clusters: PveInventory[] }>('GET', '/api/settings/pve/inventory'),
+  restorePveLink: (hostId: string) => request<void>('POST', `/api/hosts/${hostId}/pve/restore`),
+  forgetPveLink: (hostId: string) => request<void>('DELETE', `/api/hosts/${hostId}/pve/lost`),
   savePveCluster: (id: string, c: PveClusterInput) => request<PveCluster>('PUT', `/api/settings/pve/clusters/${encodeURIComponent(id)}`, c),
   deletePveCluster: (id: string) => request<{ revoked: string | null; userDeleted: boolean }>('DELETE', `/api/settings/pve/clusters/${encodeURIComponent(id)}`),
   testPveCluster: (id: string, c: PveClusterInput) =>

@@ -3,40 +3,41 @@ import { ObjectId } from 'mongodb';
 import { backups, guests, hosts, roles, settings } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
-import { groupKey, loadPbsSettings } from './pbs.js';
+import { HISTORY, groupKey, loadPbsSettings } from './pbs.js';
 import { rolesSaved } from './roleEvents.js';
 import { allRoles, loadRoles, newRoleId } from './roles.js';
 import { apiGet, normalizeFingerprint } from './tlsApi.js';
-import type { GuestDoc, HostPveLink, PbsSettings, PveCluster, PveJobRef, PveReportingRole, PveSettings, PveTaskResult } from './types.js';
+import type { BackupSnapshot, GuestDoc, HostPveLink, HostPveLost, PbsSettings, PveCluster, PveClusterRole, PveJobRef, PveNode, PveSettings, PveTaskResult } from './types.js';
 
-// Proxmox VE clusters, read through their API with a read-only token (PVEAuditor): the guests, their
-// MAC addresses, the vzdump backup jobs and the result of their last tasks. A host of the hub is the
-// guest that has one of its MAC addresses (deterministic, nothing is written on Proxmox); the groups
-// the jobs of that guest write on the followed PBS are attached to it automatically.
+// Proxmox VE clusters, read through their API with a read-only token (PVEAuditor): the inventory (nodes, guests, their
+// MAC addresses), the vzdump backup jobs and the result of their last tasks. A host of the hub is the guest that has
+// one of its MAC addresses (deterministic, nothing is written on Proxmox); the groups the jobs of that guest write on
+// the followed PBS, and its archives on the other storages of its jobs, are attached to it automatically. A link that
+// breaks is set aside on the host (pveLost), offered again when the inventory matches, never restored on its own.
 
 export const CLUSTER_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const PVE_TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+$/;
 
-// The clusters followed: the pve-reporting roles of the hub, read from the database (the poll writes their state).
+// The clusters followed: the pve-cluster roles of the hub, read from the database (the poll writes their state).
 export async function loadPveSettings(): Promise<PveSettings> {
-  const list = (await roles.find({ type: 'pve-reporting' }).sort({ name: 1 }).toArray()) as PveReportingRole[];
+  const list = (await roles.find({ type: 'pve-cluster' }).sort({ name: 1 }).toArray()) as PveClusterRole[];
   return { _id: 'pve', clusters: list.map(clusterOf) };
 }
 
-// A pve-reporting role as pve.ts reads it, and back.
-export function clusterOf(r: PveReportingRole): PveCluster {
+// A pve-cluster role as pve.ts reads it, and back.
+export function clusterOf(r: PveClusterRole): PveCluster {
   const { cluster, ...rest } = r.config;
   return { ...rest, id: cluster, name: r.name, agent: { hostId: r.carrier.id.toHexString() } };
 }
 
-export function roleOf(c: PveCluster & { agent: { hostId: string } }, _id: string, createdAt: Date): PveReportingRole {
+export function roleOf(c: PveCluster & { agent: { hostId: string } }, _id: string, createdAt: Date): PveClusterRole {
   const { id, name, agent, ...rest } = c;
-  return { _id, type: 'pve-reporting', name, carrier: { kind: 'host', id: new ObjectId(agent.hostId) }, config: { ...rest, cluster: id }, createdAt };
+  return { _id, type: 'pve-cluster', name, carrier: { kind: 'host', id: new ObjectId(agent.hostId) }, config: { ...rest, cluster: id }, createdAt };
 }
 
 // Saves a cluster as its role (created if new, its node as carrier).
 export async function savePveCluster(c: PveCluster & { agent: { hostId: string } }) {
-  const current = allRoles().find((r): r is PveReportingRole => r.type === 'pve-reporting' && r.config.cluster === c.id);
+  const current = allRoles().find((r): r is PveClusterRole => r.type === 'pve-cluster' && r.config.cluster === c.id);
   const _id = current?._id ?? newRoleId(`pve-${c.id}`, (x) => allRoles().some((r) => r._id === x));
   const next = roleOf(c, _id, current?.createdAt ?? new Date());
   await roles.replaceOne({ _id }, next, { upsert: true });
@@ -44,7 +45,7 @@ export async function savePveCluster(c: PveCluster & { agent: { hostId: string }
 }
 
 export async function removePveCluster(id: string) {
-  const current = allRoles().find((r): r is PveReportingRole => r.type === 'pve-reporting' && r.config.cluster === id);
+  const current = allRoles().find((r): r is PveClusterRole => r.type === 'pve-cluster' && r.config.cluster === id);
   if (!current) return;
   await roles.deleteOne({ _id: current._id });
   await rolesSaved([current.carrier.id]);
@@ -55,11 +56,11 @@ export async function removePveCluster(id: string) {
 export async function migratePveClusters(log?: FastifyBaseLogger) {
   const s = (await settings.findOne({ _id: 'pve' })) as PveSettings | null;
   if (!s) return;
-  const done = await roles.find({ type: 'pve-reporting' }, { projection: { 'config.cluster': 1 } }).toArray();
+  const done = await roles.find({ type: 'pve-cluster' }, { projection: { 'config.cluster': 1 } }).toArray();
   const taken = new Set((await roles.find({}, { projection: { _id: 1 } }).toArray()).map((r) => r._id));
   let orphans = 0;
   for (const c of s.clusters) {
-    if (done.some((r) => (r as PveReportingRole).config.cluster === c.id)) continue;
+    if (done.some((r) => (r as PveClusterRole).config.cluster === c.id)) continue;
     if (!c.agent?.hostId || !ObjectId.isValid(c.agent.hostId)) {
       orphans++;
       log?.warn({ cluster: c.id }, 'PVE cluster without its node: not migrated to a role, kept in the settings');
@@ -70,6 +71,11 @@ export async function migratePveClusters(log?: FastifyBaseLogger) {
     await roles.insertOne(roleOf({ ...c, agent: c.agent }, _id, new Date()));
   }
   if (!orphans) await settings.deleteOne({ _id: 'pve' });
+}
+
+// The role was pve-reporting before it was the inventory of the cluster: same id, same config.
+export async function migratePveRoleType() {
+  await roles.updateMany({ type: 'pve-reporting' } as never, { $set: { type: 'pve-cluster' } });
 }
 
 // Corosync cluster of a node, announced by its agent in its capabilities (agent/main.go): `pve_cluster:<name>`.
@@ -107,6 +113,7 @@ export interface ApiResource {
   name?: string;
   node: string;
   type: 'lxc' | 'qemu';
+  status?: string;
   template?: number;
 }
 export interface ApiStorage {
@@ -116,6 +123,15 @@ export interface ApiStorage {
   namespace?: string;
   server?: string;
   fingerprint?: string;
+  shared?: number | boolean;
+  nodes?: string; // nodes it is enabled on, comma separated; absent: all
+}
+export interface ApiContent {
+  volid: string;
+  vmid?: number | string;
+  ctime?: number;
+  size?: number;
+  notes?: string;
 }
 export interface ApiJob {
   id: string;
@@ -184,20 +200,23 @@ export function followedStorages(storages: ApiStorage[], pbs: Pick<PbsSettings, 
   return out;
 }
 
-// Guests of a vzdump task log: started, finished, failed (with the reason).
+// Storage and guests of a vzdump task log: started, finished, failed (with the reason).
 export function parseVzdumpLog(lines: string[]) {
+  let storage: string | undefined;
   const started = new Set<number>();
   const finished = new Set<number>();
   const failed = new Map<number, string>();
   for (const l of lines) {
-    let m = /Starting Backup of VM (\d+)/.exec(l);
+    let m = /starting new backup job: vzdump .*--storage (\S+)/.exec(l);
+    if (m) storage = m[1];
+    m = /Starting Backup of VM (\d+)/.exec(l);
     if (m) started.add(Number(m[1]));
     m = /Finished Backup of VM (\d+)/.exec(l);
     if (m) finished.add(Number(m[1]));
     m = /ERROR: Backup of VM (\d+) failed(?: - (.*))?/.exec(l);
     if (m) failed.set(Number(m[1]), (m[2] ?? 'échec').trim());
   }
-  return { started, finished, failed };
+  return { storage, started, finished, failed };
 }
 
 const taskOk = (status?: string) => status === 'OK' || !!status?.startsWith('WARNINGS');
@@ -206,7 +225,7 @@ const taskOk = (status?: string) => status === 'OK' || !!status?.startsWith('WAR
 // from its log otherwise; undefined when the guest is not part of it.
 export function guestResult(task: ApiTask, vmid: number, log?: ReturnType<typeof parseVzdumpLog>): PveTaskResult | undefined {
   if (!task.endtime || !task.status) return undefined;
-  const base = { upid: task.upid, at: task.endtime * 1000 };
+  const base = { upid: task.upid, at: task.endtime * 1000, ...(log?.storage ? { storage: log.storage } : {}) };
   if (task.id) {
     if (Number(task.id) !== vmid) return undefined;
     return taskOk(task.status) ? { ...base, ok: true } : { ...base, ok: false, error: task.status };
@@ -236,6 +255,66 @@ export function matchGuests<H extends { _id: ObjectId; macs: string[] }>(list: H
   return out;
 }
 
+// Guests with a MAC address another guest has too (clones): they designate no host.
+export function sharedMacGuests(all: Pick<GuestDoc, '_id' | 'macs'>[]) {
+  const byMac = new Map<string, Set<string>>();
+  for (const g of all) for (const m of g.macs) byMac.set(m, (byMac.get(m) ?? new Set()).add(g._id));
+  const out = new Set<string>();
+  for (const ids of byMac.values()) if (ids.size > 1) ids.forEach((id) => out.add(id));
+  return out;
+}
+
+const sameGuest = (a: Pick<HostPveLink, 'cluster' | 'vmid'>, b: Pick<HostPveLink, 'cluster' | 'vmid'>) => a.cluster === b.cluster && a.vmid === b.vmid;
+
+// The link of a host after a poll: its current one, the one set aside, and the guest it matches now (null: none). A
+// link that breaks (guest gone or another one matched) is set aside; one set aside is only ever offered again
+// (candidate), restored by hand (restorePveLink) or forgotten.
+export function nextLink(cur: HostPveLink | null, lost: HostPveLost | null, found: HostPveLink | null, now: Date): { pve: HostPveLink | null; lost: HostPveLost | null } {
+  if (cur) return found && sameGuest(found, cur) ? { pve: found, lost: null } : { pve: null, lost: { link: cur, at: now, candidate: found } };
+  if (lost) return { pve: null, lost: { ...lost, candidate: found } };
+  return { pve: found, lost: null };
+}
+
+// vzdump archives of the storages of the jobs other than the followed PBS, by storage then vmid (oldest first). A
+// shared storage is listed on one node, a local one on each node it is enabled on. One that cannot be listed is absent,
+// and so is one listed without any archive: Proxmox hides the archives from a token without VM.Backup (PVEAuditor).
+async function listArchives(c: PveCluster, storages: ApiStorage[], jobs: ApiJob[], followed: Map<string, unknown>, online: string[]) {
+  const out = new Map<string, Map<number, BackupSnapshot[]>>();
+  const wanted = new Set(jobs.map((j) => j.storage).filter((x): x is string => !!x && !followed.has(x)));
+  for (const id of wanted) {
+    const st = storages.find((x) => x.storage === id);
+    if (!st) continue;
+    const enabled = st.nodes ? st.nodes.split(',').map((n) => n.trim()) : null;
+    const on = online.filter((n) => !enabled || enabled.includes(n));
+    const byVmid = new Map<number, BackupSnapshot[]>();
+    let listed = false;
+    for (const node of truthy(st.shared) ? on.slice(0, 1) : on) {
+      const list = await pveGet<ApiContent[]>(c, `/nodes/${encodeURIComponent(node)}/storage/${encodeURIComponent(id)}/content?content=backup`).catch(() => null);
+      if (!list) continue;
+      listed = true;
+      for (const v of list) {
+        const vmid = Number(v.vmid);
+        if (!Number.isInteger(vmid) || !v.ctime) continue;
+        byVmid.set(vmid, [...(byVmid.get(vmid) ?? []), { t: v.ctime * 1000, verify: null, size: v.size ?? null, note: v.notes ?? null }]);
+      }
+    }
+    if (!listed || !byVmid.size) continue;
+    for (const list of byVmid.values()) list.sort((a, b) => a.t - b.t);
+    out.set(id, byVmid);
+  }
+  return out;
+}
+
+// The host of each node of a cluster: an agent of the same corosync cluster as the carrier (the carrier alone for a
+// node without cluster) whose hostname is the node name; null: no agent on it.
+export function nodeHosts<H extends { _id: ObjectId; name: string; capabilities?: string[]; info?: { hostname?: string } }>(c: Pick<PveCluster, 'agent'>, nodes: string[], list: H[]) {
+  const carrier = list.find((h) => h._id.toHexString() === c.agent?.hostId);
+  const corosync = pveClusterOf(carrier?.capabilities);
+  const members = list.filter((h) => h.capabilities?.includes('pve') && (h === carrier || (!!corosync && pveClusterOf(h.capabilities) === corosync)));
+  const short = (x: string) => x.toLowerCase().split('.')[0];
+  return new Map(nodes.map((n) => [n, members.find((h) => short(h.info?.hostname || h.name) === short(n)) ?? (nodes.length === 1 && carrier ? carrier : null)]));
+}
+
 // --- poll ------------------------------------------------------------------------------------------
 
 // Results of multi-guest task logs, kept between polls (a finished task does not change).
@@ -250,6 +329,8 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
     pveGet<{ node: string; status: string }[]>(c, '/nodes'),
   ]);
   const online = nodes.filter((n) => n.status === 'online').map((n) => n.node);
+  // a guest whose config cannot be read (its node offline) keeps the MAC addresses of the last poll, and its link
+  const previous = new Map((await guests.find({ cluster: c.id }, { projection: { macs: 1, hostId: 1, ambiguous: 1 } }).toArray()).map((g) => [g._id, g]));
   const tz = online.length
     ? await pveGet<{ timezone?: string }>(c, `/nodes/${encodeURIComponent(online[0])}/time`).then((t) => t.timezone || 'UTC').catch(() => 'UTC')
     : (c.timezone ?? 'UTC');
@@ -267,8 +348,9 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
     const list = await pveGet<ApiTask[]>(c, `/nodes/${encodeURIComponent(node)}/tasks?typefilter=vzdump&limit=${TASKS_PER_NODE}`).catch(() => []);
     for (const t of list) {
       tasks.push({ ...t, node });
-      if (!t.id && t.endtime && !logCache.has(`${c.id}|${t.upid}`)) {
-        const lines = await pveGet<{ t: string }[]>(c, `/nodes/${encodeURIComponent(node)}/tasks/${encodeURIComponent(t.upid)}/log?limit=10000`).catch(() => null);
+      // the log of a finished task gives its storage; a multi-guest one also tells which guests it backed up
+      if (t.endtime && !logCache.has(`${c.id}|${t.upid}`)) {
+        const lines = await pveGet<{ t: string }[]>(c, `/nodes/${encodeURIComponent(node)}/tasks/${encodeURIComponent(t.upid)}/log?limit=${t.id ? 5 : 10000}`).catch(() => null);
         if (lines) logCache.set(`${c.id}|${t.upid}`, parseVzdumpLog(lines.map((l) => l.t)));
       }
     }
@@ -276,6 +358,7 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
   tasks.sort((a, b) => (b.endtime ?? 0) - (a.endtime ?? 0));
 
   const vzdump = jobs.filter((j) => !j.type || j.type === 'vzdump');
+  const archives = await listArchives(c, storages, vzdump, targets, online);
   const now = new Date();
   const docs: GuestDoc[] = [];
   for (const r of resources) {
@@ -295,26 +378,43 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
           ns: t ? t.ns : null,
         };
       });
-    let lastTask: PveTaskResult | null = null;
-    for (const t of tasks) {
-      const res = guestResult(t, r.vmid, logCache.get(`${c.id}|${t.upid}`));
-      if (res) {
-        lastTask = res;
-        break;
+    // last task and last successful one, of a storage (a task whose storage is unknown counts for any)
+    const resultOf = (storage?: string) => {
+      let lastTask: PveTaskResult | null = null;
+      let lastOk: PveTaskResult | null = null;
+      for (const t of tasks) {
+        const res = guestResult(t, r.vmid, logCache.get(`${c.id}|${t.upid}`));
+        if (!res || (storage && res.storage && res.storage !== storage)) continue;
+        lastTask ??= res;
+        if (res.ok) {
+          lastOk = res;
+          break;
+        }
       }
-    }
+      return { lastTask, lastOk };
+    };
+    const { lastTask, lastOk } = resultOf();
+    const _id = `${c.id}/${r.vmid}`;
+    const before = previous.get(_id);
+    const stored = [...new Set(refs.map((j) => j.storage))].filter((x) => archives.has(x));
     docs.push({
-      _id: `${c.id}/${r.vmid}`,
+      _id,
       cluster: c.id,
       vmid: r.vmid,
       type: r.type,
       node: r.node,
       name: r.name ?? '',
-      macs: config ? configMacs(config) : [],
+      status: r.status ?? 'unknown',
+      macs: config ? configMacs(config) : (before?.macs ?? []),
       jobs: refs,
       lastTask,
+      lastOk,
+      results: [...new Set(refs.map((j) => j.storage))].map((x) => ({ storage: x, ...resultOf(x) })),
+      ...(stored.length ? { archives: stored.map((x) => ({ storage: x, times: (archives.get(x)!.get(r.vmid) ?? []).slice(-HISTORY) })) } : {}),
       tz,
       seenAt: now,
+      hostId: before?.hostId ?? null,
+      ambiguous: !!before?.ambiguous,
     });
   }
   for (const d of docs) await guests.replaceOne({ _id: d._id }, d, { upsert: true });
@@ -323,7 +423,8 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
   const listed = new Set(tasks.map((t) => `${c.id}|${t.upid}`));
   for (const k of logCache.keys()) if (k.startsWith(`${c.id}|`) && !listed.has(k)) logCache.delete(k);
   log?.info({ cluster: c.id, guests: docs.length }, 'PVE polled');
-  return { tz, guests: docs.length };
+  const pveNodes: PveNode[] = nodes.map((n) => ({ node: n.node, online: n.status === 'online' })).sort((a, b) => a.node.localeCompare(b.node));
+  return { tz, guests: docs.length, nodes: pveNodes };
 }
 
 let polling: Promise<void> | null = null;
@@ -340,13 +441,13 @@ async function doPoll(log?: FastifyBaseLogger) {
     let set: Partial<PveCluster>;
     try {
       const r = await pollCluster(c, pbs, log);
-      set = { polledAt: new Date(), pollError: null, timezone: r.tz, guests: r.guests };
+      set = { polledAt: new Date(), pollError: null, timezone: r.tz, guests: r.guests, nodes: r.nodes };
     } catch (err) {
       set = { polledAt: new Date(), pollError: (err as Error).message };
       log?.warn({ err, cluster: c.id }, 'PVE poll failed');
     }
     const fields = Object.fromEntries(Object.entries(set).map(([k, v]) => [`config.${k}`, v]));
-    await roles.updateOne({ type: 'pve-reporting', 'config.cluster': c.id }, { $set: fields });
+    await roles.updateOne({ type: 'pve-cluster', 'config.cluster': c.id }, { $set: fields });
   }
   // the state of the poll, shown with the roles
   await loadRoles();
@@ -356,37 +457,40 @@ async function doPoll(log?: FastifyBaseLogger) {
   publish('backups', {});
 }
 
-// Links hosts and guests (MAC addresses), then attaches to each linked host the groups its jobs write.
-// Only reads the database: also run when an agent reports new MAC addresses.
+const linkOf = (g: GuestDoc): HostPveLink => ({ cluster: g.cluster, vmid: g.vmid, type: g.type, node: g.node, name: g.name, covered: g.jobs.some((j) => j.enabled) });
+
+// Links hosts and guests (MAC addresses), then attaches to each linked host the groups its jobs write on the followed
+// PBS and its archives on the other storages of its jobs. Only reads the database: also run when an agent reports new
+// MAC addresses. A host without MAC addresses (not reported yet) keeps its link as it is.
 export async function refreshLinks() {
   const all = await guests.find().toArray();
   const byId = new Map(all.map((g) => [g._id, g]));
-  const list = await hosts.find({}, { projection: { _id: 1, 'info.macs': 1, pve: 1 } }).toArray();
+  const list = await hosts.find({}, { projection: { _id: 1, 'info.macs': 1, pve: 1, pveLost: 1 } }).toArray();
   const matched = matchGuests(
     list.map((h) => ({ _id: h._id, macs: h.info?.macs ?? [] })),
     all,
   );
+  const now = new Date();
+  const owners = new Map<string, string>();
 
   const keys = new Set<string>();
   for (const h of list) {
-    const g = byId.get(matched.get(h._id.toHexString()) ?? '');
-    const link: HostPveLink | null = g
-      ? { cluster: g.cluster, vmid: g.vmid, type: g.type, node: g.node, name: g.name, covered: g.jobs.some((j) => j.enabled) }
-      : null;
-    if (JSON.stringify(link) !== JSON.stringify(h.pve ?? null)) {
-      await hosts.updateOne({ _id: h._id }, link ? { $set: { pve: link } } : { $unset: { pve: '' } });
-      const doc = await hosts.findOne({ _id: h._id });
-      if (doc) publish('host', hostDto(doc));
-    }
+    const found = byId.get(matched.get(h._id.toHexString()) ?? '');
+    const cur = { pve: h.pve ?? null, lost: h.pveLost ?? null };
+    const next = h.info?.macs?.length ? nextLink(cur.pve, cur.lost, found ? linkOf(found) : null, now) : cur;
+    if (JSON.stringify(next) !== JSON.stringify(cur)) await saveLink(h._id, next);
+    const g = next.pve ? byId.get(`${next.pve.cluster}/${next.pve.vmid}`) : undefined;
     if (!g) continue;
-    // one group per datastore/namespace written by its jobs
+    owners.set(g._id, h._id.toHexString());
+    const type = g.type === 'lxc' ? 'ct' : 'vm';
+    // one group per datastore/namespace of the followed PBS written by its jobs
     const byKey = new Map<string, { store: string; ns: string; jobs: PveJobRef[] }>();
     for (const j of g.jobs) {
       if (j.store === null || j.ns === null) continue;
-      const k = groupKey(j.store, j.ns, g.type === 'lxc' ? 'ct' : 'vm', String(g.vmid));
-      const cur = byKey.get(k) ?? { store: j.store, ns: j.ns, jobs: [] };
-      cur.jobs.push(j);
-      byKey.set(k, cur);
+      const k = groupKey(j.store, j.ns, type, String(g.vmid));
+      const entry = byKey.get(k) ?? { store: j.store, ns: j.ns, jobs: [] };
+      entry.jobs.push(j);
+      byKey.set(k, entry);
     }
     for (const [k, v] of byKey) {
       keys.add(k);
@@ -397,7 +501,7 @@ export async function refreshLinks() {
           $setOnInsert: {
             store: v.store,
             ns: v.ns,
-            type: g.type === 'lxc' ? 'ct' : 'vm',
+            type,
             backupId: String(g.vmid),
             count: 0,
             lastBackup: 0,
@@ -411,10 +515,85 @@ export async function refreshLinks() {
         { upsert: true },
       );
     }
+    // one group per other storage of its jobs (local, NFS, another PBS), read on Proxmox: not on the followed PBS. A
+    // storage whose archives cannot be seen dates its last backup from the last successful task.
+    for (const storage of new Set(g.jobs.filter((j) => j.store === null && j.storage).map((j) => j.storage))) {
+      const k = `pve/${g.cluster}/${storage}/${type}/${g.vmid}`;
+      keys.add(k);
+      const times = g.archives?.find((a) => a.storage === storage)?.times;
+      const last = times?.at(-1);
+      const res = g.results?.find((x) => x.storage === storage) ?? { lastTask: g.lastTask, lastOk: g.lastOk };
+      await backups.updateOne(
+        { _id: k },
+        {
+          $set: {
+            store: storage,
+            ns: '',
+            type,
+            backupId: String(g.vmid),
+            comment: g.name,
+            count: times?.length ?? 0,
+            lastBackup: times ? (last?.t ?? 0) : (res.lastOk?.at ?? 0),
+            size: last?.size ?? null,
+            verify: null,
+            times: times ?? [],
+            unlisted: !times,
+            hostId: h._id,
+            source: 'pve-storage',
+            pve: { cluster: g.cluster, vmid: g.vmid, tz: g.tz, jobs: g.jobs.filter((j) => j.storage === storage), lastTask: res.lastTask ?? null },
+            seenAt: now,
+          },
+        },
+        { upsert: true },
+      );
+    }
   }
-  // groups no longer written for a linked host: placeholders go, the others become orphans
+  // the inventory shows the host of each guest, or why it has none
+  const shared = sharedMacGuests(all);
+  for (const g of all) {
+    const hostId = owners.get(g._id) ?? null;
+    const ambiguous = shared.has(g._id);
+    if (g.hostId !== hostId || !!g.ambiguous !== ambiguous) await guests.updateOne({ _id: g._id }, { $set: { hostId, ambiguous } });
+  }
+  // groups no longer written for a linked host: the archives of the other storages go (read on Proxmox again once
+  // linked), placeholders go, the others become orphans
+  await backups.deleteMany({ source: 'pve-storage', _id: { $nin: [...keys] } });
   await backups.deleteMany({ source: 'vzdump', placeholder: true, _id: { $nin: [...keys] } });
   await backups.updateMany({ source: 'vzdump', _id: { $nin: [...keys] } }, { $set: { hostId: null }, $unset: { source: '', pve: '' } });
+}
+
+async function saveLink(hostId: ObjectId, next: { pve: HostPveLink | null; lost: HostPveLost | null }) {
+  const set: Record<string, unknown> = {};
+  const unset: Record<string, ''> = {};
+  if (next.pve) set.pve = next.pve;
+  else unset.pve = '';
+  if (next.lost) set.pveLost = next.lost;
+  else unset.pveLost = '';
+  await hosts.updateOne({ _id: hostId }, { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+  const doc = await hosts.findOne({ _id: hostId });
+  if (doc) publish('host', hostDto(doc));
+}
+
+export class PveLinkError extends Error {}
+
+// The link set aside of a host, restored on the guest it matches now (the same one, or another one: a restore under a
+// new vmid), then its groups attached again.
+export async function restorePveLink(hostId: ObjectId) {
+  const h = await hosts.findOne({ _id: hostId }, { projection: { pveLost: 1 } });
+  if (!h?.pveLost) throw new PveLinkError("cet hôte n'a pas de lien Proxmox VE mis de côté");
+  if (!h.pveLost.candidate) throw new PveLinkError("aucune VM ni aucun CT de l'inventaire ne correspond à cet hôte");
+  await saveLink(hostId, { pve: h.pveLost.candidate, lost: null });
+  await refreshLinks();
+  publish('backups', {});
+}
+
+// The link set aside is dropped: a guest the host matches is then linked as a first link.
+export async function forgetPveLink(hostId: ObjectId) {
+  const h = await hosts.findOne({ _id: hostId }, { projection: { pveLost: 1 } });
+  if (!h?.pveLost) throw new PveLinkError("cet hôte n'a pas de lien Proxmox VE mis de côté");
+  await saveLink(hostId, { pve: null, lost: null });
+  await refreshLinks();
+  publish('backups', {});
 }
 
 export function startPvePoller(log: FastifyBaseLogger) {
