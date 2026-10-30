@@ -1,14 +1,14 @@
 ---
-title: Comptes et rôles
-description: Premier démarrage, rôles admin / operator / viewer, mots de passe temporaires, comptes sans mot de passe, clés d'API et compte superadmin
+title: Comptes et profils
+description: Premier démarrage, profils admin / operator / viewer, mots de passe temporaires, comptes sans mot de passe, clés d'API et compte superadmin
 sidebar_position: 5
 ---
 
-# Comptes et rôles
+# Comptes et profils
 
-## Rôles
+## Profils
 
-| Rôle | Droits |
+| Profil | Droits |
 |---|---|
 | `admin` | Tout : hôtes (ajout, modification, suppression, commandes d'installation, révocation des agents), mises à jour, paramètres, comptes |
 | `operator` | Voit tout et lance les actions : vérifications, mises à jour, nettoyages, redémarrages, verrouillage de session, mises à jour d'agents (pas l'extinction d'un hôte, réservée à `admin`). Ne gère ni les hôtes, ni les paramètres, ni les comptes |
@@ -17,7 +17,7 @@ sidebar_position: 5
 Les droits sont vérifiés par le hub sur chaque requête : l'interface ne fait que masquer ce qui n'est pas autorisé.
 Chacun peut changer son propre mot de passe depuis l'icône clé de l'en-tête.
 
-Les comptes existant avant l'introduction des rôles deviennent `admin`.
+Les comptes existant avant l'introduction des profils deviennent `admin`.
 
 ## Premier démarrage
 
@@ -47,7 +47,7 @@ bouton copier ; l'admin le transmet. À la connexion avec ce mot de passe, l'uti
 d'accéder au hub. Une réinitialisation ferme aussi les sessions ouvertes du compte.
 
 Garde-fous : on ne peut ni supprimer son propre compte, ni supprimer ou rétrograder le dernier `admin`.
-Changer le rôle d'un compte le déconnecte.
+Changer le profil d'un compte le déconnecte.
 
 ## Compte sans mot de passe
 
@@ -58,7 +58,7 @@ au départ : on les ajoute en le modifiant. « Réinitialiser » dans la colonne
 ## Clés d'API
 
 Une clé d'API permet à un service (Homepage, un script…) d'appeler l'[API du hub](api.md) sans session. Elle s'envoie
-dans l'en-tête `Authorization: Bearer hm_…` et **a les droits du rôle du compte** : pour un simple affichage, un compte
+dans l'en-tête `Authorization: Bearer hm_…` et **a les droits du profil du compte** : pour un simple affichage, un compte
 `viewer` sans mot de passe suffit.
 
 Les clés se gèrent dans le dialogue **Modifier** d'un compte (page **Comptes**), section *Clés d'API* :

@@ -29,7 +29,7 @@ Les **modules domotiques stratégiques** ont leur place ici : ceux dont dépend 
 - L'**équipement amont** est affiché sur la fiche (avec ceux qui en dépendent, « en aval »). Il ne masque **jamais** l'état d'une sonde : une sonde derrière un switch en panne reste en échec. Le hub refuse une boucle (un équipement en amont de lui-même).
 - **Supprimer** un équipement supprime ses sondes et son historique d'alertes ; ceux qui en dépendaient n'ont plus d'amont. Retirer un site des paramètres retire ses équipements de ce site.
 
-Tous les rôles voient les équipements ; seuls les **administrateurs** les ajoutent, les modifient et les suppriment. L'ajout et la modification se font sans confirmation, la suppression en demande une.
+Tous les profils voient les équipements ; seuls les **administrateurs** les ajoutent, les modifient et les suppriment. L'ajout et la modification se font sans confirmation, la suppression en demande une.
 
 ## Sources automatiques
 
@@ -60,9 +60,9 @@ Les équipements et leurs sondes ne sont pas encore publiés dans Home Assistant
 
 ## API
 
-Lecture : tous les rôles. Écriture : administrateurs.
+Lecture : tous les profils. Écriture : administrateurs.
 
-| Route | Rôle |
+| Route | Profil |
 |---|---|
 | `GET /api/equipments` | équipements, chacun avec l'état de ses sondes (`probes` : `id`, `name`, `state`, `message`) |
 | `GET /api/equipments/:id` | un équipement |

@@ -48,7 +48,7 @@ Dans la **fiche de l'hôte**, le panneau **Sondes** (après Docker) liste ses so
 3. **Options** : intervalle, délai maximal, nouvelles tentatives.
 4. **Test** : mesure immédiate, sans enregistrer. L'enregistrement ne demande pas de test réussi : une sonde peut être créée pour un service pas encore installé.
 
-L'ajout et la modification se font sans confirmation ; la suppression en demande une. Tous les rôles voient les sondes d'un hôte ; seuls les **administrateurs** les ajoutent, les modifient, les testent et les suppriment, et gèrent les brokers.
+L'ajout et la modification se font sans confirmation ; la suppression en demande une. Tous les profils voient les sondes d'un hôte ; seuls les **administrateurs** les ajoutent, les modifient, les testent et les suppriment, et gèrent les brokers.
 
 ## Sondes d'un équipement
 
@@ -60,11 +60,11 @@ Quand une stack disparaît du rapport Docker de son hôte, ses sondes sont **sup
 
 ## Brokers MQTT
 
-Les sondes MQTT écoutent leurs propres brokers, **distincts du broker du pont [Home Assistant](home-assistant.md)** (par exemple celui de Zigbee2MQTT et celui d'ESPHome d'un site). Un broker est un **rôle de l'hôte qui l'héberge** : l'agent de l'hôte signale les brokers qu'il voit en écoute, et un administrateur les active dans les **options de l'hôte › Rôles** (ou en saisit un à la main). Il faut donc un agent HLM sur l'hôte du broker.
+Les sondes MQTT écoutent leurs propres brokers, **distincts du broker du pont [Home Assistant](home-assistant.md)** (par exemple celui de Zigbee2MQTT et celui d'ESPHome d'un site). Un broker est un **rôle `Broker MQTT`** porté par l'hôte qui l'héberge : l'agent de l'hôte signale les brokers qu'il voit en écoute, et un administrateur les déclare dans **Paramètres › Rôles** (assistant **Type › Hôte › Paramètres › Test**). Il faut donc un agent HLM sur l'hôte du broker. Les rôles sont décrits dans [Rôles du hub](roles.md).
 
 Un rôle porte un nom (l'identifiant que les sondes citent), le schéma (`mqtt://`, `mqtts://`, `ws://` ou `wss://`), le port, une adresse facultative (par défaut la première IP privée de l'hôte) et un compte facultatif (broker anonyme). Comme pour Home Assistant, l'enregistrement exige un **test de connexion** réussi, et le mot de passe n'est jamais renvoyé par l'API.
 
-**Paramètres › Sondes** donne la vue d'ensemble : état de la connexion de chaque broker (connecté, connexion, injoignable), hôte qui l'héberge et nombre de sondes qui l'utilisent. Un broker injoignable met ses sondes en « inconnu ». Un broker utilisé par des sondes ne peut pas être supprimé : supprimer ou déplacer ces sondes d'abord.
+**Paramètres › Rôles** donne la vue d'ensemble : état de la connexion de chaque broker (connecté, connexion, injoignable), hôte qui le porte et ce qui l'utilise (sondes, pont Home Assistant). Un broker injoignable met ses sondes en « inconnu ». Un broker utilisé ne peut pas être supprimé : retirer d'abord ce qui l'utilise. Sur la fiche de l'hôte, les rôles qu'il porte s'affichent ; supprimer un hôte porteur est refusé tant que ses rôles existent. Plusieurs brokers peuvent tourner sur un même hôte : l'unicité est par `(hôte, port)`.
 
 ## Alertes et statuts
 
@@ -76,9 +76,9 @@ La catégorie **Sondes** crée une entité par sonde, sur l'appareil de l'hôte 
 
 ## API
 
-Lecture des sondes d'un hôte ou d'un équipement : tous les rôles. Tout le reste (écriture, test, brokers) : administrateurs seulement, car le hub ouvre des connexions vers ce qui est saisi.
+Lecture des sondes d'un hôte ou d'un équipement : tous les profils. Tout le reste (écriture, test, brokers) : administrateurs seulement, car le hub ouvre des connexions vers ce qui est saisi.
 
-| Route | Rôle |
+| Route | Profil |
 |---|---|
 | `GET /api/hosts/:id/probes` | sondes d'un hôte, avec leur état en direct |
 | `POST /api/hosts/:id/probes` | créer une sonde |
@@ -87,9 +87,10 @@ Lecture des sondes d'un hôte ou d'un équipement : tous les rôles. Tout le res
 | `DELETE /api/probes/:id` | supprimer une sonde |
 | `POST /api/probes/test` | mesurer une cible sans rien enregistrer |
 | `GET /api/settings/mqtt-brokers` | brokers MQTT des sondes, avec état de connexion et nombre de sondes (le mot de passe n'est jamais renvoyé : `hasPassword`) |
-| `POST /api/hosts/:id/roles` | activer un broker détecté par l'agent de l'hôte (rôle `mqtt-broker`) |
-| `PUT`, `DELETE /api/hosts/:id/roles/:roleId` | modifier, supprimer (refusé si des sondes l'utilisent) |
-| `POST /api/hosts/:id/roles/test` | tester la connexion d'un broker |
+| `GET /api/roles` | rôles du hub avec leur hôte porteur, leur état et ce qui les utilise (voir [API](api.md)) |
+| `POST /api/roles` | déclarer un broker détecté par l'agent d'un hôte (`type: mqtt-broker`) |
+| `PUT`, `DELETE /api/roles/:id` | modifier (ou réaffecter à un autre hôte), supprimer (refusé si une sonde ou le pont Home Assistant l'utilise) |
+| `POST /api/roles/test` | tester la connexion d'un broker |
 
 Corps d'une sonde :
 

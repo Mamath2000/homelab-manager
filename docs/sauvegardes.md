@@ -20,7 +20,7 @@ Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur
 
 ## Mise en place
 
-Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** et un bloc **Clusters Proxmox VE**, sur le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : image du client pour le PBS principal, heure de départ des copies pour le PBS de secours, identifiant et nom pour un cluster Proxmox VE. Il n'y a pas de case « suivre » : un serveur déclaré avec son jeton est **connecté** et relevé ; pour l'arrêter, on le [déconnecte](#déconnecter-un-pbs-ou-un-cluster).
+Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** ; les clusters Proxmox VE ne sont plus ici mais des [rôles](roles.md) (**Paramètres › Rôles**, le bloc d'ici y renvoie par un lien). Le PBS et un cluster ont le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : image du client pour le PBS principal, heure de départ des copies pour le PBS de secours, identifiant et nom pour un cluster Proxmox VE. Il n'y a pas de case « suivre » : un serveur déclaré avec son jeton est **connecté** et relevé ; pour l'arrêter, on le [déconnecte](#déconnecter-un-pbs-ou-un-cluster).
 
 Aucun jeton ne se recopie à la main ni ne se crée par une commande à coller : **l'agent** de l'hôte du PBS, ou d'un nœud du cluster Proxmox VE, les crée. Son enrôlement est le prérequis à toute configuration.
 
@@ -95,6 +95,8 @@ Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que
 
 ### Clusters Proxmox VE
 
+Un cluster est un rôle `Cluster Proxmox VE` ([Rôles du hub](roles.md)), porté par le nœud choisi à l'étape **1. Hôte** ; il ne peut changer de porteur que pour un autre nœud **du même cluster**, et un nœud porteur hors ligne met seulement le relevé en erreur (alerte, rien n'est déplacé tout seul).
+
 **Ajouter** : la fenêtre en quatre étapes décrite dans [Jeton de Proxmox VE](#jeton-de-proxmox-ve--créé-par-lagent-dun-nœud) ; l'identifiant court (`vouille`, pré-rempli avec le nom du cluster) est fixé à la création du jeton. Plusieurs clusters peuvent écrire sur le même PBS.
 
 Toutes les 15 minutes, le hub lit pour chaque cluster :
@@ -149,7 +151,7 @@ Pourquoi pas un job par datastore entier : le filtre de groupe de PBS ne regarde
 - **Copier maintenant** (exceptionnel, opérateurs compris) : bouton du détail d'une sauvegarde copiée. Le hub crée un job de sync temporaire `hlm-adhoc-<hash>` (mêmes options que le job du datastore, filtre limité à cette sauvegarde : le dernier snapshot **vérifié**), le lance, le suit comme une copie normale (console ou Activité, déclencheur « manuel ») et le supprime à la fin, réussite ou échec ; les jobs restés (hub redémarré) sont nettoyés au relevé suivant. L'agent n'est pas concerné : la copie peut tourner **en parallèle** de la série quotidienne (autre datastore ou namespace) ; refusée pour la même sauvegarde déjà en cours. Bouton désactivé (avec la raison) quand la copie est déjà à jour ou qu'aucun snapshot vérifié n'est à copier ; le job du datastore trouvera ensuite le snapshot déjà présent. **Retirer de la copie** : bouton du détail d'une sauvegarde copiée (administrateurs), direct ; la sauvegarde sort du filtre de son job, les snapshots déjà copiés restent.
 - **Migration** (avant #186 : un job `hlm-<empreinte>` par sauvegarde, file d'attente de l'agent) : au premier relevé, les anciens jobs sont supprimés et remplacés ; le hub efface les réglages de file, l'agent son fichier `offsite.json`.
 
-API : `PUT /api/backups/<id>/offsite` (`enabled`), `GET /api/backups/<id>/offsite/check` (copiable, namespace à créer et commandes), `POST /api/backups/<id>/offsite/run` (copie immédiate ; rend l'UPID de la tâche et le job qui la suit) ; le DTO de chaque sauvegarde porte `offsite`, son état et la copie en cours, et `GET /api/backups` le PBS de secours (hôte, datastore, occupation, état de la série) pour tous les rôles.
+API : `PUT /api/backups/<id>/offsite` (`enabled`), `GET /api/backups/<id>/offsite/check` (copiable, namespace à créer et commandes), `POST /api/backups/<id>/offsite/run` (copie immédiate ; rend l'UPID de la tâche et le job qui la suit) ; le DTO de chaque sauvegarde porte `offsite`, son état et la copie en cours, et `GET /api/backups` le PBS de secours (hôte, datastore, occupation, état de la série) pour tous les profils.
 
 ### Copies quotidiennes : l'agent du PBS de secours enchaîne les jobs
 
@@ -422,6 +424,6 @@ Le hub lit les tâches de sauvegarde du PBS (liste et journal de chaque tâche) 
 - Statut : les sauvegardes forment le domaine **Sauvegardes** et la copie déportée le domaine **Copie externe** (ligne propre dans la frise de la fiche dès qu'une copie est activée, avertissement tant qu'aucune copie n'existe encore) : voir [Alertes et statuts](alertes.md).
 - Sur Homelab Manager : **Sauvegardes en retard** et l'occupation de chaque datastore.
 
-## Rôles
+## Profils
 
-Tous les rôles voient les sauvegardes et le détail de leur copie. Les opérateurs peuvent relever, **lancer** une sauvegarde de répertoires et **copier maintenant** une sauvegarde copiée. Seuls les administrateurs règlent les connexions (PBS, PBS de secours, clusters), les jetons, les jobs, l'installation du client, le rattachement, le seuil propre à une sauvegarde et sa copie déportée, et **montent / démontent** une sauvegarde.
+Tous les profils voient les sauvegardes et le détail de leur copie. Les opérateurs peuvent relever, **lancer** une sauvegarde de répertoires et **copier maintenant** une sauvegarde copiée. Seuls les administrateurs règlent les connexions (PBS, PBS de secours, clusters), les jetons, les jobs, l'installation du client, le rattachement, le seuil propre à une sauvegarde et sa copie déportée, et **montent / démontent** une sauvegarde.

@@ -10,7 +10,7 @@ Le hub expose deux ports :
 
 | Port | Usage | Protection |
 |---|---|---|
-| `3000` | interface web et API REST | comptes et rôles, voir [Comptes et rôles](comptes.md) |
+| `3000` | interface web et API REST | comptes et profils, voir [Comptes et profils](comptes.md) |
 | `3443` | agents : script d'installation, binaires, enrôlement, connexion WebSocket | TLS, épinglage de la clé du hub, un certificat par agent |
 
 Rien ne circule en clair entre le hub et les agents, et aucun secret réutilisable n'est transmis.

@@ -10,14 +10,18 @@ Le hub peut publier l'état du homelab sur un broker MQTT, avec la **découverte
 
 ## Relier un broker
 
-Dans l'interface : **Paramètres → Home Assistant**. Sans broker, rien n'est publié : l'écran explique l'intégration et propose **Ajouter un broker**, qui ouvre une fenêtre en quatre étapes.
+Le pont publie sur un [rôle](roles.md) `Broker MQTT` du hub (déclaré dans **Paramètres › Rôles**), dont il reprend l'adresse et le compte. Dans l'interface : **Paramètres → Home Assistant**. **Sans rôle MQTT sélectionné, le pont est désactivé** et rien n'est publié : l'écran propose de choisir un broker déclaré, ou d'en déclarer un. Le pont se règle ensuite par les préfixes ci-dessous.
+
+Au passage à la version avec les rôles, l'ancien broker saisi dans ce panneau est **rattaché automatiquement** au rôle de même adresse et de même compte ; sinon l'écran affiche « Broker saisi avant les rôles » et demande de choisir le rôle correspondant (ou d'en déclarer un).
+
+La fenêtre d'édition a quatre étapes :
 
 | Étape | Rôle |
 |---|---|
-| Broker | `mqtt://IP:1883`, `mqtts://…`, `ws://…` ou `wss://…` |
-| Compte | Utilisateur / mot de passe du broker, facultatifs (broker anonyme) ; le mot de passe n'est jamais renvoyé par l'API |
-| Topics | Préfixe de découverte (`homeassistant` par défaut, celui de l'intégration MQTT de Home Assistant), préfixe des états et commandes du hub (`homelab-manager` par défaut), URL de l'interface : lien « Visiter » des appareils (l'URL publique, par exemple ; vide : URL du hub des paramètres Agent) |
-| Test de connexion | Vérifie que le broker accepte le compte, sans rien publier |
+| Broker | le rôle `Broker MQTT` utilisé (son adresse et son compte s'affichent, le mot de passe n'est jamais renvoyé par l'API) |
+| Topics | Préfixe de découverte (`homeassistant` par défaut, celui de l'intégration MQTT de Home Assistant), préfixe des états et commandes du hub (`homelab-manager` par défaut) |
+| Interface | URL de l'interface, facultative : lien « Visiter » des appareils (l'URL publique, par exemple ; vide : URL du hub des paramètres Agent) |
+| Test de connexion | Vérifie que le broker accepte le compte du rôle, sans rien publier |
 
 **Enregistrer** n'est possible qu'après un test réussi (tout changement de champ l'annule) et démarre la publication. Une fois le broker relié, le haut de l'écran résume le lien : état de la connexion, broker, compte, préfixes, nombre d'appareils publiés et dernière publication, avec **Modifier** (la même fenêtre) et **Retirer**.
 
@@ -28,7 +32,7 @@ Retirer le broker, ou changer de préfixe, **retire les appareils** de Home Assi
 :::
 
 :::note Stockage
-Les paramètres, dont le mot de passe du broker, sont enregistrés dans la base MongoDB du hub.
+Les préfixes sont enregistrés dans la base MongoDB du hub ; l'adresse et le mot de passe du broker sont ceux du rôle.
 :::
 
 ## Niveau de détail

@@ -44,10 +44,11 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
 - [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
 - [Onduleur](onduleur.md) : suivi d'un onduleur via NUT, fin de vie de la batterie, alertes.
+- [Rôles du hub](roles.md) : brokers MQTT et clusters Proxmox VE, hôte porteur, test, réaffectation.
 - [Sondes de service](sondes.md) : MQTT, ping, TCP et HTTP depuis le hub, brokers MQTT, états et alertes.
 - [Équipements](equipements.md) : matériel suivi sans agent, sources automatiques, sondes, tableau de bord.
 - [Alertes et statuts](alertes.md) : domaines, éléments suivis, agrégation hôte → site, hôte hors ligne ou itinérant.
 - [Home Assistant](home-assistant.md) : intégration MQTT avec découverte automatique.
-- [Comptes et rôles](comptes.md) : premier démarrage, rôles, mots de passe, comptes sans mot de passe, clés d'API.
+- [Comptes et profils](comptes.md) : premier démarrage, profils, mots de passe, comptes sans mot de passe, clés d'API.
 - [API](api.md) : accès par clé d'API et endpoint `/api/summary` pour les tableaux de bord.
 - [Sécurité](securite.md) : connexion des agents, enrôlement, révocation, signature des binaires.

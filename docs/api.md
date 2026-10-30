@@ -13,14 +13,14 @@ Le hub expose son API HTTP (celle de l'interface). Un service externe s'y authen
 curl -H "Authorization: Bearer hm_…" http://HUB:PORT/api/summary
 ```
 
-- Sans clé valable : `401`. Hors des droits du rôle du compte : `403`.
+- Sans clé valable : `401`. Hors des droits du profil du compte : `403`.
 - Un compte `viewer` suffit pour la lecture ; il n'accède ni aux logs des conteneurs ni aux fichiers compose.
 
 ## `GET /api/summary`
 
 Compteurs à plat du homelab, prévus pour un tableau de bord. Mêmes règles que l'appareil *Homelab Manager* de
 [Home Assistant](home-assistant.md#homelab-manager) : les hôtes au niveau *Aucun* dans Home Assistant ne sont pas comptés, un hôte
-itinérant n'est pas « hors ligne » quand il est absent. Tous les rôles peuvent le lire.
+itinérant n'est pas « hors ligne » quand il est absent. Tous les profils peuvent le lire.
 
 | Champ | Contenu |
 |---|---|
@@ -53,11 +53,11 @@ Exemple de réponse :
 
 ## `GET /api/status`
 
-Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Alertes et statuts](alertes.md)) : `domains` (identifiant, libellé, icône, dans l'ordre d'affichage) et `hosts` (par identifiant d'hôte : `level` ok / warn / alert et `domains`, chacun avec son `level` ok / warn / alert / unknown, ses `checks` et, si inconnu, la raison). Un domaine absent d'un hôte ne s'y applique pas. `equipments` donne la même chose pour chaque [équipement](equipements.md) (domaines Connexion et Services seulement). Tous les rôles peuvent le lire.
+Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Alertes et statuts](alertes.md)) : `domains` (identifiant, libellé, icône, dans l'ordre d'affichage) et `hosts` (par identifiant d'hôte : `level` ok / warn / alert et `domains`, chacun avec son `level` ok / warn / alert / unknown, ses `checks` et, si inconnu, la raison). Un domaine absent d'un hôte ne s'y applique pas. `equipments` donne la même chose pour chaque [équipement](equipements.md) (domaines Connexion et Services seulement). Tous les profils peuvent le lire.
 
 ## Sondes
 
-`GET /api/hosts/:id/probes` et `GET /api/equipments/:id/probes` (tous les rôles) donnent les sondes d'un hôte ou d'un équipement avec leur état en direct ; les autres routes (création, test, brokers MQTT) sont réservées aux administrateurs. Voir [Sondes de service](sondes.md#api).
+`GET /api/hosts/:id/probes` et `GET /api/equipments/:id/probes` (tous les profils) donnent les sondes d'un hôte ou d'un équipement avec leur état en direct ; les autres routes (création, test, brokers MQTT) sont réservées aux administrateurs. Voir [Sondes de service](sondes.md#api).
 
 ## Exemple : widget Homepage
 
