@@ -21,6 +21,7 @@ import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
+import { staticEligibility } from '../pveInstall.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView, syncOffsiteAgent } from '../offsite.js';
@@ -387,6 +388,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const all = await guests.find().sort({ node: 1, vmid: 1 }).toArray();
     const list = await hosts.find({}, { projection: { name: 1, capabilities: 1, 'info.hostname': 1 } }).toArray();
     const names = new Map(list.map((h) => [h._id.toHexString(), h.name]));
+    const carrierOf = (h?: (typeof list)[number] | null) => (h ? { capabilities: h.capabilities, online: isOnline(h._id.toHexString()) } : null);
     return {
       clusters: s.clusters.map((c) => {
         const mine = all.filter((g) => g.cluster === c.id);
@@ -404,6 +406,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
             return { ...n, host: h ? { id: h._id.toHexString(), name: h.name, online: isOnline(h._id.toHexString()) } : null };
           }),
           guests: mine.map((g) => ({
+            install: g.type === 'lxc' && !g.hostId ? staticEligibility(g, carrierOf(carriers.get(g.node))) : null,
             vmid: g.vmid,
             type: g.type,
             name: g.name,

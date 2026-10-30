@@ -891,6 +891,9 @@ export interface GuestDoc {
   name: string;
   status: string; // running, stopped, paused; unknown when its node is offline
   macs: string[];
+  // lxc: ostype and arch of its config (debian, alpine, unmanaged…; amd64, arm64…)
+  ostype?: string;
+  arch?: string;
   jobs: PveJobRef[];
   lastTask?: PveTaskResult | null;
   // last successful backup task (a backup of a storage that cannot be listed dates from it)

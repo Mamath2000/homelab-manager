@@ -406,6 +406,8 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
       name: r.name ?? '',
       status: r.status ?? 'unknown',
       macs: config ? configMacs(config) : (before?.macs ?? []),
+      ...(typeof config?.ostype === 'string' ? { ostype: config.ostype } : {}),
+      ...(typeof config?.arch === 'string' ? { arch: config.arch } : {}),
       jobs: refs,
       lastTask,
       lastOk,
