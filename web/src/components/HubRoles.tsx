@@ -3,9 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type Host, type HubRole, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
-import { keys, useHosts, useRoles } from '../lib/queries';
-import { ROLE_TYPES, SINGLE_ROLES, roleStatus, roleTypeLabel } from '../lib/roles';
+import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
+import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus, roleTypeLabel } from '../lib/roles';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
@@ -61,7 +61,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const [initialPick] = useState<RolePick | null>(() => (role ? { hostId: role.carrier.id, port: role.config.port } : preset ?? null));
   const [pick, setPick] = useState<RolePick | null>(initialPick);
   const [initial] = useState<Form>(() => {
-    const c = preset && hosts.find((h) => h.id === preset.hostId)?.roleCandidates?.find((x) => x.port === preset.port);
+    const c = preset && hosts.find((h) => h.id === preset.hostId)?.roleCandidates?.find((x) => x.type === 'mqtt-broker' && x.port === preset.port);
     return {
       name: role?.name ?? '',
       scheme: role?.config.scheme ?? (SCHEMES.includes(c?.scheme as BrokerScheme) ? (c!.scheme as BrokerScheme) : 'mqtt'),
@@ -159,7 +159,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
             {!candidates.length ? (
               <p className="text-sm text-muted">Aucun broker détecté par les agents. Il faut un agent HLM sur l'hôte du broker.</p>
             ) : (
-              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
                 {candidates.map(({ host: h, c, taken }) => {
                   const off = taken || !!c.local;
                   const on = pick?.hostId === h.id && pick.port === c.port;
@@ -257,66 +257,123 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
 
 interface OmadaForm {
   name: string;
-  url: string;
+  address: string;
+  port: string;
   fingerprint: string;
   clientId: string;
 }
 
-const OMADA_URL_RE = /^https:\/\/[A-Za-z0-9.\-[\]:]+(:\d{1,5})?\/?$/;
+type OmadaCarrier = { kind: 'host' | 'equipment'; id: string };
+
+const OMADA_PORT = 8043;
+const ADDRESS_RE = /^[A-Za-z0-9.\-:_[\]]+$/;
 const FINGERPRINT_RE = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
 const normalizeFingerprint = (f: string) => {
   const hex = f.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
   return hex.length === 64 ? hex.match(/../g)!.join(':') : f.trim().toUpperCase();
 };
+const portValid = (p: string) => /^\d{1,5}$/.test(p) && +p >= 1 && +p <= 65535;
+const omadaUrl = (f: Pick<OmadaForm, 'address' | 'port'>) => `https://${f.address.includes(':') && !f.address.startsWith('[') ? `[${f.address}]` : f.address}:${f.port}`;
 
-// Declares an Omada controller role, or edits one (choosing another host moves it, its settings kept). Four steps like
-// the broker: host, controller, application, test; typed by hand (address and application of the Open API), saving
-// needs a successful test and the client secret is never sent back. A self-signed certificate is pinned by its
-// fingerprint: the test offers the one the controller presents when it was refused.
+// address and port of the URL of a role stored
+function splitUrl(url: string) {
+  try {
+    const u = new URL(url);
+    return { address: u.hostname, port: u.port || '443' };
+  } catch {
+    return { address: '', port: String(OMADA_PORT) };
+  }
+}
+
+// One line of the choice of the carrier: a radio (inside the scrolling list, which is `relative`: the hidden input
+// must not extend the window) and what the carrier is.
+function CarrierRow({ on, onPick, title, children }: { on: boolean; onPick: () => void; title: string; children: React.ReactNode }) {
+  return (
+    <label className={clsx('block cursor-pointer rounded-md border px-3 py-2 hover:bg-raised/40', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line')}>
+      <input type="radio" name="role-carrier" className="sr-only" checked={on} onChange={onPick} />
+      <div className="truncate font-medium text-zinc-100">{title}</div>
+      <div className="text-xs text-muted">{children}</div>
+    </label>
+  );
+}
+
+const listHead = 'px-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted';
+
+// Declares an Omada controller role, or edits one (choosing another carrier moves it, its settings kept). Four steps like
+// the broker: carrier, controller, application, test. The carrier is a host (the ones whose agent found a controller
+// first, the others still chosen by hand: a controller moved to another port is not seen) or an equipment with an IP. Its
+// address comes with it, the port is proposed (8043) and can be changed; the API is checked before any account is typed.
+// Saving needs a successful test and the client secret is never sent back. A self-signed certificate is pinned by its
+// fingerprint: the checks offer the one the controller presents when it was refused.
 export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: hosts = [] } = useHosts();
+  const { data: equipments = [] } = useEquipments();
   const type = 'omada-controller' as const;
-  const [initialHost] = useState<string | null>(() => role?.carrier.id ?? null);
-  const [hostId, setHostId] = useState<string | null>(initialHost);
-  const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', url: role?.config.url ?? '', fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '' }));
+  const [initialCarrier] = useState<OmadaCarrier | null>(() => (role ? { kind: role.carrier.kind, id: role.carrier.id } : null));
+  const [carrier, setCarrier] = useState<OmadaCarrier | null>(initialCarrier);
+  const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', ...(role ? splitUrl(role.config.url) : { address: '', port: String(OMADA_PORT) }), fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '' }));
   const [form, setForm] = useState<OmadaForm>(initial);
   const [secret, setSecret] = useState('');
-  const [busy, setBusy] = useState<'save' | 'test' | 'read' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'test' | 'read' | 'probe' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
+  // what the controller answers without an account (end of step 2)
+  const [probe, setProbe] = useState<CheckState>(null);
   // fingerprint the controller presents, offered when its certificate was refused
   const [presented, setPresented] = useState<string | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // any change makes the last test void
-  const set = (patch: Partial<OmadaForm>) => {
-    setForm({ ...form, ...patch });
+  // any change makes the last checks void
+  const reset = () => {
     setTest(null);
+    setProbe(null);
     setPresented(null);
     setReadError(null);
   };
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || hostId !== initialHost || !!secret;
+  const set = (patch: Partial<OmadaForm>) => {
+    setForm({ ...form, ...patch });
+    reset();
+  };
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || carrier?.id !== initialCarrier?.id || !!secret;
   const requestClose = () => {
     if (busy) return;
     if (dirty) setConfirmDiscard(true);
     else onClose();
   };
 
-  const host = hostId ? hosts.find((h) => h.id === hostId) : undefined;
-  const carrier = hostId ? { kind: 'host' as const, id: hostId } : undefined;
-  const config = () => ({ url: form.url.trim(), fingerprint: form.fingerprint.trim(), clientId: form.clientId.trim(), ...(secret ? { clientSecret: secret } : {}) });
+  // the carriers offered: the hosts whose agent found a controller, the equipments with an IP, then the other hosts
+  const detected = hosts.flatMap((h) => (h.roleCandidates ?? []).filter((c) => c.type === 'omada-controller' && !c.local).map((c) => ({ host: h, c })));
+  const detectedIds = new Set(detected.map((d) => d.host.id));
+  const others = hosts.filter((h) => !detectedIds.has(h.id));
+  const boxes = equipments.filter((e) => e.ip);
+  const pickHost = (h: Host, port: number) => {
+    setCarrier({ kind: 'host', id: h.id });
+    setForm({ ...form, address: lanAddress(h.info?.ips), port: String(port) });
+    reset();
+  };
+  const pickEquipment = (e: Equipment) => {
+    setCarrier({ kind: 'equipment', id: e.id });
+    setForm({ ...form, address: e.ip ?? '', port: String(OMADA_PORT) });
+    reset();
+  };
 
-  const runTest = async () => {
-    setBusy('test');
-    setTest(null);
+  const carrierName = carrier?.kind === 'equipment' ? equipments.find((e) => e.id === carrier.id)?.name : hosts.find((h) => h.id === carrier?.id)?.name;
+  const ips = carrier?.kind === 'equipment' ? (equipments.find((e) => e.id === carrier.id)?.ip ? [equipments.find((e) => e.id === carrier.id)!.ip!] : []) : (hosts.find((h) => h.id === carrier?.id)?.info?.ips ?? []);
+  const addresses = [...new Set([...ips.map((ip) => ip.replace(/\/\d+$/, '')).filter((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)), ...(form.address ? [form.address] : [])])];
+  const url = omadaUrl(form);
+  const config = () => ({ url, fingerprint: form.fingerprint.trim(), clientId: form.clientId.trim(), ...(secret ? { clientSecret: secret } : {}) });
+
+  const runProbe = async () => {
+    setBusy('probe');
+    setProbe(null);
     setPresented(null);
     try {
-      const r = await api.testRole({ type, carrier, config: config(), ...(role ? { roleId: role.id } : {}) });
-      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: r.detail ?? form.url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      const r = await api.roleProbe(url, form.fingerprint.trim());
+      setProbe(r.ok ? { level: 'ok', title: 'Le contrôleur répond', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
       setPresented(r.ok ? null : r.fingerprint ?? null);
     } catch (err) {
-      setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
+      setProbe({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
       setBusy(null);
     }
@@ -327,9 +384,23 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
     setPresented(null);
     setReadError(null);
     try {
-      setPresented((await api.roleFingerprint(form.url.trim())).fingerprint);
+      setPresented((await api.roleFingerprint(url)).fingerprint);
     } catch (err) {
       setReadError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const runTest = async () => {
+    setBusy('test');
+    setTest(null);
+    setPresented(null);
+    try {
+      const r = await api.testRole({ type, carrier: carrier!, config: config(), ...(role ? { roleId: role.id } : {}) });
+      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      setPresented(r.ok ? null : r.fingerprint ?? null);
+    } catch (err) {
+      setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
       setBusy(null);
     }
@@ -337,9 +408,9 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const save = async () => {
     setBusy('save');
     try {
-      const moved = role && hostId !== role.carrier.id;
-      if (role) await api.updateRole(role.id, { ...(moved ? { carrier } : {}), name: form.name.trim(), config: config() });
-      else await api.createRole({ type, carrier, name: form.name.trim(), config: config() });
+      const moved = role && (carrier!.id !== role.carrier.id || carrier!.kind !== role.carrier.kind);
+      if (role) await api.updateRole(role.id, { ...(moved ? { carrier: carrier! } : {}), name: form.name.trim(), config: config() });
+      else await api.createRole({ type, carrier: carrier!, name: form.name.trim(), config: config() });
       await qc.invalidateQueries({ queryKey: keys.roles });
       toast.success(role ? `Rôle ${form.name.trim()} modifié` : `Rôle ${form.name.trim()} déclaré`);
       onClose();
@@ -351,10 +422,20 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   };
 
   const nameOk = form.name.trim().length > 0;
-  const urlOk = OMADA_URL_RE.test(form.url.trim());
+  const addressOk = ADDRESS_RE.test(form.address.trim());
+  const portOk = portValid(form.port);
   const fingerprintOk = !form.fingerprint.trim() || FINGERPRINT_RE.test(normalizeFingerprint(form.fingerprint));
+  const controllerOk = nameOk && addressOk && portOk && fingerprintOk;
   const appOk = form.clientId.trim().length > 0 && (!!secret || !!role?.hasSecret);
-  const [carried, configured, application, tested] = stepStates([!!hostId, nameOk && urlOk && fingerprintOk, appOk, test?.level === 'ok']);
+  const [carried, configured, application, tested] = stepStates([!!carrier, controllerOk, appOk, test?.level === 'ok']);
+
+  const presentedBlock = presented && (
+    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+      <p className="text-amber-300">Le contrôleur présente ce certificat : à comparer à celui qu'il affiche avant d'épingler.</p>
+      <p className="font-mono break-all text-zinc-200">{presented}</p>
+      <Button size="sm" onClick={() => set({ fingerprint: presented })}>Épingler cette empreinte</Button>
+    </div>
+  );
 
   return (
     <>
@@ -373,34 +454,67 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
         }
       >
         <Steps fill>
-          <Step n={1} title="Hôte" state={carried} intro={role ? "Choisir un autre hôte déplace le rôle, ses paramètres gardés." : "L'hôte où tourne le contrôleur : le rôle apparaît sur sa fiche."}>
-            {!hosts.length ? (
-              <p className="text-sm text-muted">Aucun hôte.</p>
+          <Step n={1} title="Porteur" state={carried} intro={role ? "Choisir un autre porteur déplace le rôle, ses paramètres gardés." : "Où tourne le contrôleur : un hôte dont l'agent l'a trouvé, un équipement, ou un autre hôte (contrôleur sur un autre port)."}>
+            {!hosts.length && !boxes.length ? (
+              <p className="text-sm text-muted">Aucun hôte ni équipement.</p>
             ) : (
-              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                {hosts.map((h) => {
-                  const on = hostId === h.id;
-                  return (
-                    <label key={h.id} className={clsx('block cursor-pointer rounded-md border px-3 py-2 hover:bg-raised/40', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line')}>
-                      <input type="radio" name="role-carrier" className="sr-only" checked={on} onChange={() => (setHostId(h.id), setTest(null))} />
-                      <div className="truncate font-medium text-zinc-100">{h.name}</div>
-                      <div className="text-xs text-muted">{h.info?.ips?.join(', ') || 'adresse inconnue'}</div>
-                    </label>
-                  );
-                })}
+              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                {detected.length > 0 && <div className={listHead}>Détectés par les agents</div>}
+                {detected.map(({ host: h, c }) => (
+                  <CarrierRow key={`${h.id}:${c.port}`} on={carrier?.kind === 'host' && carrier.id === h.id && form.port === String(c.port)} onPick={() => pickHost(h, c.port)} title={h.name}>
+                    {c.process ? `${c.process} · ` : ''}port {c.port} · {h.info?.ips?.join(', ') || 'adresse inconnue'}
+                  </CarrierRow>
+                ))}
+                {boxes.length > 0 && <div className={listHead}>Équipements</div>}
+                {boxes.map((e) => (
+                  <CarrierRow key={e.id} on={carrier?.kind === 'equipment' && carrier.id === e.id} onPick={() => pickEquipment(e)} title={e.name}>
+                    {e.ip}
+                  </CarrierRow>
+                ))}
+                {others.length > 0 && <div className={listHead}>Autres hôtes</div>}
+                {others.map((h) => (
+                  <CarrierRow key={h.id} on={carrier?.kind === 'host' && carrier.id === h.id && !detectedIds.has(h.id)} onPick={() => pickHost(h, OMADA_PORT)} title={h.name}>
+                    {h.info?.ips?.join(', ') || 'adresse inconnue'}
+                  </CarrierRow>
+                ))}
               </div>
             )}
           </Step>
-          <Step n={2} title="Contrôleur" state={configured} intro="L'adresse d'accès de l'Open API, affichée par le contrôleur (Platform Integration › Open API).">
+          <Step
+            n={2}
+            title="Contrôleur"
+            state={configured}
+            intro="Son adresse vient du porteur ; le port est celui par défaut (8043), à changer s'il a été modifié (docker, équipement)."
+            footer={
+              <Button className="w-full" variant={configured === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'probe'} disabled={busy !== null || !carrier || !addressOk || !portOk || !fingerprintOk} onClick={() => void runProbe()}>
+                {probe ? 'Vérifier à nouveau' : "Vérifier que l'API répond"}
+              </Button>
+            }
+          >
             <label className="block">
               <span className={field}>Nom</span>
               <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Omada Vouillé…" />
             </label>
-            <label className="block">
-              <span className={field}>URL de l'Open API</span>
-              <input className="input font-mono text-xs" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder="https://192.168.0.8:8043" spellCheck={false} />
-              {form.url && !urlOk && <span className="mt-1 block text-xs text-amber-300">https://, sans chemin</span>}
-            </label>
+            <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+              <label className="block">
+                <span className={field}>Adresse</span>
+                {addresses.length > 1 ? (
+                  <select className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value })}>
+                    {addresses.map((a) => (
+                      <option key={a} value={a}>{a}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="input truncate font-mono text-xs text-muted">{form.address || (carrier ? 'adresse inconnue' : '—')}</div>
+                )}
+              </label>
+              <label className="block">
+                <span className={field}>Port</span>
+                <input className="input font-mono text-xs" inputMode="numeric" value={form.port} onChange={(e) => set({ port: e.target.value.trim() })} />
+              </label>
+            </div>
+            {carrier && !addressOk && <span className="block text-xs text-amber-300">Le porteur n'a pas d'adresse connue</span>}
+            {!portOk && <span className="block text-xs text-amber-300">Port invalide (1 à 65535)</span>}
             <label className="block">
               <span className={field}>Empreinte du certificat</span>
               <input className="input font-mono text-xs" value={form.fingerprint} onChange={(e) => set({ fingerprint: e.target.value })} placeholder="SHA-256, AB:CD:…" spellCheck={false} />
@@ -408,17 +522,12 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
                 {fingerprintOk ? 'Requise pour un certificat auto-signé (le cas par défaut). Vide : certificat vérifié par les autorités système.' : 'Empreinte invalide (SHA-256, 32 octets en hexadécimal)'}
               </span>
             </label>
-            <Button size="sm" variant="secondary" icon={Plug} loading={busy === 'read'} disabled={busy !== null || !urlOk} onClick={() => void readFingerprint()}>
+            <Button size="sm" variant="secondary" icon={Plug} loading={busy === 'read'} disabled={busy !== null || !addressOk || !portOk} onClick={() => void readFingerprint()}>
               Lire l'empreinte du contrôleur
             </Button>
             {readError && <p className="text-xs text-amber-300">{readError}</p>}
-            {presented && (
-              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
-                <p className="text-amber-300">Le contrôleur présente ce certificat : à comparer à celui qu'il affiche avant d'épingler.</p>
-                <p className="font-mono break-all text-zinc-200">{presented}</p>
-                <Button size="sm" onClick={() => set({ fingerprint: presented })}>Épingler cette empreinte</Button>
-              </div>
-            )}
+            <CheckLine label="API du contrôleur" check={probe} idle={addressOk && portOk ? url : undefined} />
+            {presentedBlock}
           </Step>
           <Step n={3} title="Application" state={application} intro="Une application de l'Open API du contrôleur, en mode client (Client Credentials), avec accès aux sites à lire.">
             <label className="block">
@@ -444,7 +553,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
             state={tested}
             intro="Le hub demande un jeton au contrôleur avec cette application, puis la liste de ses sites ; l'enregistrement n'est possible qu'après un test réussi."
             footer={
-              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !hostId || !nameOk || !urlOk || !fingerprintOk || !appOk} onClick={() => void runTest()}>
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !carrier || !controllerOk || !appOk} onClick={() => void runTest()}>
                 {test ? 'Tester à nouveau' : 'Tester la connexion'}
               </Button>
             }
@@ -452,20 +561,14 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
             <DetectedRows
               rows={[
                 { label: 'Nom', value: form.name, empty: 'non renseigné' },
-                { label: 'Hôte', value: host?.name, empty: 'non choisi' },
-                { label: 'Open API', value: form.url, empty: 'non renseignée' },
+                { label: 'Porteur', value: carrierName, empty: 'non choisi' },
+                { label: 'Open API', value: addressOk && portOk ? url : '', empty: 'non renseignée' },
                 { label: 'Empreinte', value: form.fingerprint && fingerprintOk ? normalizeFingerprint(form.fingerprint) : '', empty: 'aucune (autorités système)' },
                 { label: 'Client ID', value: form.clientId, empty: 'non renseigné' },
               ]}
             />
-            <CheckLine label="Contrôleur Omada" check={test} idle={form.url || undefined} />
-            {presented && (
-              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
-                <p className="text-amber-300">Le contrôleur présente ce certificat :</p>
-                <p className="font-mono break-all text-zinc-200">{presented}</p>
-                <Button size="sm" onClick={() => set({ fingerprint: presented })}>Épingler cette empreinte</Button>
-              </div>
-            )}
+            <CheckLine label="Contrôleur Omada" check={test} idle={addressOk && portOk ? url : undefined} />
+            {presentedBlock}
           </Step>
         </Steps>
       </Modal>

@@ -62,6 +62,14 @@ export async function omadaCheck(c: OmadaControllerConfig): Promise<OmadaCheck> 
   return { omadacId: info.omadacId, version: info.controllerVer ?? '', sites: sites?.totalRows ?? 0 };
 }
 
+// What the controller answers without any account: /api/info, the version and the id of the controller. The first thing
+// to check once its address is known (before an application is typed).
+export async function omadaProbe(c: Conn): Promise<{ omadacId: string; version: string }> {
+  const info = await call<{ omadacId?: string; controllerVer?: string }>(c, 'GET', '/api/info');
+  if (!info?.omadacId) throw new ApiError('omadacId absent de /api/info : est-ce bien un contrôleur Omada ?');
+  return { omadacId: info.omadacId, version: info.controllerVer ?? '' };
+}
+
 // The certificate was refused (not the one pinned, or not vouched for by the system CAs without a fingerprint): the
 // fingerprint it presents, shown to the admin who pins it or not (null: another failure, or no certificate read).
 export async function presentedFingerprint(c: Conn, err: unknown) {

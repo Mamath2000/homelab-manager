@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import { hosts, parseId, roles } from '../db.js';
+import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
-import { omadaCheck, presentedFingerprint } from '../omada.js';
+import { omadaCheck, omadaProbe, presentedFingerprint } from '../omada.js';
 import { roleUrl } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
 import { roleView } from '../roleView.js';
 import { allRoles, defOf, newRoleId, ROLE_DEFS, ROLE_ID_RE, roleConflict } from '../roles.js';
 import { FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint, SERVER_URL_RE } from '../tlsApi.js';
-import { BROKER_SCHEMES, CARRIER_KINDS, type BrokerScheme, type CarrierKind, type MqttBrokerConfig, type MqttBrokerRole, type OmadaControllerConfig, type OmadaControllerRole } from '../types.js';
+import { BROKER_SCHEMES, CARRIER_KINDS, type BrokerScheme, type CarrierKind, type HostDoc, type MqttBrokerConfig, type MqttBrokerRole, type OmadaControllerConfig, type OmadaControllerRole } from '../types.js';
 
 // Roles of the hub (roles.ts): read by every account (never a secret), written by the admins (profiles.ts refuses what
 // it does not list): the hub opens connections to what is declared here. The MQTT brokers and the Omada controllers are
@@ -103,9 +103,16 @@ export function configError(type: DeclaredType, c: ConfigBody) {
   return null;
 }
 
-const carrierOf = async (c: CarrierBody) => {
+// The carrier of a role: a host, or an equipment (its IP told as the only one of its info, as the address of a host is)
+type Carrier = Pick<HostDoc, '_id' | 'name' | 'info' | 'roleCandidates' | 'capabilities'>;
+const carrierOf = async (c: CarrierBody): Promise<Carrier | null> => {
   const _id = parseId(c.id);
-  return _id ? hosts.findOne({ _id }, { projection: { name: 1, info: 1, roleCandidates: 1, capabilities: 1 } }) : null;
+  if (!_id) return null;
+  if (c.kind === 'equipment') {
+    const e = await equipments.findOne({ _id }, { projection: { name: 1, ip: 1 } });
+    return e ? ({ _id: e._id, name: e.name, info: { ips: e.ip ? [e.ip] : [] } } as Carrier) : null;
+  }
+  return hosts.findOne({ _id }, { projection: { name: 1, info: 1, roleCandidates: 1, capabilities: 1 } });
 };
 
 // the config stored for a body checked by configError; secret: the one typed, else the one stored
@@ -127,8 +134,12 @@ const declaredRole = (id: string) => allRoles().find((r): r is DeclaredRole => r
 export function registerRoleRoutes(app: FastifyInstance) {
   app.get('/api/roles', async () => {
     const list = allRoles();
-    const carriers = await hosts.find({ _id: { $in: list.map((r) => r.carrier.id) } }, { projection: { name: 1, info: 1 } }).toArray();
-    const byId = new Map(carriers.map((h) => [h._id.toHexString(), h]));
+    const ids = list.map((r) => r.carrier.id);
+    const [carriers, boxes] = await Promise.all([
+      hosts.find({ _id: { $in: ids } }, { projection: { name: 1, info: 1 } }).toArray(),
+      equipments.find({ _id: { $in: ids } }, { projection: { name: 1, ip: 1 } }).toArray(),
+    ]);
+    const byId = new Map<string, Pick<HostDoc, 'name' | 'info'>>([...carriers, ...boxes.map((e) => ({ _id: e._id, name: e.name, info: { ips: e.ip ? [e.ip] : [] } as unknown as HostDoc['info'] }))].map((h) => [h._id.toHexString(), h]));
     const uses = await Promise.all(list.map((r) => defOf(r.type).uses(r._id)));
     return { roles: list.map((r, i) => ({ ...roleView(r, byId.get(r.carrier.id.toHexString()) ?? null), uses: uses[i] })) };
   });
@@ -171,7 +182,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     // what the agent detected is checked again only when it changes: a broker stopped for a while stays editable
     const why = (moved || !def.same(current.config, c) ? def.carrierError(host, c) : null) ?? roleConflict(allRoles(), current.type, name, host._id, c, current._id);
     if (why) return reply.code(409).send({ error: why });
-    await roles.replaceOne({ _id: current._id }, { ...current, name, carrier: { kind: current.carrier.kind, id: host._id }, config: c } as DeclaredRole);
+    await roles.replaceOne({ _id: current._id }, { ...current, name, carrier: { kind: req.body.carrier?.kind ?? current.carrier.kind, id: host._id }, config: c } as DeclaredRole);
     await rolesSaved(moved ? [current.carrier.id, host._id] : [host._id]);
     return { id: current._id };
   });
@@ -197,6 +208,27 @@ export function registerRoleRoutes(app: FastifyInstance) {
         return { fingerprint: await fetchFingerprint(url, 443) };
       } catch (err) {
         return reply.code(502).send({ error: (err as Error).message });
+      }
+    },
+  );
+
+  // What an Omada controller answers without any account (/api/info): is something there, and is it a controller. As
+  // the test, the fingerprint its certificate presents when it was refused (to pin it).
+  app.post<{ Body: { url: string; fingerprint?: string } }>(
+    '/api/roles/probe',
+    { schema: { body: { type: 'object', required: ['url'], additionalProperties: false, properties: { url: { type: 'string', maxLength: 256 }, fingerprint: { type: 'string', maxLength: 128 } } } } },
+    async (req, reply) => {
+      const url = req.body.url.trim().replace(/\/+$/, '');
+      if (!SERVER_URL_RE.test(url)) return reply.code(400).send({ error: 'URL invalide (https://contrôleur:8043)' });
+      const fingerprint = req.body.fingerprint ? normalizeFingerprint(req.body.fingerprint) : '';
+      if (fingerprint && !FINGERPRINT_RE.test(fingerprint)) return reply.code(400).send({ error: 'empreinte invalide (SHA-256, 32 octets en hexadécimal)' });
+      const c = { url, fingerprint };
+      try {
+        const r = await omadaProbe(c);
+        return { ok: true, detail: `contrôleur Omada${r.version ? ` ${r.version}` : ''} (${r.omadacId.slice(0, 8)}…)` };
+      } catch (err) {
+        const presented = await presentedFingerprint(c, err);
+        return { ok: false, error: (err as Error).message, ...(presented ? { fingerprint: presented } : {}) };
       }
     },
   );

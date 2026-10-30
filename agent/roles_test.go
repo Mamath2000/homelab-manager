@@ -25,6 +25,22 @@ LISTEN 0 4096 *:8883 *:* users:(("docker-proxy",pid=900,fd=4))`
 	}
 }
 
+func TestParseRoleCandidatesOmada(t *testing.T) {
+	out := `LISTEN 0 100 *:8043 *:* users:(("java",pid=300,fd=12))
+LISTEN 0 100 *:8088 *:* users:(("java",pid=300,fd=11))
+LISTEN 0 4096 0.0.0.0:1883 0.0.0.0:* users:(("mosquitto",pid=210,fd=5))`
+	got := parseRoleCandidates(out)
+	if len(got) != 2 {
+		t.Fatalf("candidates = %+v, want 2", got)
+	}
+	if c := got[0]; c.Type != "mqtt-broker" || c.Port != 1883 {
+		t.Fatalf("1883: %+v", c)
+	}
+	if c := got[1]; c.Type != "omada-controller" || c.Port != 8043 || c.Scheme != "https" || c.Local || c.Process != "java" {
+		t.Fatalf("8043: %+v", c)
+	}
+}
+
 func TestParseRoleCandidatesNone(t *testing.T) {
 	if got := parseRoleCandidates(`LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))`); len(got) != 0 {
 		t.Fatalf("candidates = %+v, want none", got)

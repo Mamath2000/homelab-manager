@@ -20,10 +20,11 @@ import (
 
 // RoleCandidate: a service found listening on this host.
 type RoleCandidate struct {
-	Type    string `json:"type"`    // mqtt-broker
+	Type    string `json:"type"`    // mqtt-broker, omada-controller
 	Process string `json:"process"` // name of the listening process (cut to 15 characters by the kernel)
 	Port    int    `json:"port"`
-	// Scheme guessed from the port (mqtt, mqtts, ws, wss): the TLS settings are not visible from outside
+	// Scheme guessed from the port (mqtt, mqtts, ws, wss; https for an Omada controller): the TLS settings are not
+	// visible from outside
 	Scheme string `json:"scheme"`
 	// Local: listens on loopback only, so the hub cannot reach it
 	Local bool `json:"local,omitempty"`
@@ -34,6 +35,10 @@ var mqttBrokerProcesses = []string{"mosquitto", "nanomq", "vernemq", "hivemq"}
 
 // ssListenRe: one line of `ss -H -ltnp` with its process.
 var ssListenRe = regexp.MustCompile(`^LISTEN\s+\S+\s+\S+\s+(\S+):(\d+)\s+\S+\s+users:\(\("([^"]+)"`)
+
+// omadaHTTPSPort: the management port (and Open API) of an Omada controller, 8043 by default. A controller moved to
+// another port (docker mapping) is not found: the administrator then chooses its host by hand.
+const omadaHTTPSPort = 8043
 
 func mqttScheme(port int) string {
 	switch port {
@@ -55,6 +60,7 @@ func isLoopback(addr string) bool {
 // candidate, local only when none of them is reachable from the network.
 func parseRoleCandidates(ssOut string) []RoleCandidate {
 	type key struct {
+		typ  string
 		proc string
 		port int
 	}
@@ -65,24 +71,28 @@ func parseRoleCandidates(ssOut string) []RoleCandidate {
 			continue
 		}
 		proc := m[3]
-		known := false
-		for _, p := range mqttBrokerProcesses {
-			if strings.HasPrefix(proc, p) {
-				known = true
-				break
-			}
-		}
-		if !known {
-			continue
-		}
 		var port int
 		if _, err := fmt.Sscanf(m[2], "%d", &port); err != nil || port <= 0 {
 			continue
 		}
-		k := key{proc, port}
+		typ, scheme := "", ""
+		for _, p := range mqttBrokerProcesses {
+			if strings.HasPrefix(proc, p) {
+				typ, scheme = "mqtt-broker", mqttScheme(port)
+				break
+			}
+		}
+		// the Omada controller is told by its port (a java process, or the proxy of its container)
+		if typ == "" && port == omadaHTTPSPort {
+			typ, scheme = "omada-controller", "https"
+		}
+		if typ == "" {
+			continue
+		}
+		k := key{typ, proc, port}
 		c, ok := found[k]
 		if !ok {
-			c = &RoleCandidate{Type: "mqtt-broker", Process: proc, Port: port, Scheme: mqttScheme(port), Local: true}
+			c = &RoleCandidate{Type: typ, Process: proc, Port: port, Scheme: scheme, Local: true}
 			found[k] = c
 		}
 		if !isLoopback(m[1]) {

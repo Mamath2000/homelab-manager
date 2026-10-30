@@ -1096,7 +1096,7 @@ export interface ProbeMeasureDoc {
 // A service found listening on a host, reported by its agent in the hello (agent/roles.go): the administrator
 // activates it as a role of the hub carried by this host.
 export interface RoleCandidate {
-  type: 'mqtt-broker';
+  type: 'mqtt-broker' | 'omada-controller';
   process: string;
   port: number;
   scheme: string;
@@ -1111,10 +1111,11 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting', 'pbs-primary', 'pbs-offsite', 'omada-controller'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
-export const CARRIER_KINDS = ['host'] as const;
+export const CARRIER_KINDS = ['host', 'equipment'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
 
-// What carries a role: the host it runs on (pve-reporting: the node whose agent created the token).
+// What carries a role: the host it runs on (pve-reporting: the node whose agent created the token), or the equipment
+// it is (an Omada controller that is a box of its own).
 export interface RoleCarrier {
   kind: CarrierKind;
   id: ObjectId;

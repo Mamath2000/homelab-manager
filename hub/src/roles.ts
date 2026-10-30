@@ -72,7 +72,7 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
   // typed by hand (address and application of the Open API); its host only tells where the controller runs
   'omada-controller': {
     label: 'Contrôleur Omada',
-    carriers: ['host'],
+    carriers: ['host', 'equipment'],
     single: false,
     carrierError: () => null,
     same: (a, b) => sameUrl(a.url, b.url),

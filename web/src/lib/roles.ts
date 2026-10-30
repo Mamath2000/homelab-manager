@@ -3,7 +3,13 @@ import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
 // listen on loopback only are left out: the hub cannot reach them.
-export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).filter((c) => !c.local && !host.roles.some((r) => r.type === 'mqtt-broker' && r.config.port === c.port));
+// First private IPv4 among the addresses of a host (hub/src/hostAddress.ts): the one the other machines reach it at.
+export function lanAddress(ips: string[] | null | undefined) {
+  const v4 = (ips ?? []).map((ip) => ip.replace(/\/\d+$/, '')).filter((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip) && !ip.startsWith('127.') && !ip.startsWith('169.254.'));
+  return v4.find((ip) => ip.startsWith('192.168.') || ip.startsWith('10.')) ?? v4.find((ip) => !/^172\.(1[7-9]|2\d|3[01])\./.test(ip)) ?? v4[0] ?? '';
+}
+
+export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).filter((c) => c.type === 'mqtt-broker' && !c.local && !host.roles.some((r) => r.type === 'mqtt-broker' && r.config.port === c.port));
 
 export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'mqtt-broker', label: 'Broker MQTT', hint: 'écouté par les sondes MQTT, et broker de l’intégration Home Assistant' },

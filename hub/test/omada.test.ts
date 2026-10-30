@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { omadaCheck, presentedFingerprint } from '../src/omada.js';
+import { omadaCheck, omadaProbe, presentedFingerprint } from '../src/omada.js';
 import { certFingerprint, createPki } from '../src/pki.js';
 import { normalizeFingerprint } from '../src/tlsApi.js';
 
@@ -66,4 +66,13 @@ test('omada: a certificate refused gives the fingerprint it presents, never send
   // another failure: no fingerprint offered
   const err = await omadaCheck(conf(fingerprint, 'wrong')).catch((e: unknown) => e);
   assert.equal(await presentedFingerprint(conf(fingerprint, 'wrong'), err), null);
+});
+
+test('omada: the probe asks /api/info only, without any account', async () => {
+  const before = seen.length;
+  assert.deepEqual(await omadaProbe({ url, fingerprint }), { omadacId: 'abc123', version: '5.15.20' });
+  assert.deepEqual(seen.slice(before).map((s) => [s.url, s.authorization]), [['/api/info', undefined]]);
+  // not pinned: the certificate is refused, and the one it presents is offered
+  const err = await omadaProbe({ url, fingerprint: '' }).catch((e: unknown) => e);
+  assert.equal(await presentedFingerprint({ url, fingerprint: '' }, err), fingerprint);
 });
