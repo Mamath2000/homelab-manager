@@ -32,7 +32,8 @@ interface Installer {
   busyNodes: Set<string>;
   install: (vmid: number) => void;
   installNode: (node: string) => void;
-  preview: (vmids: number[]) => void;
+  // install: the plan is confirmed with an install button; otherwise it is only shown (Vérifier)
+  preview: (vmids: number[], install: boolean) => void;
 }
 
 function HostCell({ g, inst }: { g: Guest; inst?: Installer }) {
@@ -69,7 +70,7 @@ function Jobs({ g }: { g: Guest }) {
   );
 }
 
-function InstallPlan({ cluster, plan, onClose, onDone }: { cluster: string; plan: PveInstallTarget[] | null; onClose: () => void; onDone: () => void }) {
+function InstallPlan({ cluster, plan, install, onClose, onDone }: { cluster: string; plan: PveInstallTarget[] | null; install: boolean; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const ok = plan?.filter((t) => t.eligible) ?? [];
@@ -90,11 +91,11 @@ function InstallPlan({ cluster, plan, onClose, onDone }: { cluster: string; plan
     <Modal
       open={!!plan}
       onClose={onClose}
-      title="Installer l'agent sur les CT sélectionnés"
+      title={install ? "Installer l'agent sur les CT sélectionnés" : 'Vérification des CT'}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Fermer</Button>
-          {ok.length > 0 && <Button variant="primary" onClick={run} loading={loading}>Installer sur {ok.length} CT</Button>}
+          {install && ok.length > 0 && <Button variant="primary" onClick={run} loading={loading}>Installer sur {ok.length} CT</Button>}
         </>
       }
     >
@@ -145,9 +146,9 @@ function NodeBlock({ node, guests, inst }: { node: Cluster['nodes'][number]; gue
         )}
         <span className="ml-auto flex flex-wrap items-center gap-2 text-xs text-muted">
           {installable.length > 0 && (
-            <Button size="sm" icon={Search} onClick={() => inst.preview(installable.map((g) => g.vmid))}>Vérifier</Button>
+            <Button size="sm" icon={Search} onClick={() => inst.preview(installable.map((g) => g.vmid), false)}>Vérifier</Button>
           )}
-          {chosen.length > 0 && <Button size="sm" variant="primary" icon={Download} onClick={() => inst.preview(chosen)}>Installer sur la sélection ({chosen.length})</Button>}
+          {chosen.length > 0 && <Button size="sm" variant="primary" icon={Download} onClick={() => inst.preview(chosen, true)}>Installer sur la sélection ({chosen.length})</Button>}
           {guests.length} VM / CT
         </span>
       </header>
@@ -202,6 +203,7 @@ function ClusterPanel({ c }: { c: Cluster }) {
   const [busy, setBusy] = useState<Set<number>>(new Set());
   const [busyNodes, setBusyNodes] = useState<Set<string>>(new Set());
   const [plan, setPlan] = useState<PveInstallTarget[] | null>(null);
+  const [planInstall, setPlanInstall] = useState(false);
   const [planning, setPlanning] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
   const inst: Installer = {
@@ -237,11 +239,13 @@ function ClusterPanel({ c }: { c: Cluster }) {
         refresh();
       }
     },
-    preview: async (vmids) => {
+    preview: async (vmids, install) => {
       if (planning) return;
       setPlanning(true);
       try {
-        setPlan((await api.installPveAgents(c.id, vmids, true)).targets);
+        const targets = (await api.installPveAgents(c.id, vmids, true)).targets;
+        setPlanInstall(install);
+        setPlan(targets);
       } catch (err) {
         toast.error((err as Error).message);
       } finally {
@@ -262,7 +266,7 @@ function ClusterPanel({ c }: { c: Cluster }) {
       {c.nodes.map((n) => (
         <NodeBlock key={n.node} node={n} guests={c.guests.filter((g) => g.node === n.node)} inst={inst} />
       ))}
-      <InstallPlan cluster={c.id} plan={plan} onClose={() => setPlan(null)} onDone={() => { setPlan(null); setSelected(new Set()); refresh(); }} />
+      <InstallPlan cluster={c.id} plan={plan} install={planInstall} onClose={() => setPlan(null)} onDone={() => { setPlan(null); setSelected(new Set()); refresh(); }} />
     </Panel>
   );
 }
