@@ -108,6 +108,8 @@ L'agent génère sa clé privée sur l'hôte, reçoit un certificat du hub, puis
 Détails dans [Sécurité](securite.md).
 :::
 
+Sur un cluster Proxmox VE, l'agent peut aussi s'installer sur un CT ou un nœud depuis l'inventaire, sans commande à copier : [Proxmox VE](proxmox-ve.md#installer-lagent-depuis-linventaire).
+
 ### Réseau d'accès (LAN ou Tailscale)
 
 Par défaut, l'agent joint le hub à l'adresse de **Paramètres → Agent → URL du hub** (le LAN). Pour un hôte hors du réseau local, qui n'est joignable que par [Tailscale](https://tailscale.com/) :

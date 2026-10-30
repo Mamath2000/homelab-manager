@@ -49,6 +49,7 @@ Le résultat doit être identique à la clé épinglée affichée dans les param
 - L'agent génère **sa clé privée sur l'hôte** (`/etc/homelab-agent/agent.key`, droits 600). Elle ne quitte jamais l'hôte : l'agent envoie au hub une demande de certificat (CSR) accompagnée du code.
 - Le hub consomme le code, puis signe un **certificat client** : nom = identifiant de l'hôte, usage « authentification client » uniquement, valable 5 ans. Il retient l'empreinte de ce certificat sur l'hôte.
 - Les codes invalides sont limités à 10 essais par IP toutes les 10 minutes.
+- **Installation depuis l'inventaire Proxmox VE** ([Proxmox VE](proxmox-ve.md#installer-lagent-depuis-linventaire)) : l'agent d'un nœud (root) lance l'installateur dans un CT (`pct exec`) ou sur un autre nœud (SSH, clé d'hôte vérifiée par les fichiers de Proxmox VE). Les commandes sont fixes et le code d'enrôlement passe **sur l'entrée standard** : il n'apparaît ni dans une ligne de commande, ni dans le journal du job. L'agent reçoit le code du hub par la liaison TLS mutuelle.
 
 ## Connexion des agents (TLS mutuel)
 

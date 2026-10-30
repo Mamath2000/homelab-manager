@@ -1,6 +1,6 @@
 ---
 title: Proxmox VE
-description: Inventaire d'un cluster Proxmox VE dans Homelab Manager (nœuds, VM et CT), lien avec les hôtes par adresse MAC, sauvegardes vzdump quel que soit le stockage, lien perdu, droits du jeton
+description: Inventaire d'un cluster Proxmox VE dans Homelab Manager (nœuds, VM et CT), lien avec les hôtes par adresse MAC, installation de l'agent sur les CT et les nœuds, sauvegardes vzdump quel que soit le stockage, lien perdu, droits du jeton
 sidebar_position: 3.65
 ---
 
@@ -34,6 +34,27 @@ Proxmox ne montre les archives d'un stockage qu'à un jeton qui a `VM.Backup` su
 
 Une planification `yearly` n'est pas reconnue : pas de seuil, donc pas d'alerte de retard pour ce job (voir [Retard](sauvegardes.md#retard)).
 
+## Installer l'agent depuis l'inventaire
+
+Depuis l'onglet, l'agent s'installe sur un **CT** sans hôte, ou sur un **autre nœud** du cluster, sans copier de commande. L'API de Proxmox VE n'étant pas utilisée (le jeton reste en lecture seule), c'est **l'agent d'un nœud** qui agit : `pct exec` pour un CT de son nœud, SSH pour un autre nœud.
+
+**Conditions**, affichées sur la ligne quand elles manquent (« agent non installable : … ») :
+
+- un agent récent est en ligne sur le nœud porteur du CT (pour un nœud : sur **un autre** nœud du cluster) ; sinon « mettre à jour l'agent » ;
+- le CT est **démarré**, sans adresse MAC ambiguë, et n'est pas déjà relié à un hôte avec agent ;
+- dans le CT ou sur le nœud : **systemd**, architecture amd64 ou arm64, et `curl` (ou APT pour l'installer : il l'est alors automatiquement avant l'agent), le hub joignable sur le port des agents. Un OS hors Debian / Ubuntu s'installe, mais sans APT ni standardisation.
+
+| Action | Effet |
+|---|---|
+| **Installer l'agent** (un CT ou un nœud) | lancé tout de suite ; la ligne affiche « installation… » puis le nom de l'hôte |
+| **Vérifier** (en-tête du nœud) | contrôle les CT installables du nœud (OS, systemd, curl, accès au hub) et **n'affiche que le résultat** : rien n'est installé |
+| **Installer sur la sélection (n)** | cases à cocher sur les CT, puis aperçu des cibles et de leurs raisons ; l'installation n'est lancée qu'à la confirmation |
+| **Réinstaller l'agent** | l'hôte d'un CT ou d'un nœud dont l'agent a été **révoqué** (badge « agent révoqué ») est conservé : un nouveau code l'enrôle de nouveau |
+
+Chaque installation est un **job** de l'agent qui installe (visible dans l'activité). L'hôte est créé au lancement avec le nom du CT ou du nœud, le **site et les tags de l'agent qui installe**, le réseau d'accès de celui-ci et la **standardisation désactivée** (modifiable ensuite). Si le CT contient déjà un agent non relié, l'hôte du même nom est **réutilisé** et son lien avec le cluster refait par les adresses MAC. En cas d'échec avant l'enrôlement, l'hôte créé est supprimé ; un hôte réutilisé garde son état.
+
+Pour un autre nœud, la clé d'hôte SSH est vérifiée avec les fichiers de Proxmox VE (`/etc/pve/nodes/<nœud>/ssh_known_hosts`, puis `/etc/pve/priv/known_hosts`), jamais acceptée à l'aveugle. Si elle est inconnue, lancer `pvecm updatecerts` **sur ce nœud**.
+
 ## Lien perdu
 
 Si la VM ou le CT disparaît de l'inventaire, ou le rôle est retiré, le lien est **mis de côté sur l'hôte** (avec sa conf et sa date). La fiche affiche « Lien Proxmox VE perdu il y a… » et ses groupes PBS passent en **non rattachés**. Rien n'est effacé automatiquement.
@@ -48,4 +69,4 @@ Un hôte supprimé emporte son lien mis de côté ; réinstallé, c'est un nouve
 
 ## API
 
-Routes réservées aux administrateurs : `GET /api/settings/pve/inventory` (clusters, nœuds, VM et CT avec leur hôte), `POST /api/hosts/:id/pve/restore` (Rétablir / Lier à), `DELETE /api/hosts/:id/pve/lost` (Oublier).
+Routes réservées aux administrateurs : `GET /api/settings/pve/inventory` (clusters, nœuds, VM et CT avec leur hôte), `POST /api/hosts/:id/pve/restore` (Rétablir / Lier à), `DELETE /api/hosts/:id/pve/lost` (Oublier), `POST /api/settings/pve/install` (`{ cluster, vmids?, nodes?, dryRun? }` : plan avec `dryRun`, sinon un job par cible installable).
