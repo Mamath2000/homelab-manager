@@ -19,6 +19,12 @@ le canal `dev`.
 - **Rôles du hub** (Paramètres › Rôles) : broker MQTT, cluster Proxmox VE, PBS principal, PBS hors site et contrôleur Omada se
   déclarent comme des rôles portés par un hôte, avec assistant, test de connexion, réaffectation et vue inverse sur la fiche de
   l'hôte. API `/api/roles`. Voir [Rôles du hub](docs/roles.md). (homelab#252, #253, #254)
+- **Omada comme source d'équipements** (Paramètres › Omada, visible dès qu'un rôle contrôleur Omada existe) : appareils du
+  contrôleur relus toutes les 5 minutes, présentés site par site avec le site du homelab associé à chaque site Omada. Un appareil
+  devient un équipement (nom modifiable) ou se relie à un équipement manuel de même IP ou de même nom ; il reçoit alors un ping
+  et une sonde « Interface web » (HTTPS), et ses checks natifs : connexion au contrôleur, charge processeur et mémoire
+  (avertissement dès 85 %, alerte dès 95 %). Bouton Actualiser sur la fiche d'un équipement de source automatique. L'équipement
+  amont reste à saisir à la main. (homelab#231)
 - Équipements et tableau de bord, graphiques, menu de gauche et volet flottant revus ; corrections d'affichage mobile et tablette
   (homelab#239 à #249).
 
@@ -27,6 +33,7 @@ le canal `dev`.
 - Les rôles des **comptes** (`admin` / `operator` / `viewer`) deviennent des **profils** : champ `UserDoc.profile`, champ JSON
   `profile` de `/api/users` et du compte connecté, libellés de l'interface.
 - Le pont Home Assistant publie sur un rôle `mqtt-broker` (`brokerRoleId`) ; sans rôle sélectionné, il est désactivé.
+- La fiche d'un équipement reprend la bande horizontale et les boutons carrés (actualiser, options, supprimer) de la fiche d'un hôte.
 - Les clusters Proxmox VE se déclarent comme rôles ; Paramètres › Sauvegardes renvoie vers Rôles.
 
 ### Migration
