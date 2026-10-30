@@ -125,6 +125,9 @@ type Inbound struct {
 	ReqID string `json:"reqId,omitempty"`
 	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | refresh
 	Tail  int    `json:"tail,omitempty"`
+	// ping: address to ping and delay of the measure (ping.go)
+	Host       string `json:"host,omitempty"`
+	TimeoutSec int    `json:"timeoutSec,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`
 	// setup_apply / setup_check: modules of the standardisation and their parameters

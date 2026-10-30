@@ -6,7 +6,8 @@ import { Aedes } from 'aedes';
 import mqtt from 'mqtt';
 import { MqttPool } from '../src/mqttPool.js';
 import { checkHttp, checkPing, checkTcp, type Exec } from '../src/probeRunners.js';
-import { nextState, targetError } from '../src/probes.js';
+import { ObjectId } from 'mongodb';
+import { nextState, sourceError, targetError } from '../src/probes.js';
 import type { MqttBroker } from '../src/types.js';
 
 const close = (s: { close: (cb: () => void) => unknown }) => new Promise<void>((r) => s.close(() => r()));
@@ -156,4 +157,19 @@ test('mqtt: payload must contain the value, a message must arrive in time, unrea
   } finally {
     lost.closeAll();
   }
+});
+
+test('retries: a probe that is not set up is down at once', () => {
+  const r = nextState({ state: 'up', failures: 0 }, { state: 'down', message: 'source supprimée : à choisir', immediate: true }, 3);
+  assert.deepEqual(r, { state: 'down', message: 'source supprimée : à choisir', failures: 1 });
+});
+
+test('source: only a ping can be measured from another host, never from the host it is attached to', () => {
+  const hostId = new ObjectId();
+  const from = { hostId };
+  assert.equal(sourceError('hub', { type: 'tcp', host: 'x', port: 1 }), null);
+  assert.equal(sourceError(from, { type: 'ping', host: '192.168.10.5' }), null);
+  assert.equal(sourceError(from, { type: 'ping', host: '192.168.10.5' }, { kind: 'equipment', id: hostId }), null);
+  assert.ok(sourceError(from, { type: 'tcp', host: 'x', port: 1 }));
+  assert.ok(sourceError(from, { type: 'ping', host: 'x' }, { kind: 'host', id: hostId }));
 });

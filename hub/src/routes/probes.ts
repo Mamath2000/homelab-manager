@@ -4,7 +4,7 @@ import { dayKey, ALERT_DAYS } from '../alerts.js';
 import { equipments, hosts, parseId, probeDays, probeMeasures, probes } from '../db.js';
 import { STACK_RE } from '../docker.js';
 import { publish } from '../events.js';
-import { INTERVAL_RANGE, MAX_RETRIES, RECENT_MS, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, targetError, testTarget } from '../probes.js';
+import { INTERVAL_RANGE, MAX_RETRIES, RECENT_MS, TIMEOUT_RANGE, loadMqttBrokers, probeEngine, sourceError, targetError, testTarget } from '../probes.js';
 import type { ProbeDoc, ProbeSubject, ProbeTarget } from '../types.js';
 
 // Probes of the hosts and equipment, and the MQTT brokers they listen to. Writes are for admins only (profiles.ts refuses what it
@@ -45,10 +45,12 @@ const probeBody = {
     target,
     ...timing,
     retries: { type: 'integer', minimum: 0, maximum: MAX_RETRIES },
+    // host whose agent measures a ping (absent: the hub)
+    sourceHostId: { type: 'string', maxLength: 32 },
   },
 } as const;
 
-const testBody = { type: 'object', required: ['target'], additionalProperties: false, properties: { target, timeoutSec: timing.timeoutSec } } as const;
+const testBody = { type: 'object', required: ['target'], additionalProperties: false, properties: { target, timeoutSec: timing.timeoutSec, sourceHostId: { type: 'string', maxLength: 32 } } } as const;
 
 interface ProbeBody {
   name: string;
@@ -57,6 +59,7 @@ interface ProbeBody {
   intervalSec?: number;
   timeoutSec?: number;
   retries?: number;
+  sourceHostId?: string;
 }
 
 // empty optional fields are left out
@@ -75,7 +78,7 @@ function dto(p: ProbeDoc) {
     stack: p.subject.stack ?? null,
     name: p.name,
     target: p.target,
-    runFrom: p.runFrom,
+    runFrom: p.runFrom === 'hub' ? 'hub' : { hostId: p.runFrom.hostId.toHexString() },
     intervalSec: p.intervalSec,
     timeoutSec: p.timeoutSec,
     retries: p.retries,
@@ -87,6 +90,13 @@ function dto(p: ProbeDoc) {
   };
 }
 
+// Where a probe runs, from the host typed: null when that host does not exist
+async function runFromOf(sourceHostId?: string): Promise<ProbeDoc['runFrom'] | null> {
+  if (!sourceHostId) return 'hub';
+  const hostId = parseId(sourceHostId);
+  return hostId && (await hosts.countDocuments({ _id: hostId }, { limit: 1 })) ? { hostId } : null;
+}
+
 // null: valid; else the answer to send
 async function invalid(b: ProbeBody, subject: Pick<ProbeSubject, 'kind' | 'id'>, reply: FastifyReply) {
   const bad = (error: string) => reply.code(400).send({ error });
@@ -95,6 +105,10 @@ async function invalid(b: ProbeBody, subject: Pick<ProbeSubject, 'kind' | 'id'>,
   const why = targetError(b.target);
   if (why) return bad(why);
   if (timeoutSec > intervalSec) return bad("le délai maximal dépasse l'intervalle");
+  const from = await runFromOf(b.sourceHostId);
+  if (from === null) return bad('hôte source inconnu');
+  const wrong = sourceError(from, b.target, subject);
+  if (wrong) return bad(wrong);
   const t = b.target;
   if (t.type === 'mqtt' && !(await loadMqttBrokers()).brokers.some((x) => x.id === t.brokerId)) return bad('broker inconnu');
   if (b.stack) {
@@ -149,7 +163,7 @@ export function registerProbeRoutes(app: FastifyInstance) {
         subject: subjectOf(kind, _id, b.stack),
         name: b.name.trim(),
         target: clean(b.target),
-        runFrom: 'hub',
+        runFrom: (await runFromOf(b.sourceHostId))!,
         intervalSec: b.intervalSec ?? INTERVAL_RANGE.default,
         timeoutSec: b.timeoutSec ?? TIMEOUT_RANGE.default,
         retries: b.retries ?? 0,
@@ -174,9 +188,10 @@ export function registerProbeRoutes(app: FastifyInstance) {
       intervalSec: b.intervalSec ?? INTERVAL_RANGE.default,
       timeoutSec: b.timeoutSec ?? TIMEOUT_RANGE.default,
       retries: b.retries ?? 0,
+      runFrom: (await runFromOf(b.sourceHostId))!,
     };
     // what it measures changed: the old state says nothing about the new target
-    const moved = JSON.stringify(next.target) !== JSON.stringify(current.target);
+    const moved = JSON.stringify(next.target) !== JSON.stringify(current.target) || JSON.stringify(next.runFrom) !== JSON.stringify(current.runFrom);
     await probes.updateOne({ _id }, { $set: next, ...(moved ? { $unset: { state: '', since: '', message: '' } } : {}) });
     publish('probe.config', {});
     return dto((await probes.findOne({ _id }))!);
@@ -191,10 +206,14 @@ export function registerProbeRoutes(app: FastifyInstance) {
   });
 
   // measures now, saves nothing
-  app.post<{ Body: { target: ProbeTarget; timeoutSec?: number } }>('/api/probes/test', { schema: { body: testBody } }, async (req, reply) => {
+  app.post<{ Body: { target: ProbeTarget; timeoutSec?: number; sourceHostId?: string } }>('/api/probes/test', { schema: { body: testBody } }, async (req, reply) => {
     const why = targetError(req.body.target);
     if (why) return reply.code(400).send({ error: why });
-    return testTarget(clean(req.body.target), req.body.timeoutSec ?? TIMEOUT_RANGE.default);
+    const from = await runFromOf(req.body.sourceHostId);
+    if (from === null) return reply.code(400).send({ error: 'hôte source inconnu' });
+    const wrong = sourceError(from, req.body.target);
+    if (wrong) return reply.code(400).send({ error: wrong });
+    return testTarget(clean(req.body.target), req.body.timeoutSec ?? TIMEOUT_RANGE.default, from);
   });
 
   // --- MQTT brokers of the probes: the mqtt-broker roles of the hub (routes/roles.ts) ------------------------

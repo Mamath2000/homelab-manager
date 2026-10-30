@@ -6,13 +6,14 @@ import { Globe, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeMeasure, type ProbeTarget, type ProbeType } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { elapsed } from '../lib/format';
-import { useMqttBrokers, useProbeDays, useProbeRecent, useProbes } from '../lib/queries';
+import { useEquipments, useHosts, useMqttBrokers, useProbeDays, useProbeRecent, useProbes } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import type { Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
 import { CheckLine, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
 import { TYPES, targetText } from '../lib/probes';
+import { lanAddress } from '../lib/roles';
 import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
 const stateMeta: Record<Probe['state'], { label: string; tone: Tone }> = {
@@ -105,7 +106,7 @@ export function ProbeActions({ probe: p, owner }: { probe: Probe; owner: ProbeOw
   const test = async () => {
     setBusy('test');
     try {
-      const m = await api.testProbe(p.target, p.timeoutSec);
+      const m = await api.testProbe(p.target, p.timeoutSec, p.runFrom === 'hub' ? undefined : p.runFrom.hostId);
       const text = m.state === 'up' ? `${p.name} : up${m.latencyMs ? ` en ${m.latencyMs} ms` : ''}` : `${p.name} : ${m.state === 'down' ? 'down' : 'mesure impossible'}${m.message ? ` (${m.message})` : ''}`;
       if (m.state === 'up') toast.success(text);
       else toast.error(text);
@@ -152,11 +153,13 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
   const { canManage } = useMe();
   const { data: probes, isLoading } = useProbes(owner.kind, ownerOf(owner).id);
   const { data: brokers } = useMqttBrokers(canManage);
+  const { data: hosts } = useHosts();
   const [editing, setEditing] = useState<'new' | null>(null);
   if (!canManage && !probes?.length) return null;
 
   const brokerName = (id: string) => brokers?.find((b) => b.id === id)?.name ?? id;
-  const where = (p: Probe) => (p.target.type === 'mqtt' ? `${brokerName(p.target.brokerId)} · ${targetText(p.target)}` : targetText(p.target));
+  const from = (p: Probe) => (p.runFrom === 'hub' ? '' : ` · depuis ${hosts?.find((h) => h.id === (p.runFrom as { hostId: string }).hostId)?.name ?? 'source supprimée'}`);
+  const where = (p: Probe) => (p.target.type === 'mqtt' ? `${brokerName(p.target.brokerId)} · ${targetText(p.target)}` : `${targetText(p.target)}${from(p)}`);
 
   return (
     <Panel
@@ -245,6 +248,8 @@ interface Form {
   intervalSec: string;
   timeoutSec: string;
   retries: string;
+  // host whose agent pings; empty: the hub
+  sourceHostId: string;
 }
 
 // address: offered to a new ping or TCP probe (IP of an equipment)
@@ -266,6 +271,7 @@ function formOf(p: Probe | null, address = ''): Form {
     intervalSec: String(p?.intervalSec ?? 60),
     timeoutSec: String(p?.timeoutSec ?? 10),
     retries: String(p?.retries ?? 0),
+    sourceHostId: p && p.runFrom !== 'hub' ? p.runFrom.hostId : '',
   };
 }
 
@@ -296,6 +302,8 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
   const toast = useToast();
   const navigate = useNavigate();
   const { data: brokers } = useMqttBrokers();
+  const { data: hosts } = useHosts();
+  const { data: equipments } = useEquipments();
   const subject = ownerOf(owner);
   const [initial] = useState(() => formOf(probe, owner.kind === 'equipment' ? (owner.equipment.ip ?? '') : ''));
   const [form, setForm] = useState<Form>(initial);
@@ -319,14 +327,14 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
   const retries = int(form.retries);
   const nameOk = form.name.trim().length > 0 && form.name.trim().length <= 64;
   const optionsOk = interval >= 10 && interval <= 3600 && timeout >= 1 && timeout <= 60 && timeout <= interval && retries >= 0 && retries <= 3;
-  const input = (): ProbeInput => ({ name: form.name.trim(), ...(form.stack ? { stack: form.stack } : {}), target: target!, intervalSec: interval, timeoutSec: timeout, retries });
+  const input = (): ProbeInput => ({ name: form.name.trim(), ...(form.stack ? { stack: form.stack } : {}), target: target!, intervalSec: interval, timeoutSec: timeout, retries, ...(form.type === 'ping' && form.sourceHostId ? { sourceHostId: form.sourceHostId } : {}) });
 
   const runTest = async () => {
     if (!target || !optionsOk) return;
     setBusy('test');
     setTest(null);
     try {
-      const m = await api.testProbe(target, timeout);
+      const m = await api.testProbe(target, timeout, form.type === 'ping' && form.sourceHostId ? form.sourceHostId : undefined);
       setTest(
         m.state === 'up'
           ? { level: 'ok', title: 'up', detail: m.latencyMs ? `répond en ${m.latencyMs} ms` : undefined }
@@ -357,6 +365,15 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
 
   const [typeState, targetState, optionsState, testState] = stepStates([nameOk, !!target, !!target && optionsOk, test?.level === 'ok']);
   const stacks = owner.kind === 'host' ? (owner.host.docker?.stacks ?? []) : null;
+  // sources: agents able to ping, never the host the probe is attached to; suggestions of address: equipments and hosts with an IP
+  const sources = (hosts ?? []).filter((h) => h.capabilities.includes('ping') && !(owner.kind === 'host' && h.id === owner.host.id));
+  const addresses = [
+    ...(equipments ?? []).flatMap((e) => (e.ip ? [{ kind: 'equipment', name: e.name, ip: e.ip }] : [])),
+    ...(hosts ?? []).flatMap((h) => {
+      const ip = lanAddress(h.info?.ips);
+      return ip ? [{ kind: 'host', name: h.name, ip }] : [];
+    }),
+  ];
   const hint = TYPES.find((t) => t.id === form.type)?.hint;
 
   return (
@@ -429,10 +446,30 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
                 </label>
               </>
             )}
+            {form.type === 'ping' && (
+              <label className="block">
+                <span className={field}>Mesuré depuis</span>
+                <select className="input" value={form.sourceHostId} onChange={(e) => set({ sourceHostId: e.target.value })}>
+                  <option value="">Le hub</option>
+                  {form.sourceHostId && !hosts?.some((h) => h.id === form.sourceHostId) && <option value={form.sourceHostId}>Source supprimée : à choisir</option>}
+                  {sources.map((h) => (
+                    <option key={h.id} value={h.id}>{h.name}{h.online ? '' : ' (hors ligne)'}</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-muted">Hôtes dont l'agent sait mesurer un ping (mise à jour de l'agent requise sinon).</span>
+              </label>
+            )}
             {(form.type === 'ping' || form.type === 'tcp') && (
               <label className="block">
                 <span className={field}>Adresse</span>
-                <input className="input font-mono text-xs" value={form.host} onChange={(e) => set({ host: e.target.value })} placeholder="192.168.20.253" spellCheck={false} />
+                <input className="input font-mono text-xs" list={form.type === 'ping' ? 'probe-addresses' : undefined} value={form.host} onChange={(e) => set({ host: e.target.value })} placeholder="192.168.20.253" spellCheck={false} />
+                {form.type === 'ping' && (
+                  <datalist id="probe-addresses">
+                    {addresses.map((a) => (
+                      <option key={`${a.kind}-${a.ip}-${a.name}`} value={a.ip}>{a.name}</option>
+                    ))}
+                  </datalist>
+                )}
               </label>
             )}
             {form.type === 'tcp' && (

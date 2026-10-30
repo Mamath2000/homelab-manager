@@ -29,6 +29,13 @@ test('probe test: refuses what the schema or the target validation refuses', asy
   assert.equal((await post({ target: { type: 'mqtt', brokerId: 'v', topic: 'a/#' } })).statusCode, 400);
 });
 
+test('probe test: an unknown source host is refused', async () => {
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/probes/test', payload: { target: { type: 'ping', host: '192.168.1.1' }, sourceHostId: 'x' } });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, 'hôte source inconnu');
+});
+
 test('probe test: measures a tcp port without saving anything', async () => {
   const a = await app();
   const server = createServer((s) => s.end());

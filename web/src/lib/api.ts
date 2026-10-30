@@ -1311,7 +1311,8 @@ export interface Probe {
   stack: string | null;
   name: string;
   target: ProbeTarget;
-  runFrom: 'hub';
+  // hub, or the host whose agent measures a ping
+  runFrom: 'hub' | { hostId: string };
   intervalSec: number;
   timeoutSec: number;
   retries: number;
@@ -1345,6 +1346,8 @@ export interface ProbeInput {
   intervalSec: number;
   timeoutSec: number;
   retries: number;
+  // host whose agent measures a ping; absent: the hub
+  sourceHostId?: string;
 }
 
 export interface ProbeMeasure {
@@ -1497,7 +1500,7 @@ export const api = {
   createProbe: (kind: ProbeSubjectKind, id: string, p: ProbeInput) => request<Probe>('POST', `/api/${kind}s/${id}/probes`, p),
   updateProbe: (id: string, p: ProbeInput) => request<Probe>('PUT', `/api/probes/${id}`, p),
   deleteProbe: (id: string) => request<void>('DELETE', `/api/probes/${id}`),
-  testProbe: (target: ProbeTarget, timeoutSec: number) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec }),
+  testProbe: (target: ProbeTarget, timeoutSec: number, sourceHostId?: string) => request<ProbeMeasure>('POST', '/api/probes/test', { target, timeoutSec, ...(sourceHostId ? { sourceHostId } : {}) }),
   mqttBrokers: () => request<{ brokers: MqttBrokerView[] }>('GET', '/api/settings/mqtt-brokers'),
   // roles of the hub (hub/src/routes/roles.ts)
   roles: () => request<{ roles: HubRole[] }>('GET', '/api/roles'),

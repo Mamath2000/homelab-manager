@@ -10,6 +10,8 @@ export interface Measure {
   state: ProbeState;
   latencyMs?: number;
   message?: string;
+  // down at once, without the retries (a probe that is not set up, not a service that fails)
+  immediate?: boolean;
 }
 
 const since = (t0: number) => Math.max(1, Math.round(performance.now() - t0));

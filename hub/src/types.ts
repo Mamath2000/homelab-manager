@@ -1102,8 +1102,8 @@ export interface ProbeDoc {
   subject: ProbeSubject;
   name: string;
   target: ProbeTarget;
-  // where the probe runs: the hub only for now (later the agent of another host, never the one it checks)
-  runFrom: 'hub';
+  // where the probe runs: the hub, or the agent of another host (ping only, never the host it checks)
+  runFrom: 'hub' | { hostId: ObjectId };
   intervalSec: number;
   timeoutSec: number;
   // failed measures in a row before the probe is down

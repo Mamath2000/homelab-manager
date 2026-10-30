@@ -5,9 +5,10 @@ import { hosts, probeDays, probeMeasures, probes } from './db.js';
 import { lanAddress } from './hostAddress.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
+import { pingFromHost } from './probeSource.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
 import { allRoles, ROLE_ID_RE } from './roles.js';
-import type { MqttBroker, MqttBrokerConfig, ProbeDoc, ProbeMeasureDoc, ProbeState, ProbeTarget } from './types.js';
+import type { MqttBroker, MqttBrokerConfig, ProbeDoc, ProbeMeasureDoc, ProbeState, ProbeSubject, ProbeTarget } from './types.js';
 
 // Probes: checks that the service is rendered, seen from outside, on top of what the agents report from inside.
 // The hub runs them (mqtt, ping, tcp, http) and only keeps the current state of each: no series of measures.
@@ -65,6 +66,14 @@ export function targetError(t: ProbeTarget): string | null {
   }
 }
 
+// A source other than the hub is for a ping only, and never the host the probe is attached to.
+export function sourceError(runFrom: ProbeDoc['runFrom'], t: ProbeTarget, subject?: Pick<ProbeSubject, 'kind' | 'id'>): string | null {
+  if (runFrom === 'hub') return null;
+  if (t.type !== 'ping') return 'seule une sonde ping peut être mesurée depuis un autre hôte';
+  if (subject?.kind === 'host' && subject.id.equals(runFrom.hostId)) return "un hôte ne mesure pas ses propres sondes";
+  return null;
+}
+
 // --- state --------------------------------------------------------------------------------------
 
 export interface Running {
@@ -78,7 +87,7 @@ export interface Running {
 export function nextState(prev: Running, m: Measure, retries: number): Running {
   if (m.state !== 'down') return { state: m.state, message: m.state === 'up' ? null : (m.message ?? null), failures: 0 };
   const failures = prev.failures + 1;
-  if (failures <= retries) return { state: prev.state ?? 'unknown', message: prev.message ?? null, failures };
+  if (failures <= retries && !m.immediate) return { state: prev.state ?? 'unknown', message: prev.message ?? null, failures };
   return { state: 'down', message: m.message ?? null, failures };
 }
 
@@ -196,9 +205,10 @@ async function countMeasure(probeId: ObjectId, state: ProbeState) {
     .catch(() => undefined);
 }
 
-export function measure(p: Pick<ProbeDoc, 'target' | 'timeoutSec'>, pool: MqttPool): Promise<Measure> {
+export function measure(p: Pick<ProbeDoc, 'target' | 'timeoutSec'> & { runFrom?: ProbeDoc['runFrom'] }, pool: MqttPool): Promise<Measure> {
   const timeoutMs = p.timeoutSec * 1000;
   const t = p.target;
+  if (p.runFrom && p.runFrom !== 'hub' && t.type === 'ping') return pingFromHost(p.runFrom.hostId, t.host, timeoutMs);
   return t.type === 'mqtt' ? pool.check(t.brokerId, t.topic, t.contains || undefined, timeoutMs) : measureLocal(t, timeoutMs);
 }
 
@@ -219,8 +229,8 @@ export const probeEngine = () => running;
 
 // One measure of a probe that is not saved (the test of the forms). A topic of a broker is listened to on a
 // connection of its own, closed after the measure.
-export async function testTarget(target: ProbeTarget, timeoutSec: number): Promise<Measure> {
-  if (target.type !== 'mqtt') return measure({ target, timeoutSec }, new MqttPool());
+export async function testTarget(target: ProbeTarget, timeoutSec: number, runFrom?: ProbeDoc['runFrom']): Promise<Measure> {
+  if (target.type !== 'mqtt') return measure({ target, timeoutSec, runFrom }, new MqttPool());
   const broker = (await loadMqttBrokers()).brokers.find((b) => b.id === target.brokerId);
   if (!broker) return { state: 'unknown', message: 'broker introuvable' };
   if (!broker.url) return { state: 'unknown', message: "adresse de l'hôte du broker inconnue" };
