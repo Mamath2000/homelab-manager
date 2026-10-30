@@ -41,6 +41,7 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 | `PORT` | `3000` | Port d'écoute de l'interface et de l'API ; en Docker le port publié se choisit dans `ports:` |
 | `AGENT_TLS_PORT` | `3443` | Port d'écoute TLS des agents (script d'installation, binaires, enrôlement, WebSocket) |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug` (`LOG=` avec le Makefile) |
+| `LOG_FILE` | *(vide)* | Chemin d'un fichier où les journaux (JSON) sont aussi écrits, en plus de la sortie standard ; vide : sortie standard seule. Le Makefile le règle sur `logs/hub.log` en local (`make logs` le suit), `compose.yml` ne le définit pas |
 | `TZ` | `Europe/Paris` | fuseau du hub : fuseau proposé par défaut pour les [sauvegardes de répertoires](sauvegardes.md#sauvegardes-de-répertoires) (chaque job garde le sien) |
 | `SESSION_DAYS` | `30` | Durée des sessions de l'interface |
 | `COOKIE_SECURE` | `false` | `true` si le hub est servi en HTTPS |

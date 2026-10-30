@@ -1,5 +1,5 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
-.PHONY: help install dev start stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
+.PHONY: help install dev start logs stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
         docker-build docker-prune release-key \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
@@ -13,9 +13,10 @@ VERSION   := $(shell cat VERSION)
 PORT      ?= 3000
 LOG       ?= info
 MONGO_URL ?= mongodb://localhost:27017/homelab
+LOG_FILE  ?= $(CURDIR)/logs/hub.log
 HUB       ?= http://localhost:$(PORT)
 AGENT_TLS_PORT ?= 3443
-RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LOG) MONGO_URL=$(MONGO_URL);
+RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LOG) LOG_FILE=$(LOG_FILE) MONGO_URL=$(MONGO_URL);
 # Agent local (make agent-run) : adresse TLS du hub et dossier de configuration (certificat, clé)
 AGENT_HUB ?= https://localhost:$(AGENT_TLS_PORT)
 AGENT_DIR ?= $(CURDIR)/agent/.dev
@@ -50,6 +51,9 @@ dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhos
 
 start: build ## Build complet puis lance le hub comme en production : make start [PORT=3000] [LOG=info] [MONGO_URL=…]
 	@$(RUN_ENV) cd hub && NODE_ENV=production node dist/index.js
+
+logs: ## Suit le journal du hub local (logs/hub.log, JSON pino) : make logs [N=100]
+	@tail -n $${N:-100} -f $(LOG_FILE)
 
 stop: ## Arrête le hub et l'interface lancés par make dev / make start (processus node de hub/ et web/ de ce repo)
 	@pids=$$(for p in $$(pgrep -u "$$(id -u)" -x 'node|npm.*|esbuild'); do \

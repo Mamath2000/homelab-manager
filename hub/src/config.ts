@@ -21,6 +21,8 @@ export const config = {
   // TLS port for the agents (install script, binaries, enrollment, WebSocket)
   agentTlsPort: num('AGENT_TLS_PORT', 3443),
   host: env('HOST') ?? '0.0.0.0',
+  // optional: the logs also go to this file (stdout stays the main output)
+  logFile: env('LOG_FILE'),
   mongoUrl: env('MONGO_URL') ?? 'mongodb://localhost:27017/homelab',
   webDir: env('WEB_DIR') ?? resolve(here, '../../web/dist'),
   agentBinDir: env('AGENT_BIN_DIR') ?? resolve(here, '../../agent/dist'),

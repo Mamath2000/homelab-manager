@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
@@ -40,9 +41,17 @@ import { startScheduler } from './scheduler.js';
 import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
 
+// LOG_FILE: the JSON logs go to stdout and to this file (appended, rotation is up to the host).
+function logStream() {
+  if (!config.logFile) return undefined;
+  mkdirSync(dirname(config.logFile), { recursive: true });
+  const file = createWriteStream(config.logFile, { flags: 'a' });
+  return { write: (line: string) => (process.stdout.write(line), file.write(line)) };
+}
+
 // forceCloseConnections: app.close() also drops the hijacked SSE streams instead of waiting for clients.
 const app = Fastify({
-  logger: { level: process.env.LOG_LEVEL || 'info' },
+  logger: { level: process.env.LOG_LEVEL || 'info', stream: logStream() },
   trustProxy: config.trustProxy,
   forceCloseConnections: true,
 });
