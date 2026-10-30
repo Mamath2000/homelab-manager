@@ -4,7 +4,7 @@ import { guests, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { createJob } from './jobs.js';
 import { loadPveSettings, nodeHosts } from './pve.js';
-import { checkVerdict, staticEligibility, PveInstallError, type CheckVerdict, type GuestCheck, type InstallTarget } from './pveInstall.js';
+import { checkVerdict, nodeCarrier, staticEligibility, staticNodeEligibility, PveInstallError, type CheckVerdict, type GuestCheck, type InstallTarget } from './pveInstall.js';
 import { UNMANAGED, newEnrollCode } from './routes/hosts.js';
 import type { HostDoc } from './types.js';
 
@@ -16,18 +16,23 @@ const WATCH_MS = 15 * 60_000;
 
 const MAX_VMIDS = 50;
 
+// The nodes of a cluster: those the poll knows, else those the guests are on.
+export const clusterNodeNames = (c: { nodes?: { node: string }[] }, guestNodes: string[]) => [...new Set([...(c.nodes ?? []).map((n) => n.node), ...guestNodes])].sort();
+
 export const hasAgent = (h: Pick<HostDoc, 'certFingerprint' | 'tokenHash'>) => !!(h.certFingerprint || h.tokenHash);
 
 // Plan of the installation in the CT asked for: eligibility of each one (inventory, then what the agent of its node finds
 // in the running ones), host that each would become. Reads only.
-export async function planInstall(clusterId: string, vmids: number[]): Promise<InstallTarget[]> {
-  if (!vmids.length || vmids.length > MAX_VMIDS) throw new PveInstallError(`entre 1 et ${MAX_VMIDS} CT`);
+export async function planInstall(clusterId: string, vmids: number[], nodes: string[] = []): Promise<InstallTarget[]> {
+  if (!vmids.length && !nodes.length) throw new PveInstallError('aucun CT ni nœud demandé');
+  if (vmids.length > MAX_VMIDS || nodes.length > MAX_VMIDS) throw new PveInstallError(`au plus ${MAX_VMIDS} CT ou nœuds`);
   const cluster = (await loadPveSettings()).clusters.find((c) => c.id === clusterId);
   if (!cluster) throw new PveInstallError('cluster introuvable', 404);
   const docs = await guests.find({ cluster: clusterId, vmid: { $in: vmids } }).toArray();
   const byVmid = new Map(docs.map((g) => [g.vmid, g]));
   const list = await hosts.find().toArray();
-  const carriers = nodeHosts(cluster, [...new Set(docs.map((g) => g.node))], list);
+  const clusterNodes = clusterNodeNames(cluster, await guests.distinct('node', { cluster: clusterId }));
+  const carriers = nodeHosts(cluster, clusterNodes, list);
 
   const targets = new Map<number, InstallTarget & { carrier: HostDoc | null; check?: CheckVerdict }>();
   for (const vmid of [...new Set(vmids)]) {
@@ -37,6 +42,7 @@ export async function planInstall(clusterId: string, vmids: number[]): Promise<I
     const linked = g.hostId ? list.find((h) => h._id.toHexString() === g.hostId) : undefined;
     const st = staticEligibility(g, carrier ? { capabilities: carrier.capabilities, online: isOnline(carrier._id.toHexString()) } : null, !!linked && hasAgent(linked));
     targets.set(vmid, {
+      kind: 'lxc',
       vmid,
       name: g.name,
       node: g.node,
@@ -72,8 +78,52 @@ export async function planInstall(clusterId: string, vmids: number[]): Promise<I
     }
   }
 
+  // the other nodes: the agent of another node reads them and installs through ssh
+  const nodeT: (InstallTarget & { carrier: HostDoc | null; check?: CheckVerdict })[] = [];
+  for (const node of [...new Set(nodes)]) {
+    if (!clusterNodes.includes(node)) throw new PveInstallError(`nœud ${node} introuvable dans le cluster`, 404);
+    const existing = carriers.get(node) ?? null;
+    const carrier = nodeCarrier(node, carriers, (h) => isOnline(h._id.toHexString()));
+    const st = staticNodeEligibility(
+      { online: cluster.nodes?.find((n) => n.node === node)?.online ?? true, hostHasAgent: !!existing && hasAgent(existing) },
+      carrier ? { capabilities: carrier.capabilities, online: true } : null,
+    );
+    nodeT.push({
+      kind: 'node',
+      vmid: 0,
+      name: node,
+      node,
+      eligible: st.eligible,
+      reasons: st.reasons,
+      mode: null,
+      hostName: existing ? existing.name : node,
+      ...(existing ? { hostId: existing._id.toHexString() } : {}),
+      siteId: carrier?.siteId ?? null,
+      tags: carrier?.tags ?? [],
+      installCurl: false,
+      carrier,
+    });
+  }
+  const viaNode = new Map<string, string[]>();
+  for (const t of nodeT) if (t.eligible && t.carrier) viaNode.set(t.carrier._id.toHexString(), [...(viaNode.get(t.carrier._id.toHexString()) ?? []), t.node]);
+  for (const [carrierId, names] of viaNode) {
+    let checks: GuestCheck[] = [];
+    try {
+      checks = (await agentRequest<{ nodes: GuestCheck[] }>(carrierId, 'pve_node_check', { pveNodes: names }, 20_000 + 40_000 * names.length)).nodes;
+    } catch (err) {
+      if (!(err instanceof AgentRequestError)) throw err;
+      for (const t of nodeT) if (names.includes(t.node)) Object.assign(t, { eligible: false, reasons: [err.message] });
+      continue;
+    }
+    for (const t of nodeT.filter((x) => names.includes(x.node))) {
+      const c = checks.find((x) => x.node === t.node);
+      const v = c ? checkVerdict(c) : { eligible: false, reasons: ["pas de réponse de l'agent du nœud"], installCurl: false, relink: false };
+      Object.assign(t, { eligible: v.eligible, reasons: v.reasons, installCurl: v.installCurl, check: v });
+    }
+  }
+
   // the host each one becomes
-  for (const t of targets.values()) {
+  for (const t of [...targets.values(), ...nodeT]) {
     if (!t.eligible) continue;
     if (t.hostId) {
       t.mode = 'reuse';
@@ -89,19 +139,23 @@ export async function planInstall(clusterId: string, vmids: number[]): Promise<I
       if (same.length) t.reasons.push(`un hôte porte déjà le nom « ${t.hostName} » : un second sera créé`);
     }
   }
-  return [...targets.values()].map(({ carrier: _c, check: _k, ...t }) => t);
+  return [...targets.values(), ...nodeT].map(({ carrier: _c, check: _k, ...t }) => t);
 }
 
 // Installs the agent in each eligible CT of the plan: one job per CT, on the agent of its node. The host (created, or
 // reused with a new code) is made here; if the installation fails before the agent enrolled, a created host is removed.
-export async function runInstall(clusterId: string, vmids: number[]): Promise<InstallTarget[]> {
-  const plan = await planInstall(clusterId, vmids);
+export async function runInstall(clusterId: string, vmids: number[], nodes: string[] = []): Promise<InstallTarget[]> {
+  const plan = await planInstall(clusterId, vmids, nodes);
   const cluster = (await loadPveSettings()).clusters.find((c) => c.id === clusterId)!;
   const list = await hosts.find().toArray();
-  const carriers = nodeHosts(cluster, [...new Set(plan.map((t) => t.node))], list);
+  const carriers = nodeHosts(cluster, clusterNodeNames(cluster, await guests.distinct('node', { cluster: clusterId })), list);
   for (const t of plan) {
     if (!t.eligible || !t.mode) continue;
-    const carrier = carriers.get(t.node)!;
+    const carrier = t.kind === 'node' ? nodeCarrier(t.node, carriers, (h) => isOnline(h._id.toHexString())) : carriers.get(t.node);
+    if (!carrier) {
+      Object.assign(t, { eligible: false, reasons: ["plus d'agent disponible pour installer"] });
+      continue;
+    }
     const enroll = newEnrollCode();
     let hostId: ObjectId;
     if (t.mode === 'reuse') {
@@ -125,8 +179,8 @@ export async function runInstall(clusterId: string, vmids: number[]): Promise<In
       await hosts.insertOne(doc);
     }
     const job = await createJob(carrier, 'agent_install', [], 'manual', {
-      install: { kind: 'lxc', vmid: t.vmid, code: enroll.code, installCurl: t.installCurl },
-      installTarget: { cluster: clusterId, vmid: t.vmid, hostId },
+      install: t.kind === 'node' ? { kind: 'node', node: t.node, code: enroll.code, installCurl: t.installCurl } : { kind: 'lxc', vmid: t.vmid, code: enroll.code, installCurl: t.installCurl },
+      installTarget: { cluster: clusterId, vmid: t.vmid, ...(t.kind === 'node' ? { node: t.node } : {}), hostId },
     });
     t.jobId = job._id.toHexString();
     void settleInstall(job._id, hostId, t.mode === 'create');

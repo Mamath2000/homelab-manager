@@ -21,7 +21,7 @@ import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
-import { staticEligibility, PveInstallError } from '../pveInstall.js';
+import { nodeCarrier, staticEligibility, staticNodeEligibility, PveInstallError } from '../pveInstall.js';
 import { hasAgent, planInstall, runInstall } from '../pveInstallRun.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
@@ -390,7 +390,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const list = await hosts.find({}, { projection: { name: 1, capabilities: 1, 'info.hostname': 1, certFingerprint: 1, tokenHash: 1 } }).toArray();
     const names = new Map(list.map((h) => [h._id.toHexString(), h.name]));
     const agentOf = new Map(list.map((h) => [h._id.toHexString(), hasAgent(h)]));
-    const installing = new Set((await jobs.find({ action: 'agent_install', status: 'running' }, { projection: { installTarget: 1 } }).toArray()).map((j) => `${j.installTarget?.cluster}/${j.installTarget?.vmid}`));
+    const installing = new Set((await jobs.find({ action: 'agent_install', status: 'running' }, { projection: { installTarget: 1 } }).toArray()).map((j) => (j.installTarget?.node ? `${j.installTarget.cluster}/node/${j.installTarget.node}` : `${j.installTarget?.cluster}/${j.installTarget?.vmid}`)));
     const carrierOf = (h?: (typeof list)[number] | null) => (h ? { capabilities: h.capabilities, online: isOnline(h._id.toHexString()) } : null);
     return {
       clusters: s.clusters.map((c) => {
@@ -406,7 +406,13 @@ export function registerBackupRoutes(app: FastifyInstance) {
           pollError: c.pollError ?? null,
           nodes: nodes.map((n) => {
             const h = carriers.get(n.node);
-            return { ...n, host: h ? { id: h._id.toHexString(), name: h.name, online: isOnline(h._id.toHexString()) } : null };
+            const other = nodeCarrier(n.node, carriers, (x) => isOnline(x._id.toHexString()));
+            return {
+              ...n,
+              host: h ? { id: h._id.toHexString(), name: h.name, online: isOnline(h._id.toHexString()), hasAgent: !!agentOf.get(h._id.toHexString()) } : null,
+              installing: installing.has(`${c.id}/node/${n.node}`),
+              install: h && agentOf.get(h._id.toHexString()) ? null : staticNodeEligibility({ online: n.online, hostHasAgent: false }, carrierOf(other)),
+            };
           }),
           guests: mine.map((g) => ({
             installing: installing.has(`${c.id}/${g.vmid}`),
@@ -427,17 +433,18 @@ export function registerBackupRoutes(app: FastifyInstance) {
 
   // Agent installed in CT of the inventory (homelab#259), by the agent of their node. dryRun: the plan only (eligibility of
   // each CT checked by the agent of its node, host each one would become), nothing is written.
-  app.post<{ Body: { cluster: string; vmids: number[]; dryRun?: boolean } }>(
+  app.post<{ Body: { cluster: string; vmids?: number[]; nodes?: string[]; dryRun?: boolean } }>(
     '/api/settings/pve/install',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['cluster', 'vmids'],
+          required: ['cluster'],
           additionalProperties: false,
           properties: {
             cluster: { type: 'string', maxLength: 64 },
-            vmids: { type: 'array', items: { type: 'integer', minimum: 100 }, minItems: 1, maxItems: 50 },
+            vmids: { type: 'array', items: { type: 'integer', minimum: 100 }, maxItems: 50 },
+            nodes: { type: 'array', items: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9-]{0,62}$' }, maxItems: 50 },
             dryRun: { type: 'boolean' },
           },
         },
@@ -445,7 +452,8 @@ export function registerBackupRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const targets = req.body.dryRun ? await planInstall(req.body.cluster, req.body.vmids) : await runInstall(req.body.cluster, req.body.vmids);
+        const { cluster, vmids = [], nodes = [] } = req.body;
+        const targets = req.body.dryRun ? await planInstall(cluster, vmids, nodes) : await runInstall(cluster, vmids, nodes);
         return { dryRun: !!req.body.dryRun, targets };
       } catch (err) {
         if (err instanceof PveInstallError) return reply.code(err.status).send({ error: err.message });

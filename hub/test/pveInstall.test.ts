@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkVerdict, staticEligibility, type GuestCheck } from '../src/pveInstall.js';
+import { checkVerdict, nodeCarrier, staticEligibility, staticNodeEligibility, type GuestCheck } from '../src/pveInstall.js';
 
 const carrier = { capabilities: ['pve', 'pve_guest_check', 'agent_install:lxc'], online: true };
 const ct = { type: 'lxc' as const, status: 'running', ambiguous: false, hostId: null, ostype: 'debian' };
@@ -55,4 +55,21 @@ test('static: a CT linked to a host whose agent was revoked can get the agent ag
   const linked = { ...ct, hostId: 'abc' as never };
   assert.equal(staticEligibility(linked, carrier, false).eligible, true);
   assert.equal(staticEligibility(linked, carrier, true).eligible, false);
+});
+
+test('node: eligibility and the agent that installs', () => {
+  assert.deepEqual(staticNodeEligibility({ online: true, hostHasAgent: false }, { capabilities: ['agent_install:node'], online: true }), { eligible: true, reasons: [] });
+  const why = (online: boolean, hostHasAgent: boolean, c: Parameters<typeof staticNodeEligibility>[1]) => staticNodeEligibility({ online, hostHasAgent }, c).reasons.join('|');
+  assert.match(why(false, false, carrier), /hors ligne/);
+  assert.match(why(true, true, carrier), /déjà installé/);
+  assert.match(why(true, false, null), /aucun autre nœud/);
+
+  const a = { capabilities: ['agent_install:node'] };
+  const old = { capabilities: ['pve'] };
+  const carriers = new Map<string, typeof a | null>([['n1', old], ['n2', a], ['n3', null]]);
+  assert.equal(nodeCarrier('n3', carriers, () => true), a);
+  // never the node itself, nor an offline agent, nor an old one
+  assert.equal(nodeCarrier('n2', carriers, () => true), null);
+  assert.equal(nodeCarrier('n3', carriers, () => false), null);
+  assert.equal(nodeCarrier('n2', new Map([['n1', old]]), () => true), null);
 });

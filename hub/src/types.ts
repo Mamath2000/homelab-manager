@@ -519,7 +519,7 @@ export interface JobDoc {
   // backup_install: apt | docker
   method?: 'apt' | 'docker';
   // agent_install: the CT and the host it becomes (the enrollment code is never stored)
-  installTarget?: { cluster: string; vmid: number; hostId: ObjectId };
+  installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;

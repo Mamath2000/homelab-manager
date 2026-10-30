@@ -6,6 +6,8 @@ import type { GuestDoc, HostDoc } from './types.js';
 
 export const INSTALL_CAPABILITY = 'agent_install:lxc';
 export const CHECK_CAPABILITY = 'pve_guest_check';
+// another node of the cluster, reached by ssh from the agent of one of them (also gives the rpc pve_node_check)
+export const NODE_CAPABILITY = 'agent_install:node';
 
 export interface InstallEligibility {
   eligible: boolean;
@@ -15,7 +17,9 @@ export interface InstallEligibility {
 
 // What the agent of the node answers for one CT (agent/pve_guest.go)
 export interface GuestCheck {
-  vmid: number;
+  vmid?: number;
+  // pve_node_check: the node
+  node?: string;
   status: string;
   osId?: string;
   idLike?: string;
@@ -47,6 +51,21 @@ export function staticEligibility(g: Pick<GuestDoc, 'type' | 'status' | 'ambiguo
   return { eligible: reasons.length === 0, reasons };
 }
 
+// A node of the cluster without agent: the agent of another node installs it by ssh.
+export function staticNodeEligibility(n: { online: boolean; hostHasAgent: boolean }, carrier: Carrier | null): InstallEligibility {
+  const reasons: string[] = [];
+  if (!n.online) reasons.push('nœud hors ligne');
+  if (n.hostHasAgent) reasons.push('un agent est déjà installé sur ce nœud');
+  if (!carrier) reasons.push("aucun autre nœud avec un agent à jour (installation par SSH depuis un autre nœud)");
+  return { eligible: reasons.length === 0, reasons };
+}
+
+// The agent that installs on a node: another node of the cluster, connected, recent enough.
+export function nodeCarrier<H extends { capabilities?: string[] }>(target: string, carriers: Map<string, H | null>, online: (h: H) => boolean): H | null {
+  for (const [node, h] of carriers) if (node !== target && h && online(h) && h.capabilities?.includes(NODE_CAPABILITY)) return h;
+  return null;
+}
+
 const ARCHS = new Set(['x86_64', 'aarch64']);
 
 export interface CheckVerdict extends InstallEligibility {
@@ -76,6 +95,8 @@ export function checkVerdict(c: GuestCheck): CheckVerdict {
 }
 
 export interface InstallTarget {
+  kind: 'lxc' | 'node';
+  // 0 for a node
   vmid: number;
   name: string;
   node: string;
