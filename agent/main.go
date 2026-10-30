@@ -124,6 +124,9 @@ func (s *session) hello(ctx context.Context) error {
 	// Proxmox VE administration (pve.go): a node of a cluster
 	if hasPve() {
 		caps = append(caps, "pve", "pve_token_delete")
+		if _, err := exec.LookPath("pct"); err == nil {
+			caps = append(caps, "pve_guest_check")
+		}
 		// the hub does not offer a node of a cluster it already follows: the cluster name rides along
 		if cluster, _, _ := pveClusterStatus(ctx, pveExec); cluster != "" {
 			caps = append(caps, "pve_cluster:"+cluster)
@@ -324,6 +327,11 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		cctx, cancel := context.WithTimeout(ctx, time.Minute)
 		out.Result = detectPve(cctx, pveExec)
 		cancel()
+	case "pve_guest_check":
+		var r []PveGuestCheck
+		if r, err = checkPveGuests(ctx, pveExec, in.PveVmids, s.hub); err == nil {
+			out.Result = map[string][]PveGuestCheck{"guests": r}
+		}
 	case "pve_token":
 		cctx, cancel := context.WithTimeout(ctx, time.Minute)
 		var r *PveTokenResult

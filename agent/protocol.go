@@ -123,7 +123,7 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | refresh
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | refresh
 	Tail  int    `json:"tail,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`
@@ -147,6 +147,8 @@ type Inbound struct {
 	PbsMount *PbsMountSpec `json:"pbsMount,omitempty"`
 	// pve_token: user, token and rights to create on the Proxmox VE cluster of this node (pve_token_delete: to revoke)
 	Pve *PveTokenSpec `json:"pve,omitempty"`
+	// pve_guest_check: ids of the CT of this node to inspect (read-only)
+	PveVmids []int `json:"pveVmids,omitempty"`
 	// offsite_sync: the copy to this secondary PBS (offsite.go)
 	Offsite *OffsiteSpec `json:"offsite,omitempty"`
 	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read

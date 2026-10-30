@@ -10,8 +10,14 @@ import (
 
 // runStreaming runs a command with the given environment, forwarding each output line to emit.
 func runStreaming(ctx context.Context, env []string, emit func(string), name string, args ...string) (int, error) {
+	return runStreamingIn(ctx, env, nil, emit, name, args...)
+}
+
+// runStreamingIn is runStreaming with a standard input (nil: none).
+func runStreamingIn(ctx context.Context, env []string, stdin io.Reader, emit func(string), name string, args ...string) (int, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = env
+	cmd.Stdin = stdin
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
