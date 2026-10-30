@@ -41,6 +41,19 @@ LISTEN 0 4096 0.0.0.0:1883 0.0.0.0:* users:(("mosquitto",pid=210,fd=5))`
 	}
 }
 
+func TestParseRoleCandidatesOmadaMovedPort(t *testing.T) {
+	out := `LISTEN 0 100 *:9443 *:* users:(("java",pid=300,fd=12))
+LISTEN 0 100 *:29812 *:* users:(("java",pid=300,fd=13))
+LISTEN 0 100 *:29814 *:* users:(("java",pid=300,fd=14))`
+	got := parseRoleCandidates(out)
+	if len(got) != 1 {
+		t.Fatalf("candidates = %+v, want 1", got)
+	}
+	if c := got[0]; c.Type != "omada-controller" || c.Port != 8043 || c.Scheme != "https" || c.Local {
+		t.Fatalf("moved port: %+v", c)
+	}
+}
+
 func TestParseRoleCandidatesNone(t *testing.T) {
 	if got := parseRoleCandidates(`LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=3))`); len(got) != 0 {
 		t.Fatalf("candidates = %+v, want none", got)

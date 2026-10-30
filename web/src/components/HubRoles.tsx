@@ -143,6 +143,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
       <Modal
         open
         onClose={requestClose}
+        dismissable={false}
         wide="screen"
         wider
         fixed
@@ -301,7 +302,7 @@ const listHead = 'px-1 pt-1 text-[11px] font-medium uppercase tracking-wide text
 
 // Declares an Omada controller role, or edits one (choosing another carrier moves it, its settings kept). Four steps like
 // the broker: carrier, controller, application, test. The carrier is a host (the ones whose agent found a controller
-// first, the others still chosen by hand: a controller moved to another port is not seen) or an equipment with an IP. Its
+// first, the others still chosen by hand; the agent tells a controller by its fixed service ports) or an equipment with an IP. Its
 // address comes with it, the port is proposed (8043) and can be changed; the API is checked before any account is typed.
 // Saving needs a successful test and the client secret is never sent back. A self-signed certificate is pinned by its
 // fingerprint: the checks offer the one the controller presents when it was refused.
@@ -429,19 +430,12 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const appOk = form.clientId.trim().length > 0 && (!!secret || !!role?.hasSecret);
   const [carried, configured, application, tested] = stepStates([!!carrier, controllerOk, appOk, test?.level === 'ok']);
 
-  const presentedBlock = presented && (
-    <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
-      <p className="text-amber-300">Le contrôleur présente ce certificat : à comparer à celui qu'il affiche avant d'épingler.</p>
-      <p className="font-mono break-all text-zinc-200">{presented}</p>
-      <Button size="sm" onClick={() => set({ fingerprint: presented })}>Épingler cette empreinte</Button>
-    </div>
-  );
-
   return (
     <>
       <Modal
         open
         onClose={requestClose}
+        dismissable={false}
         wide="screen"
         wider
         fixed
@@ -486,7 +480,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
             state={configured}
             intro="Son adresse vient du porteur ; le port est celui par défaut (8043), à changer s'il a été modifié (docker, équipement)."
             footer={
-              <Button className="w-full" variant={configured === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'probe'} disabled={busy !== null || !carrier || !addressOk || !portOk || !fingerprintOk} onClick={() => void runProbe()}>
+              <Button className="w-full" variant={configured === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'probe'} disabled={busy !== null || !!presented || !carrier || !addressOk || !portOk || !fingerprintOk} onClick={() => void runProbe()}>
                 {probe ? 'Vérifier à nouveau' : "Vérifier que l'API répond"}
               </Button>
             }
@@ -515,19 +509,32 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
             </div>
             {carrier && !addressOk && <span className="block text-xs text-amber-300">Le porteur n'a pas d'adresse connue</span>}
             {!portOk && <span className="block text-xs text-amber-300">Port invalide (1 à 65535)</span>}
-            <label className="block">
-              <span className={field}>Empreinte du certificat</span>
-              <input className="input font-mono text-xs" value={form.fingerprint} onChange={(e) => set({ fingerprint: e.target.value })} placeholder="SHA-256, AB:CD:…" spellCheck={false} />
-              <span className={clsx('mt-1 block text-xs', fingerprintOk ? 'text-muted' : 'text-amber-300')}>
-                {fingerprintOk ? 'Requise pour un certificat auto-signé (le cas par défaut). Vide : certificat vérifié par les autorités système.' : 'Empreinte invalide (SHA-256, 32 octets en hexadécimal)'}
-              </span>
-            </label>
-            <Button size="sm" variant="secondary" icon={Plug} loading={busy === 'read'} disabled={busy !== null || !addressOk || !portOk} onClick={() => void readFingerprint()}>
-              Lire l'empreinte du contrôleur
-            </Button>
-            {readError && <p className="text-xs text-amber-300">{readError}</p>}
-            <CheckLine label="API du contrôleur" check={probe} idle={addressOk && portOk ? url : undefined} />
-            {presentedBlock}
+            {presented ? (
+              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+                <p className="text-amber-300">Certificat présenté par le contrôleur : à comparer à celui qu'il affiche.</p>
+                <p className="font-mono break-all text-zinc-200">{presented}</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="primary" onClick={() => set({ fingerprint: presented })}>Épingler l'empreinte</Button>
+                  <Button size="sm" onClick={() => setPresented(null)}>Retour</Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {form.fingerprint ? (
+                  <div className="space-y-1">
+                    <span className={field}>Empreinte épinglée</span>
+                    <p className={clsx('font-mono break-all text-xs', fingerprintOk ? 'text-zinc-200' : 'text-amber-300')}>{form.fingerprint}</p>
+                    <Button size="sm" onClick={() => set({ fingerprint: '' })}>Changer</Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="secondary" icon={Plug} loading={busy === 'read'} disabled={busy !== null || !addressOk || !portOk} onClick={() => void readFingerprint()}>
+                    Lire l'empreinte du contrôleur
+                  </Button>
+                )}
+                {readError && <p className="text-xs text-amber-300">{readError}</p>}
+                <CheckLine label="API du contrôleur" check={probe} idle={addressOk && portOk ? url : undefined} />
+              </>
+            )}
           </Step>
           <Step n={3} title="Application" state={application} intro="Une application de l'Open API du contrôleur, en mode client (Client Credentials), avec accès aux sites à lire.">
             <label className="block">
@@ -568,7 +575,6 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
               ]}
             />
             <CheckLine label="Contrôleur Omada" check={test} idle={addressOk && portOk ? url : undefined} />
-            {presentedBlock}
           </Step>
         </Steps>
       </Modal>

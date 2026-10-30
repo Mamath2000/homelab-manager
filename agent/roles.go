@@ -36,9 +36,13 @@ var mqttBrokerProcesses = []string{"mosquitto", "nanomq", "vernemq", "hivemq"}
 // ssListenRe: one line of `ss -H -ltnp` with its process.
 var ssListenRe = regexp.MustCompile(`^LISTEN\s+\S+\s+\S+\s+(\S+):(\d+)\s+\S+\s+users:\(\("([^"]+)"`)
 
-// omadaHTTPSPort: the management port (and Open API) of an Omada controller, 8043 by default. A controller moved to
-// another port (docker mapping) is not found: the administrator then chooses its host by hand.
+// omadaHTTPSPort: the management port (and Open API) of an Omada controller, 8043 by default but changeable. It is the
+// port proposed for the candidate, not what tells a controller.
 const omadaHTTPSPort = 8043
+
+// omadaServicePorts: the ports the devices reach (adoption, manager v1 and v2): fixed, not changeable in the
+// controller, so they tell a controller whatever port its web interface was moved to.
+var omadaServicePorts = map[int]bool{8043: true, 29811: true, 29812: true, 29814: true}
 
 func mqttScheme(port int) string {
 	switch port {
@@ -82,9 +86,10 @@ func parseRoleCandidates(ssOut string) []RoleCandidate {
 				break
 			}
 		}
-		// the Omada controller is told by its port (a java process, or the proxy of its container)
-		if typ == "" && port == omadaHTTPSPort {
-			typ, scheme = "omada-controller", "https"
+		// the Omada controller is told by its service ports (a java process, or the proxy of its container); the
+		// candidate carries the default port of its API, one candidate however many of these ports listen
+		if typ == "" && omadaServicePorts[port] {
+			typ, scheme, port = "omada-controller", "https", omadaHTTPSPort
 		}
 		if typ == "" {
 			continue
