@@ -67,6 +67,9 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# no argument: the code may come from the environment (HLM_ENROLL_CODE), e.g. fed on stdin by the agent of a PVE node
+[ -n "$CODE" ] || CODE="${HLM_ENROLL_CODE:-}"
+unset HLM_ENROLL_CODE
 case "$CODE" in
   *[!A-Za-z0-9_-]*) fail "invalid enrollment code" ;;
 esac
@@ -190,7 +193,8 @@ CA
 
 if [ -n "$CODE" ]; then
   # the key is generated on this host; only a certificate request is sent
-  "$BIN" enroll -hub "$HUB_URL" -dir "$DIR" -code "$CODE"
+  # on stdin: the code is not visible in the process list
+  printf '%s\n' "$CODE" | "$BIN" enroll -hub "$HUB_URL" -dir "$DIR" -code-stdin
 fi
 
 (
