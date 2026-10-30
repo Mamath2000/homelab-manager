@@ -29,7 +29,9 @@ interface Installer {
   selected: Set<number>;
   toggle: (vmid: number) => void;
   busy: Set<number>;
+  busyNodes: Set<string>;
   install: (vmid: number) => void;
+  installNode: (node: string) => void;
   preview: (vmids: number[]) => void;
 }
 
@@ -126,10 +128,20 @@ function NodeBlock({ node, guests, inst }: { node: Cluster['nodes'][number]; gue
         {node.host ? (
           <span className="text-xs text-muted">
             agent : <Link className="underline" to={`/hosts/${node.host.id}`}>{node.host.name}</Link>
-            {!node.host.online && <span className="text-amber-300"> (hors ligne)</span>}
+            {!node.host.online && node.host.hasAgent && <span className="text-amber-300"> (hors ligne)</span>}
           </span>
         ) : (
           <Badge tone="neutral">non géré</Badge>
+        )}
+        {node.host && !node.host.hasAgent && <Badge tone="warn">agent révoqué</Badge>}
+        {node.installing && <Badge tone="warn">installation…</Badge>}
+        {node.install?.eligible && !node.installing && (
+          <Button size="sm" icon={Download} loading={inst.busyNodes.has(node.node)} onClick={() => inst.installNode(node.node)}>
+            {node.host ? "Réinstaller l'agent" : "Installer l'agent"}
+          </Button>
+        )}
+        {node.install && !node.install.eligible && node.install.reasons.length > 0 && (
+          <span className="text-xs text-muted" title={node.install.reasons.join(' · ')}>agent non installable : {node.install.reasons[0]}</span>
         )}
         <span className="ml-auto flex flex-wrap items-center gap-2 text-xs text-muted">
           {installable.length > 0 && (
@@ -188,12 +200,14 @@ function ClusterPanel({ c }: { c: Cluster }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState<Set<number>>(new Set());
+  const [busyNodes, setBusyNodes] = useState<Set<string>>(new Set());
   const [plan, setPlan] = useState<PveInstallTarget[] | null>(null);
   const [planning, setPlanning] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
   const inst: Installer = {
     selected,
     busy,
+    busyNodes,
     toggle: (vmid) => setSelected((s) => { const n = new Set(s); if (!n.delete(vmid)) n.add(vmid); return n; }),
     // one CT: launched at once, the hub checks it again before touching anything
     install: async (vmid) => {
@@ -206,6 +220,20 @@ function ClusterPanel({ c }: { c: Cluster }) {
         toast.error((err as Error).message);
       } finally {
         setBusy((b) => { const n = new Set(b); n.delete(vmid); return n; });
+        refresh();
+      }
+    },
+    // another node: the agent of one of the others installs it by ssh
+    installNode: async (node) => {
+      setBusyNodes((b) => new Set(b).add(node));
+      try {
+        const t = (await api.installPveAgents(c.id, [], false, [node])).targets[0];
+        if (t?.jobId) toast.success(`Installation de l'agent lancée sur le nœud ${node}`);
+        else toast.error(`Nœud ${node} : ${t?.reasons.join(' · ') || 'non installable'}`);
+      } catch (err) {
+        toast.error((err as Error).message);
+      } finally {
+        setBusyNodes((b) => { const n = new Set(b); n.delete(node); return n; });
         refresh();
       }
     },
