@@ -496,7 +496,8 @@ export const JOB_ACTIONS = [
 ] as const;
 // backup_run: launched from the backup job only (it names the job), never through the generic job routes
 // offsite_run: copy to the secondary PBS, run by the hub (offsite.ts); backupJobName names the backup
-export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run';
+// agent_install: agent installed in a CT by the agent of its node, from the PVE inventory (pveInstallRun.ts), never through the generic job routes
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface JobDoc {
@@ -517,6 +518,8 @@ export interface JobDoc {
   backupJobName?: string;
   // backup_install: apt | docker
   method?: 'apt' | 'docker';
+  // agent_install: the CT and the host it becomes (the enrollment code is never stored)
+  installTarget?: { cluster: string; vmid: number; hostId: ObjectId };
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
   status: JobStatus;
   createdAt: Date;

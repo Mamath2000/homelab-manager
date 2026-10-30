@@ -72,3 +72,28 @@ export function checkVerdict(c: GuestCheck): CheckVerdict {
   if (c.agentInstalled) notes.push("un agent est déjà installé : il sera enrôlé à nouveau et son lien avec le cluster recréé");
   return verdict(notes, true, { installCurl, relink: c.agentInstalled });
 }
+
+export interface InstallTarget {
+  vmid: number;
+  name: string;
+  node: string;
+  eligible: boolean;
+  reasons: string[];
+  // the host of the hub that gets the agent: created, or the one of the same name when an agent is already in the CT
+  mode: 'create' | 'reuse' | null;
+  hostName: string;
+  siteId: string | null;
+  tags: string[];
+  installCurl: boolean;
+  // run only
+  jobId?: string;
+}
+
+export class PveInstallError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message);
+  }
+}

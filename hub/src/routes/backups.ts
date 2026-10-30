@@ -21,7 +21,8 @@ import { normalizeMountRoot } from '../pbsMount.js';
 import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
-import { staticEligibility } from '../pveInstall.js';
+import { staticEligibility, PveInstallError } from '../pveInstall.js';
+import { planInstall, runInstall } from '../pveInstallRun.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView, syncOffsiteAgent } from '../offsite.js';
@@ -420,6 +421,35 @@ export function registerBackupRoutes(app: FastifyInstance) {
       }),
     };
   });
+
+  // Agent installed in CT of the inventory (homelab#259), by the agent of their node. dryRun: the plan only (eligibility of
+  // each CT checked by the agent of its node, host each one would become), nothing is written.
+  app.post<{ Body: { cluster: string; vmids: number[]; dryRun?: boolean } }>(
+    '/api/settings/pve/install',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['cluster', 'vmids'],
+          additionalProperties: false,
+          properties: {
+            cluster: { type: 'string', maxLength: 64 },
+            vmids: { type: 'array', items: { type: 'integer', minimum: 100 }, minItems: 1, maxItems: 50 },
+            dryRun: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const targets = req.body.dryRun ? await planInstall(req.body.cluster, req.body.vmids) : await runInstall(req.body.cluster, req.body.vmids);
+        return { dryRun: !!req.body.dryRun, targets };
+      } catch (err) {
+        if (err instanceof PveInstallError) return reply.code(err.status).send({ error: err.message });
+        throw err;
+      }
+    },
+  );
 
   // The link of a host set aside when it broke: restored on the guest it matches now, or forgotten (pve.ts).
   app.post<{ Params: { id: string } }>('/api/hosts/:id/pve/restore', async (req, reply) => {

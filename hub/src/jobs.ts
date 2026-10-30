@@ -43,6 +43,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     modules: j.modules ?? null,
     backupJobName: j.backupJobName ?? null,
     method: j.method ?? null,
+    installTarget: j.installTarget ? { cluster: j.installTarget.cluster, vmid: j.installTarget.vmid, hostId: j.installTarget.hostId.toHexString() } : null,
     trigger: j.trigger,
     status: j.status,
     createdAt: j.createdAt,
@@ -70,6 +71,9 @@ export interface JobTarget {
   backupJobName?: string;
   // backup_install: how to install the client
   method?: 'apt' | 'docker';
+  // agent_install: what the agent runs (holds the enrollment code: only sent, never stored) and what the job is about
+  install?: { kind: 'lxc'; vmid: number; code: string; installCurl: boolean };
+  installTarget?: { cluster: string; vmid: number; hostId: ObjectId };
 }
 
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
@@ -85,6 +89,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     ...(target.setup ? { modules: target.setup.modules } : {}),
     ...(target.backupJob ? { backupJobId: new ObjectId(target.backupJob), backupJobName: target.backupJobName } : {}),
     ...(target.method ? { method: target.method } : {}),
+    ...(target.installTarget ? { installTarget: target.installTarget } : {}),
     trigger,
     status: 'running',
     createdAt: new Date(),
@@ -111,6 +116,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
       ...(target.setup ? { setup: target.setup } : {}),
       ...(target.backupJob ? { backupJob: target.backupJob } : {}),
       ...(target.method ? { method: target.method } : {}),
+      ...(target.install ? { install: target.install } : {}),
       ...(bin ? { sha256: bin.sha256 } : {}),
     })
   ) {

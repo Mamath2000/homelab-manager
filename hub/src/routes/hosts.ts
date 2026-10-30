@@ -45,7 +45,7 @@ const createHostBody = {
 
 // Hosts of the Tailscale access network (typically third parties) start unmanaged: every standard
 // option off, and not published to Home Assistant. Both stay editable afterwards.
-const UNMANAGED: SetupOverrides = Object.fromEntries(SETUP_OPTIONS.map((k) => [k, { mode: 'off' }]));
+export const UNMANAGED: SetupOverrides = Object.fromEntries(SETUP_OPTIONS.map((k) => [k, { mode: 'off' }]));
 
 // Instant commands of the UPS the UI offers; same list on the agent.
 const UPS_COMMANDS = ['beeper.enable', 'beeper.disable', 'beeper.mute', 'test.battery.start.quick'] as const;
@@ -96,7 +96,7 @@ function agentError(reply: { code: (n: number) => { send: (b: unknown) => unknow
 export const ENROLL_VALIDITY_MS = 24 * 3600 * 1000;
 
 // Single-use code of the install command; only its hash is stored.
-function newEnrollCode() {
+export function newEnrollCode() {
   let code = randomToken(24);
   // base64url: never start with a dash, which would read like an option on a command line
   while (code.startsWith('-')) code = randomToken(24);
