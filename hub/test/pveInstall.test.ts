@@ -50,3 +50,9 @@ test('check: curl installed by apt, other OS, agent already there', () => {
   assert.equal(r.relink, true);
   assert.equal(r.eligible, true);
 });
+
+test('static: a CT linked to a host whose agent was revoked can get the agent again', () => {
+  const linked = { ...ct, hostId: 'abc' as never };
+  assert.equal(staticEligibility(linked, carrier, false).eligible, true);
+  assert.equal(staticEligibility(linked, carrier, true).eligible, false);
+});

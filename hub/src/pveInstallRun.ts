@@ -16,6 +16,8 @@ const WATCH_MS = 15 * 60_000;
 
 const MAX_VMIDS = 50;
 
+export const hasAgent = (h: Pick<HostDoc, 'certFingerprint' | 'tokenHash'>) => !!(h.certFingerprint || h.tokenHash);
+
 // Plan of the installation in the CT asked for: eligibility of each one (inventory, then what the agent of its node finds
 // in the running ones), host that each would become. Reads only.
 export async function planInstall(clusterId: string, vmids: number[]): Promise<InstallTarget[]> {
@@ -32,7 +34,8 @@ export async function planInstall(clusterId: string, vmids: number[]): Promise<I
     const g = byVmid.get(vmid);
     if (!g) throw new PveInstallError(`CT ${vmid} introuvable dans l'inventaire`, 404);
     const carrier = carriers.get(g.node) ?? null;
-    const st = staticEligibility(g, carrier ? { capabilities: carrier.capabilities, online: isOnline(carrier._id.toHexString()) } : null);
+    const linked = g.hostId ? list.find((h) => h._id.toHexString() === g.hostId) : undefined;
+    const st = staticEligibility(g, carrier ? { capabilities: carrier.capabilities, online: isOnline(carrier._id.toHexString()) } : null, !!linked && hasAgent(linked));
     targets.set(vmid, {
       vmid,
       name: g.name,
@@ -40,7 +43,8 @@ export async function planInstall(clusterId: string, vmids: number[]): Promise<I
       eligible: st.eligible,
       reasons: st.reasons,
       mode: null,
-      hostName: g.name || `ct-${vmid}`,
+      hostName: linked ? linked.name : g.name || `ct-${vmid}`,
+      ...(linked ? { hostId: linked._id.toHexString() } : {}),
       siteId: carrier?.siteId ?? null,
       tags: carrier?.tags ?? [],
       installCurl: false,
@@ -71,6 +75,11 @@ export async function planInstall(clusterId: string, vmids: number[]): Promise<I
   // the host each one becomes
   for (const t of targets.values()) {
     if (!t.eligible) continue;
+    if (t.hostId) {
+      t.mode = 'reuse';
+      t.reasons.push(`l'hôte « ${t.hostName} » est réutilisé (agent révoqué ou non enrôlé)`);
+      continue;
+    }
     const same = list.filter((h) => h.name.toLowerCase() === t.hostName.toLowerCase());
     if (t.check?.relink && same.length === 1 && !same[0].pve) {
       t.mode = 'reuse';
@@ -96,7 +105,7 @@ export async function runInstall(clusterId: string, vmids: number[]): Promise<In
     const enroll = newEnrollCode();
     let hostId: ObjectId;
     if (t.mode === 'reuse') {
-      const h = list.find((x) => x.name.toLowerCase() === t.hostName.toLowerCase())!;
+      const h = (t.hostId ? list.find((x) => x._id.toHexString() === t.hostId) : list.find((x) => x.name.toLowerCase() === t.hostName.toLowerCase()))!;
       hostId = h._id;
       // the link with the cluster is made again from the MAC addresses the agent reports once enrolled
       await hosts.updateOne({ _id: hostId }, { $set: enroll.fields, $unset: { pve: '', pveLost: '' } });

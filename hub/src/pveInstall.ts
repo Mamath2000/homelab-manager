@@ -32,10 +32,12 @@ export interface GuestCheck {
 type Carrier = Pick<HostDoc, 'capabilities'> & { online: boolean };
 
 // Without any exec in the CT: the kind of guest, its state and the agent of its node.
-export function staticEligibility(g: Pick<GuestDoc, 'type' | 'status' | 'ambiguous' | 'hostId' | 'ostype'>, carrier: Carrier | null): InstallEligibility {
+// hostHasAgent: the host linked to the CT holds an agent (certificate or legacy token); a revoked or never enrolled host does not,
+// and the agent can be installed again for it.
+export function staticEligibility(g: Pick<GuestDoc, 'type' | 'status' | 'ambiguous' | 'hostId' | 'ostype'>, carrier: Carrier | null, hostHasAgent = !!g.hostId): InstallEligibility {
   const reasons: string[] = [];
   if (g.type !== 'lxc') reasons.push("seuls les CT sont pris en charge (pas les VM)");
-  if (g.hostId) reasons.push('déjà relié à un hôte');
+  if (g.hostId && hostHasAgent) reasons.push('déjà relié à un hôte avec agent');
   if (g.ambiguous) reasons.push('adresse MAC ambiguë : aucun hôte ne pourrait être relié');
   if (g.type === 'lxc' && g.status !== 'running') reasons.push("le CT n'est pas démarré");
   if (g.ostype === 'unmanaged') reasons.push('OS non reconnu par Proxmox VE (unmanaged)');
@@ -85,6 +87,8 @@ export interface InstallTarget {
   siteId: string | null;
   tags: string[];
   installCurl: boolean;
+  // the host linked to the CT that gets the agent again (revoked or not enrolled)
+  hostId?: string;
   // run only
   jobId?: string;
 }

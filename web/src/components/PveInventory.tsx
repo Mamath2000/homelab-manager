@@ -34,18 +34,21 @@ interface Installer {
 }
 
 function HostCell({ g, inst }: { g: Guest; inst?: Installer }) {
-  if (g.host) return <Link className="underline" to={`/hosts/${g.host.id}`}>{g.host.name}</Link>;
+  // the host of a CT whose agent was revoked (or never enrolled) is kept: the agent can be installed again for it
+  const revoked = !!g.host && !g.host.hasAgent;
+  const install = inst && g.install?.eligible && !g.installing && (
+    <Button size="sm" icon={Download} loading={inst.busy.has(g.vmid)} onClick={() => inst.install(g.vmid)}>{revoked ? "Réinstaller l'agent" : "Installer l'agent"}</Button>
+  );
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
-      <Badge tone="neutral">non géré</Badge>
+      {g.host ? <Link className="underline" to={`/hosts/${g.host.id}`}>{g.host.name}</Link> : <Badge tone="neutral">non géré</Badge>}
+      {revoked && <Badge tone="warn">agent révoqué</Badge>}
       {g.installing && <Badge tone="warn">installation…</Badge>}
-      {inst && g.install?.eligible && !g.installing && (
-        <Button size="sm" icon={Download} loading={inst.busy.has(g.vmid)} onClick={() => inst.install(g.vmid)}>Installer l'agent</Button>
-      )}
+      {install}
       {g.install && !g.install.eligible && g.type === 'lxc' && g.install.reasons.length > 0 && (
         <span className="text-xs text-muted" title={g.install.reasons.join(' · ')}>agent non installable : {g.install.reasons[0]}</span>
       )}
-      {g.ambiguous && <span className="text-xs text-amber-300" title="Une adresse MAC de cette VM / ce CT est aussi celle d'une autre VM / d'un autre CT : aucun hôte n'y est relié">MAC ambiguë</span>}
+      {!g.host && g.ambiguous && <span className="text-xs text-amber-300" title="Une adresse MAC de cette VM / ce CT est aussi celle d'une autre VM / d'un autre CT : aucun hôte n'y est relié">MAC ambiguë</span>}
     </span>
   );
 }

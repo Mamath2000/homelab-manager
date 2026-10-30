@@ -22,7 +22,7 @@ import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
 import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
 import { staticEligibility, PveInstallError } from '../pveInstall.js';
-import { planInstall, runInstall } from '../pveInstallRun.js';
+import { hasAgent, planInstall, runInstall } from '../pveInstallRun.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView, syncOffsiteAgent } from '../offsite.js';
@@ -387,8 +387,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
   app.get('/api/settings/pve/inventory', async () => {
     const s = await loadPveSettings();
     const all = await guests.find().sort({ node: 1, vmid: 1 }).toArray();
-    const list = await hosts.find({}, { projection: { name: 1, capabilities: 1, 'info.hostname': 1 } }).toArray();
+    const list = await hosts.find({}, { projection: { name: 1, capabilities: 1, 'info.hostname': 1, certFingerprint: 1, tokenHash: 1 } }).toArray();
     const names = new Map(list.map((h) => [h._id.toHexString(), h.name]));
+    const agentOf = new Map(list.map((h) => [h._id.toHexString(), hasAgent(h)]));
     const installing = new Set((await jobs.find({ action: 'agent_install', status: 'running' }, { projection: { installTarget: 1 } }).toArray()).map((j) => `${j.installTarget?.cluster}/${j.installTarget?.vmid}`));
     const carrierOf = (h?: (typeof list)[number] | null) => (h ? { capabilities: h.capabilities, online: isOnline(h._id.toHexString()) } : null);
     return {
@@ -409,13 +410,13 @@ export function registerBackupRoutes(app: FastifyInstance) {
           }),
           guests: mine.map((g) => ({
             installing: installing.has(`${c.id}/${g.vmid}`),
-            install: g.type === 'lxc' && !g.hostId ? staticEligibility(g, carrierOf(carriers.get(g.node))) : null,
+            install: g.type === 'lxc' && !(g.hostId && agentOf.get(g.hostId)) ? staticEligibility(g, carrierOf(carriers.get(g.node)), false) : null,
             vmid: g.vmid,
             type: g.type,
             name: g.name,
             node: g.node,
             status: g.status ?? 'unknown',
-            host: g.hostId ? { id: g.hostId, name: names.get(g.hostId) ?? '' } : null,
+            host: g.hostId ? { id: g.hostId, name: names.get(g.hostId) ?? '', hasAgent: !!agentOf.get(g.hostId) } : null,
             ambiguous: !!g.ambiguous,
             jobs: g.jobs.map((j) => ({ id: j.id, enabled: j.enabled, storage: j.storage, nextRun: j.nextRun, scheduleText: describeCalendar(j.schedule) })),
           })),

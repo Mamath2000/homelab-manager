@@ -1230,7 +1230,7 @@ export interface PveInventory {
     name: string;
     node: string;
     status: string;
-    host: { id: string; name: string } | null;
+    host: { id: string; name: string; hasAgent: boolean } | null;
     ambiguous: boolean;
     // agent installation (CT without host only): null for the others
     install: { eligible: boolean; reasons: string[] } | null;
