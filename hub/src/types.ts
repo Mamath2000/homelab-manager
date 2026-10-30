@@ -1109,7 +1109,7 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting', 'pbs-primary', 'pbs-offsite'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-reporting', 'pbs-primary', 'pbs-offsite', 'omada-controller'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
@@ -1174,9 +1174,28 @@ export interface PbsOffsiteRole {
   createdAt: Date;
 }
 
-export type RoleDoc = MqttBrokerRole | PveReportingRole | PbsPrimaryRole | PbsOffsiteRole;
+// omada-controller: the Open API of an Omada controller (one per site), reached at url with an application of the
+// controller in client mode (client_credentials). fingerprint: SHA-256 of its certificate, pinned (self-signed by
+// default); "": the system CAs.
+export interface OmadaControllerConfig {
+  url: string;
+  fingerprint: string;
+  clientId: string;
+  clientSecret: string;
+}
+
+export interface OmadaControllerRole {
+  _id: string;
+  type: 'omada-controller';
+  name: string;
+  carrier: RoleCarrier;
+  config: OmadaControllerConfig;
+  createdAt: Date;
+}
+
+export type RoleDoc = MqttBrokerRole | PveReportingRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole;
 // the ones of the roles collection
-export type StoredRoleDoc = MqttBrokerRole | PveReportingRole;
+export type StoredRoleDoc = MqttBrokerRole | PveReportingRole | OmadaControllerRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type Host, type HubRole, type HubRoleType, type MqttHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Host, type HubRole, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, roleStatus, roleTypeLabel } from '../lib/roles';
 import { stepStates } from '../lib/steps';
@@ -255,6 +255,227 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   );
 }
 
+interface OmadaForm {
+  name: string;
+  url: string;
+  fingerprint: string;
+  clientId: string;
+}
+
+const OMADA_URL_RE = /^https:\/\/[A-Za-z0-9.\-[\]:]+(:\d{1,5})?\/?$/;
+const FINGERPRINT_RE = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
+const normalizeFingerprint = (f: string) => {
+  const hex = f.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+  return hex.length === 64 ? hex.match(/../g)!.join(':') : f.trim().toUpperCase();
+};
+
+// Declares an Omada controller role, or edits one (choosing another host moves it, its settings kept). Four steps like
+// the broker: host, controller, application, test; typed by hand (address and application of the Open API), saving
+// needs a successful test and the client secret is never sent back. A self-signed certificate is pinned by its
+// fingerprint: the test offers the one the controller presents when it was refused.
+export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: hosts = [] } = useHosts();
+  const type = 'omada-controller' as const;
+  const [initialHost] = useState<string | null>(() => role?.carrier.id ?? null);
+  const [hostId, setHostId] = useState<string | null>(initialHost);
+  const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', url: role?.config.url ?? '', fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '' }));
+  const [form, setForm] = useState<OmadaForm>(initial);
+  const [secret, setSecret] = useState('');
+  const [busy, setBusy] = useState<'save' | 'test' | 'read' | null>(null);
+  const [test, setTest] = useState<CheckState>(null);
+  // fingerprint the controller presents, offered when its certificate was refused
+  const [presented, setPresented] = useState<string | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // any change makes the last test void
+  const set = (patch: Partial<OmadaForm>) => {
+    setForm({ ...form, ...patch });
+    setTest(null);
+    setPresented(null);
+    setReadError(null);
+  };
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || hostId !== initialHost || !!secret;
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  const host = hostId ? hosts.find((h) => h.id === hostId) : undefined;
+  const carrier = hostId ? { kind: 'host' as const, id: hostId } : undefined;
+  const config = () => ({ url: form.url.trim(), fingerprint: form.fingerprint.trim(), clientId: form.clientId.trim(), ...(secret ? { clientSecret: secret } : {}) });
+
+  const runTest = async () => {
+    setBusy('test');
+    setTest(null);
+    setPresented(null);
+    try {
+      const r = await api.testRole({ type, carrier, config: config(), ...(role ? { roleId: role.id } : {}) });
+      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: r.detail ?? form.url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      setPresented(r.ok ? null : r.fingerprint ?? null);
+    } catch (err) {
+      setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
+  // reads the certificate the controller presents: shown to the admin, pinned only on their click
+  const readFingerprint = async () => {
+    setBusy('read');
+    setPresented(null);
+    setReadError(null);
+    try {
+      setPresented((await api.roleFingerprint(form.url.trim())).fingerprint);
+    } catch (err) {
+      setReadError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const save = async () => {
+    setBusy('save');
+    try {
+      const moved = role && hostId !== role.carrier.id;
+      if (role) await api.updateRole(role.id, { ...(moved ? { carrier } : {}), name: form.name.trim(), config: config() });
+      else await api.createRole({ type, carrier, name: form.name.trim(), config: config() });
+      await qc.invalidateQueries({ queryKey: keys.roles });
+      toast.success(role ? `Rôle ${form.name.trim()} modifié` : `Rôle ${form.name.trim()} déclaré`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const nameOk = form.name.trim().length > 0;
+  const urlOk = OMADA_URL_RE.test(form.url.trim());
+  const fingerprintOk = !form.fingerprint.trim() || FINGERPRINT_RE.test(normalizeFingerprint(form.fingerprint));
+  const appOk = form.clientId.trim().length > 0 && (!!secret || !!role?.hasSecret);
+  const [carried, configured, application, tested] = stepStates([!!hostId, nameOk && urlOk && fingerprintOk, appOk, test?.level === 'ok']);
+
+  return (
+    <>
+      <Modal
+        open
+        onClose={requestClose}
+        wide="screen"
+        wider
+        fixed
+        title={role ? `Contrôleur Omada · ${role.name}` : 'Nouveau rôle Contrôleur Omada'}
+        footer={
+          <>
+            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || test?.level !== 'ok'} onClick={() => void save()}>Enregistrer</Button>
+          </>
+        }
+      >
+        <Steps fill>
+          <Step n={1} title="Hôte" state={carried} intro={role ? "Choisir un autre hôte déplace le rôle, ses paramètres gardés." : "L'hôte où tourne le contrôleur : le rôle apparaît sur sa fiche."}>
+            {!hosts.length ? (
+              <p className="text-sm text-muted">Aucun hôte.</p>
+            ) : (
+              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                {hosts.map((h) => {
+                  const on = hostId === h.id;
+                  return (
+                    <label key={h.id} className={clsx('block cursor-pointer rounded-md border px-3 py-2 hover:bg-raised/40', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line')}>
+                      <input type="radio" name="role-carrier" className="sr-only" checked={on} onChange={() => (setHostId(h.id), setTest(null))} />
+                      <div className="truncate font-medium text-zinc-100">{h.name}</div>
+                      <div className="text-xs text-muted">{h.info?.ips?.join(', ') || 'adresse inconnue'}</div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </Step>
+          <Step n={2} title="Contrôleur" state={configured} intro="L'adresse d'accès de l'Open API, affichée par le contrôleur (Platform Integration › Open API).">
+            <label className="block">
+              <span className={field}>Nom</span>
+              <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Omada Vouillé…" />
+            </label>
+            <label className="block">
+              <span className={field}>URL de l'Open API</span>
+              <input className="input font-mono text-xs" value={form.url} onChange={(e) => set({ url: e.target.value.trim() })} placeholder="https://192.168.0.8:8043" spellCheck={false} />
+              {form.url && !urlOk && <span className="mt-1 block text-xs text-amber-300">https://, sans chemin</span>}
+            </label>
+            <label className="block">
+              <span className={field}>Empreinte du certificat</span>
+              <input className="input font-mono text-xs" value={form.fingerprint} onChange={(e) => set({ fingerprint: e.target.value })} placeholder="SHA-256, AB:CD:…" spellCheck={false} />
+              <span className={clsx('mt-1 block text-xs', fingerprintOk ? 'text-muted' : 'text-amber-300')}>
+                {fingerprintOk ? 'Requise pour un certificat auto-signé (le cas par défaut). Vide : certificat vérifié par les autorités système.' : 'Empreinte invalide (SHA-256, 32 octets en hexadécimal)'}
+              </span>
+            </label>
+            <Button size="sm" variant="secondary" icon={Plug} loading={busy === 'read'} disabled={busy !== null || !urlOk} onClick={() => void readFingerprint()}>
+              Lire l'empreinte du contrôleur
+            </Button>
+            {readError && <p className="text-xs text-amber-300">{readError}</p>}
+            {presented && (
+              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+                <p className="text-amber-300">Le contrôleur présente ce certificat : à comparer à celui qu'il affiche avant d'épingler.</p>
+                <p className="font-mono break-all text-zinc-200">{presented}</p>
+                <Button size="sm" onClick={() => set({ fingerprint: presented })}>Épingler cette empreinte</Button>
+              </div>
+            )}
+          </Step>
+          <Step n={3} title="Application" state={application} intro="Une application de l'Open API du contrôleur, en mode client (Client Credentials), avec accès aux sites à lire.">
+            <label className="block">
+              <span className={field}>Client ID</span>
+              <input className="input font-mono text-xs" value={form.clientId} onChange={(e) => set({ clientId: e.target.value })} autoComplete="off" spellCheck={false} />
+            </label>
+            <label className="block">
+              <span className={field}>Client secret</span>
+              <input
+                className="input"
+                type="password"
+                value={secret}
+                onChange={(e) => (setSecret(e.target.value), setTest(null), setPresented(null))}
+                placeholder={role?.hasSecret ? '••••••••' : ''}
+                autoComplete="new-password"
+              />
+              {role?.hasSecret && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le secret enregistré</span>}
+            </label>
+          </Step>
+          <Step
+            n={4}
+            title="Test de connexion"
+            state={tested}
+            intro="Le hub demande un jeton au contrôleur avec cette application, puis la liste de ses sites ; l'enregistrement n'est possible qu'après un test réussi."
+            footer={
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !hostId || !nameOk || !urlOk || !fingerprintOk || !appOk} onClick={() => void runTest()}>
+                {test ? 'Tester à nouveau' : 'Tester la connexion'}
+              </Button>
+            }
+          >
+            <DetectedRows
+              rows={[
+                { label: 'Nom', value: form.name, empty: 'non renseigné' },
+                { label: 'Hôte', value: host?.name, empty: 'non choisi' },
+                { label: 'Open API', value: form.url, empty: 'non renseignée' },
+                { label: 'Empreinte', value: form.fingerprint && fingerprintOk ? normalizeFingerprint(form.fingerprint) : '', empty: 'aucune (autorités système)' },
+                { label: 'Client ID', value: form.clientId, empty: 'non renseigné' },
+              ]}
+            />
+            <CheckLine label="Contrôleur Omada" check={test} idle={form.url || undefined} />
+            {presented && (
+              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
+                <p className="text-amber-300">Le contrôleur présente ce certificat :</p>
+                <p className="font-mono break-all text-zinc-200">{presented}</p>
+                <Button size="sm" onClick={() => set({ fingerprint: presented })}>Épingler cette empreinte</Button>
+              </div>
+            )}
+          </Step>
+        </Steps>
+      </Modal>
+      <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
+        Les paramètres du rôle modifiés ne seront pas enregistrés.
+      </ConfirmModal>
+    </>
+  );
+}
+
 // Why a role of this type cannot be declared now (null: it can).
 function notNow(t: HubRoleType, roles: HubRole[]) {
   if (SINGLE_ROLES.includes(t) && roles.some((r) => r.type === t)) return 'déjà déclaré : un seul dans le homelab';
@@ -281,7 +502,11 @@ function TypePicker({ roles, onPick, onClose }: { roles: HubRole[]; onPick: (t: 
   );
 }
 
-type Editing = { type: 'mqtt-broker'; role: MqttHubRole | null } | { type: 'pve-reporting'; role: PveHubRole | null } | { type: 'pbs-primary' | 'pbs-offsite' };
+type Editing =
+  | { type: 'mqtt-broker'; role: MqttHubRole | null }
+  | { type: 'pve-reporting'; role: PveHubRole | null }
+  | { type: 'omada-controller'; role: OmadaHubRole | null }
+  | { type: 'pbs-primary' | 'pbs-offsite' };
 
 // Paramètres › Rôles: every role of the hub, declared, edited and removed here.
 export function RolesSettings() {
@@ -324,7 +549,7 @@ export function RolesSettings() {
     }
   };
   const edit = (r: HubRole) =>
-    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-reporting' ? { type: r.type, role: r } : { type: r.type });
+    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-reporting' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   const askRemove = (r: HubRole) => (r.type === 'pbs-primary' || r.type === 'pbs-offsite' ? setDisconnecting(r.type) : setRemoving(r));
@@ -342,7 +567,8 @@ export function RolesSettings() {
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
         Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
         reporting d'un cluster Proxmox VE relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
-        PBS hors site en copie chaque jour une sélection. Un rôle utilisé ne peut pas être supprimé, et l'hôte qui le porte non plus.
+        PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site. Un rôle utilisé ne peut pas être
+        supprimé, et l'hôte qui le porte non plus.
       </p>
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
@@ -407,7 +633,7 @@ export function RolesSettings() {
         <TypePicker
           roles={roles ?? []}
           onClose={() => setPicking(false)}
-          onPick={(t) => (setPicking(false), setEditing(t === 'mqtt-broker' ? { type: t, role: null } : t === 'pve-reporting' ? { type: t, role: null } : { type: t }))}
+          onPick={(t) => (setPicking(false), setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
         />
       )}
       {editing?.type === 'pbs-primary' && pbs && <PbsModal data={pbs} open onClose={() => (setEditing(null), void refresh())} />}
@@ -415,6 +641,7 @@ export function RolesSettings() {
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
+      {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-reporting' && (!editing.role || cluster) && (
         <ClusterModal
           key={editing.role?.id ?? 'new'}
@@ -429,6 +656,11 @@ export function RolesSettings() {
             Le hub ne relèvera plus <b>{removing.name}</b> : son jeton <code>{removing.account}</code> est révoqué par l’agent du nœud (ainsi que l’utilisateur s’il
             n’a plus de jeton), les liens de ses VM et CT avec les hôtes et le rattachement automatique de leurs sauvegardes sont retirés (les sauvegardes restent
             sur le PBS, orphelines).
+          </>
+        ) : removing?.type === 'omada-controller' ? (
+          <>
+            Le rôle <b>{removing.name}</b> est retiré du hub, qui oublie l'application et son secret. Rien n'est changé sur le contrôleur : l'application de sa
+            plateforme d'intégration reste à supprimer à la main.
           </>
         ) : (
           <>Le rôle <b>{removing?.name}</b> est retiré du hub : le broker n'est plus écouté.</>

@@ -6,10 +6,10 @@ import { authorize } from '../src/profiles.js';
 import { fromLegacy, newRoleId, pbsRoles, ROLE_DEFS, roleConflict } from '../src/roles.js';
 import { clusterOf, roleOf } from '../src/pve.js';
 import { roleView } from '../src/roleView.js';
-import { registerRoleRoutes } from '../src/routes/roles.js';
+import { configError, registerRoleRoutes, toConfig } from '../src/routes/roles.js';
 import { matchHaBroker, registerSettingsRoutes } from '../src/routes/settings.js';
 import type { HomeAssistantBridge } from '../src/homeassistant/bridge.js';
-import type { MqttBroker, MqttBrokerConfig, PbsRemoteSettings, PbsSettings, RoleDoc } from '../src/types.js';
+import type { MqttBroker, MqttBrokerConfig, OmadaControllerConfig, PbsRemoteSettings, PbsSettings, RoleDoc } from '../src/types.js';
 
 const broker = (name: string, hostId: ObjectId, port = 1883): RoleDoc => ({
   _id: newRoleId(name, () => false),
@@ -146,4 +146,75 @@ test('roles: the PBS of the backups are roles once connected, carried by the hos
   // one of each in the homelab
   assert.equal(roleConflict(list, 'pbs-primary', 'PBS principal', node, list[0].config), 'un rôle PBS principal est déjà déclaré');
   assert.equal(ROLE_DEFS['pbs-primary'].carrierError({ capabilities: ['pbs'] }, pbs), null);
+});
+
+const omada = (name: string, hostId: ObjectId, url = 'https://192.168.0.8:8043'): RoleDoc => ({
+  _id: newRoleId(name, () => false),
+  type: 'omada-controller',
+  name,
+  carrier: { kind: 'host', id: hostId },
+  config: { url, fingerprint: '', clientId: 'app', clientSecret: 'SECRET-OMADA' },
+  createdAt: new Date(),
+});
+const omadaConfig = (url: string): OmadaControllerConfig => ({ url, fingerprint: '', clientId: 'app', clientSecret: 's' });
+
+test('roles: an Omada controller per site, the same address twice on a host is the same controller', () => {
+  const a = new ObjectId();
+  const b = new ObjectId();
+  const list = [omada('Vouille', a)];
+  // typed by hand: any host carries it
+  assert.equal(ROLE_DEFS['omada-controller'].carrierError({}, omadaConfig('https://x:8043')), null);
+  assert.equal(roleConflict(list, 'omada-controller', 'Jarsay', a, omadaConfig('https://192.168.1.8:8043')), null);
+  assert.equal(roleConflict(list, 'omada-controller', 'Jarsay', b, omadaConfig('https://192.168.0.8:8043')), null);
+  assert.equal(roleConflict(list, 'omada-controller', 'Autre', a, omadaConfig('HTTPS://192.168.0.8:8043/')), 'ce rôle est déjà déclaré sur cet hôte');
+  assert.equal(roleConflict(list, 'omada-controller', 'vouille', b, omadaConfig('https://192.168.1.8:8043')), 'un rôle de ce type porte déjà ce nom');
+  // a broker of the same name is another type
+  assert.equal(roleConflict(list, 'mqtt-broker', 'Vouille', a, config(1883)), null);
+});
+
+test('roles: the client secret of an Omada controller is never shown', () => {
+  const v = roleView(omada('Vouille', new ObjectId()), { name: 'ct-omada', info: undefined });
+  assert.ok(!JSON.stringify(v).includes('SECRET'), JSON.stringify(v));
+  assert.equal('clientSecret' in v.config, false);
+  assert.equal(v.hasSecret, true);
+  assert.equal(v.account, 'app');
+  assert.equal(v.url, 'https://192.168.0.8:8043');
+  assert.equal(v.status, null);
+});
+
+test('roles: the config of each declared type, its fields only', () => {
+  const fp = 'ab'.repeat(32);
+  assert.equal(configError('mqtt-broker', { scheme: 'mqtt', port: 1883, username: '' }), null);
+  assert.equal(configError('mqtt-broker', { scheme: 'mqtt', port: 1883 }), 'username manquant');
+  assert.ok(configError('mqtt-broker', { scheme: 'mqtt', port: 1883, username: '', clientId: 'app' }));
+  assert.equal(configError('omada-controller', { url: 'https://192.168.0.8:8043', clientId: 'app', clientSecret: 's', fingerprint: fp }), null);
+  // absent secret: the stored one
+  assert.equal(configError('omada-controller', { url: 'https://omada.lan', clientId: 'app' }), null);
+  assert.equal(configError('omada-controller', { url: 'https://omada.lan' }), 'clientId manquant');
+  assert.equal(configError('omada-controller', { url: 'https://omada.lan', clientId: '  ' }), 'client_id manquant');
+  assert.ok(configError('omada-controller', { url: 'http://omada.lan:8088', clientId: 'app' }));
+  assert.ok(configError('omada-controller', { url: 'https://omada.lan/openapi', clientId: 'app' }));
+  assert.ok(configError('omada-controller', { url: 'https://omada.lan', clientId: 'app', fingerprint: 'abcd' }));
+  assert.ok(configError('omada-controller', { url: 'https://omada.lan', clientId: 'app', port: 8043 }));
+  assert.deepEqual(toConfig('omada-controller', { url: ' https://omada.lan:8043/ ', clientId: ' app ', fingerprint: fp }, 's'), {
+    url: 'https://omada.lan:8043',
+    fingerprint: 'AB:'.repeat(31) + 'AB',
+    clientId: 'app',
+    clientSecret: 's',
+  });
+});
+
+test('roles: bad Omada bodies are refused before any handler reads the database', async () => {
+  const a = Fastify();
+  registerRoleRoutes(a);
+  const carrier = { kind: 'host', id: new ObjectId().toHexString() };
+  const post = (url: string, payload: unknown) => a.inject({ method: 'POST', url, payload });
+  const ok = { url: 'https://192.168.0.8:8043', clientId: 'app', clientSecret: 's' };
+  assert.equal((await post('/api/roles', { type: 'omada-controller', carrier, name: 'v', config: { ...ok, url: 'ftp://x' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'omada-controller', carrier, name: 'v', config: { ...ok, scheme: 'mqtt' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'omada-controller', carrier, name: 'v', config: { ...ok, clientSecret: '' } })).statusCode, 400);
+  assert.equal((await post('/api/roles', { type: 'omada-controller', carrier, name: 'v', config: { ...ok, clientSecret: 'x'.repeat(257) } })).statusCode, 400);
+  assert.equal((await post('/api/roles/test', { type: 'omada-controller', carrier, config: { ...ok, fingerprint: 'zz' } })).statusCode, 400);
+  // no secret typed and none stored: nothing is tried
+  assert.deepEqual((await post('/api/roles/test', { type: 'omada-controller', carrier, config: { url: ok.url, clientId: 'app' } })).json(), { ok: false, error: 'client_secret manquant' });
 });

@@ -1323,7 +1323,7 @@ export interface EquipmentInput {
 // A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
 // hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
 // role in use is not deleted (absent from the roles of a host).
-export type HubRoleType = 'mqtt-broker' | 'pve-reporting' | 'pbs-primary' | 'pbs-offsite';
+export type HubRoleType = 'mqtt-broker' | 'pve-reporting' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller';
 interface HubRoleBase {
   id: string;
   name: string;
@@ -1340,18 +1340,28 @@ export type HubRole =
   | (HubRoleBase & { type: 'pve-reporting'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
   // kept in the settings of the backups (pbsSettings, pbsRemoteSettings), roles once connected
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
-  | (HubRoleBase & { type: 'pbs-offsite'; config: { url: string; tailscaleUrl: string; store: string; startTime: string } });
+  | (HubRoleBase & { type: 'pbs-offsite'; config: { url: string; tailscaleUrl: string; store: string; startTime: string } })
+  // fingerprint: SHA-256 of its certificate, pinned ("": the system CAs)
+  | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-reporting' }>;
+export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 
-// a broker (the reporting of a cluster has its own routes, see createPveToken); config.password: absent keeps the stored
-// one, "" clears it; carrier on an edit: moves the role
-export interface HubRoleInput {
-  type: 'mqtt-broker';
-  carrier?: { kind: 'host'; id: string };
-  name: string;
-  config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string };
+// a broker or an Omada controller (the reporting of a cluster has its own routes, see createPveToken); the secret
+// (password, clientSecret): absent keeps the stored one, "" clears it (a controller needs one); carrier on an edit:
+// moves the role
+export type HubRoleInput = { carrier?: { kind: 'host'; id: string }; name: string } & (
+  | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string } }
+  | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string } }
+);
+// what a test answers: detail, what the service said; fingerprint (Omada), the one its certificate presents when it was
+// refused (to pin it)
+export interface HubRoleTest {
+  ok: boolean;
+  error?: string;
+  detail?: string;
+  fingerprint?: string;
 }
 
 export const api = {
@@ -1409,9 +1419,10 @@ export const api = {
   // roles of the hub (hub/src/routes/roles.ts)
   roles: () => request<{ roles: HubRole[] }>('GET', '/api/roles'),
   createRole: (r: HubRoleInput) => request<{ id: string }>('POST', '/api/roles', r),
-  updateRole: (id: string, r: Omit<HubRoleInput, 'type'>) => request<{ id: string }>('PUT', `/api/roles/${id}`, r),
+  updateRole: (id: string, r: Pick<HubRoleInput, 'carrier' | 'name' | 'config'>) => request<{ id: string }>('PUT', `/api/roles/${id}`, r),
   deleteRole: (id: string) => request<void>('DELETE', `/api/roles/${id}`),
-  testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<{ ok: boolean; error?: string }>('POST', '/api/roles/test', r),
+  roleFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/roles/fingerprint', { url }),
+  testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),

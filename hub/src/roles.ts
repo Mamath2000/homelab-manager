@@ -5,7 +5,7 @@ import type { CarrierKind, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSet
 export type RoleOf<T extends RoleType> = Extract<RoleDoc, { type: T }>;
 
 // Roles of the hub: what the hub can do through something of the homelab (an MQTT broker the probes listen to, the
-// reporting of a Proxmox VE cluster, the PBS of the backups and the one that copies them). The administrator declares them in the settings of
+// reporting of a Proxmox VE cluster, the PBS of the backups and the one that copies them, the Open API of an Omada controller). The administrator declares them in the settings of
 // the hub, each carried by a host; never an agent alone: the agents report candidates (agent/roles.go). Without a
 // role, what consumes it is off.
 
@@ -25,6 +25,8 @@ interface RoleTypeDef<R extends RoleDoc = RoleDoc> {
   // what uses the role (shown with it, and a role in use is not deleted)
   uses(id: string): Promise<string[]>;
 }
+
+const sameUrl = (a: string, b: string) => a.replace(/\/+$/, '').toLowerCase() === b.replace(/\/+$/, '').toLowerCase();
 
 export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
   'mqtt-broker': {
@@ -67,7 +69,18 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     same: () => true,
     uses: async () => [],
   },
+  // typed by hand (address and application of the Open API); its host only tells where the controller runs
+  'omada-controller': {
+    label: 'Contrôleur Omada',
+    carriers: ['host'],
+    single: false,
+    carrierError: () => null,
+    same: (a, b) => sameUrl(a.url, b.url),
+    // nothing yet: the equipment source of the controller (#231) will be its use
+    uses: async () => [],
+  },
 };
+
 
 // The definition of the type of a role, for code that handles any role.
 export const defOf = (type: RoleType) => ROLE_DEFS[type] as unknown as RoleTypeDef;

@@ -1,8 +1,8 @@
 import { Agent, request } from 'node:https';
 import { connect, type TLSSocket } from 'node:tls';
 
-// JSON GET on the API of a Proxmox server (PBS, PVE) whose certificate is pinned by its SHA-256
-// fingerprint: self-signed by default, so the chain and host name are not checked, only the
+// JSON GET on the API of a Proxmox server (PBS, PVE), or of an Omada controller (omada.ts), whose certificate is pinned
+// by its SHA-256 fingerprint: self-signed by default, so the chain and host name are not checked, only the
 // fingerprint, and before anything (the token) is written. Without a fingerprint, the system CAs.
 
 export const SERVER_URL_RE = /^https:\/\/[A-Za-z0-9.\-[\]:]+(:\d{1,5})?\/?$/;
@@ -14,6 +14,8 @@ export function normalizeFingerprint(f: string) {
 }
 
 export class ApiError extends Error {}
+// the server does not present the certificate pinned
+export class FingerprintError extends ApiError {}
 
 export interface ApiConn {
   url: string;
@@ -36,12 +38,12 @@ function tlsSocket(url: URL, defaultPort: number, timeoutMs: number, unreachable
   });
 }
 
-async function pinnedSocket(url: URL, c: ApiConn, pinned: string, timeoutMs: number) {
+async function pinnedSocket(url: URL, c: TlsServer, pinned: string, timeoutMs: number) {
   const socket = await tlsSocket(url, c.defaultPort, timeoutMs, c.unreachable);
   const fp = socket.getPeerCertificate()?.fingerprint256?.toUpperCase();
   if (fp !== pinned) {
     socket.destroy();
-    throw new ApiError(`empreinte du certificat inattendue : ${fp ?? 'aucun certificat'}`);
+    throw new FingerprintError(`empreinte du certificat inattendue : ${fp ?? 'aucun certificat'}`);
   }
   return socket;
 }
@@ -59,17 +61,34 @@ export function apiGet<T>(c: ApiConn, path: string, timeoutMs = 20_000): Promise
 
 // <method> /api2/json<path> with a JSON body (none for GET / DELETE), answers its data member.
 export async function apiRequest<T>(c: ApiConn, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeoutMs = 20_000): Promise<T> {
-  const url = new URL(`/api2/json${path}`, c.url);
+  const res = await tlsRequest(c, method, new URL(`/api2/json${path}`, c.url), { Authorization: c.authorization }, body, timeoutMs);
+  if (res.status === 401) throw new ApiError(c.denied[401]);
+  if (res.status === 403) throw new ApiError(c.denied[403]);
+  // the PBS / PVE explain a refused write in the message of the answer
+  if (res.status !== 200) throw new ApiError(`HTTP ${res.status} sur ${method} ${path}${errorMessage(res.body)}`);
+  try {
+    return (JSON.parse(res.body) as { data: T }).data;
+  } catch {
+    throw new ApiError(`réponse illisible sur ${path}`);
+  }
+}
+
+// A server reached with its certificate pinned (or the system CAs without a fingerprint).
+export type TlsServer = Pick<ApiConn, 'url' | 'fingerprint' | 'defaultPort' | 'unreachable'>;
+
+// <method> on url (a JSON body, none for GET / DELETE), answers the status and the body whatever the status. The
+// errors of the connection keep the one of Node as cause (its code tells a refused certificate).
+export async function tlsRequest(c: TlsServer, method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: URL, headers: Record<string, string>, body?: unknown, timeoutMs = 20_000) {
   const pinned = c.fingerprint ? normalizeFingerprint(c.fingerprint) : '';
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const socket = pinned ? await pinnedSocket(url, c, pinned, timeoutMs) : null;
-  return new Promise<T>((resolve, reject) => {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
     const req = request(
       url,
       {
         method,
         headers: {
-          Authorization: c.authorization,
+          ...headers,
           Accept: 'application/json',
           Connection: 'close',
           ...(payload !== undefined ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
@@ -85,21 +104,11 @@ export async function apiRequest<T>(c: ApiConn, method: 'GET' | 'POST' | 'PUT' |
           body += d;
           if (body.length > 32 << 20) req.destroy(new ApiError('réponse trop volumineuse'));
         });
-        res.on('end', () => {
-          if (res.statusCode === 401) return reject(new ApiError(c.denied[401]));
-          if (res.statusCode === 403) return reject(new ApiError(c.denied[403]));
-          // the PBS / PVE explain a refused write in the message of the answer
-          if (res.statusCode !== 200) return reject(new ApiError(`HTTP ${res.statusCode} sur ${method} ${path}${errorMessage(body)}`));
-          try {
-            resolve((JSON.parse(body) as { data: T }).data);
-          } catch {
-            reject(new ApiError(`réponse illisible sur ${path}`));
-          }
-        });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
       },
     );
     req.on('timeout', () => req.destroy(new ApiError(c.unreachable)));
-    req.on('error', (err) => reject(err instanceof ApiError ? err : new ApiError(err.message)));
+    req.on('error', (err) => reject(err instanceof ApiError ? err : new ApiError(err.message, { cause: err })));
     req.end(payload);
   });
 }

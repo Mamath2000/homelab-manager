@@ -57,5 +57,10 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
         summary: c.agentReport?.day ? `datastore ${c.store}, dernière série ${c.agentReport.day}` : c.store ? `datastore ${c.store}` : null,
       };
     }
+    // nothing reads it yet (#231): no state
+    case 'omada-controller': {
+      const { clientSecret, ...config } = r.config;
+      return { ...base, config, hasSecret: !!clientSecret, url: r.config.url, account: r.config.clientId, status: null, summary: null };
+    }
   }
 }
