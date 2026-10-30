@@ -35,7 +35,7 @@ interface Installer {
 
 function HostCell({ g, inst }: { g: Guest; inst?: Installer }) {
   // the host of a CT whose agent was revoked (or never enrolled) is kept: the agent can be installed again for it
-  const revoked = !!g.host && !g.host.hasAgent;
+  const revoked = g.host?.hasAgent === false;
   const install = inst && g.install?.eligible && !g.installing && (
     <Button size="sm" icon={Download} loading={inst.busy.has(g.vmid)} onClick={() => inst.install(g.vmid)}>{revoked ? "Réinstaller l'agent" : "Installer l'agent"}</Button>
   );
