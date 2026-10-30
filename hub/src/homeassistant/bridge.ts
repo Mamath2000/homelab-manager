@@ -17,6 +17,12 @@ import { build, deviceOf, NODE_ID, parseDiscoveryTopic, type Command } from './d
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
 
+let running: HomeAssistantBridge | null = null;
+
+// Connection of the bridge when it uses this broker role (null: it does not, or it is disabled): shown on the role.
+export const bridgeStatusOf = (roleId: string) =>
+  running?.state && running.state !== 'disabled' && running.brokerRoleId === roleId ? { state: running.state, error: running.error } : null;
+
 // Publishes the homelab to Home Assistant over MQTT and runs the commands it sends back.
 export class HomeAssistantBridge {
   private client: MqttClient | null = null;
@@ -36,7 +42,13 @@ export class HomeAssistantBridge {
   error: string | null = null;
   lastPublishAt: Date | null = null;
 
-  constructor(private log: FastifyBaseLogger) {}
+  constructor(private log: FastifyBaseLogger) {
+    running = this;
+  }
+
+  get brokerRoleId() {
+    return this.settings?.brokerRoleId ?? null;
+  }
 
   status() {
     return { state: this.state, error: this.error, devices: this.known.size, lastPublishAt: this.lastPublishAt };

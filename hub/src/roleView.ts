@@ -1,8 +1,14 @@
+import { bridgeStatusOf } from './homeassistant/bridge.js';
 import { probeEngine, roleUrl } from './probes.js';
 import type { HostDoc, RoleDoc } from './types.js';
 
 // A role as the UI shows it, whatever its type (never a secret): the address the hub reaches, the account it uses, the
 // state of the connection and what it gives (summary). host: its carrier (null when unknown).
+// a broker is used by the probes (pool) and by the Home Assistant bridge, each with its own connection: the worst one shows
+const RANK = { connected: 0, connecting: 1, error: 2 } as const;
+const worst = <T extends { state: keyof typeof RANK }>(list: (T | null)[]) =>
+  list.reduce<T | null>((a, b) => (!b ? a : !a || RANK[b.state] > RANK[a.state] ? b : a), null);
+
 export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null) {
   const base = { id: r._id, type: r.type, name: r.name, carrier: { kind: r.carrier.kind, id: r.carrier.id.toHexString(), name: host?.name ?? '' } };
   switch (r.type) {
@@ -14,7 +20,7 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
         hasSecret: !!password,
         url: roleUrl(r.config, host?.info?.ips),
         account: r.config.username,
-        status: probeEngine()?.pool.status(r._id) ?? null,
+        status: worst([probeEngine()?.pool.status(r._id) ?? null, bridgeStatusOf(r._id)]),
         summary: null,
       };
     }
