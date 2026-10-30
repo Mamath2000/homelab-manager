@@ -127,6 +127,12 @@ func (s *session) hello(ctx context.Context) error {
 		if _, err := exec.LookPath("pct"); err == nil {
 			caps = append(caps, "pve_guest_check", "agent_install:lxc")
 		}
+		// the other nodes of the cluster, by ssh
+		if _, err := exec.LookPath("ssh"); err == nil {
+			if cluster, _, _ := pveClusterStatus(ctx, pveExec); cluster != "" {
+				caps = append(caps, "agent_install:node")
+			}
+		}
 		// the hub does not offer a node of a cluster it already follows: the cluster name rides along
 		if cluster, _, _ := pveClusterStatus(ctx, pveExec); cluster != "" {
 			caps = append(caps, "pve_cluster:"+cluster)
@@ -332,6 +338,11 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		if r, err = checkPveGuests(ctx, pveExec, in.PveVmids, s.hub); err == nil {
 			out.Result = map[string][]PveGuestCheck{"guests": r}
 		}
+	case "pve_node_check":
+		var r []PveGuestCheck
+		if r, err = checkPveNodes(ctx, runStreamingIn, installTarget(pveExec), in.PveNodes, s.hub); err == nil {
+			out.Result = map[string][]PveGuestCheck{"nodes": r}
+		}
 	case "pve_token":
 		cctx, cancel := context.WithTimeout(ctx, time.Minute)
 		var r *PveTokenResult
@@ -469,7 +480,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 	case "docker_up", "docker_stop", "docker_restart", "docker_update":
 		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
 	case "agent_install":
-		code, err = installAgentInLxc(jctx, runStreamingIn, fetchInstaller(s.http, s.hub), in.Install, emit)
+		code, err = installAgent(jctx, runStreamingIn, fetchInstaller(s.http, s.hub), installTarget(pveExec), in.Install, emit)
 	case "backup_install":
 		code, err = installBackupClient(jctx, in.Method, emit)
 		// the hub learns the new mode from the capabilities

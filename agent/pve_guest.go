@@ -16,8 +16,9 @@ import (
 
 // PveGuestCheck is the state of one CT: what decides whether the agent can be installed in it.
 type PveGuestCheck struct {
-	VMID           int    `json:"vmid"`
-	Status         string `json:"status"` // running | stopped | unknown
+	VMID           int    `json:"vmid,omitempty"` // CT
+	Node           string `json:"node,omitempty"` // node (pve_node_check)
+	Status         string `json:"status"`         // running | stopped | unknown
 	OSID           string `json:"osId,omitempty"`
 	IDLike         string `json:"idLike,omitempty"`
 	VersionID      string `json:"versionId,omitempty"`

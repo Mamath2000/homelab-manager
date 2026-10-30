@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -20,10 +19,11 @@ import (
 
 // AgentInstallSpec is what the hub asks for.
 type AgentInstallSpec struct {
-	Kind        string `json:"kind"` // lxc
-	VMID        int    `json:"vmid"`
+	Kind        string `json:"kind"`           // lxc | node
+	VMID        int    `json:"vmid,omitempty"` // lxc: the CT of this node
+	Node        string `json:"node,omitempty"` // node: another node of the cluster, reached by SSH
 	Code        string `json:"code"`
-	InstallCurl bool   `json:"installCurl,omitempty"` // apt-get install curl first, in a CT that has none
+	InstallCurl bool   `json:"installCurl,omitempty"` // apt-get install curl first, where there is none
 }
 
 const agentInstallTimeout = 10 * time.Minute
@@ -37,11 +37,17 @@ func validateAgentInstall(s *AgentInstallSpec) error {
 	if s == nil {
 		return fmt.Errorf("missing install spec")
 	}
-	if s.Kind != "lxc" {
+	switch s.Kind {
+	case "lxc":
+		if s.VMID < 100 || s.VMID > 999999999 {
+			return fmt.Errorf("invalid CT id %d", s.VMID)
+		}
+	case "node":
+		if !pveNodeRe.MatchString(s.Node) {
+			return fmt.Errorf("invalid node name")
+		}
+	default:
 		return fmt.Errorf("unsupported install target %q", s.Kind)
-	}
-	if s.VMID < 100 || s.VMID > 999999999 {
-		return fmt.Errorf("invalid CT id %d", s.VMID)
 	}
 	if !agentCodeRe.MatchString(s.Code) {
 		return fmt.Errorf("invalid enrollment code")
@@ -49,32 +55,47 @@ func validateAgentInstall(s *AgentInstallSpec) error {
 	return nil
 }
 
-// installAgentInLxc: fetch is the installer of the hub; run executes the (fixed) pct command lines.
-func installAgentInLxc(ctx context.Context, run streamIn, fetch func(context.Context) ([]byte, error), s *AgentInstallSpec, emit func(string)) (int, error) {
+// installCurlScript runs where the agent goes, when it has no curl (fed on stdin: nothing to quote for pct or ssh)
+const installCurlScript = "command -v curl >/dev/null 2>&1 || { apt-get update -q && apt-get install -y -q curl; }\n"
+
+// installAgent: fetch is the installer of the hub; target says how to run a command in the CT (pct exec) or on the other node
+// (ssh): fixed command lines, what is run travels on stdin.
+func installAgent(ctx context.Context, run streamIn, fetch func(context.Context) ([]byte, error), target func(context.Context, *AgentInstallSpec) (string, []string, string, error), s *AgentInstallSpec, emit func(string)) (int, error) {
 	if err := validateAgentInstall(s); err != nil {
 		return -1, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, agentInstallTimeout)
 	defer cancel()
 	// the code must not show up in the journal whatever the installer prints
-	safe := func(d string) { emit(strings.ReplaceAll(d, s.Code, "***")) }
-	vmid := strconv.Itoa(s.VMID)
-
+	var out strings.Builder
+	safe := func(d string) {
+		d = strings.ReplaceAll(d, s.Code, "***")
+		out.WriteString(d)
+		emit(d)
+	}
+	name, prefix, label, err := target(ctx, s)
+	if err != nil {
+		return -1, err
+	}
 	script, err := fetch(ctx)
 	if err != nil {
 		return -1, fmt.Errorf("installer of the hub: %w", err)
 	}
+	args := func(more ...string) []string { return append(append([]string{}, prefix...), more...) }
 	if s.InstallCurl {
-		safe("installing curl in CT " + vmid + "...\n")
-		code, err := run(ctx, nil, nil, safe, "pct", "exec", vmid, "--", "env", "DEBIAN_FRONTEND=noninteractive", "sh", "-c",
-			"command -v curl >/dev/null 2>&1 || { apt-get update -q && apt-get install -y -q curl; }")
+		safe("installing curl in " + label + "...\n")
+		code, err := run(ctx, nil, strings.NewReader(installCurlScript), safe, name, args("env", "DEBIAN_FRONTEND=noninteractive", "sh", "-s")...)
 		if err != nil || code != 0 {
-			return code, fmt.Errorf("curl could not be installed in CT %s", vmid)
+			return code, fmt.Errorf("curl could not be installed in %s", label)
 		}
 	}
-	safe("installing the agent in CT " + vmid + "...\n")
+	safe("installing the agent in " + label + "...\n")
 	in := strings.NewReader("HLM_ENROLL_CODE=" + s.Code + "; export HLM_ENROLL_CODE\n" + string(script))
-	return run(ctx, nil, in, safe, "pct", "exec", vmid, "--", "sh", "-s")
+	code, err := run(ctx, nil, in, safe, name, args("sh", "-s")...)
+	if code != 0 && strings.Contains(out.String(), "Host key verification failed") {
+		return code, fmt.Errorf("host key of %s unknown: run « pvecm updatecerts » on that node", s.Node)
+	}
+	return code, err
 }
 
 // fetchInstaller downloads install.sh from the hub of this agent.

@@ -123,7 +123,7 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | refresh
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | refresh
 	Tail  int    `json:"tail,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`
@@ -149,6 +149,8 @@ type Inbound struct {
 	Pve *PveTokenSpec `json:"pve,omitempty"`
 	// pve_guest_check: ids of the CT of this node to inspect (read-only)
 	PveVmids []int `json:"pveVmids,omitempty"`
+	// pve_node_check: the other nodes of the cluster to inspect through ssh (read-only)
+	PveNodes []string `json:"pveNodes,omitempty"`
 	// agent_install: install the agent in a CT of this node (agent_install.go)
 	Install *AgentInstallSpec `json:"install,omitempty"`
 	// offsite_sync: the copy to this secondary PBS (offsite.go)
