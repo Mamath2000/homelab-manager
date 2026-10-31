@@ -173,3 +173,18 @@ test('source: only a ping can be measured from another host, never from the host
   assert.ok(sourceError(from, { type: 'tcp', host: 'x', port: 1 }));
   assert.ok(sourceError(from, { type: 'ping', host: 'x' }, { kind: 'host', id: hostId }));
 });
+
+for (const [order, headers] of [['Transfer-Encoding first', 'Transfer-Encoding: chunked\r\nContent-Length: 2'], ['Content-Length first', 'Content-Length: 2\r\nTransfer-Encoding: chunked']] as const) {
+  test(`http: an answer with both Content-Length and Transfer-Encoding still counts (routers, ${order})`, async () => {
+    const server = createServer((socket) => {
+      socket.once('data', () => socket.end(`HTTP/1.1 200 OK\r\n${headers}\r\n\r\n2\r\nok\r\n0\r\n\r\n`));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      assert.equal((await checkHttp(`http://127.0.0.1:${port}/`, {}, 2000)).state, 'up');
+    } finally {
+      await close(server);
+    }
+  });
+}

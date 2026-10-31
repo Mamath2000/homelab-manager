@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Globe, Pencil, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { Activity, Globe, Pencil, Play, Plug, Plus, Radio, Save, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeMeasure, type ProbeTarget, type ProbeType } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { elapsed } from '../lib/format';
@@ -232,6 +232,48 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
   );
 }
 
+const TYPE_ICONS: Record<ProbeType, LucideIcon> = { mqtt: Radio, ping: Activity, tcp: Plug, http: Globe };
+
+interface OptionItem {
+  value: string;
+  label: string;
+  detail?: string;
+  off?: boolean;
+  warn?: boolean;
+}
+
+// Choice among a few items, as rows (a filter above ten of them)
+function OptionList({ label, value, onChange, items, hint, search }: { label: string; value: string; onChange: (v: string) => void; items: OptionItem[]; hint?: string; search?: boolean }) {
+  const [q, setQ] = useState('');
+  const shown = q.trim() ? items.filter((i) => `${i.label} ${i.detail ?? ''}`.toLowerCase().includes(q.trim().toLowerCase())) : items;
+  return (
+    <fieldset className="flex min-h-0 flex-col gap-1.5">
+      <legend className={field}>{label}</legend>
+      {search && items.length > 8 && <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrer…" aria-label="Filtrer" />}
+      <div className="flex max-h-72 min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1" role="radiogroup" aria-label={label}>
+        {shown.map((i) => {
+          const on = i.value === value;
+          return (
+            <button
+              key={i.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => onChange(i.value)}
+              className={clsx('flex shrink-0 flex-col rounded-md border px-3 py-2 text-left transition-colors', on ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-line bg-raised/40 hover:border-zinc-600 hover:bg-raised', i.off && !on && 'opacity-60')}
+            >
+              <span className={clsx('text-sm font-medium', on ? 'text-emerald-300' : i.warn ? 'text-amber-300' : 'text-zinc-200')}>{i.label}</span>
+              {i.detail && <span className="font-mono text-xs text-muted">{i.detail}</span>}
+            </button>
+          );
+        })}
+        {!shown.length && <p className="text-xs text-muted">Aucun résultat.</p>}
+      </div>
+      {hint && <p className="text-xs text-muted">{hint}</p>}
+    </fieldset>
+  );
+}
+
 interface Form {
   name: string;
   type: ProbeType;
@@ -363,18 +405,19 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
     }
   };
 
-  const [typeState, targetState, optionsState, testState] = stepStates([nameOk, !!target, !!target && optionsOk, test?.level === 'ok']);
+  const sourceOk = form.type !== 'ping' || !form.sourceHostId || !!hosts?.some((h) => h.id === form.sourceHostId);
+  const originName = form.type === 'ping' && form.sourceHostId ? (hosts?.find((h) => h.id === form.sourceHostId)?.name ?? 'la source') : 'le hub';
+  const [typeState, originState, targetState, testState] = stepStates([nameOk, sourceOk, !!target, !!target && optionsOk && test?.level === 'ok']);
   const stacks = owner.kind === 'host' ? (owner.host.docker?.stacks ?? []) : null;
   // sources: agents able to ping, never the host the probe is attached to; suggestions of address: equipments and hosts with an IP
   const sources = (hosts ?? []).filter((h) => h.capabilities.includes('ping') && !(owner.kind === 'host' && h.id === owner.host.id));
   const addresses = [
-    ...(equipments ?? []).flatMap((e) => (e.ip ? [{ kind: 'equipment', name: e.name, ip: e.ip }] : [])),
+    ...(equipments ?? []).flatMap((e) => (e.ip ? [{ kind: 'equipment', id: e.id, name: e.name, ip: e.ip }] : [])),
     ...(hosts ?? []).flatMap((h) => {
       const ip = lanAddress(h.info?.ips);
-      return ip ? [{ kind: 'host', name: h.name, ip }] : [];
+      return ip ? [{ kind: 'host', id: h.id, name: h.name, ip }] : [];
     }),
   ];
-  const hint = TYPES.find((t) => t.id === form.type)?.hint;
 
   return (
     <>
@@ -388,7 +431,7 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
         footer={
           <>
             <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
-            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !nameOk || !target || !optionsOk || (!!probe && !dirty)} onClick={() => void save()}>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !nameOk || !sourceOk || !target || !optionsOk || (!!probe && !dirty)} onClick={() => void save()}>
               {probe ? 'Enregistrer' : 'Ajouter la sonde'}
             </Button>
           </>
@@ -402,24 +445,48 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
             </label>
             <fieldset className="space-y-1.5">
               <legend className={field}>Type</legend>
-              <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Type de sonde">
-                {TYPES.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={form.type === t.id}
-                    onClick={() => set({ type: t.id })}
-                    className={`h-10 rounded-md border px-3 text-sm md:h-8 ${form.type === t.id ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300' : 'border-line bg-raised text-zinc-300 hover:bg-zinc-800'}`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Type de sonde">
+                {TYPES.map((t) => {
+                  const Icon = TYPE_ICONS[t.id];
+                  const on = form.type === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => set({ type: t.id })}
+                      className={clsx('flex min-h-24 flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-colors', on ? 'border-emerald-500/60 bg-emerald-500/10 ring-1 ring-emerald-500/30' : 'border-line bg-raised/40 hover:border-zinc-600 hover:bg-raised')}
+                    >
+                      <span className={clsx('flex items-center gap-2 text-sm font-medium', on ? 'text-emerald-300' : 'text-zinc-200')}>
+                        <Icon className="h-5 w-5" aria-hidden />
+                        {t.label}
+                      </span>
+                      <span className="text-xs text-muted">{t.short}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-xs text-muted">{hint}</p>
             </fieldset>
           </Step>
-          <Step n={2} title="Cible" state={targetState} intro="Ce que le hub mesure.">
+          <Step n={2} title="Origine" state={originState} intro="D'où la mesure est faite.">
+            {form.type === 'ping' ? (
+              <OptionList
+                label="Mesuré depuis"
+                value={form.sourceHostId}
+                onChange={(v) => set({ sourceHostId: v })}
+                items={[
+                  { value: '', label: 'Le hub', detail: 'Mesure locale, sans agent' },
+                  ...(form.sourceHostId && !hosts?.some((h) => h.id === form.sourceHostId) ? [{ value: form.sourceHostId, label: 'Source supprimée', detail: 'À choisir', warn: true }] : []),
+                  ...sources.map((h) => ({ value: h.id, label: h.name, detail: `${lanAddress(h.info?.ips) || 'agent'}${h.online ? '' : ' · hors ligne'}`, off: !h.online })),
+                ]}
+                hint="Hôtes dont l'agent sait mesurer un ping (mise à jour de l'agent requise sinon)."
+              />
+            ) : (
+              <p className="rounded-md border border-line bg-raised/40 px-3 py-2 text-sm text-zinc-300">Le hub<span className="mt-0.5 block text-xs text-muted">Seule une sonde ping peut être mesurée depuis un hôte avec agent.</span></p>
+            )}
+          </Step>
+          <Step n={3} title="Cible" state={targetState} intro="Ce qui est mesuré.">
             {form.type === 'mqtt' && (
               <>
                 <label className="block">
@@ -447,29 +514,22 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
               </>
             )}
             {form.type === 'ping' && (
-              <label className="block">
-                <span className={field}>Mesuré depuis</span>
-                <select className="input" value={form.sourceHostId} onChange={(e) => set({ sourceHostId: e.target.value })}>
-                  <option value="">Le hub</option>
-                  {form.sourceHostId && !hosts?.some((h) => h.id === form.sourceHostId) && <option value={form.sourceHostId}>Source supprimée : à choisir</option>}
-                  {sources.map((h) => (
-                    <option key={h.id} value={h.id}>{h.name}{h.online ? '' : ' (hors ligne)'}</option>
-                  ))}
-                </select>
-                <span className="mt-1 block text-xs text-muted">Hôtes dont l'agent sait mesurer un ping (mise à jour de l'agent requise sinon).</span>
-              </label>
+              <OptionList
+                label="Hôte ou équipement"
+                value={form.host}
+                onChange={(v) => set({ host: v })}
+                search
+                items={[
+                  ...(form.host && !addresses.some((a) => a.ip === form.host) ? [{ value: form.host, label: 'Adresse enregistrée', detail: form.host, warn: true }] : []),
+                  ...addresses.filter((a) => !(a.kind === 'host' && a.id === form.sourceHostId)).map((a) => ({ value: a.ip, label: a.name, detail: `${a.ip} · ${a.kind === 'host' ? 'hôte' : 'équipement'}` })),
+                ]}
+                hint="Les hôtes et équipements qui ont une adresse IP."
+              />
             )}
-            {(form.type === 'ping' || form.type === 'tcp') && (
+            {form.type === 'tcp' && (
               <label className="block">
                 <span className={field}>Adresse</span>
-                <input className="input font-mono text-xs" list={form.type === 'ping' ? 'probe-addresses' : undefined} value={form.host} onChange={(e) => set({ host: e.target.value })} placeholder="192.168.20.253" spellCheck={false} />
-                {form.type === 'ping' && (
-                  <datalist id="probe-addresses">
-                    {addresses.map((a) => (
-                      <option key={`${a.kind}-${a.ip}-${a.name}`} value={a.ip}>{a.name}</option>
-                    ))}
-                  </datalist>
-                )}
+                <input className="input font-mono text-xs" value={form.host} onChange={(e) => set({ host: e.target.value })} placeholder="192.168.20.253" spellCheck={false} />
               </label>
             )}
             {form.type === 'tcp' && (
@@ -499,7 +559,17 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
               </>
             )}
           </Step>
-          <Step n={3} title="Options" state={optionsState} intro="Facultatif, modifiable ensuite.">
+          <Step
+            n={4}
+            title="Options et test"
+            state={testState}
+            intro={`Réglages facultatifs, puis une mesure immédiate depuis ${originName}, rien n'est enregistré. Une sonde peut être ajoutée sans test, par exemple pour un service éteint.`}
+            footer={
+              <Button className="w-full" variant={testState === 'active' ? 'primary' : 'secondary'} icon={Play} loading={busy === 'test'} disabled={busy !== null || !target || !optionsOk} onClick={() => void runTest()}>
+                {test ? 'Tester à nouveau' : 'Tester la sonde'}
+              </Button>
+            }
+          >
             {stacks && (
               <label className="block">
                 <span className={field}>Stack Docker</span>
@@ -526,19 +596,6 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
               <input className="input" inputMode="numeric" value={form.retries} onChange={(e) => set({ retries: e.target.value })} />
             </label>
             {!optionsOk && <p className="text-xs text-amber-400">Intervalle de 10 à 3600 s, délai de 1 à 60 s et pas plus long que l'intervalle, 0 à 3 tentatives.</p>}
-            <p className="text-xs text-muted">Exécutée depuis : le hub (seul choix pour l'instant).</p>
-          </Step>
-          <Step
-            n={4}
-            title="Test"
-            state={testState}
-            intro="Mesure immédiate depuis le hub, rien n'est enregistré. Une sonde peut être ajoutée sans test, par exemple pour un service éteint."
-            footer={
-              <Button className="w-full" variant={testState === 'active' ? 'primary' : 'secondary'} icon={Play} loading={busy === 'test'} disabled={busy !== null || !target || !optionsOk} onClick={() => void runTest()}>
-                {test ? 'Tester à nouveau' : 'Tester la sonde'}
-              </Button>
-            }
-          >
             <CheckLine label="État de la sonde" check={test} idle={target ? targetText(target) : undefined} />
           </Step>
         </Steps>

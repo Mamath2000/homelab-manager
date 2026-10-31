@@ -50,10 +50,10 @@ interface HttpAnswer {
   body: string;
 }
 
-function httpGet(url: URL, o: HttpOptions, timeoutMs: number): Promise<HttpAnswer> {
+function httpGet(url: URL, o: HttpOptions, timeoutMs: number, lenient = false): Promise<HttpAnswer> {
   return new Promise((resolve, reject) => {
     const request = url.protocol === 'https:' ? httpsRequest : httpRequest;
-    const req = request(url, { method: 'GET', timeout: timeoutMs, rejectUnauthorized: !o.insecure, headers: { 'user-agent': 'homelab-manager-probe', accept: '*/*' } }, (res) => {
+    const req = request(url, { method: 'GET', timeout: timeoutMs, rejectUnauthorized: !o.insecure, insecureHTTPParser: lenient, headers: { 'user-agent': 'homelab-manager-probe', accept: '*/*' } }, (res) => {
       const chunks: Buffer[] = [];
       let size = 0;
       const answer = () => resolve({ status: res.statusCode ?? 0, location: res.headers.location, body: Buffer.concat(chunks).toString('utf8') });
@@ -77,12 +77,24 @@ function httpGet(url: URL, o: HttpOptions, timeoutMs: number): Promise<HttpAnswe
   });
 }
 
+// Some web interfaces (routers) answer with both Content-Length and Transfer-Encoding, which the strict parser of Node
+// refuses: a service that answers is up, so the same request is sent again with the tolerant parser.
+async function httpGetLenient(url: URL, o: HttpOptions, timeoutMs: number): Promise<HttpAnswer> {
+  try {
+    return await httpGet(url, o, timeoutMs);
+  } catch (err) {
+    // the code depends on the order of the headers, the message does not
+    if (!/Content-Length can't be present with Transfer-Encoding|Transfer-Encoding can't be present with Content-Length/.test((err as Error).message)) throw err;
+    return httpGet(url, o, timeoutMs, true);
+  }
+}
+
 export async function checkHttp(rawUrl: string, o: HttpOptions, timeoutMs: number): Promise<Measure> {
   const t0 = performance.now();
   try {
     let url = new URL(rawUrl);
     for (let hops = 0; ; hops++) {
-      const res = await httpGet(url, o, timeoutMs);
+      const res = await httpGetLenient(url, o, timeoutMs);
       if (res.status >= 300 && res.status < 400 && res.location && hops < MAX_REDIRECTS && o.status !== res.status) {
         url = new URL(res.location, url);
         if (url.protocol !== 'http:' && url.protocol !== 'https:') return down('redirection vers un protocole non pris en charge');
