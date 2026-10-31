@@ -40,9 +40,14 @@ func execPing(ctx context.Context, args []string) (string, int, error) {
 	return string(out), 0, err
 }
 
-func pingHost(ctx context.Context, host string, timeoutSec int, run pingRunner) (*PingResult, error) {
+// from: address of this host the ping leaves with (ping -I), so that it enters the tunnel whose local networks
+// hold it (a host with several addresses, homelab#261); empty: the one the routing picks.
+func pingHost(ctx context.Context, host, from string, timeoutSec int, run pingRunner) (*PingResult, error) {
 	if !pingHostRe.MatchString(host) {
 		return &PingResult{Message: "adresse invalide"}, nil
+	}
+	if from != "" && !pingHostRe.MatchString(from) {
+		return &PingResult{Message: "adresse source invalide"}, nil
 	}
 	if timeoutSec < 1 {
 		timeoutSec = 1
@@ -50,7 +55,11 @@ func pingHost(ctx context.Context, host string, timeoutSec int, run pingRunner) 
 	cctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec+2)*time.Second)
 	defer cancel()
 	t0 := time.Now()
-	out, exit, err := run(cctx, []string{"-c", "1", "-W", strconv.Itoa(timeoutSec), host})
+	args := []string{"-c", "1", "-W", strconv.Itoa(timeoutSec)}
+	if from != "" {
+		args = append(args, "-I", from)
+	}
+	out, exit, err := run(cctx, append(args, host))
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return nil, fmt.Errorf("commande ping absente de l'hôte")
@@ -69,6 +78,9 @@ func pingHost(ctx context.Context, host string, timeoutSec int, run pingRunner) 
 			}
 		}
 		return &PingResult{Up: true, LatencyMs: max(ms, 1)}, nil
+	}
+	if from != "" && (strings.Contains(low, "cannot assign requested address") || strings.Contains(low, "bind:")) {
+		return nil, fmt.Errorf("adresse source %s absente de l'hôte", from)
 	}
 	if strings.Contains(low, "bad address") || strings.Contains(low, "unknown host") || strings.Contains(low, "name or service not known") || strings.Contains(low, "temporary failure") {
 		return &PingResult{Message: "nom introuvable"}, nil

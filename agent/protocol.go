@@ -127,6 +127,7 @@ type Inbound struct {
 	Tail  int    `json:"tail,omitempty"`
 	// ping: address to ping and delay of the measure (ping.go)
 	Host       string `json:"host,omitempty"`
+	From       string `json:"from,omitempty"` // source address (ping -I), capability ping_from
 	TimeoutSec int    `json:"timeoutSec,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`

@@ -45,7 +45,7 @@ func platformCapabilities() []string {
 	caps = append(caps, "job_replay")
 	caps = append(caps, "health")
 	// ping measured from this host for the probes of the hub (ping.go)
-	caps = append(caps, "ping")
+	caps = append(caps, "ping", "ping_from")
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
@@ -353,7 +353,7 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		}
 		cancel()
 	case "ping":
-		out.Result, err = pingHost(ctx, in.Host, in.TimeoutSec, execPing)
+		out.Result, err = pingHost(ctx, in.Host, in.From, in.TimeoutSec, execPing)
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
 		out.Result = map[string][]string{"scopes": s.refresh(ctx, in.Scopes)}
