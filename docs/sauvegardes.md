@@ -59,7 +59,10 @@ Le chemin `{store}` est développé sur chaque datastore présent au moment de l
 Un secret exposé (journal, copie d'écran, transcription…) se remplace sans passer par le PBS :
 
 - **Un hôte** : fiche de l'hôte, **Accès PBS**, bouton **Régénérer le jeton** (à côté du jeton enregistré).
-- **Tous les hôtes** : Paramètres › Rôles, ligne du **PBS principal**, bouton à clé **Régénérer les jetons des hôtes**. La confirmation liste les jetons régénérés et, à part, les hôtes hors ligne, qui sont ignorés.
+- **Plusieurs hôtes** : dans la liste des **Hôtes**, cocher les hôtes voulus puis **Régénérer les jetons PBS** dans la barre de sélection (profil admin).
+- **Tous les hôtes** : Paramètres › Rôles, ligne du **PBS principal**, bouton à clé **Régénérer les jetons des hôtes**.
+
+Pour ces deux actions groupées, la confirmation liste les jetons qui seront régénérés et, à part, les hôtes hors ligne, qui sont ignorés. Les hôtes sélectionnés sans jeton ne sont pas concernés.
 
 L'agent du PBS supprime le jeton puis le recrée **sous le même identifiant**, avec les mêmes droits. Comme l'identifiant ne change pas, l'hôte reste propriétaire de ses groupes. Le nouveau secret part aussitôt vers l'agent de l'hôte (`backup_sync`), et il n'est jamais affiché ni écrit dans un journal. L'ancien secret cesse de fonctionner tout de suite. Pour cette raison, la régénération est refusée si l'**hôte est hors ligne** : son ancien jeton serait révoqué avant qu'il ait reçu le nouveau. Si l'hôte se déconnecte entre-temps, il reçoit la nouvelle définition à sa reconnexion, car le hash de la définition inclut le secret.
 

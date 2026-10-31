@@ -1647,8 +1647,10 @@ export const api = {
   dropCachedNextcloud: (hostId: string) => request<void>('DELETE', `/api/hosts/${hostId}/backup-cache/nextcloud`),
   createPbsCredential: (hostId: string, tokenId: string) => request<PbsTokenOutcome & { tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential`, { tokenId }),
   rotatePbsCredential: (hostId: string) => request<{ ok: true; tokenId: string }>('POST', `/api/hosts/${hostId}/pbs-credential/rotate`),
-  pbsRotatePreview: () => request<{ hosts: PbsRotateTarget[] }>('GET', '/api/settings/pbs/rotate'),
-  rotatePbsCredentials: () => request<PbsRotateReport>('POST', '/api/settings/pbs/rotate'),
+  // hostIds: a selection of the list of the hosts (default: every host holding a token)
+  pbsRotatePreview: (hostIds?: string[]) =>
+    request<{ hosts: PbsRotateTarget[] }>('GET', `/api/settings/pbs/rotate${hostIds ? `?hostIds=${hostIds.map(encodeURIComponent).join(',')}` : ''}`),
+  rotatePbsCredentials: (hostIds?: string[]) => request<PbsRotateReport>('POST', '/api/settings/pbs/rotate', hostIds ? { hostIds } : {}),
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
   omadaInventory: () => request<{ controllers: OmadaController[] }>('GET', '/api/settings/omada'),
   pollOmada: () => request<{ ok: true }>('POST', '/api/settings/omada/poll'),

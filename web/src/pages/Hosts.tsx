@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Home, Plus, RefreshCw, Search, Server, Settings, Wand2 } from 'lucide-react';
+import { ArrowUpCircle, Brush, CircleArrowUp, Container, DatabaseBackup, Home, KeyRound, Plus, RefreshCw, Search, Server, Settings, Wand2 } from 'lucide-react';
 import { hostBackups } from '../lib/backups';
 import { filterHosts, hostFilters, parseHostFilter } from '../lib/hostFilters';
 import { AddHostModal } from '../components/AddHostModal';
@@ -11,6 +11,7 @@ import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { BulkHaDetailModal } from '../components/BulkHaDetailModal';
 import { BulkSetupModal } from '../components/SetupPanel';
+import { PbsRotateModal } from '../components/PbsRotate';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { HostsOverview } from '../components/HostsOverview';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, ResponsiveList, Spinner, StatusDot, Tag } from '../components/ui';
@@ -40,6 +41,7 @@ export function Hosts() {
   const [allAgentsModal, setAllAgentsModal] = useState(false);
   const [setupModal, setSetupModal] = useState(false);
   const [haModal, setHaModal] = useState(false);
+  const [rotateModal, setRotateModal] = useState(false);
   const [cleanupHost, setCleanupHost] = useState<Host | null>(null);
   const [optionsHostId, setOptionsHostId] = useState<string | null>(null);
   const bulk = useRunBulk();
@@ -142,6 +144,7 @@ export function Hosts() {
           {features.standardisation && visibleSelected.some((h) => h.capabilities.includes('setup')) && (
             <Button size="sm" icon={Wand2} onClick={() => setSetupModal(true)}>Standardisation</Button>
           )}
+          {canManage && <Button size="sm" icon={KeyRound} onClick={() => setRotateModal(true)}>Régénérer les jetons PBS</Button>}
           <button className="ml-auto text-xs text-muted hover:text-zinc-200" onClick={() => setSelected(new Set())}>Désélectionner</button>
         </div>
       )}
@@ -386,6 +389,7 @@ export function Hosts() {
       </ConfirmModal>
       <BulkHaDetailModal hosts={visibleSelected} open={haModal} onClose={() => setHaModal(false)} />
       <BulkSetupModal hosts={visibleSelected} open={setupModal} onClose={() => setSetupModal(false)} />
+      {rotateModal && <PbsRotateModal open hostIds={visibleSelected.map((h) => h.id)} onClose={() => setRotateModal(false)} />}
       <AddHostModal open={adding} onClose={() => setAdding(false)} />
       <UpdateAgentsModal hosts={visibleSelected.filter((h) => h.agentOutdated)} open={agentModal} onClose={() => setAgentModal(false)} />
       <UpdateAgentsModal hosts={outdatedAgents} open={allAgentsModal} onClose={() => setAllAgentsModal(false)} />
