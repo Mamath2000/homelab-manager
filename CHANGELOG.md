@@ -33,6 +33,8 @@ le canal `dev`.
   réseaux locaux pingue (depuis cette adresse, `ping -I`, agent 1.0.8, capacité `ping_from`) une machine des réseaux distants,
   candidats filtrés par adresse, candidat unique choisi seul, non configurée = hors service, tunnel désactivé = en pause.
   Voir [Sondes VPN](docs/sondes.md#sondes-vpn). (homelab#261)
+- **Rôle porté par un équipement** (contrôleur Omada dédié) : ses rôles s'affichent sur la fiche de l'équipement, et sa
+  suppression est refusée tant qu'il en porte, comme pour un hôte. Voir [Rôles du hub](docs/roles.md). (homelab#257)
 - Équipements et tableau de bord, graphiques, menu de gauche et volet flottant revus ; corrections d'affichage mobile et tablette
   (homelab#239 à #249).
 
