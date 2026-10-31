@@ -5,7 +5,7 @@ import type { HostFilter } from '../lib/hostFilters';
 import { inColumn, kindColumns, overview, siteRows, todoItems, worstTone, type Part } from '../lib/hostOverview';
 import { toneBadge, toneBg } from '../lib/status';
 
-const label = 'text-[11px] font-medium uppercase tracking-wider text-muted';
+export const label = 'text-[11px] font-medium uppercase tracking-wider text-muted';
 
 function SegBar({ parts, name }: { parts: Part[]; name: string }) {
   const shown = parts.filter((p) => p.n > 0);
@@ -16,7 +16,7 @@ function SegBar({ parts, name }: { parts: Part[]; name: string }) {
   );
 }
 
-function Health({ parts, ok, total, unit, children }: { parts: Part[]; ok: number; total: number; unit: string; children?: React.ReactNode }) {
+export function Health({ parts, ok, total, unit, children }: { parts: Part[]; ok: number; total: number; unit: string; children?: React.ReactNode }) {
   return (
     <div className="min-w-0">
       <div className="text-xl font-semibold leading-tight tabular-nums text-zinc-100 max-md:text-[17px]">

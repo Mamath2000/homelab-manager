@@ -3,7 +3,9 @@ import { Link, useSearchParams } from 'react-router';
 import { MapPin, Plus, Router, Search } from 'lucide-react';
 import { EquipmentModal, ProbeSquares } from '../components/Equipment';
 import { EQUIPMENT_TYPES, SOURCE_LABELS, TYPE_LABELS, equipmentTone } from '../lib/equipment';
+import { EquipmentsOverview } from '../components/EquipmentsOverview';
 import { HeaderTitle } from '../components/HeaderSlot';
+import { equipmentTodo, inSite } from '../lib/equipmentOverview';
 import { Badge, Button, Empty, Panel, ResponsiveList, Spinner, StatusDot } from '../components/ui';
 import type { Equipment, EquipmentSource, SiteConfig, StatusView } from '../lib/api';
 import { useMe } from '../lib/auth';
@@ -84,19 +86,30 @@ export function Equipments() {
   const q = params.get('q') ?? '';
   const source = params.get('source') ?? '';
   const type = params.get('type') ?? '';
-  const setParam = (k: string, v: string) => {
+  const site = params.get('site') ?? '';
+  const filter = params.get('f') ?? '';
+  const setMany = (values: Record<string, string>) => {
     const next = new URLSearchParams(params);
-    if (v) next.set(k, v);
-    else next.delete(k);
+    for (const [k, v] of Object.entries(values)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
     setParams(next, { replace: true });
   };
+  const setParam = (k: string, v: string) => setMany({ [k]: v });
 
   const list = useMemo(() => {
     const words = q.trim().toLowerCase();
+    const todo = equipmentTodo.find((t) => t.key === filter);
     return (equipments ?? []).filter(
-      (e) => (!source || e.source === source) && (!type || e.type === type) && (!words || `${e.name} ${e.ip ?? ''}`.toLowerCase().includes(words)),
+      (e) =>
+        (!source || e.source === source) &&
+        (!type || e.type === type) &&
+        (!site || inSite(e, site, sites ?? [])) &&
+        (!todo || todo.test(e, status)) &&
+        (!words || `${e.name} ${e.ip ?? ''}`.toLowerCase().includes(words)),
     );
-  }, [equipments, q, source, type]);
+  }, [equipments, q, source, type, site, filter, sites, status]);
   // the source filter only matters once an automatic source exists
   const sources = [...new Set((equipments ?? []).map((e) => e.source))] as EquipmentSource[];
 
@@ -116,6 +129,18 @@ export function Equipments() {
         </div>
       ) : (
         <>
+          <EquipmentsOverview
+            equipments={equipments}
+            sites={sites ?? []}
+            status={status}
+            filter={filter}
+            site={site}
+            type={type}
+            onFilter={(key) => setParam('f', key === filter ? '' : key)}
+            onSite={(id) => setParam('site', id)}
+            onType={(key) => setParam('type', key)}
+            onSiteType={(id, key) => setMany({ site: id, type: key })}
+          />
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <div className="relative w-full max-w-xs">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -125,6 +150,13 @@ export function Equipments() {
               <option value="">Tous les types</option>
               {EQUIPMENT_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
             </select>
+            {!!sites?.length && (
+              <select className="input h-9 w-auto py-0" value={site} onChange={(e) => setParam('site', e.target.value)} aria-label="Site">
+                <option value="">Tous les sites</option>
+                {sites.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                <option value="none">Sans site</option>
+              </select>
+            )}
             {(sources.length > 1 || source) && (
               <select className="input h-9 w-auto py-0" value={source} onChange={(e) => setParam('source', e.target.value)} aria-label="Source">
                 <option value="">Toutes les sources</option>
