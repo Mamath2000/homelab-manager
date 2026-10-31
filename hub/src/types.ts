@@ -1254,12 +1254,28 @@ export interface OmadaDevice {
   lastSeen?: number;
 }
 
+// A site-to-site IPsec VPN of an Omada site (homelab#261): the networks it carries, as configured (CIDR, network
+// address), and whether the controller has security associations for it in and out (tunnel established).
+export interface OmadaVpn {
+  id: string; // id of the configuration
+  siteId: string; // Omada site
+  name: string;
+  enabled: boolean;
+  remoteIp?: string;
+  localSubnets: string[];
+  remoteSubnets: string[];
+  established: boolean;
+}
+
 export interface OmadaStateDoc {
   _id: string;
   omadacId?: string;
   sites: { id: string; name: string }[];
   siteMap: Record<string, string>;
   devices: OmadaDevice[];
+  // absent: never read (a controller polled before #261, or the VPN routes failed: vpnError)
+  vpns?: OmadaVpn[];
+  vpnError?: string;
   polledAt?: Date;
   pollError?: string;
 }

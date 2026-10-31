@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { MapPin, RefreshCw } from 'lucide-react';
-import { api, type OmadaController, type OmadaDeviceView, type OmadaSiteView } from '../lib/api';
+import { AlertTriangle, ArrowRight, MapPin, RefreshCw, Waypoints } from 'lucide-react';
+import { api, type OmadaController, type OmadaDeviceView, type OmadaSiteView, type OmadaVpnView } from '../lib/api';
 import { TYPE_LABELS } from '../lib/equipment';
 import { dateTime, timeAgo } from '../lib/format';
 import { useSites } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Panel, Spinner } from './ui';
+import { Badge, Button, Panel, Spinner, StatusDot } from './ui';
 
 // Paramètres › Omada: the devices of each controller (omada-controller role), site by site. An Omada site is matched to a
 // site of the homelab; a device is an equipment of the hub once created from it, or linked to a manual equipment (a hub
@@ -74,6 +74,57 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
         )}
       </span>
     </li>
+  );
+}
+
+// What a VPN still needs from the admin, shown as a warning in front of it ('' : nothing)
+function vpnTodo(v: OmadaVpnView) {
+  if (!v.gateway) return 'Aucune passerelle Omada sur ce site';
+  if (!v.gateway.equipment) return `Intervention manuelle requise : créer ou relier l'équipement de la passerelle ${v.gateway.name} (site ${v.siteName} ci-dessous)`;
+  return '';
+}
+
+const subnetList = (l: string[]) => (l.length ? l.join(', ') : '—');
+
+function VpnRow({ v }: { v: OmadaVpnView }) {
+  const todo = vpnTodo(v);
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-sm first:border-t-0">
+      <span title={!v.enabled ? 'désactivé dans Omada' : v.established ? 'tunnel établi (associations de sécurité en entrée et en sortie)' : 'tunnel non établi'}>
+        <StatusDot tone={!v.enabled ? 'neutral' : v.established ? 'ok' : 'bad'} />
+      </span>
+      <span className="font-medium text-zinc-100">{v.name}</span>
+      {!v.enabled && <Badge tone="neutral">désactivé</Badge>}
+      <span className="text-xs text-muted">
+        {v.siteName}
+        {v.gateway && <> · {v.gateway.equipment ? <Link className="underline" to={`/equipments/${v.gateway.equipment.id}`}>{v.gateway.equipment.name}</Link> : v.gateway.name}</>}
+      </span>
+      <span className="inline-flex flex-wrap items-center gap-1.5 font-mono text-xs text-zinc-400">
+        {subnetList(v.localSubnets)}
+        <ArrowRight className="h-3.5 w-3.5 text-muted" aria-label="vers" />
+        {subnetList(v.remoteSubnets)}
+      </span>
+      {todo && (
+        <span className="ml-auto text-amber-400" title={todo} aria-label={todo}>
+          <AlertTriangle className="h-4 w-4" />
+        </span>
+      )}
+    </li>
+  );
+}
+
+// The site-to-site VPNs of every controller, before the devices: each one is carried by the gateway of its site.
+function VpnPanel({ controllers }: { controllers: OmadaController[] }) {
+  const vpns = controllers.flatMap((c) => c.vpns);
+  const errors = controllers.filter((c) => c.vpnError);
+  if (!vpns.length && !errors.length) return null;
+  return (
+    <Panel title="VPN site à site" icon={Waypoints} bodyClassName="">
+      {errors.map((c) => (
+        <p key={c.id} className="mx-4 my-3 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-200">Lecture des VPN de {c.name} en échec : {c.vpnError}</p>
+      ))}
+      <ul>{vpns.map((v) => <VpnRow key={`${v.siteId}-${v.id}`} v={v} />)}</ul>
+    </Panel>
   );
 }
 
@@ -150,6 +201,7 @@ export function OmadaInventory() {
         équipement manuel existant (proposé s'il a la même adresse IP ou le même nom) : sa présence vient alors du contrôleur. Le contrôleur se déclare dans{' '}
         <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
       </p>
+      {data && <VpnPanel controllers={data.controllers} />}
       {data?.controllers.map((c) => <ControllerPanel key={c.id} c={c} />)}
     </div>
   );

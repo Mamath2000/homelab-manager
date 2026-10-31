@@ -1234,11 +1234,27 @@ export interface OmadaSiteView {
   homelabSiteId: string | null;
   devices: OmadaDeviceView[];
 }
+// Site-to-site IPsec VPN of an Omada site, with the gateway that carries it (homelab#261)
+export interface OmadaVpnView {
+  id: string;
+  siteId: string;
+  siteName: string;
+  name: string;
+  enabled: boolean;
+  remoteIp?: string;
+  localSubnets: string[];
+  remoteSubnets: string[];
+  // security associations in and out: the tunnel is up for the controller
+  established: boolean;
+  gateway: { mac: string; name: string; equipment: { id: string; name: string } | null } | null;
+}
 export interface OmadaController {
   id: string;
   name: string;
   polledAt: string | null;
   pollError: string | null;
+  vpnError: string | null;
+  vpns: OmadaVpnView[];
   sites: OmadaSiteView[];
 }
 

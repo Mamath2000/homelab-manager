@@ -1,5 +1,6 @@
 import { ApiError, fetchFingerprint, FingerprintError, tlsRequest, type TlsServer } from './tlsApi.js';
-import type { EquipmentType, OmadaControllerConfig, OmadaDevice } from './types.js';
+import { networkOf } from './subnet.js';
+import type { EquipmentType, OmadaControllerConfig, OmadaDevice, OmadaVpn } from './types.js';
 
 // Open API of an Omada controller (omada-controller role, roles.ts), as tools/omada/client.mjs of the homelab uses it:
 // the id of the controller from /api/info, a token in client mode (POST /openapi/authorize/token?grant_type=
@@ -110,6 +111,44 @@ export interface OmadaSnapshot {
   omadacId: string;
   sites: { id: string; name: string }[];
   devices: OmadaDevice[];
+  vpns?: OmadaVpn[];
+  vpnError?: string;
+}
+
+const subnets = (list: unknown) => (Array.isArray(list) ? list.map(networkOf).filter((x): x is string => !!x) : []);
+
+// The site-to-site IPsec VPNs of a site (routes v2 of the summary and the detail, v3 of the LAN networks, v1 of the
+// security associations). The detail holds the pre-shared key: only the fields below are kept, never stored nor logged.
+// An entry without remote network (client VPN, OpenVPN) is not a site-to-site tunnel.
+async function siteVpns(c: Conn, token: string, omadacId: string, siteId: string): Promise<OmadaVpn[]> {
+  const id = encodeURIComponent(omadacId);
+  const site = encodeURIComponent(siteId);
+  const list = await all<{ id?: string; vpnType?: number; siteVpnType?: number }>(c, token, `/openapi/v2/${id}/sites/${site}/vpn/site-to-site-vpns`);
+  const ipsec = list.filter((v) => v.id && v.vpnType === 2 && v.siteVpnType === 1);
+  if (!ipsec.length) return [];
+  const lans = await all<{ id?: string; gatewaySubnet?: string }>(c, token, `/openapi/v3/${id}/sites/${site}/lan-networks`);
+  const lanOf = new Map(lans.filter((l) => l.id).map((l) => [l.id!, networkOf(l.gatewaySubnet ?? '')]));
+  const sas = await all<{ name?: string; direction?: string }>(c, token, `/openapi/v1/${id}/sites/${site}/setting/vpn/stats/ipsec`);
+  const out: OmadaVpn[] = [];
+  for (const v of ipsec) {
+    const d = await call<{ name?: string; status?: boolean; remoteIp?: string; remoteSubnet?: unknown; networkList?: unknown }>(c, 'GET', `/openapi/v2/${id}/sites/${site}/vpn/site-to-site-vpns/${encodeURIComponent(v.id!)}`, { token });
+    const remoteSubnets = subnets(d?.remoteSubnet);
+    if (!remoteSubnets.length) continue;
+    const name = d?.name?.trim() || v.id!;
+    // the associations carry a numeric id of their own: matched by name, unique on a site
+    const dirs = new Set(sas.filter((x) => x.name === name).map((x) => x.direction));
+    out.push({
+      id: v.id!,
+      siteId,
+      name,
+      enabled: d?.status !== false,
+      ...(d?.remoteIp ? { remoteIp: d.remoteIp } : {}),
+      localSubnets: (Array.isArray(d?.networkList) ? d.networkList : []).map((n) => lanOf.get(String(n))).filter((x): x is string => !!x),
+      remoteSubnets,
+      established: dirs.has('in') && dirs.has('out'),
+    });
+  }
+  return out;
 }
 
 // What a poll reads: the sites of the controller and the devices of each (status 1: connected).
@@ -136,7 +175,14 @@ export async function omadaSnapshot(c: OmadaControllerConfig): Promise<OmadaSnap
       });
     }
   }
-  return { omadacId, sites, devices };
+  // the VPNs are read apart: a failure there leaves the devices read
+  try {
+    const vpns: OmadaVpn[] = [];
+    for (const s of sites) vpns.push(...(await siteVpns(c, token, omadacId, s.id)));
+    return { omadacId, sites, devices, vpns };
+  } catch (err) {
+    return { omadacId, sites, devices, vpnError: (err as Error).message };
+  }
 }
 
 // What the controller answers without any account: /api/info, the version and the id of the controller. The first thing

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { loadSites } from '../catalog.js';
 import { equipments, omada, parseId } from '../db.js';
-import { OmadaLinkError, candidatesFor, linkDevice, pollOmada } from '../omadaSync.js';
+import { OmadaLinkError, candidatesFor, linkDevice, pollOmada, vpnsOf } from '../omadaSync.js';
 import { publish } from '../events.js';
 import { allRoles } from '../roles.js';
 import type { OmadaControllerRole } from '../types.js';
@@ -26,6 +26,17 @@ export function registerOmadaRoutes(app: FastifyInstance) {
             name: r.name,
             polledAt: s?.polledAt ?? null,
             pollError: s?.pollError ?? null,
+            vpnError: s?.vpnError ?? null,
+            // site-to-site VPNs, with the gateway that carries each (its equipment, when it is one)
+            vpns: (s?.vpns ?? []).map((v) => {
+              const gw = (s?.devices ?? []).find((d) => vpnsOf(d, [{ ...v, enabled: true }]).length);
+              const e = gw && byMac.get(gw.mac);
+              return {
+                ...v,
+                siteName: s?.sites.find((x) => x.id === v.siteId)?.name ?? v.siteId,
+                gateway: gw ? { mac: gw.mac, name: gw.name, equipment: e ? { id: e._id.toHexString(), name: e.name } : null } : null,
+              };
+            }),
             sites: (s?.sites ?? []).map((site) => {
               const siteId = s?.siteMap[site.id] ?? null;
               return {

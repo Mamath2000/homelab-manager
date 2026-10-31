@@ -6,7 +6,7 @@ import { publish } from './events.js';
 import { omadaSnapshot } from './omada.js';
 import { INTERVAL_RANGE, TIMEOUT_RANGE } from './probes.js';
 import { allRoles } from './roles.js';
-import type { AlertLevel, EquipmentDoc, EquipmentNative, ProbeDoc, OmadaControllerRole, OmadaDevice, OmadaStateDoc } from './types.js';
+import type { AlertLevel, EquipmentDoc, EquipmentNative, ProbeDoc, OmadaControllerRole, OmadaDevice, OmadaStateDoc, OmadaVpn } from './types.js';
 
 // Omada as a source of equipment (#231). A poll reads the sites and devices of each omada-controller role and keeps them
 // in the collection `omada`. An Omada device becomes an equipment only when the admin says so (created, or linked to a
@@ -21,8 +21,12 @@ export const LOAD_WARN = 85;
 export const LOAD_ALERT = 95;
 const loadLevel = (pct: number): AlertLevel => (pct >= LOAD_ALERT ? 'alert' : pct >= LOAD_WARN ? 'warn' : 'ok');
 
-// The native checks of a device: connected to the controller, processor and memory load when it reports them.
-export function nativeOf(d: OmadaDevice, now = new Date()): EquipmentNative {
+// The site-to-site VPNs a gateway carries: the enabled ones of its site (a disabled tunnel is cut on purpose).
+export const vpnsOf = (d: Pick<OmadaDevice, 'type' | 'siteId'>, vpns: OmadaVpn[] = []) => (d.type === 'gateway' ? vpns.filter((v) => v.siteId === d.siteId && v.enabled) : []);
+
+// The native checks of a device: connected to the controller, processor and memory load when it reports them, and for a
+// gateway each of its tunnels established (security associations in and out).
+export function nativeOf(d: OmadaDevice, now = new Date(), vpns: OmadaVpn[] = []): EquipmentNative {
   const load = (key: string, label: string, pct?: number) => {
     if (pct === undefined) return [];
     const level = loadLevel(pct);
@@ -34,6 +38,7 @@ export function nativeOf(d: OmadaDevice, now = new Date()): EquipmentNative {
       { key: 'connected', label: 'Connecté au contrôleur', level: d.connected ? 'ok' : 'alert', ...(d.connected ? {} : { reason: 'Déconnecté du contrôleur' }) },
       ...load('cpu', 'Processeur', d.cpu),
       ...load('memory', 'Mémoire', d.mem),
+      ...vpnsOf(d, vpns).map((v) => ({ key: `vpn:${v.id}`, label: `Tunnel ${v.name}`, level: (v.established ? 'ok' : 'alert') as AlertLevel, ...(v.established ? {} : { reason: `Tunnel ${v.name} non établi` }) })),
     ],
   };
 }
@@ -81,7 +86,7 @@ export async function syncEquipments(state: OmadaStateDoc) {
     const unset: Record<string, ''> = {};
     if (!p.siteId) unset.siteId = '';
     if (!p.ip) unset.ip = '';
-    await equipments.updateOne({ _id: e._id }, { $set: { ...p, native: nativeOf(d, now) }, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+    await equipments.updateOne({ _id: e._id }, { $set: { ...p, native: nativeOf(d, now, state.vpns) }, ...(Object.keys(unset).length ? { $unset: unset } : {}) });
     publish('equipment', { id: e._id.toHexString() });
   }
 }
@@ -90,7 +95,18 @@ export async function pollRole(role: OmadaControllerRole) {
   const before = await omada.findOne({ _id: role._id });
   try {
     const snap = await omadaSnapshot(role.config);
-    const state: OmadaStateDoc = { _id: role._id, omadacId: snap.omadacId, sites: snap.sites, siteMap: before?.siteMap ?? {}, devices: snap.devices, polledAt: new Date() };
+    // VPNs not read this time: the last ones read are kept (a tunnel is only gone when a read says so)
+    const vpns = snap.vpns ?? before?.vpns;
+    const state: OmadaStateDoc = {
+      _id: role._id,
+      omadacId: snap.omadacId,
+      sites: snap.sites,
+      siteMap: before?.siteMap ?? {},
+      devices: snap.devices,
+      ...(vpns ? { vpns } : {}),
+      ...(snap.vpnError ? { vpnError: snap.vpnError } : {}),
+      polledAt: new Date(),
+    };
     await omada.replaceOne({ _id: role._id }, state, { upsert: true });
     await syncEquipments(state);
   } catch (err) {
@@ -142,7 +158,7 @@ export async function linkDevice(roleId: string, mac: string, equipmentId?: Obje
     if (!provided.ip) unset.ip = '';
     const e = (await equipments.findOneAndUpdate(
       { _id: equipmentId },
-      { $set: { ...provided, source: 'omada', externalId: mac, native: nativeOf(d) }, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+      { $set: { ...provided, source: 'omada', externalId: mac, native: nativeOf(d, new Date(), state.vpns) }, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
       { returnDocument: 'after' },
     ))!;
     await addProbes(e);
@@ -153,7 +169,7 @@ export async function linkDevice(roleId: string, mac: string, equipmentId?: Obje
   const given = name?.trim() || d.name;
   const taken = await equipments.find({ siteId: siteId ?? { $exists: false } }, { projection: { name: 1 } }).toArray();
   if (taken.some((e) => sameName(e.name, given))) throw new OmadaLinkError(`un équipement s'appelle déjà « ${given} » sur ce site : le relier plutôt`);
-  const doc: EquipmentDoc = { _id: new ObjectId(), name: given, ...provided, source: 'omada', externalId: mac, native: nativeOf(d), createdAt: new Date() };
+  const doc: EquipmentDoc = { _id: new ObjectId(), name: given, ...provided, source: 'omada', externalId: mac, native: nativeOf(d, new Date(), state.vpns), createdAt: new Date() };
   await equipments.insertOne(doc);
   await addProbes(doc);
   publish('equipment', { id: doc._id.toHexString() });
