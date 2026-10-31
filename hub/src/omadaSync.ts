@@ -17,6 +17,28 @@ import type { AlertLevel, EquipmentDoc, EquipmentNative, ProbeDoc, OmadaControll
 
 const omadaRoles = () => allRoles().filter((r): r is OmadaControllerRole => r.type === 'omada-controller');
 
+// What the last poll of each controller gave, for the state of its role (roleView.ts), kept in memory: read again from the
+// collection when the hub starts, before its first poll.
+export interface OmadaPollState {
+  polledAt?: Date;
+  pollError?: string;
+  vpnError?: string;
+  sites: number;
+  devices: number;
+  vpns?: number;
+}
+const lastPolls = new Map<string, OmadaPollState>();
+export const omadaPollOf = (roleId: string) => lastPolls.get(roleId) ?? null;
+
+const pollStateOf = (s: Pick<OmadaStateDoc, 'polledAt' | 'pollError' | 'vpnError' | 'sites' | 'devices' | 'vpns'>): OmadaPollState => ({
+  polledAt: s.polledAt,
+  ...(s.pollError ? { pollError: s.pollError } : {}),
+  ...(s.vpnError ? { vpnError: s.vpnError } : {}),
+  sites: s.sites.length,
+  devices: s.devices.length,
+  ...(s.vpns ? { vpns: s.vpns.length } : {}),
+});
+
 // Load of a device: warn from 85 %, alert from 95 % (a small switch or AP sits at 50-70 % of memory when idle).
 export const LOAD_WARN = 85;
 export const LOAD_ALERT = 95;
@@ -109,13 +131,18 @@ export async function pollRole(role: OmadaControllerRole) {
       polledAt: new Date(),
     };
     await omada.replaceOne({ _id: role._id }, state, { upsert: true });
+    lastPolls.set(role._id, pollStateOf(state));
     await syncEquipments(state);
     // only after a read of the VPNs: a failed one removes nothing
     if (snap.vpns) await syncVpnProbes(state);
   } catch (err) {
     await omada.updateOne({ _id: role._id }, { $set: { pollError: (err as Error).message, polledAt: new Date() }, $setOnInsert: { sites: [], siteMap: {}, devices: [] } }, { upsert: true });
+    const kept = await omada.findOne({ _id: role._id });
+    if (kept) lastPolls.set(role._id, pollStateOf(kept));
   }
   publish('omada', {});
+  // the state of the role changed with it (Paramètres › Rôles, badge of its carrier)
+  publish('roles', {});
 }
 
 let running: Promise<void> | null = null;
@@ -125,6 +152,7 @@ export function pollOmada(log?: FastifyBaseLogger) {
   running ??= (async () => {
     const roles = omadaRoles();
     await omada.deleteMany({ _id: { $nin: roles.map((r) => r._id) } });
+    for (const id of lastPolls.keys()) if (!roles.some((r) => r._id === id)) lastPolls.delete(id);
     for (const r of roles) await pollRole(r).catch((err) => log?.error({ err, role: r._id }, 'Omada poll failed'));
   })().finally(() => {
     running = null;
@@ -133,6 +161,14 @@ export function pollOmada(log?: FastifyBaseLogger) {
 }
 
 export function startOmadaPoller(log: FastifyBaseLogger) {
+  // the state of the last polls until the first one of this run
+  omada
+    .find()
+    .toArray()
+    .then((list) => {
+      for (const s of list) if (!lastPolls.has(s._id)) lastPolls.set(s._id, pollStateOf(s));
+    })
+    .catch((err) => log.warn({ err }, 'Omada state not read'));
   const run = () => pollOmada(log).catch((err) => log.error({ err }, 'Omada poll failed'));
   const first = setTimeout(run, 50_000);
   const timer = setInterval(run, 5 * 60_000);

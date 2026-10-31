@@ -1,4 +1,5 @@
 import { bridgeStatusOf } from './homeassistant/bridge.js';
+import { omadaPollOf } from './omadaSync.js';
 import { probeEngine, roleUrl } from './probes.js';
 import type { HostDoc, RoleDoc } from './types.js';
 
@@ -63,10 +64,23 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
         summary: c.agentReport?.day ? `datastore ${c.store}, dernière série ${c.agentReport.day}` : c.store ? `datastore ${c.store}` : null,
       };
     }
-    // nothing reads it yet (#231): no state
+    // the state of its last poll (omadaSync.ts): every 5 minutes, sites, devices and VPNs
     case 'omada-controller': {
       const { clientSecret, ...config } = r.config;
-      return { ...base, config, hasSecret: !!clientSecret, url: r.config.url, account: r.config.clientId, status: null, summary: null };
+      const p = omadaPollOf(r._id);
+      const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
+      const summary = p?.polledAt && !p.pollError
+        ? [plural(p.sites, 'site', 'sites'), plural(p.devices, 'appareil', 'appareils'), p.vpnError ? 'lecture des VPN en échec' : p.vpns !== undefined ? plural(p.vpns, 'VPN', 'VPN') : null].filter(Boolean).join(', ')
+        : null;
+      return {
+        ...base,
+        config,
+        hasSecret: !!clientSecret,
+        url: r.config.url,
+        account: r.config.clientId,
+        status: p?.polledAt ? { state: p.pollError ? ('error' as const) : ('connected' as const), error: p.pollError ?? null } : null,
+        summary,
+      };
     }
   }
 }
