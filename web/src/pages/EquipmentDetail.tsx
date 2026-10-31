@@ -13,7 +13,9 @@ import { Badge, Button, ConfirmModal, Empty, Spinner, StatusDot } from '../compo
 import { api, type Equipment } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { dateTime, timeAgo } from '../lib/format';
+import { roleIcon, roleTint } from '../lib/hostSkills';
 import { cellLabel, levelTone } from '../lib/monitoring';
+import { roleTypeLabel } from '../lib/roles';
 import { keys, useEquipment, useEquipments, useStatus } from '../lib/queries';
 import { toneBadge, type Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
@@ -128,6 +130,19 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
                 <StripItem label="Synchronisé">{e.native ? <span title={dateTime(e.native.syncedAt)}>{timeAgo(e.native.syncedAt)}</span> : '—'}</StripItem>
               </>
             )}
+            {e.roles.length > 0 && (
+              <StripItem label={e.roles.length > 1 ? 'Rôles' : 'Rôle'} plain>
+                {e.roles.map((r) => {
+                  const Icon = roleIcon[r.type];
+                  return (
+                    <Link key={r.id} to="/settings?tab=roles" title={`Rôle du hub ${r.name} : Paramètres › Rôles`} className={clsx('inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset', roleTint[r.type])}>
+                      <Icon className="h-3.5 w-3.5" aria-hidden />
+                      {roleTypeLabel(r.type)} {r.name}
+                    </Link>
+                  );
+                })}
+              </StripItem>
+            )}
             <StripItem label="Ajouté le">{dateTime(e.createdAt)}</StripItem>
             {canManage && (
               <div className="flex shrink-0 items-center gap-2 self-center px-4 py-2.5">
@@ -144,9 +159,18 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
       </div>
 
       {editing && <EquipmentModal equipment={e} onClose={() => setEditing(false)} />}
-      <ConfirmModal open={removing} onClose={() => setRemoving(false)} onConfirm={() => void remove()} title="Supprimer l'équipement" confirmLabel="Supprimer" danger loading={busy}>
-        <b>{e.name}</b>, {e.probes.length ? `ses ${e.probes.length} sonde(s)` : 'ses sondes'} et son historique d'alertes seront supprimés.
-        {below.length > 0 && <> Les équipements en aval ({below.map((x) => x.name).join(', ')}) n'auront plus d'amont.</>}
+      <ConfirmModal open={removing} onClose={() => setRemoving(false)} onConfirm={() => void remove()} title="Supprimer l'équipement" confirmLabel="Supprimer" danger loading={busy} disabled={e.roles.length > 0}>
+        {e.roles.length > 0 ? (
+          <>
+            <b>{e.name}</b> porte {e.roles.length > 1 ? 'les rôles' : 'le rôle'} {e.roles.map((r) => `${roleTypeLabel(r.type)} ${r.name}`).join(', ')} : le réaffecter à un autre porteur ou le supprimer
+            d'abord, dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
+          </>
+        ) : (
+          <>
+            <b>{e.name}</b>, {e.probes.length ? `ses ${e.probes.length} sonde(s)` : 'ses sondes'} et son historique d'alertes seront supprimés.
+            {below.length > 0 && <> Les équipements en aval ({below.map((x) => x.name).join(', ')}) n'auront plus d'amont.</>}
+          </>
+        )}
       </ConfirmModal>
     </>
   );

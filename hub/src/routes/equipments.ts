@@ -6,6 +6,7 @@ import { equipments, parseId, probes } from '../db.js';
 import { SOURCE_FIELDS, equipmentDto, ipError, removeEquipment, uplinkError } from '../equipments.js';
 import { publish } from '../events.js';
 import { INTERVAL_RANGE, TIMEOUT_RANGE } from '../probes.js';
+import { carriedBy, carrierDeleteError } from '../roles.js';
 import { EQUIPMENT_TYPES, type EquipmentDoc, type ProbeDoc } from '../types.js';
 
 // Equipment (equipments.ts): read by every account, written by the admins (profiles.ts). Only the manual ones are
@@ -158,6 +159,9 @@ export function registerEquipmentRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/api/equipments/:id', async (req, reply) => {
     const _id = parseId(req.params.id);
     if (!_id || !(await equipments.countDocuments({ _id }, { limit: 1 }))) return reply.code(404).send({ error: 'equipment not found' });
+    // an Omada controller declared on this equipment: the role would lose its carrier
+    const carried = carrierDeleteError('equipment', carriedBy(_id));
+    if (carried) return reply.code(409).send({ error: carried });
     await removeEquipment(_id);
     return reply.code(204).send();
   });

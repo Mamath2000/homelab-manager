@@ -1421,6 +1421,8 @@ export interface Equipment {
   externalId: string | null;
   uplinkId: string | null;
   native: { syncedAt: string; checks: Check[] } | null;
+  // roles of the hub it carries (an Omada controller)
+  roles: { id: string; type: HubRoleType; name: string }[];
   createdAt: string;
   probes: { id: string; name: string; state: ProbeState; message: string | null }[];
 }

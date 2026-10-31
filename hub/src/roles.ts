@@ -115,6 +115,13 @@ async function settingsRoles() {
 export const allRoles = () => cache;
 export const carriedBy = (id: ObjectId) => cache.filter((r) => r.carrier.id.equals(id));
 
+// Why a carrier cannot be deleted while it carries roles (null: it carries none): they are moved or removed first.
+export function carrierDeleteError(kind: CarrierKind, carried: Pick<RoleDoc, 'name'>[]) {
+  if (!carried.length) return null;
+  const what = kind === 'equipment' ? 'cet équipement' : 'cet hôte';
+  return `${what} porte ${carried.length > 1 ? 'les rôles' : 'le rôle'} ${carried.map((r) => r.name).join(', ')} : le réaffecter ou le supprimer d’abord`;
+}
+
 // null: a role of this type may take this name, carrier and config among the roles of the list, else the refusal.
 // self: the role being edited.
 export function roleConflict(list: RoleDoc[], type: RoleType, name: string, carrierId: ObjectId, config: RoleDoc['config'], self?: string) {

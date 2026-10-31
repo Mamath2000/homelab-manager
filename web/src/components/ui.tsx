@@ -284,7 +284,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   );
 }
 
-export function ConfirmModal({ open, onClose, onConfirm, title, children, confirmLabel, danger, loading }: {
+export function ConfirmModal({ open, onClose, onConfirm, title, children, confirmLabel, danger, loading, disabled }: {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -293,6 +293,8 @@ export function ConfirmModal({ open, onClose, onConfirm, title, children, confir
   confirmLabel: string;
   danger?: boolean;
   loading?: boolean;
+  // the action is refused for now: the text says why
+  disabled?: boolean;
 }) {
   return (
     <Modal
@@ -302,7 +304,7 @@ export function ConfirmModal({ open, onClose, onConfirm, title, children, confir
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Annuler</Button>
-          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading}>{confirmLabel}</Button>
+          <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading} disabled={disabled}>{confirmLabel}</Button>
         </>
       }
     >

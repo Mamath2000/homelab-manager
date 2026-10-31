@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import Fastify from 'fastify';
 import { ObjectId } from 'mongodb';
 import { authorize } from '../src/profiles.js';
-import { fromLegacy, newRoleId, pbsRoles, ROLE_DEFS, roleConflict } from '../src/roles.js';
+import { fromLegacy, newRoleId, pbsRoles, ROLE_DEFS, roleConflict, carrierDeleteError } from '../src/roles.js';
 import { clusterOf, roleOf } from '../src/pve.js';
 import { roleView } from '../src/roleView.js';
 import { configError, registerRoleRoutes, toConfig } from '../src/routes/roles.js';
@@ -217,4 +217,10 @@ test('roles: bad Omada bodies are refused before any handler reads the database'
   assert.equal((await post('/api/roles/test', { type: 'omada-controller', carrier, config: { ...ok, fingerprint: 'zz' } })).statusCode, 400);
   // no secret typed and none stored: nothing is tried
   assert.deepEqual((await post('/api/roles/test', { type: 'omada-controller', carrier, config: { url: ok.url, clientId: 'app' } })).json(), { ok: false, error: 'client_secret manquant' });
+});
+
+test('carrier: deleting a host or an equipment that carries roles is refused, naming them', () => {
+  assert.equal(carrierDeleteError('equipment', []), null);
+  assert.equal(carrierDeleteError('equipment', [{ name: 'OC200' }]), 'cet équipement porte le rôle OC200 : le réaffecter ou le supprimer d’abord');
+  assert.equal(carrierDeleteError('host', [{ name: 'vouille' }, { name: 'omada' }]), 'cet hôte porte les rôles vouille, omada : le réaffecter ou le supprimer d’abord');
 });

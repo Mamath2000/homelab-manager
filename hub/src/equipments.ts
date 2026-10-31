@@ -2,6 +2,7 @@ import { isIP } from 'node:net';
 import type { ObjectId } from 'mongodb';
 import { equipments, probes } from './db.js';
 import { publish } from './events.js';
+import { carriedBy } from './roles.js';
 import type { EquipmentDoc, EquipmentType, ProbeDoc } from './types.js';
 
 // Equipment: what is followed without an agent (network gear, gateways, home automation modules...). Like a host
@@ -34,6 +35,8 @@ export function equipmentDto(e: EquipmentDoc, own: ProbeDoc[] = []) {
     externalId: e.externalId ?? null,
     uplinkId: e.uplinkId?.toHexString() ?? null,
     native: e.native ?? null,
+    // roles of the hub it carries (an Omada controller), never a secret
+    roles: carriedBy(e._id).map((r) => ({ id: r._id, type: r.type, name: r.name })),
     createdAt: e.createdAt,
     // what the lists and the dashboard show of its probes, one square each
     probes: own.map((p) => ({ id: p._id.toHexString(), name: p.name, state: p.state ?? 'unknown', message: p.message ?? null })),
