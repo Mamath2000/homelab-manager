@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Activity, Globe, Pencil, Play, Plug, Plus, Radio, Save, Trash2, type LucideIcon } from 'lucide-react';
+import { Activity, Globe, Pencil, Play, Plug, Plus, Radio, Save, Trash2, Waypoints, type LucideIcon } from 'lucide-react';
 import { api, type Equipment, type Host, type Probe, type ProbeInput, type ProbeMeasure, type ProbeTarget, type ProbeType } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { elapsed } from '../lib/format';
@@ -14,6 +14,8 @@ import { CheckLine, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
 import { TYPES, targetText } from '../lib/probes';
 import { lanAddress } from '../lib/roles';
+import { OptionList } from './OptionList';
+import { VpnProbeModal } from './VpnProbeModal';
 import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
 const stateMeta: Record<Probe['state'], { label: string; tone: Tone }> = {
@@ -29,6 +31,7 @@ const typeTint: Record<ProbeType, string> = {
   ping: 'bg-sky-500/15 text-sky-300 ring-sky-500/30',
   tcp: 'bg-amber-500/15 text-amber-300 ring-amber-500/30',
   http: 'bg-teal-500/15 text-teal-300 ring-teal-500/30',
+  vpn: 'bg-fuchsia-500/15 text-fuchsia-300 ring-fuchsia-500/30',
 };
 
 export function ProbeTypeLabel({ type }: { type: ProbeType }) {
@@ -106,7 +109,10 @@ export function ProbeActions({ probe: p, owner }: { probe: Probe; owner: ProbeOw
   const test = async () => {
     setBusy('test');
     try {
-      const m = await api.testProbe(p.target, p.timeoutSec, p.runFrom === 'hub' ? undefined : p.runFrom.hostId);
+      const m =
+        p.target.type === 'vpn'
+          ? await api.testVpnProbe(p.id, { sourceHostId: p.runFrom === 'hub' ? '' : p.runFrom.hostId, host: p.target.host })
+          : await api.testProbe(p.target, p.timeoutSec, p.runFrom === 'hub' ? undefined : p.runFrom.hostId);
       const text = m.state === 'up' ? `${p.name} : up${m.latencyMs ? ` en ${m.latencyMs} ms` : ''}` : `${p.name} : ${m.state === 'down' ? 'down' : 'mesure impossible'}${m.message ? ` (${m.message})` : ''}`;
       if (m.state === 'up') toast.success(text);
       else toast.error(text);
@@ -136,10 +142,11 @@ export function ProbeActions({ probe: p, owner }: { probe: Probe; owner: ProbeOw
         actions={[
           { icon: Play, title: 'Tester', loading: busy === 'test', onClick: () => void test() },
           { icon: Pencil, title: `Modifier ${p.name}`, onClick: () => setEditing(true) },
-          { icon: Trash2, title: `Supprimer ${p.name}`, danger: true, onClick: () => setRemoving(true) },
+          // a VPN probe follows its tunnel in Omada: deleted, it would be made again at the next poll
+          ...(p.target.type === 'vpn' ? [] : [{ icon: Trash2, title: `Supprimer ${p.name}`, danger: true, onClick: () => setRemoving(true) }]),
         ]}
       />
-      {editing && <ProbeModal owner={owner} probe={p} onClose={() => setEditing(false)} />}
+      {editing && (p.target.type === 'vpn' ? <VpnProbeModal probeId={p.id} onClose={() => setEditing(false)} /> : <ProbeModal owner={owner} probe={p} onClose={() => setEditing(false)} />)}
       <ConfirmModal open={removing} onClose={() => setRemoving(false)} onConfirm={() => void remove()} title="Supprimer la sonde" confirmLabel="Supprimer" danger loading={busy === 'remove'}>
         La sonde <b>{p.name}</b> ne sera plus mesurée. Son historique dans la frise des alertes est conservé.
       </ConfirmModal>
@@ -232,47 +239,7 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
   );
 }
 
-const TYPE_ICONS: Record<ProbeType, LucideIcon> = { mqtt: Radio, ping: Activity, tcp: Plug, http: Globe };
-
-interface OptionItem {
-  value: string;
-  label: string;
-  detail?: string;
-  off?: boolean;
-  warn?: boolean;
-}
-
-// Choice among a few items, as rows (a filter above ten of them)
-function OptionList({ label, value, onChange, items, hint, search }: { label: string; value: string; onChange: (v: string) => void; items: OptionItem[]; hint?: string; search?: boolean }) {
-  const [q, setQ] = useState('');
-  const shown = q.trim() ? items.filter((i) => `${i.label} ${i.detail ?? ''}`.toLowerCase().includes(q.trim().toLowerCase())) : items;
-  return (
-    <fieldset className="flex min-h-0 flex-col gap-1.5">
-      <legend className={field}>{label}</legend>
-      {search && items.length > 8 && <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrer…" aria-label="Filtrer" />}
-      <div className="flex max-h-72 min-h-0 flex-col gap-1.5 overflow-y-auto lg:max-h-none lg:flex-1" role="radiogroup" aria-label={label}>
-        {shown.map((i) => {
-          const on = i.value === value;
-          return (
-            <button
-              key={i.value}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              onClick={() => onChange(i.value)}
-              className={clsx('flex shrink-0 flex-col rounded-md border px-3 py-2 text-left transition-colors', on ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-line bg-raised/40 hover:border-zinc-600 hover:bg-raised', i.off && !on && 'opacity-60')}
-            >
-              <span className={clsx('text-sm font-medium', on ? 'text-emerald-300' : i.warn ? 'text-amber-300' : 'text-zinc-200')}>{i.label}</span>
-              {i.detail && <span className="font-mono text-xs text-muted">{i.detail}</span>}
-            </button>
-          );
-        })}
-        {!shown.length && <p className="text-xs text-muted">Aucun résultat.</p>}
-      </div>
-      {hint && <p className="text-xs text-muted">{hint}</p>}
-    </fieldset>
-  );
-}
+const TYPE_ICONS: Record<ProbeType, LucideIcon> = { mqtt: Radio, ping: Activity, tcp: Plug, http: Globe, vpn: Waypoints };
 
 interface Form {
   name: string;
@@ -335,6 +302,9 @@ function targetOf(f: Form): ProbeTarget | null {
       if (status !== undefined && !(status >= 100 && status <= 599)) return null;
       return /^https?:\/\/\S+$/.test(f.url.trim()) ? { type: 'http', url: f.url.trim(), ...(status ? { status } : {}), ...(f.keyword ? { keyword: f.keyword } : {}), ...(f.insecure ? { insecure: true } : {}) } : null;
     }
+    // made by the hub, set up in its own window (VpnProbeModal)
+    case 'vpn':
+      return null;
   }
 }
 
@@ -446,7 +416,7 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
             <fieldset className="space-y-1.5">
               <legend className={field}>Type</legend>
               <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Type de sonde">
-                {TYPES.map((t) => {
+                {TYPES.filter((t) => !t.auto).map((t) => {
                   const Icon = TYPE_ICONS[t.id];
                   const on = form.type === t.id;
                   return (

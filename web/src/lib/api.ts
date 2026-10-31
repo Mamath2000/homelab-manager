@@ -1247,6 +1247,16 @@ export interface OmadaVpnView {
   // security associations in and out: the tunnel is up for the controller
   established: boolean;
   gateway: { mac: string; name: string; equipment: { id: string; name: string } | null } | null;
+  // its probe, once its gateway is an equipment; configured: source and target chosen
+  probe: { id: string; name: string; state: ProbeState; message: string | null; configured: boolean } | null;
+}
+
+// A VPN probe with its tunnel and what it may ping from (hosts of the local networks) and to (remote networks)
+export interface VpnProbeDetail {
+  probe: { id: string; name: string; sourceHostId: string; host: string; state: ProbeState; message: string | null };
+  vpn: Omit<OmadaVpnView, 'siteName' | 'gateway' | 'probe'>;
+  sources: { id: string; name: string; ip: string }[];
+  targets: { kind: 'host' | 'equipment'; id: string; name: string; ip: string; gateway: boolean }[];
 }
 export interface OmadaController {
   id: string;
@@ -1313,12 +1323,14 @@ export interface PveClusterInput {
 // Service probes of a host or an equipment and the MQTT brokers they listen to (hub/src/probes.ts)
 export type ProbeSubjectKind = 'host' | 'equipment';
 export type ProbeState = 'up' | 'down' | 'unknown';
-export type ProbeType = 'mqtt' | 'ping' | 'tcp' | 'http';
+export type ProbeType = 'mqtt' | 'ping' | 'tcp' | 'http' | 'vpn';
 export type ProbeTarget =
   | { type: 'mqtt'; brokerId: string; topic: string; contains?: string }
   | { type: 'ping'; host: string }
   | { type: 'tcp'; host: string; port: number }
-  | { type: 'http'; url: string; status?: number; keyword?: string; insecure?: boolean };
+  | { type: 'http'; url: string; status?: number; keyword?: string; insecure?: boolean }
+  // made by the hub for a site-to-site VPN of Omada; host '': target still to choose (the source is runFrom)
+  | { type: 'vpn'; roleId: string; vpnId: string; host: string };
 
 export interface Probe {
   id: string;
@@ -1623,6 +1635,9 @@ export const api = {
   pveSettings: () => request<{ clusters: PveCluster[] }>('GET', '/api/settings/pve'),
   omadaInventory: () => request<{ controllers: OmadaController[] }>('GET', '/api/settings/omada'),
   pollOmada: () => request<{ ok: true }>('POST', '/api/settings/omada/poll'),
+  vpnProbe: (id: string) => request<VpnProbeDetail>('GET', `/api/settings/omada/vpn-probes/${id}`),
+  setVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<{ ok: true }>('PUT', `/api/settings/omada/vpn-probes/${id}`, b),
+  testVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<ProbeMeasure>('POST', `/api/settings/omada/vpn-probes/${id}/test`, b),
   setOmadaSite: (controller: string, siteId: string, homelabSiteId: string) => request<{ ok: true }>('PUT', `/api/settings/omada/${controller}/sites/${siteId}`, { siteId: homelabSiteId }),
   linkOmadaDevice: (controller: string, mac: string, opts: { equipmentId?: string; name?: string } = {}) => request<{ id: string }>('POST', `/api/settings/omada/${controller}/link`, { mac, ...opts }),
   pveInventory: () => request<{ clusters: PveInventory[] }>('GET', '/api/settings/pve/inventory'),

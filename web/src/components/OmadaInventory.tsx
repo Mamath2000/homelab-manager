@@ -8,6 +8,7 @@ import { dateTime, timeAgo } from '../lib/format';
 import { useSites } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Panel, Spinner, StatusDot } from './ui';
+import { VpnProbeModal } from './VpnProbeModal';
 
 // Paramètres › Omada: the devices of each controller (omada-controller role), site by site. An Omada site is matched to a
 // site of the homelab; a device is an equipment of the hub once created from it, or linked to a manual equipment (a hub
@@ -81,13 +82,18 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
 function vpnTodo(v: OmadaVpnView) {
   if (!v.gateway) return 'Aucune passerelle Omada sur ce site';
   if (!v.gateway.equipment) return `Intervention manuelle requise : créer ou relier l'équipement de la passerelle ${v.gateway.name} (site ${v.siteName} ci-dessous)`;
+  if (!v.probe) return 'Sonde créée au prochain relevé';
+  if (!v.probe.configured) return 'Intervention manuelle requise : choisir la source et la cible de la sonde';
   return '';
 }
 
 const subnetList = (l: string[]) => (l.length ? l.join(', ') : '—');
 
+const probeTone = { up: 'ok', down: 'bad', unknown: 'neutral' } as const;
+
 function VpnRow({ v }: { v: OmadaVpnView }) {
   const todo = vpnTodo(v);
+  const [editing, setEditing] = useState(false);
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-sm first:border-t-0">
       <span title={!v.enabled ? 'désactivé dans Omada' : v.established ? 'tunnel établi (associations de sécurité en entrée et en sortie)' : 'tunnel non établi'}>
@@ -104,11 +110,20 @@ function VpnRow({ v }: { v: OmadaVpnView }) {
         <ArrowRight className="h-3.5 w-3.5 text-muted" aria-label="vers" />
         {subnetList(v.remoteSubnets)}
       </span>
-      {todo && (
-        <span className="ml-auto text-amber-400" title={todo} aria-label={todo}>
-          <AlertTriangle className="h-4 w-4" />
-        </span>
-      )}
+      <span className="ml-auto inline-flex items-center gap-2">
+        {todo && (
+          <span className="text-amber-400" title={todo} aria-label={todo}>
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+        )}
+        {v.probe && (
+          <>
+            <span title={v.probe.message ?? undefined}><Badge tone={probeTone[v.probe.state]}>sonde {v.probe.state === 'unknown' ? 'inconnue' : v.probe.state}</Badge></span>
+            <Button size="sm" variant={v.probe.configured ? 'secondary' : 'primary'} onClick={() => setEditing(true)}>{v.probe.configured ? 'Modifier' : 'Configurer'}</Button>
+          </>
+        )}
+      </span>
+      {editing && v.probe && <VpnProbeModal probeId={v.probe.id} onClose={() => setEditing(false)} />}
     </li>
   );
 }

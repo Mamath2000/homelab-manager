@@ -6,6 +6,7 @@ import { publish } from './events.js';
 import { omadaSnapshot } from './omada.js';
 import { INTERVAL_RANGE, TIMEOUT_RANGE } from './probes.js';
 import { allRoles } from './roles.js';
+import { syncVpnProbes } from './vpnProbes.js';
 import type { AlertLevel, EquipmentDoc, EquipmentNative, ProbeDoc, OmadaControllerRole, OmadaDevice, OmadaStateDoc, OmadaVpn } from './types.js';
 
 // Omada as a source of equipment (#231). A poll reads the sites and devices of each omada-controller role and keeps them
@@ -109,6 +110,8 @@ export async function pollRole(role: OmadaControllerRole) {
     };
     await omada.replaceOne({ _id: role._id }, state, { upsert: true });
     await syncEquipments(state);
+    // only after a read of the VPNs: a failed one removes nothing
+    if (snap.vpns) await syncVpnProbes(state);
   } catch (err) {
     await omada.updateOne({ _id: role._id }, { $set: { pollError: (err as Error).message, polledAt: new Date() }, $setOnInsert: { sites: [], siteMap: {}, devices: [] } }, { upsert: true });
   }
@@ -162,6 +165,7 @@ export async function linkDevice(roleId: string, mac: string, equipmentId?: Obje
       { returnDocument: 'after' },
     ))!;
     await addProbes(e);
+    if (d.type === 'gateway') await syncVpnProbes(state);
     publish('equipment', { id: e._id.toHexString() });
     return e;
   }
@@ -172,6 +176,7 @@ export async function linkDevice(roleId: string, mac: string, equipmentId?: Obje
   const doc: EquipmentDoc = { _id: new ObjectId(), name: given, ...provided, source: 'omada', externalId: mac, native: nativeOf(d, new Date(), state.vpns), createdAt: new Date() };
   await equipments.insertOne(doc);
   await addProbes(doc);
+  if (d.type === 'gateway') await syncVpnProbes(state);
   publish('equipment', { id: doc._id.toHexString() });
   return doc;
 }

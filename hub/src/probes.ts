@@ -6,6 +6,7 @@ import { lanAddress } from './hostAddress.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
 import { pingFromHost } from './probeSource.js';
+import { measureVpn } from './vpnProbes.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
 import { allRoles, ROLE_ID_RE } from './roles.js';
 import type { MqttBroker, MqttBrokerConfig, ProbeDoc, ProbeMeasureDoc, ProbeState, ProbeSubject, ProbeTarget } from './types.js';
@@ -63,6 +64,9 @@ export function targetError(t: ProbeTarget): string | null {
       if (t.status !== undefined && !(Number.isInteger(t.status) && t.status >= 100 && t.status <= 599)) return 'code de statut invalide';
       if (t.keyword !== undefined && t.keyword.length > 256) return 'mot-clé trop long';
       return null;
+    case 'vpn':
+      if (typeof t.roleId !== 'string' || !ROLE_ID_RE.test(t.roleId) || typeof t.vpnId !== 'string' || !t.vpnId || t.vpnId.length > 64) return 'tunnel invalide';
+      return t.host === '' || hostOk(t.host) ? null : 'adresse invalide';
   }
 }
 
@@ -208,6 +212,7 @@ async function countMeasure(probeId: ObjectId, state: ProbeState) {
 export function measure(p: Pick<ProbeDoc, 'target' | 'timeoutSec'> & { runFrom?: ProbeDoc['runFrom'] }, pool: MqttPool): Promise<Measure> {
   const timeoutMs = p.timeoutSec * 1000;
   const t = p.target;
+  if (t.type === 'vpn') return measureVpn({ target: t, timeoutSec: p.timeoutSec, runFrom: p.runFrom ?? 'hub' });
   if (p.runFrom && p.runFrom !== 'hub' && t.type === 'ping') return pingFromHost(p.runFrom.hostId, t.host, timeoutMs);
   return t.type === 'mqtt' ? pool.check(t.brokerId, t.topic, t.contains || undefined, timeoutMs) : measureLocal(t, timeoutMs);
 }

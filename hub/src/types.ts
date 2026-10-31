@@ -1083,7 +1083,7 @@ export interface BackupStatDoc {
 // the model so that site probes need no rework, none is implemented.
 export type ProbeSubject = { kind: 'host'; id: ObjectId; stack?: string } | { kind: 'equipment' | 'site'; id: ObjectId; stack?: never };
 
-export const PROBE_TYPES = ['mqtt', 'ping', 'tcp', 'http'] as const;
+export const PROBE_TYPES = ['mqtt', 'ping', 'tcp', 'http', 'vpn'] as const;
 export type ProbeType = (typeof PROBE_TYPES)[number];
 
 // What one type of probe checks. mqtt: the last payload of the topic contains `contains`; without it, a
@@ -1092,7 +1092,10 @@ export type ProbeTarget =
   | { type: 'mqtt'; brokerId: string; topic: string; contains?: string }
   | { type: 'ping'; host: string }
   | { type: 'tcp'; host: string; port: number }
-  | { type: 'http'; url: string; status?: number; keyword?: string; insecure?: boolean };
+  | { type: 'http'; url: string; status?: number; keyword?: string; insecure?: boolean }
+  // a site-to-site VPN of an Omada controller (vpnProbes.ts), made by the hub: the source is runFrom ('hub': still to
+  // choose), host the target ('': still to choose)
+  | { type: 'vpn'; roleId: string; vpnId: string; host: string };
 
 // unknown: the measure is impossible (broker unreachable, runner offline), never a failed service
 export type ProbeState = 'up' | 'down' | 'unknown';

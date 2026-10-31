@@ -142,7 +142,7 @@ export async function checkPing(host: string, timeoutMs: number, exec: Exec = ex
 
 // --- dispatch -----------------------------------------------------------------------------------
 
-export function measureLocal(t: Exclude<ProbeTarget, { type: 'mqtt' }>, timeoutMs: number): Promise<Measure> {
+export function measureLocal(t: Exclude<ProbeTarget, { type: 'mqtt' | 'vpn' }>, timeoutMs: number): Promise<Measure> {
   switch (t.type) {
     case 'tcp': return checkTcp(t.host, t.port, timeoutMs);
     case 'http': return checkHttp(t.url, t, timeoutMs);

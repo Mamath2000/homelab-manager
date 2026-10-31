@@ -99,9 +99,10 @@ export function useLiveEvents(enabled: boolean) {
     });
     // the stack of a probe is gone: the probes went with it
     es.addEventListener('probe.removed', (e) => {
-      const { host, probes } = JSON.parse((e as MessageEvent).data) as { host: string; probes: { name: string; stack?: string }[] };
+      const { host, probes, reason } = JSON.parse((e as MessageEvent).data) as { host: string; reason?: string; probes: { name: string; stack?: string }[] };
       const names = probes.map((p) => `${p.name}${p.stack ? ` (${p.stack})` : ''}`).join(', ');
-      toast.error(`${probes.length > 1 ? 'Sondes supprimées' : 'Sonde supprimée'} sur ${host || 'un hôte'} : la stack n'existe plus. ${names}`);
+      // reason: why, when it is not the stack (a VPN gone from Omada)
+      toast.error(`${probes.length > 1 ? 'Sondes supprimées' : 'Sonde supprimée'}${host ? ` sur ${host}` : ''} : ${reason ?? "la stack n'existe plus"}. ${names}`);
     });
     // sites or tags changed in the settings
     es.addEventListener('catalog', () => {
