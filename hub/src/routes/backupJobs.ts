@@ -118,6 +118,18 @@ export async function restoreCredential(host: HostDoc, pbs: PbsSettings) {
   await hosts.updateOne({ _id: host._id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
 }
 
+// New secret for the PBS token of a host (#205), created by the agent of the PBS with the same id: the groups
+// it wrote stay its own, but the old secret dies at once. Hence only for a host whose agent is connected, which
+// gets the new one right away (backup_sync); missed, it gets it at its next connection (the hash covers the secret).
+export async function rotateCredential(host: HostDoc, pbs: PbsSettings) {
+  if (!host.pbsCredential) throw new PbsAgentError('aucun jeton PBS enregistré pour cet hôte');
+  if (!pbs.agent) throw new PbsAgentError("PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)");
+  if (!isOnline(host._id.toHexString())) throw new PbsAgentError("hôte hors ligne : il ne recevrait pas le nouveau secret, l'ancien serait déjà révoqué");
+  const t = await ensurePbsToken(pbs.agent, host.pbsCredential.tokenId, PBS_TOKEN_ACLS.host, null);
+  await hosts.updateOne({ _id: host._id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
+  return t;
+}
+
 // The cache of a host goes once nothing is left in it.
 export async function dropEmptyCache(hostId: ObjectId) {
   await hosts.updateOne({ _id: hostId, 'backupCache.jobs.0': { $exists: false }, 'backupCache.nextcloud': null }, { $unset: { backupCache: '' } });
@@ -210,6 +222,56 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       return { ok: true, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
     },
   );
+
+  // new secret for the token of the host (rotateCredential), pushed to its agent
+  app.post<{ Params: { id: string } }>('/api/hosts/:id/pbs-credential/rotate', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    const host = _id && (await hosts.findOne({ _id }));
+    if (!host) return reply.code(404).send({ error: 'host not found' });
+    let t;
+    try {
+      t = await rotateCredential(host, await loadPbsSettings());
+    } catch (err) {
+      if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    req.log.info({ host: host.name, tokenId: t.tokenId, rotated: t.rotated, created: t.created }, 'PBS token of a host rotated');
+    await changed(_id);
+    return { ok: true, tokenId: t.tokenId };
+  });
+
+  // every token of a host at once: the hosts concerned first (preview of the confirmation), offline ones skipped
+  app.get('/api/settings/pbs/rotate', async () => {
+    const list = await hosts.find({ pbsCredential: { $exists: true } }, { projection: { name: 1, 'pbsCredential.tokenId': 1 } }).sort({ name: 1 }).toArray();
+    return { hosts: list.map((h) => ({ id: h._id.toHexString(), name: h.name, tokenId: h.pbsCredential!.tokenId, online: isOnline(h._id.toHexString()) })) };
+  });
+
+  app.post('/api/settings/pbs/rotate', async (req, reply) => {
+    const pbs = await loadPbsSettings();
+    if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)" });
+    const report = { rotated: [] as string[], skipped: [] as string[], errors: [] as { name: string; error: string }[] };
+    // one after the other: the agent of the PBS runs its commands in turn anyway
+    for (const host of await hosts.find({ pbsCredential: { $exists: true } }).sort({ name: 1 }).toArray()) {
+      if (!isOnline(host._id.toHexString())) {
+        report.skipped.push(host.name);
+        continue;
+      }
+      try {
+        const t = await rotateCredential(host, pbs);
+        req.log.info({ host: host.name, tokenId: t.tokenId, rotated: t.rotated, created: t.created }, 'PBS token of a host rotated');
+        report.rotated.push(host.name);
+      } catch (err) {
+        if (!(err instanceof PbsAgentError)) throw err;
+        report.errors.push({ name: host.name, error: err.message });
+      }
+    }
+    if (report.rotated.length) {
+      await refreshManaged();
+      for (const h of await hosts.find({ name: { $in: report.rotated } }, { projection: { _id: 1 } }).toArray()) await syncHost(h._id);
+      publish('backups', {});
+    }
+    return report;
+  });
 
   // the token is revoked on the PBS by its agent (its rights, the token, the user left without token)
   app.delete<{ Params: { id: string } }>('/api/hosts/:id/pbs-credential', async (req, reply) => {

@@ -183,7 +183,7 @@ test('PBS tokens created by the agent of the PBS: rights, secret, admin only', a
   assert.throws(() => tokenSecretOf('a@pbs!t', undefined, { tokenId: 'a@pbs!other', tokenSecret: 'old' }), PbsAgentError);
   assert.throws(() => tokenSecretOf('a@pbs!t', undefined, null), PbsAgentError);
   assert.throws(() => tokenSecretOf('a@pbs!t', 'not-a-uuid', null), PbsAgentError);
-  for (const route of ['/api/settings/pbs/detect', '/api/settings/pbs/token', '/api/hosts/:id/pbs-credential']) {
+  for (const route of ['/api/settings/pbs/detect', '/api/settings/pbs/token', '/api/hosts/:id/pbs-credential', '/api/hosts/:id/pbs-credential/rotate', '/api/settings/pbs/rotate']) {
     assert.equal(authorize('operator', 'POST', route), false, route);
     assert.equal(authorize('admin', 'POST', route), true, route);
   }

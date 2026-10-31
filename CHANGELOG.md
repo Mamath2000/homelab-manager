@@ -9,6 +9,9 @@ le canal `dev`.
 
 ### Ajouté
 
+- **Régénération des jetons PBS des hôtes** : bouton **Régénérer le jeton** dans la section Accès PBS d'un hôte, et action groupée sur le PBS principal
+  (Paramètres › Rôles) avec aperçu des cibles. Le nouveau secret garde le même identifiant, est transmis à l'agent sans
+  intervention et n'est jamais affiché. Un hôte hors ligne n'est pas régénéré. Voir [Régénérer le jeton d'un hôte](docs/sauvegardes.md#régénérer-le-jeton-dun-hôte). (homelab#205)
 - **Sondes de service** : MQTT, ping, TCP et HTTP mesurées par le hub, domaine « Services » dans le monitoring, panneau
   sur la fiche d'un hôte ou d'un équipement, publication dans Home Assistant. Voir [Sondes de service](docs/sondes.md). (homelab#236)
 - **Proxmox VE** : inventaire d'un cluster (nœuds, VM et CT, liens avec les hôtes par adresse MAC, jobs de sauvegarde,

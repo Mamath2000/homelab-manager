@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
@@ -14,6 +14,7 @@ import { field } from './ProxmoxServer';
 import { PbsModal } from './BackupSettings';
 import { RemoteModal } from './OffsiteSettings';
 import { PbsDisconnectModal } from './PbsDisconnect';
+import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
@@ -662,10 +663,13 @@ export function RolesSettings() {
     setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
+  // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
+  const [rotating, setRotating] = useState(false);
   const askRemove = (r: HubRole) => (r.type === 'pbs-primary' || r.type === 'pbs-offsite' ? setDisconnecting(r.type) : setRemoving(r));
   const uses = (r: HubRole) => r.uses ?? [];
   const actions = (r: HubRole) => (
     <div className="flex shrink-0 items-center gap-1.5">
+      {r.type === 'pbs-primary' && <Button size="sm" icon={KeyRound} aria-label="Régénérer les jetons des hôtes" title="Régénérer les jetons des hôtes" onClick={() => setRotating(true)} />}
       <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => edit(r)} />
       <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : r.type.startsWith('pbs-') ? 'Déconnecter' : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => askRemove(r)} />
     </div>
@@ -732,7 +736,7 @@ export function RolesSettings() {
                 <col className="w-[14%]" />
                 <col className="w-[13%]" />
                 <col />
-                <col className="w-24" />
+                <col className="w-32" />
               </colgroup>
               <thead className="border-b border-line">
                 <tr>
@@ -780,6 +784,7 @@ export function RolesSettings() {
       {editing?.type === 'pbs-primary' && pbs && <PbsModal data={pbs} open onClose={() => (setEditing(null), void refresh())} />}
       {editing?.type === 'pbs-offsite' && remote && <RemoteModal data={remote} open onClose={() => (setEditing(null), void refresh())} />}
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
+      {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}

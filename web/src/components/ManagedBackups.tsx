@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Calculator, Container, ListChecks, Package, Plus, Save, X } from 'lucide-react';
+import { Calculator, Container, ListChecks, Package, Plus, RefreshCw, Save, X } from 'lucide-react';
 import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
 import { databaseKindLabel, dumpArchives, formatBytes, offsiteForm, offsiteInput, offsiteNotCopiable } from '../lib/backups';
 import { OffsiteSettingsTab } from './OffsiteCopy';
@@ -23,7 +23,22 @@ const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').t
 // PBS token of the host: the agent writes its backups with it. The agent of the PBS creates it.
 function CredentialPanel({ host, view }: { host: Host; view: HostBackupJobs }) {
   const qc = useQueryClient();
+  const toast = useToast();
   const [tokenId, setTokenId] = useState(view.credential?.tokenId ?? `host-${slug(host.name)}@pbs!backup`);
+  const [rotating, setRotating] = useState(false);
+  // new secret, same id (#205): the old one dies at once, so only while the agent can get the new one
+  const rotate = async () => {
+    setRotating(true);
+    try {
+      const r = await api.rotatePbsCredential(host.id);
+      toast.success(`Jeton ${r.tokenId} régénéré, nouveau secret transmis à l'agent`);
+      qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setRotating(false);
+    }
+  };
   return (
     <div className="space-y-3 text-sm">
       <h4 className="text-sm font-semibold text-zinc-100">Accès au PBS</h4>
@@ -34,7 +49,8 @@ function CredentialPanel({ host, view }: { host: Host; view: HostBackupJobs }) {
       <p className="text-xs text-muted">
         Un jeton par hôte, avec le rôle <b>DatastoreBackup</b> sur le namespace <code>Hosts</code> de chaque datastore : un hôte compromis ne peut ni lire ni modifier
         les sauvegardes des autres, ni écrire dans les namespaces de Proxmox VE. Recréer un jeton existant met ses droits à jour (nouveau datastore) en gardant son
-        secret.
+        secret. Le régénérer (secret exposé) lui donne un nouveau secret sous le même identifiant : l'ancien est révoqué aussitôt et le nouveau transmis à l'agent,
+        qui doit donc être en ligne.
       </p>
       {view.pbsAgent ? (
         <TokenButton
@@ -49,7 +65,23 @@ function CredentialPanel({ host, view }: { host: Host; view: HostBackupJobs }) {
       ) : (
         <p className="text-amber-400">Le PBS n'est pas relié à son agent : déclarer le rôle PBS principal dans Paramètres › Rôles, puis revenir créer le jeton.</p>
       )}
-      {view.credential && <p className="text-xs text-muted">Jeton enregistré : <code>{view.credential.tokenId}</code>.</p>}
+      {view.credential && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted">Jeton enregistré : <code>{view.credential.tokenId}</code>.</p>
+          {view.pbsAgent && (
+            <Button
+              size="sm"
+              icon={RefreshCw}
+              loading={rotating}
+              disabled={!host.online}
+              title={host.online ? 'Nouveau secret, même identifiant ; l’ancien est révoqué' : "Hôte hors ligne : l'ancien jeton serait révoqué avant que l'agent reçoive le nouveau"}
+              onClick={() => void rotate()}
+            >
+              Régénérer le jeton
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
