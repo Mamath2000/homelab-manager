@@ -20,7 +20,7 @@ Le PBS reste la référence : un snapshot n'est « fait » que lorsqu'il est sur
 
 ## Mise en place
 
-Paramètres › **Sauvegardes** : un bloc **Proxmox Backup Server** ; les clusters Proxmox VE ne sont plus ici mais des [rôles](roles.md) (**Paramètres › Rôles**, le bloc d'ici y renvoie par un lien). Le PBS et un cluster ont le même modèle : une ligne par serveur (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : image du client pour le PBS principal, heure de départ des copies pour le PBS de secours, identifiant et nom pour un cluster Proxmox VE. Il n'y a pas de case « suivre » : un serveur déclaré avec son jeton est **connecté** et relevé ; pour l'arrêter, on le [déconnecte](#déconnecter-un-pbs-ou-un-cluster).
+Le **PBS principal**, le **PBS hors site** (de secours) et chaque **cluster Proxmox VE** sont des [rôles du hub](roles.md) : ils se déclarent, se modifient et se déconnectent dans **Paramètres › Rôles** (**Déclarer un rôle**, puis le type). Un seul PBS principal et un seul PBS hors site, celui-ci après le principal ; un PBS est porté par l'hôte de son agent (badge sur sa fiche, suppression de l'hôte refusée, avertissement au redémarrage ou à l'arrêt). Il n'y a plus d'onglet Paramètres › Sauvegardes. Les trois ont le même modèle : une ligne par serveur dans Paramètres › Rôles (adresse, état du dernier relevé, jeton), et une fenêtre d'édition (format 16:9) qui se remplit en quatre étapes, de gauche à droite : **1. Hôte** (l'hôte du PBS ou un nœud du cluster, et **Détecter**), **2. Détection** (ce que donne l'agent, affiché en texte), **3. Jeton(s)** et **4. Test de connexion**. L'étape à faire est encadrée et son bouton mis en avant ; une étape faite est cochée, les suivantes restent grisées tant qu'elle ne l'est pas. Le pied de fenêtre garde les réglages : image du client pour le PBS principal, heure de départ des copies pour le PBS de secours, identifiant et nom pour un cluster Proxmox VE. Il n'y a pas de case « suivre » : un serveur déclaré avec son jeton est **connecté** et relevé ; pour l'arrêter, on le [déconnecte](#déconnecter-un-pbs-ou-un-cluster).
 
 Aucun jeton ne se recopie à la main ni ne se crée par une commande à coller : **l'agent** de l'hôte du PBS, ou d'un nœud du cluster Proxmox VE, les crée. Son enrôlement est le prérequis à toute configuration.
 
@@ -35,7 +35,7 @@ Les jetons ne se recopient jamais à la main, et il n'y a rien à coller sur le 
 - Jeton **déjà existant** : ses droits sont remis à ceux décidés par le hub — les droits manquants sont ajoutés, ceux **du jeton** qui ne sont plus prévus lui sont retirés (ceux de l'utilisateur restent : il peut porter d'autres jetons du hub). Le secret d'un jeton n'est lisible qu'à sa création : si le hub détient celui de ce jeton, il le garde ; sinon (base perdue, jeton créé à la main, autre PBS sous le même nom), l'agent **supprime et recrée le jeton** — nouveau secret, l'ancien ne fonctionne plus. Le message de fin l'indique (« recréé »). Pour le jeton de supervision et celui du PBS de secours, un secret détenu pour un autre hôte (ou un autre conteneur) ne compte pas : changer l'hôte du PBS recrée le jeton.
 - Si la création échoue après celle du jeton (droit refusé, PBS qui ne répond plus), l'agent supprime le jeton : un nouvel essai repart de zéro.
 - L'agent n'accepte que les rôles et chemins prévus (`DatastoreAudit`, `DatastoreBackup`, `DatastoreReader` sous `/datastore`, `Audit` sous `/system/tasks`, `RemoteAdmin` sous `/remote`), jamais `/`.
-- Un jeton de supervision créé avant l'ajout des statistiques n'a pas le droit `Audit` : relancer l'étape **Jeton** du PBS (Paramètres › Sauvegardes) pour le lui donner (le secret est conservé).
+- Un jeton de supervision créé avant l'ajout des statistiques n'a pas le droit `Audit` : relancer l'étape **Jeton** du PBS (Paramètres › Rôles, Modifier le PBS principal) pour le lui donner (le secret est conservé).
 - L'agent du PBS doit être à jour (capacité « pbs ») et en ligne ; pour révoquer un jeton (déconnexion, retrait du jeton d'un hôte), capacité « pbs_token_delete ».
 
 :::note PBS en conteneur
@@ -115,7 +115,7 @@ Un second PBS, distant, garde une copie des sauvegardes choisies **une à une** 
 
 ### Mise en place
 
-Paramètres › Sauvegardes › **PBS de secours (copie déportée)** :
+Paramètres › Rôles › **Déclarer un rôle › PBS hors site** (une fois le PBS principal déclaré) :
 
 1. **Hôte du PBS** et **Détecter**, comme pour le PBS principal (PBS installé ou en conteneur) : adresse, adresse Tailscale et empreinte remplies par l'agent, datastores proposés.
 2. **Datastore cible**, puis **Créer le jeton** du hub sur le PBS de secours (droits sur ce datastore seulement).
@@ -163,9 +163,9 @@ PBS n'a pas de limite globale de jobs simultanés, et des jobs planifiés à la 
 - **Changement de l'heure de départ** : il ne déclenche jamais de rejeu à lui seul. Si la série du jour a déjà tourné, son rejeu reste calé sur elle (même délai, mêmes runs examinés, rien si c'est déjà fait) ; si la nouvelle heure est encore à venir, la série repart aujourd'hui à cette heure ; si elle est déjà passée sans série ce jour-là, rien avant le lendemain.
 - **Log de l'agent** (journal `homelab-agent` sur le PBS de secours) : `offsite: definition received: …` à chaque nouvelle définition (heure, délai de rejeu), `offsite: series of N sync job(s) started`, puis au délai `offsite: retry check of the series started <date heure>: X of N sync job(s) to run again` (même si X = 0) et, s'il y a lieu, `offsite: second pass of X sync job(s)`.
 - L'agent parle à son PBS par `proxmox-backup-debug api` (API locale en root, dans le conteneur le cas échéant) : aucun jeton supplémentaire.
-- **Pas de repli** sur la planification de PBS : agent arrêté ou trop ancien = plus de copie ; c'est signalé (alerte de l'hôte, ligne d'état dans Paramètres) et les sauvegardes passent « en retard ».
+- **Pas de repli** sur la planification de PBS : agent arrêté ou trop ancien = plus de copie ; c'est signalé (alerte de l'hôte, état de la série sur la carte **PBS secours** de la page Sauvegardes) et les sauvegardes passent « en retard ».
 
-| Réglage (Paramètres › PBS de secours) | Défaut |
+| Réglage (fenêtre du PBS hors site, Paramètres › Rôles) | Défaut |
 |---|---|
 | connexion (hôte, adresse, empreinte, datastore cible, jetons) | voir Mise en place |
 | heure de départ des copies quotidiennes | **04:00** (fuseau du hub) |
@@ -210,7 +210,7 @@ Page Sauvegardes › icône de montage sur la ligne de la sauvegarde : une fenê
 3. **Archive** : une par répertoire sauvegardé, `root.pxar` pour un conteneur.
 4. **Destination** : par défaut **l'hôte du PBS**. Les autres hôtes proposés ont un agent connecté qui sait monter (capacité « pbs_mount » : `proxmox-backup-client` installé **nativement** — l'image Docker du client ne peut pas monter pour l'hôte —, `/dev/fuse` et systemd) et qui **joint ce PBS** : son agent teste à l'instant le port et l'empreinte du certificat. Si l'hôte est configuré pour Tailscale et que l'adresse Tailscale du PBS est renseignée, elle est choisie automatiquement ; sinon l'adresse normale est utilisée. « Lien lent » signale une lecture entre sites, pas le seul fait de lire depuis le PBS de secours : restaurer sur le même site que ce PBS est indiqué comme direct.
 
-La racine est configurable dans **Paramètres › Sauvegardes › Proxmox Backup Server** (par défaut `/srv/pbs-restore`). Le montage arrive dessous sous `<type>-<id>_<date>_<archive>` (par exemple `/srv/pbs-restore/ct-101_2026-10-19_02-30-00_root`), lisible par root seulement. Le chemin est rappelé dans le bandeau.
+La racine est configurable dans la fenêtre du **PBS principal** (Paramètres › Rôles, Modifier) (par défaut `/srv/pbs-restore`). Le montage arrive dessous sous `<type>-<id>_<date>_<archive>` (par exemple `/srv/pbs-restore/ct-101_2026-10-19_02-30-00_root`), lisible par root seulement. Le chemin est rappelé dans le bandeau.
 
 ### Ce qui se passe
 
@@ -236,9 +236,9 @@ Avant toute étape, le hub vérifie que chaque agent nécessaire est **en ligne 
 
 | Action | Où | Ce qui part |
 |---|---|---|
-| **Déconnecter le PBS principal** (icône débrancher) | Paramètres › Sauvegardes, ligne du PBS | le PBS de secours d'abord (il tire du principal, ligne suivante) ; les agents des hôtes reçoivent une définition vide et arrêtent leurs sauvegardes ; les jetons des hôtes et `homelab@pbs!monitor` sont révoqués ; les réglages du PBS et les groupes relevés sont oubliés |
-| **Déconnecter le PBS de secours** | ligne du PBS de secours | la série quotidienne de son agent, les sync jobs `hlm-*`, la remote `hlm-main`, les jetons `homelab@pbs!hub` (secours) et `homelab@pbs!reader` (principal), ses réglages ; les copies restent sur le PBS de secours, les choix de copie des sauvegardes sont gardés |
-| **Retirer un cluster Proxmox VE** | ligne du cluster | son jeton (`homelab@pve!monitor`), révoqué par l'agent du nœud relié ; ses guests, leurs liens aux hôtes et le rattachement automatique de leurs sauvegardes (orphelines) |
+| **Déconnecter le PBS principal** (Supprimer le rôle) | Paramètres › Rôles, ligne du PBS principal | le PBS de secours d'abord (il tire du principal, ligne suivante) ; les agents des hôtes reçoivent une définition vide et arrêtent leurs sauvegardes ; les jetons des hôtes et `homelab@pbs!monitor` sont révoqués ; les réglages du PBS et les groupes relevés sont oubliés |
+| **Déconnecter le PBS de secours** (Supprimer le rôle) | Paramètres › Rôles, ligne du PBS hors site | la série quotidienne de son agent, les sync jobs `hlm-*`, la remote `hlm-main`, les jetons `homelab@pbs!hub` (secours) et `homelab@pbs!reader` (principal), ses réglages ; les copies restent sur le PBS de secours, les choix de copie des sauvegardes sont gardés |
+| **Retirer un cluster Proxmox VE** (Supprimer le rôle) | Paramètres › Rôles, ligne du cluster | son jeton (`homelab@pve!monitor`), révoqué par l'agent du nœud relié ; ses guests, leurs liens aux hôtes et le rattachement automatique de leurs sauvegardes (orphelines) |
 | **Retirer le jeton d'un hôte** | API seulement (`DELETE /api/hosts/:id/pbs-credential`) | ce jeton, révoqué sur le PBS (plus seulement oublié par le hub) |
 
 Sans PBS, la page Sauvegardes, la carte des hôtes, le tableau de bord et Home Assistant continuent d'afficher les **sauvegardes Home Assistant** (elles ne passent pas par le PBS) et les clusters Proxmox VE (guests, couverture par un job ; sans snapshots, ceux-ci étant lus sur le PBS).

@@ -35,6 +35,8 @@ le canal `dev`.
   Voir [Sondes VPN](docs/sondes.md#sondes-vpn). (homelab#261)
 - **Rôle porté par un équipement** (contrôleur Omada dédié) : ses rôles s'affichent sur la fiche de l'équipement, et sa
   suppression est refusée tant qu'il en porte, comme pour un hôte. Voir [Rôles du hub](docs/roles.md). (homelab#257)
+- **Équipements** : en-tête comme celui des hôtes (matrice sites × types, état des équipements et des sondes, à traiter),
+  filtres par site et par état.
 - Équipements et tableau de bord, graphiques, menu de gauche et volet flottant revus ; corrections d'affichage mobile et tablette
   (homelab#239 à #249).
 
@@ -49,7 +51,11 @@ le canal `dev`.
   `profile` de `/api/users` et du compte connecté, libellés de l'interface.
 - Le pont Home Assistant publie sur un rôle `mqtt-broker` (`brokerRoleId`) ; sans rôle sélectionné, il est désactivé.
 - La fiche d'un équipement reprend la bande horizontale et les boutons carrés (actualiser, options, supprimer) de la fiche d'un hôte.
-- Les clusters Proxmox VE se déclarent comme rôles ; Paramètres › Sauvegardes renvoie vers Rôles.
+- Les clusters Proxmox VE, le **PBS principal** et le **PBS hors site** se déclarent comme rôles (un seul PBS de chaque, le
+  hors site après le principal ; Supprimer = déconnexion). L'onglet **Paramètres › Sauvegardes** disparaît ; l'état de la
+  série de copies passe sur la carte « PBS secours » de la page Sauvegardes. (homelab#256, #252)
+- Paramètres › Rôles : rôles groupés par type ; le contrôleur Omada affiche l'état de son dernier relevé au lieu d'« Inactif ».
+- Paramètres › Proxmox VE : colonnes alignées d'un nœud à l'autre.
 
 ### Migration
 

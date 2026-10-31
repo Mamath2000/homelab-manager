@@ -19,9 +19,15 @@ Les droits d'un compte s'appellent des **profils** (`admin`, `operator`, `viewer
 |---|---|---|---|
 | **Broker MQTT** (`mqtt-broker`) | un hôte dont l'agent a détecté un broker en écoute | oui, un par `(hôte, port)` | [sondes MQTT](sondes.md#brokers-mqtt), pont [Home Assistant](home-assistant.md) |
 | **Cluster Proxmox VE** (`pve-cluster`) | un nœud (hôte avec la capacité Proxmox VE) | oui, un par cluster | [inventaire](proxmox-ve.md) et [sauvegardes](sauvegardes.md#clusters-proxmox-ve) |
+| **PBS principal** (`pbs-primary`) | l'hôte du Proxmox Backup Server (son agent, PBS installé ou en conteneur) | non, un seul | les [sauvegardes](sauvegardes.md) : groupes relevés, jobs des agents, montages |
+| **PBS hors site** (`pbs-offsite`) | l'hôte du PBS distant | non, un seul, **après** le PBS principal | la [copie déportée](sauvegardes.md) des sauvegardes choisies |
 | **Contrôleur Omada** (`omada-controller`) | un **hôte** (contrôleur en Docker, détecté par l'agent sur ses ports de service) ou un **équipement** avec une adresse IP (contrôleur dédié, OC200…) | oui | Paramètres › Omada : [équipements](equipements.md#omada) synchronisés et [sondes VPN](sondes.md#sondes-vpn) |
 
 Le contrôleur Omada est le seul rôle qu'un **équipement** peut porter : il passe par une API (adresse, empreinte du certificat épinglée, application Open API en mode client), sans agent. Sans contrôleur déclaré, l'onglet Paramètres › Omada n'apparaît pas et rien n'est relu.
+
+Les deux PBS se déclarent et se modifient par leur fenêtre (hôte, détection, jetons créés par l'agent, test, voir [Sauvegardes](sauvegardes.md#mise-en-place)) ; **Supprimer** l'un d'eux est sa [déconnexion](sauvegardes.md#déconnecter-un-pbs-ou-un-cluster), et celle du principal entraîne le hors site. Sans PBS principal, la page Sauvegardes et les jobs renvoient vers sa déclaration. Leurs réglages restent stockés avec les sauvegardes (`settings.pbs`, `settings.pbs-remote`) : ils deviennent des rôles une fois connectés, sans migration.
+
+Les rôles sont **groupés par type** dans Paramètres › Rôles ; le contrôleur Omada y affiche l'état de son dernier relevé (sites, appareils, VPN).
 
 Un rôle de type broker n'est jamais saisi à la main : l'agent de l'hôte signale ce qu'il voit en écoute, l'administrateur le déclare. Un rôle Cluster Proxmox VE reçoit son jeton `PVEAuditor` de l'agent du nœud porteur (voir [Sauvegardes](sauvegardes.md#jeton-de-proxmox-ve--créé-par-lagent-dun-nœud)).
 
