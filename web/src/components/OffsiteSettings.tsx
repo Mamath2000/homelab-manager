@@ -1,17 +1,14 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { Plug, Save, ServerCog } from 'lucide-react';
+import { Plug, Save } from 'lucide-react';
 import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
-import { formatBytes, seriesRule } from '../lib/backups';
-import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { ServerRow, field } from './ProxmoxServer';
+import { field } from './ProxmoxServer';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
+import { Button, ConfirmModal, Modal } from './ui';
 
 const DEFAULT_HUB_TOKEN = 'homelab@pbs!hub';
 const DEFAULT_READER_TOKEN = 'homelab@pbs!reader';
@@ -229,62 +226,5 @@ export function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; 
         Les paramètres du PBS de secours modifiés ne seront pas enregistrés.
       </ConfirmModal>
     </>
-  );
-}
-
-// State of the daily series under the server: who runs it, its rule, its last report.
-function SeriesStatus({ data }: { data: PbsRemoteSettings }) {
-  const s = data.series;
-  return (
-    <div className="mt-3 space-y-1 text-xs">
-      <p className="text-muted">
-        Copies : {seriesRule(s)} · {s.jobs} job{s.jobs > 1 ? 's' : ''} de copie.
-      </p>
-      {!s.active ? (
-        <p className="text-amber-400">L’agent du PBS de secours ne sait pas lancer les copies (à mettre à jour) : aucune copie n’est lancée.</p>
-      ) : !s.agentOnline ? (
-        <p className="text-amber-400">Agent du PBS de secours hors ligne : aucune copie n’est lancée.</p>
-      ) : (
-        <p className="text-muted">
-          {s.running ? `copie en cours : ${s.running}` : 'aucune copie en cours'}
-          {s.pending ? ` · ${s.pending} sur ${s.total} à suivre` : ''}
-          {s.nextStart ? ` · prochaine série ${dateTime(s.nextStart)}` : ''}
-        </p>
-      )}
-      {s.error && <p className="text-red-400">{s.error}</p>}
-    </div>
-  );
-}
-
-// Paramètres › Sauvegardes: state of the secondary PBS, a role of the hub (PBS hors site) declared in Paramètres › Rôles.
-export function OffsiteSettings() {
-  const { data } = useQuery({ queryKey: ['settings', 'pbs-remote'], queryFn: api.pbsRemoteSettings });
-  const usage = data?.usage;
-  return (
-    <Panel title="PBS de secours (copie déportée)" icon={ServerCog}>
-      <p className="mb-4 text-sm text-muted">
-        Un second Proxmox Backup Server, distant, qui tire du PBS principal les sauvegardes choisies une à une. Son agent lance les copies chaque jour ; le hub
-        relève leur état toutes les 15 minutes. Il se déclare, se modifie et se déconnecte comme rôle <b className="text-zinc-300">PBS hors site</b> dans{' '}
-        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
-      </p>
-      {!data ? (
-        <div className="flex justify-center p-6"><Spinner /></div>
-      ) : !data.url ? (
-        <p className="text-sm text-muted">Aucun PBS de secours configuré.</p>
-      ) : (
-        <ul className="divide-y divide-line rounded-md border border-line">
-          <ServerRow
-            name="PBS de secours"
-            tag={data.store || undefined}
-            url={data.url}
-            connected={data.connected}
-            polledAt={data.polledAt}
-            pollError={data.pollError}
-            details={usage ? `${formatBytes(usage.avail)} libres sur ${formatBytes(usage.total)}` : data.tokenId ? `jeton ${data.tokenId}` : 'aucun jeton'}
-          />
-        </ul>
-      )}
-      {data?.connected && <SeriesStatus data={data} />}
-    </Panel>
   );
 }

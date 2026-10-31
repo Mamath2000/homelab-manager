@@ -3,13 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { Activity, Boxes, Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Network, Radio, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
-import { BackupSettings } from '../components/BackupSettings';
-import { OffsiteSettings } from '../components/OffsiteSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { RolesSettings } from '../components/HubRoles';
 import { OmadaInventory } from '../components/OmadaInventory';
 import { PveInventory } from '../components/PveInventory';
-import { PveSettings } from '../components/PveSettings';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
 import { SitesSettings } from '../components/SitesSettings';
 import { TagsSettings } from '../components/TagsSettings';
@@ -28,7 +25,6 @@ const tabs = [
   { id: 'tags', label: 'Tags', icon: Tags },
   { id: 'agents', label: 'Agents', icon: Terminal },
   { id: 'setup', label: 'Standardisation', icon: Wand2 },
-  { id: 'backups', label: 'Sauvegardes', icon: DatabaseBackup },
   { id: 'pve', label: 'Proxmox VE', icon: Boxes },
   { id: 'omada', label: 'Omada', icon: Network },
   { id: 'health', label: 'Santé', icon: Activity },
@@ -46,7 +42,9 @@ export function Settings() {
   const hasPve = !!roles?.some((r) => r.type === 'pve-cluster');
   const hasOmada = !!roles?.some((r) => r.type === 'omada-controller');
   const shown = tabs.filter((item) => (item.id !== 'setup' || features.standardisation) && (item.id !== 'pve' || hasPve) && (item.id !== 'omada' || hasOmada));
-  const tab: TabId = shown.find((item) => item.id === params.get('tab'))?.id ?? 'hub';
+  // the old tab of the backups: the two PBS are roles now
+  const asked = params.get('tab') === 'backups' ? 'roles' : params.get('tab');
+  const tab: TabId = shown.find((item) => item.id === asked)?.id ?? 'hub';
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [pendingTab, setPendingTab] = useState<TabId | null>(null);
   const [savingBeforeLeave, setSavingBeforeLeave] = useState(false);
@@ -110,13 +108,6 @@ export function Settings() {
       </div>
     ),
     setup: <SetupSettings />,
-    backups: (
-      <div className="space-y-4">
-        <BackupSettings />
-        <OffsiteSettings />
-        <PveSettings />
-      </div>
-    ),
     pve: <PveInventory />,
     omada: <OmadaInventory />,
     health: <HealthSettings />,

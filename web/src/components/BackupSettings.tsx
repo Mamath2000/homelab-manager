@@ -1,15 +1,13 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { DatabaseBackup, Plug, Save } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Plug, Save } from 'lucide-react';
 import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
 import { useToast } from '../lib/toast';
-import { ServerRow } from './ProxmoxServer';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel, Spinner } from './ui';
+import { Button, ConfirmModal, Modal } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pbs!monitor';
 
@@ -199,28 +197,5 @@ export function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boo
         Les paramètres PBS modifiés ne seront pas enregistrés.
       </ConfirmModal>
     </>
-  );
-}
-
-// Paramètres › Sauvegardes: state of the main PBS, a role of the hub (PBS principal) declared in Paramètres › Rôles.
-export function BackupSettings() {
-  const { data } = useQuery({ queryKey: ['settings', 'pbs'], queryFn: api.pbsSettings });
-  return (
-    <Panel title="Proxmox Backup Server" icon={DatabaseBackup}>
-      <p className="mb-4 text-sm text-muted">
-        Le hub lit l'API du PBS avec un jeton en lecture seule : il relève les groupes de sauvegarde toutes les 15 minutes, les rattache aux hôtes et suit leur
-        retard. Il se déclare, se modifie et se déconnecte comme rôle <b className="text-zinc-300">PBS principal</b> dans{' '}
-        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
-      </p>
-      {!data ? (
-        <div className="flex justify-center p-6"><Spinner /></div>
-      ) : !data.url ? (
-        <p className="text-sm text-muted">Aucun PBS configuré.</p>
-      ) : (
-        <ul className="divide-y divide-line rounded-md border border-line">
-          <ServerRow name="Proxmox Backup Server" url={data.url} connected={data.connected} polledAt={data.polledAt} pollError={data.pollError} details={data.tokenId ? `jeton ${data.tokenId}` : 'aucun jeton'} />
-        </ul>
-      )}
-    </Panel>
   );
 }

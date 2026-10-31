@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Cloud, HardDrive } from 'lucide-react';
-import type { BackupGroup, BackupsView, BackupStatsView, BackupUsageView } from '../lib/api';
-import { formatBytes, formatDuration, offsiteNotCopiable, scaleTop } from '../lib/backups';
-import { timeAgo } from '../lib/format';
+import type { BackupGroup, BackupsView, BackupStatsView, BackupUsageView, OffsiteSeriesView } from '../lib/api';
+import { formatBytes, formatDuration, offsiteNotCopiable, scaleTop, seriesRule } from '../lib/backups';
+import { dateTime, timeAgo } from '../lib/format';
 import { useBackupStats, useBackupUsage } from '../lib/queries';
 
 const DAY = 86_400_000;
@@ -256,7 +256,7 @@ function DatastoreRow({ s }: { s: Store }) {
   );
 }
 
-function StoreCard({ title, role, where, icon, accent, curve, curveFill, stores }: {
+function StoreCard({ title, role, where, icon, accent, curve, curveFill, stores, footer }: {
   title: string;
   role: ReactNode;
   where: string;
@@ -265,6 +265,7 @@ function StoreCard({ title, role, where, icon, accent, curve, curveFill, stores 
   curve: string;
   curveFill: string;
   stores: Store[];
+  footer?: ReactNode;
 }) {
   const used = stores.reduce((a, s) => a + s.used, 0);
   const total = stores.reduce((a, s) => a + s.total, 0);
@@ -296,7 +297,31 @@ function StoreCard({ title, role, where, icon, accent, curve, curveFill, stores 
           {stores.map((s) => <DatastoreRow key={s.name} s={s} />)}
         </div>
       )}
+      {footer}
     </article>
+  );
+}
+
+// The daily series of the copies, started by the agent of the secondary PBS: its rule, where it stands, why none runs.
+function SeriesStatus({ s }: { s: OffsiteSeriesView }) {
+  return (
+    <div className="space-y-0.5 border-t border-line pt-2 text-xs">
+      <p className="text-muted">
+        Copies : {seriesRule(s)} · {s.jobs} job{s.jobs > 1 ? 's' : ''} de copie
+      </p>
+      {!s.active ? (
+        <p className="text-amber-400">L’agent du PBS de secours ne sait pas lancer les copies (à mettre à jour) : aucune copie n’est lancée.</p>
+      ) : !s.agentOnline ? (
+        <p className="text-amber-400">Agent du PBS de secours hors ligne : aucune copie n’est lancée.</p>
+      ) : (
+        <p className="text-muted">
+          {s.running ? `copie en cours : ${s.running}` : 'aucune copie en cours'}
+          {s.pending ? ` · ${s.pending} sur ${s.total} à suivre` : ''}
+          {s.nextStart ? ` · prochaine série ${dateTime(s.nextStart)}` : ''}
+        </p>
+      )}
+      {s.error && <p className="text-red-400">{s.error}</p>}
+    </div>
   );
 }
 
@@ -328,6 +353,7 @@ export function StoragePanels({ data, usage }: { data: BackupsView; usage: Backu
           curve="stroke-sky-400"
           curveFill="fill-sky-400"
           stores={[{ name: data.offsite.store, total: off.total, used: off.used, hist: (usage?.offsite ?? []).map((p) => ({ day: p.day, used: p.used })) }]}
+          footer={<SeriesStatus s={data.offsite.series} />}
         />
       )}
     </>

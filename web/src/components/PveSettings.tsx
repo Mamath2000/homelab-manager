@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
-import { Plug, Save, Server } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Plug, Save } from 'lucide-react';
 import { api, type PveCluster, type PveClusterInput, type PveDetected } from '../lib/api';
 import { useHosts } from '../lib/queries';
 import { stepStates } from '../lib/steps';
@@ -10,7 +9,7 @@ import { AgentPicker, TokenButton } from './AgentPicker';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel } from './ui';
+import { Button, ConfirmModal, Modal } from './ui';
 
 const DEFAULT_TOKEN = 'homelab@pve!monitor';
 const PORT = 8006;
@@ -246,20 +245,3 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
 
 // Paramètres › Sauvegardes: the Proxmox VE clusters are roles of the hub (Cluster Proxmox VE), declared in Paramètres › Rôles,
 // their inventory in Paramètres › Proxmox VE.
-export function PveSettings() {
-  const { data } = useQuery({ queryKey: ['settings', 'pve'], queryFn: api.pveSettings });
-  return (
-    <Panel title="Clusters Proxmox VE" icon={Server}>
-      <p className="text-sm text-muted">
-        Le hub lit les jobs de sauvegarde (vzdump) de chaque cluster, leur planification et le résultat de leurs tâches. Un hôte est lié à son CT ou sa VM par
-        l'adresse MAC que remonte son agent : ses sauvegardes vzdump lui sont rattachées automatiquement, sur le PBS comme sur les autres stockages du cluster, et leur
-        retard est jugé sur la planification du job.
-      </p>
-      <p className="mt-3 text-sm text-muted">
-        {data ? `${data.clusters.length} cluster(s) suivi(s). ` : ''}Un cluster se déclare comme rôle <b className="text-zinc-300">Cluster Proxmox VE</b> dans{' '}
-        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>
-        {data?.clusters.length ? <>, son inventaire est dans <Link to="/settings?tab=pve" className="text-emerald-400 hover:underline">Paramètres › Proxmox VE</Link></> : null}.
-      </p>
-    </Panel>
-  );
-}
