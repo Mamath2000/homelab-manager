@@ -5,7 +5,8 @@ import { Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
-import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus, roleTypeLabel } from '../lib/roles';
+import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus } from '../lib/roles';
+import { roleIcon, roleTint } from '../lib/hostSkills';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
@@ -669,6 +670,20 @@ export function RolesSettings() {
       <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : r.type.startsWith('pbs-') ? 'Déconnecter' : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => askRemove(r)} />
     </div>
   );
+  // the carrier, a host or an equipment (an Omada controller)
+  const carrierLink = (r: HubRole) => <Link className="underline" to={r.carrier.kind === 'equipment' ? `/equipments/${r.carrier.id}` : `/hosts/${r.carrier.id}`}>{r.carrier.name || 'porteur introuvable'}</Link>;
+  // by type, in the order of the catalog of the types
+  const groups = ROLE_TYPES.map((t) => ({ type: t.id, label: t.label, list: (roles ?? []).filter((r) => r.type === t.id) })).filter((g) => g.list.length);
+  const groupTitle = (g: (typeof groups)[number]) => {
+    const Icon = roleIcon[g.type];
+    return (
+      <span className="flex items-center gap-2">
+        <span className={clsx('inline-flex h-6 w-6 items-center justify-center rounded-md ring-1 ring-inset', roleTint[g.type])}><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+        <span className="font-medium text-zinc-100">{g.label}</span>
+        <span className="text-xs text-muted">{g.list.length}</span>
+      </span>
+    );
+  };
   const cluster = editing?.type === 'pve-cluster' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
 
   return (
@@ -677,7 +692,7 @@ export function RolesSettings() {
         Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
         cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
         PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site. Un rôle utilisé ne peut pas être
-        supprimé, et l'hôte qui le porte non plus.
+        supprimé, ni l'hôte ou l'équipement qui le porte.
       </p>
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
@@ -688,26 +703,41 @@ export function RolesSettings() {
       ) : (
         <>
           <ResponsiveList mode="mobile">
-            {roles.map((r) => (
-              <article key={r.id} className="min-w-0 space-y-2 p-4">
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <span className="min-w-0 truncate font-medium text-zinc-100">{roleTypeLabel(r.type)} · {r.name}</span>
-                  <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
-                </div>
-                <p className="break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted"><Link className="underline" to={`/hosts/${r.carrier.id}`}>{r.carrier.name}</Link> · {uses(r).join(', ') || r.summary || 'inutilisé'}</p>
-                  {actions(r)}
-                </div>
-              </article>
+            {groups.map((g) => (
+              <section key={g.type}>
+                <div className="bg-raised/30 px-4 py-2">{groupTitle(g)}</div>
+                {g.list.map((r) => (
+                  <article key={r.id} className="min-w-0 space-y-2 border-t border-line p-4">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <span className="min-w-0 truncate font-medium text-zinc-100">{r.name}</span>
+                      <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
+                    </div>
+                    <p className="break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted">{carrierLink(r)} · {uses(r).join(', ') || r.summary || 'inutilisé'}</p>
+                      {actions(r)}
+                    </div>
+                  </article>
+                ))}
+              </section>
             ))}
           </ResponsiveList>
           <ResponsiveList mode="desktop">
-            <table className="w-full text-sm">
+            {/* fixed widths: the groups, one under the other, keep the same columns */}
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-[16%]" />
+                <col className="w-[13%]" />
+                <col className="w-[22%]" />
+                <col className="w-[14%]" />
+                <col className="w-[13%]" />
+                <col />
+                <col className="w-24" />
+              </colgroup>
               <thead className="border-b border-line">
                 <tr>
-                  <th className="th">Rôle</th>
-                  <th className="th">Hôte</th>
+                  <th className="th">Nom</th>
+                  <th className="th">Porteur</th>
                   <th className="th">Adresse</th>
                   <th className="th">Compte</th>
                   <th className="th">Connexion</th>
@@ -715,25 +745,27 @@ export function RolesSettings() {
                   <th className="th" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
-                {roles.map((r) => (
-                  <tr key={r.id} className="hover:bg-raised/40">
-                    <td className="td">
-                      <span className="font-medium text-zinc-100">{r.name}</span>
-                      <p className="text-xs text-muted">{roleTypeLabel(r.type)}</p>
-                    </td>
-                    <td className="td"><Link className="underline" to={`/hosts/${r.carrier.id}`}>{r.carrier.name}</Link></td>
-                    <td className="td font-mono text-xs text-zinc-300">{r.url || 'inconnue'}</td>
-                    <td className="td text-muted">{r.account || 'anonyme'}</td>
-                    <td className="td">
-                      <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
-                      {r.status?.error && <p className="mt-0.5 max-w-[240px] truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
-                    </td>
-                    <td className="td text-muted">{uses(r).join(', ') || r.summary || '—'}</td>
-                    <td className="td">{actions(r)}</td>
+              {groups.map((g) => (
+                <tbody key={g.type} className="divide-y divide-line border-b border-line last:border-b-0">
+                  <tr className="bg-raised/30">
+                    <th colSpan={7} className="px-4 py-2 text-left font-normal">{groupTitle(g)}</th>
                   </tr>
-                ))}
-              </tbody>
+                  {g.list.map((r) => (
+                    <tr key={r.id} className="hover:bg-raised/40">
+                      <td className="td truncate font-medium text-zinc-100" title={r.name}>{r.name}</td>
+                      <td className="td truncate">{carrierLink(r)}</td>
+                      <td className="td truncate font-mono text-xs text-zinc-300" title={r.url || undefined}>{r.url || 'inconnue'}</td>
+                      <td className="td truncate text-muted" title={r.account || undefined}>{r.account || 'anonyme'}</td>
+                      <td className="td">
+                        <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
+                        {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
+                      </td>
+                      <td className="td truncate text-muted" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</td>
+                      <td className="td"><div className="flex justify-end">{actions(r)}</div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
             </table>
           </ResponsiveList>
         </>

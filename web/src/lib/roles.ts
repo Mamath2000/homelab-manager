@@ -16,7 +16,7 @@ export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'pve-cluster', label: 'Cluster Proxmox VE', hint: 'Inventaire d’un cluster Proxmox VE (nœuds, VM et CT, jobs vzdump) : les hôtes y sont reliés à leur VM ou CT' },
   { id: 'pbs-primary', label: 'PBS principal', hint: 'le Proxmox Backup Server des sauvegardes : groupes relevés, jobs des agents, montages' },
   { id: 'pbs-offsite', label: 'PBS hors site', hint: 'un second PBS, distant, qui copie chaque jour les sauvegardes choisies du principal' },
-  { id: 'omada-controller', label: 'Contrôleur Omada', hint: 'l’Open API du contrôleur Omada d’un site (application en mode client), source à venir des équipements réseau' },
+  { id: 'omada-controller', label: 'Contrôleur Omada', hint: 'l’Open API du contrôleur Omada (application en mode client) : source des équipements réseau et des VPN site à site' },
 ];
 // one role of these types in the homelab
 export const SINGLE_ROLES: HubRoleType[] = ['pbs-primary', 'pbs-offsite'];
