@@ -118,8 +118,11 @@ function NodeBlock({ node, guests, inst }: { node: Cluster['nodes'][number]; gue
   const chosen = installable.filter((g) => inst.selected.has(g.vmid)).map((g) => g.vmid);
   const check = (g: Guest) =>
     g.install?.eligible && !g.installing ? (
-      <input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={inst.selected.has(g.vmid)} onChange={() => inst.toggle(g.vmid)} aria-label={`Sélectionner ${guestLabel(g)}`} />
-    ) : null;
+      <input type="checkbox" className="h-4 w-4 shrink-0 accent-emerald-500" checked={inst.selected.has(g.vmid)} onChange={() => inst.toggle(g.vmid)} aria-label={`Sélectionner ${guestLabel(g)}`} />
+    ) : (
+      // the place of the box, so that the ids stay aligned
+      <span className="h-4 w-4 shrink-0" aria-hidden />
+    );
   return (
     <section className="border-t border-line">
       <header className="flex flex-wrap items-center gap-2 bg-raised/30 px-4 py-2.5 text-sm">
@@ -167,10 +170,18 @@ function NodeBlock({ node, guests, inst }: { node: Cluster['nodes'][number]; gue
             ))}
           </ResponsiveList>
           <ResponsiveList mode="desktop">
-            <table className="w-full text-sm">
+            {/* fixed widths: the tables of the nodes, one under the other, keep the same columns */}
+            <table className="w-full table-fixed text-sm">
+              <colgroup>
+                <col className="w-32" />
+                <col className="w-[22%]" />
+                <col className="w-28" />
+                <col className="w-[26%]" />
+                <col />
+              </colgroup>
               <thead className="border-b border-line">
                 <tr>
-                  <th className="th w-24">ID</th>
+                  <th className="th">ID</th>
                   <th className="th">Nom</th>
                   <th className="th">État</th>
                   <th className="th">Hôte</th>
@@ -181,7 +192,7 @@ function NodeBlock({ node, guests, inst }: { node: Cluster['nodes'][number]; gue
                 {guests.map((g) => (
                   <tr key={g.vmid} className="hover:bg-raised/40">
                     <td className="td whitespace-nowrap font-mono text-xs text-zinc-300"><span className="inline-flex items-center gap-2">{check(g)}{guestLabel(g)}</span></td>
-                    <td className="td text-zinc-100">{g.name || '—'}</td>
+                    <td className="td truncate text-zinc-100" title={g.name || undefined}>{g.name || '—'}</td>
                     <td className="td"><Badge tone={statusOf(g.status).tone}>{statusOf(g.status).label}</Badge></td>
                     <td className="td"><HostCell g={g} inst={inst} /></td>
                     <td className="td"><Jobs g={g} /></td>
