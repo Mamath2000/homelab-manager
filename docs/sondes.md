@@ -1,6 +1,6 @@
 ---
 title: Sondes de service
-description: Vérifier de l'extérieur qu'un service rend bien le service (MQTT, ping, TCP, HTTP) depuis le hub, sur un hôte ou un équipement, brokers MQTT, états, alertes, Home Assistant
+description: Vérifier de l'extérieur qu'un service rend bien le service (MQTT, ping, TCP, HTTP, VPN site à site) depuis le hub ou depuis un hôte avec agent, sur un hôte ou un équipement, brokers MQTT, états, alertes, Home Assistant
 sidebar_position: 3.7
 ---
 
@@ -10,18 +10,20 @@ Une **sonde** vérifie, depuis le hub, qu'un service est réellement rendu : un 
 
 Les sondes remplacent les moniteurs d'Uptime Kuma. Elles se rattachent à un **hôte**, éventuellement à l'une de ses **stacks Docker**, ou à un **[équipement](equipements.md)** (switch, passerelle, module domotique…), et alimentent le domaine **Services** des [alertes et statuts](alertes.md).
 
-## Les quatre types
+## Les types
 
 | Type | Ce qui est vérifié | Réglages |
 |---|---|---|
 | **MQTT** | le dernier message d'un topic d'un [broker MQTT](#brokers-mqtt) | topic exact (pas de joker `+` ni `#`) ; texte attendu dans le message, facultatif |
-| **Ping** | l'adresse répond à un ping | nom ou adresse IP |
+| **Ping** | l'adresse répond à un ping, depuis le hub ou depuis un hôte avec agent | origine (le hub ou un hôte), cible (un hôte ou un équipement avec une adresse IP) |
 | **TCP** | le port accepte la connexion | nom ou adresse IP, port |
 | **HTTP(S)** | l'URL répond comme attendu | code attendu (par défaut n'importe quel 2xx), mot-clé attendu dans la réponse, certificat non vérifié pour un certificat auto-signé |
+| **VPN** | le trafic passe dans un tunnel site à site d'Omada | créée par le hub, voir [Sondes VPN](#sondes-vpn) : source et cible |
 
 - **MQTT, texte attendu** : le dernier message du topic doit le contenir. Un statut retenu (*retained*) reste valable tant qu'il n'est pas remplacé, comme la disponibilité Zigbee2MQTT (`online`) ou le dernier mot d'ESPHome. Sans texte attendu, un message doit être arrivé dans le délai maximal.
-- **HTTP** : les redirections (jusqu'à 5) sont suivies, sauf quand le code attendu est justement celui de la redirection. Seul le début de la réponse est lu (1 Mo au plus), uniquement pour chercher le mot-clé.
-- **Ping** nécessite la commande `ping` dans le conteneur du hub et l'autorisation d'envoyer de l'ICMP. Si ce n'est pas possible, la sonde est **inconnue** avec le message « ping non autorisé dans le conteneur du hub » (ou « commande ping absente du hub »), jamais en échec : le service n'est pas jugé.
+- **HTTP** : les redirections (jusqu'à 5) sont suivies, sauf quand le code attendu est justement celui de la redirection. Seul le début de la réponse est lu (1 Mo au plus), uniquement pour chercher le mot-clé. Une réponse qui porte à la fois `Content-Length` et `Transfer-Encoding` (interface web de certains routeurs) est relue avec le parseur tolérant de Node : le service répond, la sonde est en ligne.
+- **Ping depuis le hub** nécessite la commande `ping` dans le conteneur du hub et l'autorisation d'envoyer de l'ICMP. Si ce n'est pas possible, la sonde est **inconnue** avec le message « ping non autorisé dans le conteneur du hub » (ou « commande ping absente du hub »), jamais en échec : le service n'est pas jugé.
+- **Ping depuis un hôte** : l'**agent** de cet hôte (Linux, capacité `ping`) mesure et répond au hub, par exemple pour éprouver un lien entre deux sites. Jamais l'hôte auquel la sonde est rattachée. Hôte source hors ligne ou agent trop ancien : **inconnu**. Hôte source **supprimé** : **hors service** tout de suite, sans nouvelle tentative, avec « source supprimée : à choisir », pour qu'un administrateur la remplace.
 
 ## États
 
@@ -43,10 +45,10 @@ Un **échec réseau vers la cible** (connexion refusée, délai dépassé, mauva
 
 Dans la **fiche de l'hôte**, le panneau **Sondes** (après Docker) liste ses sondes : nom, type et cible (avec la stack éventuelle), état (avec le temps de réponse de la dernière mesure) et depuis quand il a changé. **Ajouter une sonde** ouvre une fenêtre en quatre étapes :
 
-1. **Type et nom**, et la stack de l'hôte à laquelle elle se rattache (facultatif).
-2. **Cible** selon le type.
-3. **Options** : intervalle, délai maximal, nouvelles tentatives.
-4. **Test** : mesure immédiate, sans enregistrer. L'enregistrement ne demande pas de test réussi : une sonde peut être créée pour un service pas encore installé.
+1. **Type et nom**.
+2. **Origine** : le hub, ou pour un ping un hôte dont l'agent sait pinguer.
+3. **Cible** selon le type ; pour un ping, un hôte ou un équipement qui a une adresse IP (liste filtrable).
+4. **Options et test** : stack éventuelle, intervalle, délai maximal, nouvelles tentatives, puis une mesure immédiate depuis l'origine choisie, sans enregistrer. L'enregistrement ne demande pas de test réussi : une sonde peut être créée pour un service pas encore installé.
 
 L'ajout et la modification se font sans confirmation ; la suppression en demande une. Tous les profils voient les sondes d'un hôte ; seuls les **administrateurs** les ajoutent, les modifient, les testent et les suppriment, et gèrent les brokers.
 
@@ -57,6 +59,27 @@ La fiche d'un [équipement](equipements.md) a le même panneau **Sondes**, sans 
 :::info Stack supprimée
 Quand une stack disparaît du rapport Docker de son hôte, ses sondes sont **supprimées** (elles ne feraient que passer en échec) et l'interface le signale par un message. Les sondes de l'hôte lui-même ne sont pas touchées. La suppression d'un hôte supprime toutes ses sondes.
 :::
+
+## Sondes VPN
+
+Un tunnel IPsec peut être **établi** selon le contrôleur sans que le trafic passe (sélecteurs de trafic, routes, ACL). La sonde VPN vérifie le trafic réel : un **hôte** des réseaux que le tunnel transporte de ce côté pingue, par son agent, une **machine** des réseaux de l'autre côté.
+
+- Le hub relit les tunnels site à site de chaque [contrôleur Omada](equipements.md#omada) à chaque relevé (5 min) et crée **une sonde par tunnel**, sur la **passerelle** qui le porte, dès qu'elle est un équipement. Un tunnel relie deux sites : chaque passerelle a la sienne, donc une sonde par sens.
+- **Source** : un hôte dont une adresse est dans les **réseaux locaux** du tunnel ; le ping part de cette adresse (`ping -I`, agent 1.0.8 ou plus, capacité `ping_from`), pour entrer dans le tunnel même sur un hôte à plusieurs adresses. **Cible** : un hôte ou un équipement dont l'adresse est dans les **réseaux distants** ; la passerelle distante est proposée en premier, c'est la cible la plus stable.
+- Les candidats sont filtrés **par adresse**, jamais par le site du hub : un hôte rattaché à un site mais qui tourne sur un autre réseau n'est pas proposé.
+- Rien n'est choisi par défaut, sauf quand il n'y a qu'**un seul candidat**. Le choix se fait dans **Paramètres › Omada › VPN site à site** (bouton **Configurer**) ou depuis la fiche de la passerelle (Modifier), en quatre étapes : tunnel, source, cible, test.
+
+| Situation | État | Message |
+|---|---|---|
+| Source ou cible pas encore choisie, source supprimée | hors service, tout de suite | « source à choisir », « cible à choisir », « source supprimée : à choisir » |
+| Source ou cible sortie des réseaux du tunnel | hors service, tout de suite | « … hors des réseaux locaux / distants du tunnel » |
+| Tunnel désactivé dans Omada | inconnu, **en pause** (pas de mesure) | « tunnel désactivé dans Omada : sonde en pause » |
+| Hôte source hors ligne | inconnu | |
+| Le ping échoue | hors service (après 1 nouvelle tentative) | complété par « tunnel établi selon Omada » ou « tunnel non établi selon Omada » |
+
+- Un tunnel **supprimé** dans Omada supprime sa sonde (l'interface le signale). Une sonde VPN ne se supprime pas à la main : elle suit son tunnel. Une lecture des tunnels en échec ne supprime rien.
+- Intervalle 60 s, délai 5 s, 1 nouvelle tentative (un paquet perdu dans un tunnel n'est pas une panne).
+- La passerelle porte aussi un **check natif** par tunnel activé, « Tunnel _nom_ » (domaine Connexion), en alerte quand le contrôleur n'a pas d'associations de sécurité en entrée et en sortie : on lit côte à côte « établi selon Omada » et « le trafic passe ».
 
 ## Brokers MQTT
 
@@ -85,7 +108,9 @@ Lecture des sondes d'un hôte ou d'un équipement : tous les profils. Tout le re
 | `GET`, `POST /api/equipments/:id/probes` | la même chose pour un [équipement](equipements.md) (sans `stack`) |
 | `PUT /api/probes/:id` | modifier une sonde (changer la cible remet son état à « inconnu ») |
 | `DELETE /api/probes/:id` | supprimer une sonde |
-| `POST /api/probes/test` | mesurer une cible sans rien enregistrer |
+| `POST /api/probes/test` | mesurer une cible sans rien enregistrer (`sourceHostId` : depuis un hôte) |
+| `GET`, `PUT /api/settings/omada/vpn-probes/:id` | une sonde VPN avec son tunnel et ses candidats ; choisir sa source et sa cible (`{ sourceHostId, host }`, `""` : à choisir) |
+| `POST /api/settings/omada/vpn-probes/:id/test` | mesurer un choix de source et de cible sans l'enregistrer |
 | `GET /api/settings/mqtt-brokers` | brokers MQTT des sondes, avec état de connexion et nombre de sondes (le mot de passe n'est jamais renvoyé : `hasPassword`) |
 | `GET /api/roles` | rôles du hub avec leur hôte porteur, leur état et ce qui les utilise (voir [API](api.md)) |
 | `POST /api/roles` | déclarer un broker détecté par l'agent d'un hôte (`type: mqtt-broker`) |
@@ -105,12 +130,12 @@ Corps d'une sonde :
 }
 ```
 
-`target` prend selon le type : `{ "type": "ping", "host" }`, `{ "type": "tcp", "host", "port" }`, `{ "type": "http", "url", "status", "keyword", "insecure" }`. Seuls `name` et `target` sont obligatoires.
+`target` prend selon le type : `{ "type": "ping", "host" }`, `{ "type": "tcp", "host", "port" }`, `{ "type": "http", "url", "status", "keyword", "insecure" }`. Seuls `name` et `target` sont obligatoires. `sourceHostId` (ping seulement) : l'hôte dont l'agent mesure, absent pour le hub ; la sonde renvoie `runFrom` : `"hub"` ou `{ "hostId" }`. Les sondes VPN (`{ "type": "vpn", "roleId", "vpnId", "host" }`) sont créées par le hub et ne passent pas par ces routes.
 
 ## Limites actuelles
 
 - Les sondes se rattachent aux **hôtes** et aux **équipements** (le modèle prévoit aussi les sites, non implémentés).
 - Les sondes des équipements ne sont pas encore publiées dans Home Assistant.
-- Elles sont toutes lancées **depuis le hub** (le champ `runFrom` est dans le modèle pour d'autres exécutants plus tard, jamais l'hôte vérifié).
+- Seuls le **ping** et la sonde **VPN** peuvent être mesurés depuis un hôte avec agent (Linux) ; MQTT, TCP et HTTP partent toujours du hub.
 - Pas d'import depuis Uptime Kuma : les sondes se saisissent à la main. Pas non plus de criticité par sonde ni par équipement (les groupes et tags de Kuma n'ont pas d'équivalent).
 - Le hub doit joindre les cibles : un hub sur un site distant ne voit pas les services d'un autre site sans VPN.

@@ -25,8 +25,21 @@ le canal `dev`.
   et une sonde « Interface web » (HTTPS), et ses checks natifs : connexion au contrôleur, charge processeur et mémoire
   (avertissement dès 85 %, alerte dès 95 %). Bouton Actualiser sur la fiche d'un équipement de source automatique. L'équipement
   amont reste à saisir à la main. (homelab#231)
+- **Sondes ping depuis un hôte** : une sonde ping se mesure depuis le hub ou depuis l'agent d'un autre hôte (op `ping`,
+  capacité `ping`), jamais l'hôte vérifié. Source supprimée : hors service avec « source à choisir ». L'assistant d'une sonde
+  passe en quatre étapes : type et nom, origine, cible (hôte ou équipement avec IP pour un ping), options et test. (homelab#260)
+- **VPN site à site et sondes VPN** : les tunnels IPsec d'Omada sont relus à chaque relevé et listés en tête de Paramètres ›
+  Omada ; check natif « Tunnel _nom_ » sur la passerelle ; une sonde VPN par tunnel, portée par la passerelle : un hôte des
+  réseaux locaux pingue (depuis cette adresse, `ping -I`, agent 1.0.8, capacité `ping_from`) une machine des réseaux distants,
+  candidats filtrés par adresse, candidat unique choisi seul, non configurée = hors service, tunnel désactivé = en pause.
+  Voir [Sondes VPN](docs/sondes.md#sondes-vpn). (homelab#261)
 - Équipements et tableau de bord, graphiques, menu de gauche et volet flottant revus ; corrections d'affichage mobile et tablette
   (homelab#239 à #249).
+
+### Corrigé
+
+- Sonde HTTP : une réponse avec à la fois `Content-Length` et `Transfer-Encoding` (interface web des routeurs Omada) n'est plus
+  en échec « Parse Error ».
 
 ### Modifié
 

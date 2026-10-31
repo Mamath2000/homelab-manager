@@ -8,7 +8,7 @@ sidebar_position: 3.75
 
 Un **équipement** est ce que Homelab Manager suit **sans agent** : gateway, switch, point d'accès, passerelle VPN, coordinateur Zigbee (SLZB), passerelle solaire (Envoy), interphone (VTO), module domotique ESPHome… Comme un hôte, il a :
 
-- des **checks natifs**, remontés par sa **source** quand elle est automatique (un contrôleur Omada, plus tard) : connecté, firmware à jour… ;
+- des **checks natifs**, remontés par sa **source** quand elle est automatique (un contrôleur Omada) : connecté, charge, tunnels VPN… ;
 - des **[sondes](sondes.md)**, lancées depuis le hub : ping, port TCP, page HTTP, message MQTT (LWT ESPHome, disponibilité Zigbee2MQTT).
 
 Les **modules domotiques stratégiques** ont leur place ici : ceux dont dépend le fonctionnement de la maison (routeur solaire, compteur général, téléinfo, commande du portail). Le critère est leur rôle, pas leur technologie : les capteurs ordinaires (températures…) restent dans Home Assistant.
@@ -22,7 +22,7 @@ Les **modules domotiques stratégiques** ont leur place ici : ceux dont dépend 
 | **Site** | un des sites de **Paramètres › Sites et tags**, facultatif |
 | **Adresse IP** | IPv4 ou IPv6, facultative |
 | **Équipement amont** | ce dont il dépend (switch, passerelle…), facultatif |
-| **Source** | `manual` (saisi dans l'interface) ou `omada` (synchronisé, à venir) |
+| **Source** | `manual` (saisi dans l'interface) ou `omada` (synchronisé) |
 
 - **Ajouter un équipement** (menu **Équipements**) propose de **créer une sonde ping** sur l'adresse saisie (case cochée par défaut). Les autres sondes s'ajoutent ensuite depuis la fiche ; une nouvelle sonde ping ou TCP reprend l'adresse de l'équipement.
 - **Changer l'adresse** d'un équipement déplace ses sondes ping et TCP qui visaient l'ancienne adresse, dont l'état repart de zéro.
@@ -35,7 +35,11 @@ Tous les profils voient les équipements ; seuls les **administrateurs** les ajo
 
 Un équipement d'une source automatique est créé et tenu à jour par la synchronisation de sa source, retrouvé par son identifiant dans la source (`externalId`, l'adresse MAC pour Omada). À chaque synchronisation, la source écrit ses **checks natifs** et leur date. Seul le **nom** se modifie à la main : type, site, adresse et équipement amont viennent de la source.
 
-Omada sera la première source. Pour un équipement Omada, la **présence** vient du contrôleur, la sonde vérifie le **service rendu** (interface, API).
+Pour un équipement Omada, la **présence** vient du contrôleur, la sonde vérifie le **service rendu** (interface, API).
+
+### Omada
+
+**Paramètres › Omada** présente en tête les **VPN site à site** de chaque contrôleur (tunnels IPsec, relus à chaque relevé) : réseaux locaux → distants, tunnel établi ou non selon le contrôleur, passerelle qui le porte et état de sa [sonde VPN](sondes.md#sondes-vpn). Une icône d'avertissement, avec son explication au survol, signale ce qui demande une intervention : passerelle à créer ou relier comme équipement, source et cible de la sonde à choisir (bouton **Configurer**). Une passerelle a un check natif « Tunnel _nom_ » par tunnel activé de son site (alerte sans associations de sécurité en entrée et en sortie).
 
 ## Alertes et statuts
 
