@@ -10,6 +10,7 @@ le canal `dev`.
 ### Ajouté
 
 - **Home Assistant : équipements et appareils de site** : un appareil par équipement (alertes, une entité par sonde, adresse IP), catégorie **Équipements** aux niveaux Standard et Complet, comptés (Équipements, Équipements en alerte) et remontés sur Homelab Manager. Nouvelle case **Regrouper les entités par site** : un appareil par site entre Homelab Manager et ses hôtes / équipements. Voir [Appareils créés](docs/home-assistant.md#appareils-créés). (homelab#250)
+- **Documentation orientée utilisateur** : README refondu, nouvelles pages [Démarrage rapide](docs/demarrage-rapide.md), [Les notions clés](docs/concepts.md), [Créer des éléments](docs/creer-des-elements.md) et [Suivi des sauvegardes](docs/suivi-des-sauvegardes.md) (Proxmox VE, PBS, Home Assistant OS), nouvelles captures d'écran ; architecture, API et release déplacées dans [Développement](docs/developpement.md).
 - **Régénération des jetons PBS des hôtes** : bouton **Régénérer le jeton** dans la section Accès PBS d'un hôte, et actions groupées, depuis la sélection de la liste
   des hôtes ou sur le PBS principal (Paramètres › Rôles), avec aperçu des cibles. Le nouveau secret garde le même identifiant, est transmis à l'agent sans
   intervention et n'est jamais affiché. Un hôte hors ligne n'est pas régénéré. Voir [Régénérer le jeton d'un hôte](docs/sauvegardes.md#régénérer-le-jeton-dun-hôte). (homelab#205)

@@ -9,7 +9,7 @@ sidebar_position: 0
 
 Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub** (conteneur Docker) centralise l'état des hôtes ; un **agent** léger installé sur chaque hôte le tient à jour et exécute les actions demandées depuis l'interface.
 
-![Tableau de bord](./img/dashboard.png)
+![Tableau de bord](./img/guide/dashboard.png)
 
 ## Ce que fait la version actuelle
 
@@ -40,6 +40,10 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 
 ## Pages
 
+- [Démarrage rapide](demarrage-rapide.md) : un cas complet, du `docker compose` à la première alerte.
+- [Les notions clés](concepts.md) : hub, agent, hôte, équipement, rôle, profil, sonde, états.
+- [Créer des éléments](creer-des-elements.md) : où et comment créer chaque élément.
+- [Suivi des sauvegardes](suivi-des-sauvegardes.md) : comment sont suivies celles de Proxmox, du PBS et de Home Assistant OS.
 - [Installation](installation.md) : hub et agents.
 - [Configuration](configuration.md) : variables d'environnement, reverse proxy, données.
 - [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
@@ -52,3 +56,4 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Comptes et profils](comptes.md) : premier démarrage, profils, mots de passe, comptes sans mot de passe, clés d'API.
 - [API](api.md) : accès par clé d'API et endpoint `/api/summary` pour les tableaux de bord.
 - [Sécurité](securite.md) : connexion des agents, enrôlement, révocation, signature des binaires.
+- [Développement et architecture](developpement.md) : architecture, API, lancement local, release.
