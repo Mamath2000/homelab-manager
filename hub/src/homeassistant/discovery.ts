@@ -3,18 +3,22 @@
 // ===============================
 // Hierarchy (via_device):
 //   Homelab Manager (root)
-//   └── one device per host: agent connectivity, alerts rolled up from its sub-components
-//       └── one device per sub-component, with the details: APT, one per Docker compose stack, UPS
+//   ├── one device per host: agent connectivity, alerts rolled up from its sub-components
+//   │   └── one device per sub-component, with the details: APT, one per Docker compose stack, UPS
+//   └── one device per equipment (section `equipments`): alerts and its probes
+// With `groupBySite`, a device per site sits between the root and the hosts / equipments of that site (alerts rolled up);
+// those without a known site stay under the root.
 // The probes of a host are entities of its device, or of the device of its stack.
 // Retained topics: <topic>/lwt, <topic>/<device>/<entity>/state, <topic>/<device>/<entity>/set (commands);
 // <device>: the host name as a slug (topicKeys), `manager` for the root.
-import { hasApt, type HaDetail, type HaSection, type HostDoc, type JobAction, type ProbeDoc, type ProbeTarget } from '../types.js';
+import { hasApt, type EquipmentDoc, type HaDetail, type HaSection, type HostDoc, type JobAction, type ProbeDoc, type ProbeTarget } from '../types.js';
 import { needsReboot } from '../reboot.js';
 import { alertsOf, hostAlerts as rolledUp, type Alert } from './alerts.js';
 import { evaluate, type HostStatus } from '../monitoring.js';
 import { upsFlags } from '../ups.js';
 import { sessionSummary } from '../sessions.js';
 import { dockerView } from '../docker.js';
+import { TYPE_LABELS } from '../equipments.js';
 import { hostLevel, hostSections, sectionsOf } from './detail.js';
 
 export const PRESS = 'PRESS';
@@ -22,6 +26,9 @@ export const INSTALL = 'INSTALL';
 export const ROOT_ID = 'homelab_manager';
 // all the hub's configs under one node id: <prefix>/device/homelab/<object id>/config
 export const NODE_ID = 'homelab';
+// device id of a site, of an equipment
+const SITE_PREFIX = 'hm_site_';
+const EQUIPMENT_PREFIX = 'hm_eq_';
 
 // topic segment of the root device; no host gets it
 export const ROOT_KEY = 'manager';
@@ -80,6 +87,12 @@ export interface HostState {
   probes?: ProbeDoc[]; // probes attached to the host (probes.ts)
 }
 
+export interface EquipmentState {
+  equipment: EquipmentDoc;
+  status: HostStatus; // evaluateEquipment (monitoring.ts)
+  probes: ProbeDoc[];
+}
+
 // What a probe checks, in a few words for the attributes of its entity
 function targetText(t: ProbeTarget) {
   switch (t.type) {
@@ -113,6 +126,11 @@ export interface BuildOptions {
   hubUrl?: string;
   // entities published (see detail.ts); absent: everything
   detail?: HaDetail;
+  // equipments (published with the section `equipments`) and the sites of the homelab
+  equipments?: EquipmentState[];
+  sites?: { id: string; name: string }[];
+  // a device per site between the root and its hosts / equipments
+  groupBySite?: boolean;
   // backup groups of the PBS (see pbs.ts) and the space of its datastores
   backups?: {
     // source: see BackupDoc (haos: Home Assistant backups, the others are on the PBS)
@@ -124,7 +142,7 @@ export interface BuildOptions {
 type Component = Record<string, unknown>;
 
 export function build(all: HostState[], opts: BuildOptions) {
-  const { topic, discoveryPrefix, version, hubUrl, backups } = opts;
+  const { topic, discoveryPrefix, version, hubUrl, backups, sites = [], groupBySite = false } = opts;
   const global = sectionsOf(opts.detail ?? { level: 'full', sections: [] });
   // hosts excluded from Home Assistant: no device, and left out of the totals and alerts of the root
   const hosts = all.filter((h) => hostLevel(h.host) !== 'none');
@@ -234,6 +252,13 @@ export function build(all: HostState[], opts: BuildOptions) {
   }
 
   const allAlerts: Alert[] = [];
+  // device a host / equipment hangs from: its site when grouped and known, else the root
+  const known = new Set(sites.map((x) => x.id));
+  const parentOf = (siteId?: string) => (groupBySite && siteId && known.has(siteId) ? `${SITE_PREFIX}${siteId}` : ROOT_ID);
+  const siteAlerts = new Map<string, Alert[]>();
+  const toSite = (siteId: string | undefined, list: Alert[]) => {
+    if (parentOf(siteId) !== ROOT_ID) siteAlerts.set(siteId!, [...(siteAlerts.get(siteId!) ?? []), ...list]);
+  };
   const online = hosts.filter((h) => h.online);
   let updates = 0;
   let security = 0;
@@ -418,11 +443,12 @@ export function build(all: HostState[], opts: BuildOptions) {
     const hostAlerts = rolledUp(status);
     const selfUpdate = !!host.capabilities?.includes('agent_update');
     allAlerts.push(...hostAlerts.map((a) => ({ ...a, host: host.name })));
+    toSite(host.siteId, hostAlerts.map((a) => ({ ...a, host: host.name })));
 
     const d = device(hostId, hostKey, {
       name: host.name,
       model: host.info?.osName || 'Hôte',
-      via_device: ROOT_ID,
+      via_device: parentOf(host.siteId),
       ...(host.agentVersion ? { sw_version: host.agentVersion } : {}),
       ...(hubUrl ? { configuration_url: `${hubUrl}/hosts/${hid}` } : {}),
     }, [], sec);
@@ -485,6 +511,38 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
   }
 
+  // --- equipments: alerts and probes, no agent (section `equipments`, global)
+  const equipments = global.has('equipments') ? opts.equipments ?? [] : [];
+  for (const { equipment: e, status, probes: own } of equipments) {
+    const eid = e._id.toHexString();
+    const list = rolledUp(status).map((a) => ({ ...a, host: e.name }));
+    allAlerts.push(...list);
+    toSite(e.siteId, list);
+    const key = `eq_${slug(e.name) || 'equipment'}_${eid.slice(-6)}`;
+    const d = device(`${EQUIPMENT_PREFIX}${eid}`, key, {
+      name: e.name,
+      model: TYPE_LABELS[e.type] ?? 'Équipement',
+      via_device: parentOf(e.siteId),
+      ...(e.ip ? { configuration_url: `http://${e.ip}` } : {}),
+    });
+    for (const p of own) d.probe(p, p.state === 'up' || p.state === 'down');
+    d.alerts(list);
+    d.sensor('ip', 'Adresse IP', e.ip ?? null, { icon: 'mdi:ip-network', ...diag });
+    d.finish();
+  }
+
+  // --- sites (grouped): alerts rolled up from their hosts and equipments; only those that have some
+  if (groupBySite) {
+    for (const site of sites) {
+      const list = siteAlerts.get(site.id);
+      const hasChild = list !== undefined || hosts.some((h) => h.host.siteId === site.id) || equipments.some((e) => e.equipment.siteId === site.id);
+      if (!hasChild) continue;
+      const d = device(`${SITE_PREFIX}${site.id}`, `site_${site.id}`, { name: site.name, model: 'Site', via_device: ROOT_ID });
+      d.alerts(list ?? []);
+      d.finish();
+    }
+  }
+
   // --- root
   const root = device(ROOT_ID, ROOT_KEY, {
     name: 'Homelab Manager', model: 'Hub', sw_version: version, ...(hubUrl ? { configuration_url: hubUrl } : {}),
@@ -513,6 +571,10 @@ export function build(all: HostState[], opts: BuildOptions) {
         });
       }
     }
+  }
+  if (global.has('equipments')) {
+    root.sensor('equipments', 'Équipements', equipments.length, { icon: 'mdi:router-network' });
+    root.sensor('equipments_alert', 'Équipements en alerte', equipments.filter((e) => e.status.level === 'alert').length, { icon: 'mdi:router-network-wireless' });
   }
   if (global.has('tops')) {
     // five busiest hosts per metric: state = the first, the ranking in attributes

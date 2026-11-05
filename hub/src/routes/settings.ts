@@ -22,6 +22,7 @@ const DEFAULTS: HomeAssistantSettings = {
   discoveryPrefix: 'homeassistant',
   publicUrl: '',
   detail: DEFAULT_DETAIL,
+  groupBySite: false,
 };
 
 export async function loadHomeAssistantSettings() {
@@ -67,6 +68,7 @@ interface Body {
   discoveryPrefix: string;
   publicUrl?: string;
   detail?: HaDetail;
+  groupBySite?: boolean;
 }
 
 const detailBody = {
@@ -91,6 +93,7 @@ const body = {
     discoveryPrefix: { type: 'string', minLength: 1, maxLength: 64, pattern: TOPIC },
     publicUrl: { type: 'string', maxLength: 256 },
     detail: detailBody,
+    groupBySite: { type: 'boolean' },
   },
 } as const;
 
@@ -119,7 +122,7 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
   });
 
   // entities that a level of detail would publish, for the settings page
-  app.post<{ Body: { detail?: HaDetail; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } } }>(
+  app.post<{ Body: { detail?: HaDetail; groupBySite?: boolean; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } } }>(
     '/api/settings/homeassistant/preview',
     {
       schema: {
@@ -128,6 +131,7 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
           additionalProperties: false,
           properties: {
             detail: detailBody,
+            groupBySite: { type: 'boolean' },
             // only these hosts, with this level for them when given (host options, group edit)
             hosts: {
               type: 'object',
@@ -142,7 +146,7 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
     async (req) => {
       const s = await loadHomeAssistantSettings();
       const scope = req.body.hosts && { ids: req.body.hosts.ids, haDetail: req.body.hosts.haDetail === undefined ? undefined : normalizeHostDetail(req.body.hosts.haDetail) };
-      return bridge.preview(req.body.detail ? normalizeDetail(req.body.detail) : s.detail, s, scope);
+      return bridge.preview(req.body.detail ? normalizeDetail(req.body.detail) : s.detail, { ...s, groupBySite: req.body.groupBySite ?? s.groupBySite }, scope);
     },
   );
 

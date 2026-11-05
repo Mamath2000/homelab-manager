@@ -32,6 +32,7 @@ const inputOf = (s: HomeAssistantSettings): HomeAssistantInput => ({
   discoveryPrefix: s.discoveryPrefix,
   publicUrl: s.publicUrl,
   detail: s.detail,
+  groupBySite: s.groupBySite,
 });
 
 type BrokerForm = Required<Pick<HomeAssistantInput, 'brokerRoleId' | 'topic' | 'discoveryPrefix' | 'publicUrl'>>;
@@ -199,17 +200,19 @@ export function HomeAssistantPanel() {
   const broker = roles?.find((r): r is MqttHubRole => r.type === 'mqtt-broker' && r.id === data?.brokerRoleId);
   // level of detail being edited, server value until then
   const [draft, setDraft] = useState<HaDetail | null>(null);
+  const [groupDraft, setGroupDraft] = useState<boolean | null>(null);
   const [busy, setBusy] = useState<'save' | 'republish' | 'remove' | null>(null);
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
 
   const initial: HaDetail = data?.detail ?? { level: 'minimal', sections: [] };
   const detail = draft ?? initial;
+  const groupBySite = groupDraft ?? data?.groupBySite ?? false;
   // entities that the level being edited would publish
-  const detailKey = JSON.stringify(detail);
+  const detailKey = JSON.stringify([detail, groupBySite]);
   const { data: preview } = useQuery({
     queryKey: ['settings', 'homeassistant', 'preview', detailKey],
-    queryFn: () => api.previewHomeAssistant({ detail }),
+    queryFn: () => api.previewHomeAssistant({ detail, groupBySite }),
     enabled: !!data?.enabled,
     placeholderData: (prev) => prev,
   });
@@ -218,9 +221,10 @@ export function HomeAssistantPanel() {
     if (!data) return false;
     setBusy('save');
     try {
-      const next = await api.saveHomeAssistant({ ...inputOf(data), detail });
+      const next = await api.saveHomeAssistant({ ...inputOf(data), detail, groupBySite });
       qc.setQueryData(['settings', 'homeassistant'], next);
       setDraft(null);
+      setGroupDraft(null);
       toast.success('Niveau de détail enregistré');
       return true;
     } catch (err) {
@@ -238,8 +242,8 @@ export function HomeAssistantPanel() {
   const saveAndLeave = async () => {
     if (await save()) leave();
   };
-  const discard = () => setDraft(null);
-  const dirty = !!data && JSON.stringify(detail) !== JSON.stringify(initial);
+  const discard = () => { setDraft(null); setGroupDraft(null); };
+  const dirty = !!data && (JSON.stringify(detail) !== JSON.stringify(initial) || groupBySite !== (data.groupBySite ?? false));
   useSettingsDraft(dirty, save, discard);
   if (!data) return <Panel title="Home Assistant" icon={Home}><Spinner /></Panel>;
 
@@ -363,6 +367,21 @@ export function HomeAssistantPanel() {
             </p>
           )}
         </HaDetailTable>
+        <label className="flex cursor-pointer items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 accent-emerald-500"
+            checked={groupBySite}
+            onChange={(e) => setGroupDraft(e.target.checked)}
+          />
+          <span>
+            <span className="block text-zinc-200">Regrouper les entités par site</span>
+            <span className="block text-xs text-muted">
+              Un appareil par site entre Homelab Manager et ses hôtes / équipements (alertes remontées). Hôtes et équipements sans site restent
+              sous Homelab Manager.
+            </span>
+          </span>
+        </label>
       </div>
 
       <SettingsFormActions

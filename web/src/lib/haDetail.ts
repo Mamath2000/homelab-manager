@@ -9,6 +9,7 @@ export const HA_LEVELS: { id: HaLevel; label: string; hint: string }[] = [
 export const HA_SECTIONS: { id: HaSection; label: string; hint: string }[] = [
   { id: 'tops', label: 'Top 5 CPU / mémoire / disque', hint: 'Trois capteurs sur Homelab Manager' },
   { id: 'counters', label: 'Compteurs', hint: 'Hôtes, mises à jour, stacks, sauvegardes en retard, datastores' },
+  { id: 'equipments', label: 'Équipements', hint: 'Un appareil par équipement (alertes, sondes), comptés dans les totaux et alertes de Homelab Manager' },
   { id: 'apt', label: 'APT', hint: 'Sous-composant par hôte, état « redémarrage requis »' },
   { id: 'docker', label: 'Docker', hint: 'Un sous-composant par stack' },
   { id: 'ups', label: 'Onduleur', hint: 'Sous-composant par hôte avec onduleur NUT' },
@@ -19,5 +20,5 @@ export const HA_SECTIONS: { id: HaSection; label: string; hint: string }[] = [
   { id: 'diagnostics', label: 'Diagnostics', hint: 'Système, noyau, IP, dernière vue, alertes des sous-composants' },
 ];
 
-// sections published per host; counters and tops are on the hub's device and follow the global level only
+// sections published per host; counters, tops and equipments are on the hub's device and follow the global level only
 export const HA_HOST_SECTIONS: HaSection[] = ['apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics'];

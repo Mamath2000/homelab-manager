@@ -4,13 +4,14 @@ import type { FastifyBaseLogger } from 'fastify';
 import { agentOutdated, hostBinary } from '../agentBinaries.js';
 import { loadAgentSettings } from '../agentUpdate.js';
 import { isOnline } from '../agents.js';
-import { evaluateAll } from '../monitoring.js';
+import { evaluateAll, evaluateEquipments } from '../monitoring.js';
+import { loadSites } from '../catalog.js';
 import { config } from '../config.js';
 import { isUnmanaged } from '../docker.js';
-import { backups, hosts } from '../db.js';
+import { backups, equipments, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
-import { hostProbes } from '../probes.js';
+import { equipmentProbes, hostProbes } from '../probes.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
 import { build, deviceOf, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
@@ -62,7 +63,7 @@ export class HomeAssistantBridge {
     if (same) {
       // only the link changed: republish the devices
       this.settings = next;
-      if (prev.publicUrl !== next.publicUrl || JSON.stringify(prev.detail) !== JSON.stringify(next.detail)) this.refresh();
+      if (prev.publicUrl !== next.publicUrl || !!prev.groupBySite !== !!next.groupBySite || JSON.stringify(prev.detail) !== JSON.stringify(next.detail)) this.refresh();
       return;
     }
     // devices are removed from Home Assistant when the integration is disabled or moved to other topics
@@ -112,7 +113,7 @@ export class HomeAssistantBridge {
 
     // hosts, jobs and agent connections all change what Home Assistant shows
     this.unsubscribe = subscribe((event) => {
-      if (event === 'host' || event === 'host.deleted' || event === 'job' || event === 'backups' || event === 'probe') this.schedule(1000);
+      if (event === 'host' || event === 'host.deleted' || event === 'job' || event === 'backups' || event === 'probe' || event === 'equipment' || event === 'equipment.deleted') this.schedule(1000);
     });
     // time based states (stale package lists) without any event
     this.timer = setInterval(() => this.schedule(0), 60_000);
@@ -231,6 +232,9 @@ export class HomeAssistantBridge {
     });
     const allProbes = await hostProbes();
     const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), allProbes);
+    const eqList = await equipments.find().sort({ name: 1 }).toArray();
+    const eqProbes = await equipmentProbes();
+    const eqStatus = evaluateEquipments(eqList, eqProbes);
     const hubUrl = s.publicUrl || (await loadAgentSettings()).hubUrl || undefined;
     return build(
       list.map((host) => {
@@ -246,7 +250,13 @@ export class HomeAssistantBridge {
           probes: allProbes.filter((p) => p.subject.id.toHexString() === id),
         };
       }),
-      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, detail: s.detail, backups: await backupsForHa() },
+      { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, detail: s.detail, backups: await backupsForHa(),
+        groupBySite: s.groupBySite, sites: (await loadSites()).map(({ id, name }) => ({ id, name })),
+        equipments: eqList.map((equipment) => {
+          const id = equipment._id.toHexString();
+          return { equipment, status: eqStatus[id], probes: eqProbes.filter((p) => p.subject.id.toHexString() === id) };
+        }),
+      },
     );
   }
 

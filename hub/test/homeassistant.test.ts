@@ -4,9 +4,9 @@ import { test } from 'node:test';
 import { Aedes } from 'aedes';
 import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
-import { evaluateAll } from '../src/monitoring.js';
+import { evaluateAll, evaluateEquipment } from '../src/monitoring.js';
 import { build, deviceOf, INSTALL, PRESS, ROOT_ID, ROOT_KEY, parseDiscoveryTopic, topicKeys, type Device, type HostState } from '../src/homeassistant/discovery.js';
-import type { HostDoc, ProbeDoc } from '../src/types.js';
+import type { EquipmentDoc, HostDoc, ProbeDoc } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
 const opts = { topic: 'hm', discoveryPrefix: 'homeassistant', version: '1.2.3' };
@@ -551,4 +551,61 @@ test('probes section: in the standard and full presets, per host, not in minimal
   assert.ok(!HA_PRESETS.minimal.includes('probes'));
   assert.ok(HA_HOST_SECTIONS.includes('probes'));
   assert.deepEqual(normalizeHostDetail({ level: 'custom', sections: ['probes', 'apt'] }), { level: 'custom', sections: ['apt', 'probes'] });
+});
+
+// --- equipments and site grouping ---------------------------------------------------------------
+
+function equipment(name: string, siteId?: string): EquipmentDoc {
+  return { _id: new ObjectId(), name, type: 'switch', ip: '10.0.0.2', source: 'manual', createdAt: new Date(), ...(siteId ? { siteId } : {}) };
+}
+const equipmentState = (e: EquipmentDoc, probes: ProbeDoc[] = []) => ({ equipment: e, status: evaluateEquipment(e, { now: Date.now(), probes }), probes });
+const sites = [{ id: 's1', name: 'Jarsay' }, { id: 's2', name: 'Vide' }];
+const viaOf = (devices: Device[], id: string) => (devices.find((d) => d.id === id)!.discovery.device as Record<string, unknown>).via_device;
+
+test('equipments: a device under the root, a binary_sensor per probe, counted by the root', () => {
+  const e = equipment('Switch salon');
+  const down = { ...probe(host('x'), 'Ping', 'down'), subject: { kind: 'equipment' as const, id: e._id } };
+  const { devices } = build([], { ...opts, equipments: [equipmentState(e, [down])] });
+  const d = devices.find((x) => x.id === `hm_eq_${e._id.toHexString()}`)!;
+  assert.equal(viaOf(devices, d.id), ROOT_ID);
+  const comps = d.discovery.components as Record<string, { platform: string }>;
+  assert.equal(comps[`probe_${down._id.toHexString()}`].platform, 'binary_sensor');
+  assert.ok(comps.problem && comps.alerts);
+  const root = devices.find((x) => x.id === ROOT_ID)!;
+  assert.ok(root.states.some(([t, v]) => t === 'hm/manager/equipments/state' && v === '1'));
+  assert.ok(root.states.some(([t, v]) => t === 'hm/manager/equipments_alert/state' && v === '1'));
+  assert.ok(root.states.some(([t, v]) => t === 'hm/manager/problem/state' && v === 'ON'));
+});
+
+test('equipments: left out when the section is not published', () => {
+  const e = equipment('Switch');
+  const { devices } = build([], { ...opts, detail: { level: 'minimal', sections: [] }, equipments: [equipmentState(e)] });
+  assert.deepEqual(devices.map((d) => d.id), [ROOT_ID]);
+});
+
+test('group by site: root > site > host / equipment, sites without a member or unknown stay out', () => {
+  const h = { ...host('pve1'), siteId: 's1' };
+  const lone = host('nas');
+  const e = equipment('AP', 's1');
+  const orphan = equipment('Gateway', 'gone');
+  const { devices } = build(
+    [{ host: h, online: true, busy: false }, { host: lone, online: true, busy: false }],
+    { ...opts, groupBySite: true, sites, equipments: [equipmentState(e), equipmentState(orphan)] },
+  );
+  assert.ok(devices.some((d) => d.id === 'hm_site_s1'));
+  assert.ok(!devices.some((d) => d.id === 'hm_site_s2'));
+  assert.equal(viaOf(devices, 'hm_site_s1'), ROOT_ID);
+  assert.equal(viaOf(devices, `hm_${h._id.toHexString()}`), 'hm_site_s1');
+  assert.equal(viaOf(devices, `hm_eq_${e._id.toHexString()}`), 'hm_site_s1');
+  assert.equal(viaOf(devices, `hm_${lone._id.toHexString()}`), ROOT_ID);
+  assert.equal(viaOf(devices, `hm_eq_${orphan._id.toHexString()}`), ROOT_ID);
+  // the site carries a problem flag (a device without entity would not exist in Home Assistant)
+  assert.ok('problem' in (devices.find((d) => d.id === 'hm_site_s1')!.discovery.components as object));
+});
+
+test('without grouping, no site device and everything under the root', () => {
+  const h = { ...host('pve1'), siteId: 's1' };
+  const { devices } = build([{ host: h, online: true, busy: false }], { ...opts, groupBySite: false, sites });
+  assert.ok(!devices.some((d) => d.id.startsWith('hm_site_')));
+  assert.equal(viaOf(devices, `hm_${h._id.toHexString()}`), ROOT_ID);
 });

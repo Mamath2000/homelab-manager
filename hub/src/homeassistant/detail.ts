@@ -7,15 +7,15 @@
 import type { HaDetail, HaHostDetail, HaLevel, HaSection, HostDoc } from '../types.js';
 
 export const HA_SECTIONS: readonly HaSection[] = [
-  'counters', 'tops', 'apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics',
+  'counters', 'tops', 'equipments', 'apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics',
 ];
 
-// sections published per host; the others (counters, tops) only on the hub's device, from the global level
+// sections published per host; the others (counters, tops, equipments) only on the hub's device, from the global level
 export const HA_HOST_SECTIONS: readonly HaSection[] = ['apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics'];
 
 export const HA_PRESETS: Record<HaLevel, readonly HaSection[]> = {
   minimal: ['tops'],
-  standard: ['tops', 'counters', 'apt', 'docker', 'ups', 'backup', 'probes'],
+  standard: ['tops', 'counters', 'equipments', 'apt', 'docker', 'ups', 'backup', 'probes'],
   full: HA_SECTIONS,
 };
 

@@ -595,7 +595,7 @@ export type HaHostLevel = HaLevel | 'none';
 // level of a host: a preset, or its sections picked one by one (sections of a host only, see HA_HOST_SECTIONS)
 export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
 export type HaSection =
-  | 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
+  | 'counters' | 'tops' | 'equipments' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
 // custom: the sections are picked one by one
 export interface HaDetail {
   level: HaLevel | 'custom';
@@ -616,6 +616,8 @@ export interface HomeAssistantSettings {
   discoveryPrefix: string;
   publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
   detail: HaDetail; // entities published; absent from settings saved before 0.4: minimal
+  // hosts and equipments under a device per site (root > site > host / equipment) instead of directly under the root
+  groupBySite?: boolean;
 }
 
 // --- Backups (Proxmox Backup Server, see pbs.ts) ------------------------------------------

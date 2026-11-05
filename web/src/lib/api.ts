@@ -607,7 +607,7 @@ export type HaLevel = 'minimal' | 'standard' | 'full';
 export type HaHostLevel = HaLevel | 'none';
 // level of a host: a preset or its own sections (host sections only, HA_HOST_SECTIONS)
 export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
-export type HaSection = 'counters' | 'tops' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
+export type HaSection = 'counters' | 'tops' | 'equipments' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
 export interface HaDetail {
   level: HaLevel | 'custom';
   sections: HaSection[];
@@ -622,6 +622,7 @@ export interface HomeAssistantSettings {
   discoveryPrefix: string;
   publicUrl: string;
   detail: HaDetail;
+  groupBySite: boolean;
   // sections of each level
   presets: Record<HaLevel, HaSection[]>;
   status: {
@@ -640,6 +641,7 @@ export interface HomeAssistantInput {
   discoveryPrefix: string;
   publicUrl: string;
   detail: HaDetail;
+  groupBySite?: boolean;
 }
 
 export interface AgentSettings {
@@ -1526,7 +1528,7 @@ export const api = {
   republishHomeAssistant: () => request<{ ok: boolean }>('POST', '/api/settings/homeassistant/republish'),
   // devices and entities a level of detail would publish (detail: global level being edited, saved one otherwise);
   // hosts: only the devices of these hosts, with this level for them when given
-  previewHomeAssistant: (body: { detail?: HaDetail; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } }) =>
+  previewHomeAssistant: (body: { detail?: HaDetail; groupBySite?: boolean; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } }) =>
     request<{ devices: number; entities: number }>('POST', '/api/settings/homeassistant/preview', body),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
