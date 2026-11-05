@@ -46,13 +46,14 @@ Sous le lien, **Paramètres de publication** règle ce qui est créé dans Home 
 | Compteurs de Homelab Manager (hôtes, mises à jour, stacks, sauvegardes, datastores) | — | ✅ | ✅ |
 | Sous-composants APT, Docker, Onduleur, Sauvegardes | — | ✅ | ✅ |
 | Sondes de service : une entité par sonde | — | ✅ | ✅ |
+| Équipements : un appareil par [équipement](equipements.md), comptés par Homelab Manager | — | ✅ | ✅ |
 | Sessions Windows | — | — | ✅ |
 | Actions : boutons et entités `update` installables | — | — | ✅ |
 | Diagnostics : système, noyau, IP, dernière vue, alertes des sous-composants | — | — | ✅ |
 
 **Personnalisé** coche les catégories une à une (en partant du niveau courant). Les alertes ne dépendent pas du niveau : un sous-composant non publié fait toujours remonter ses alertes sur son hôte et sur Homelab Manager.
 
-**Par hôte**, le niveau global peut être remplacé : onglet **Home Assistant** des options de l'hôte, ou **Niveau Home Assistant** sur une sélection dans la liste des hôtes. Les deux présentent le même tableau, limité aux catégories d'un hôte (APT, Docker, Onduleur, Sauvegardes, Sondes, Sessions Windows, Actions, Diagnostics), avec l'aperçu de ses entités : *Niveau global* (par défaut), *Aucun* (hôte non publié), *Minimal*, *Standard*, *Complet* ou *Personnalisé*. Compteurs et top 5, publiés sur Homelab Manager, ne suivent que le niveau global. Un hôte réglé sur *Aucun* n'a ni appareil, ni alertes, ni place dans les compteurs et les top 5 ; tous les autres comptent dans les totaux de Homelab Manager, quel que soit leur niveau. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés au niveau *Aucun*. L'ancienne case « exclu de Home Assistant » est lue comme *Aucun*.
+**Par hôte**, le niveau global peut être remplacé : onglet **Home Assistant** des options de l'hôte, ou **Niveau Home Assistant** sur une sélection dans la liste des hôtes. Les deux présentent le même tableau, limité aux catégories d'un hôte (APT, Docker, Onduleur, Sauvegardes, Sondes, Sessions Windows, Actions, Diagnostics), avec l'aperçu de ses entités : *Niveau global* (par défaut), *Aucun* (hôte non publié), *Minimal*, *Standard*, *Complet* ou *Personnalisé*. Compteurs, top 5 et équipements, publiés sur Homelab Manager, ne suivent que le niveau global (un équipement n'a pas de niveau propre). Un hôte réglé sur *Aucun* n'a ni appareil, ni alertes, ni place dans les compteurs et les top 5 ; tous les autres comptent dans les totaux de Homelab Manager, quel que soit leur niveau. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés au niveau *Aucun*. L'ancienne case « exclu de Home Assistant » est lue comme *Aucun*.
 
 Changer de niveau retire de Home Assistant les appareils et entités qui ne sont plus publiés.
 
@@ -75,6 +76,18 @@ Homelab Manager
 │   └── docker-01 · traefik
 └── …
 ```
+
+La case **Regrouper les entités par site** (Paramètres de publication, désactivée par défaut) intercale un appareil par site entre Homelab Manager et ses hôtes et équipements :
+
+```text
+Homelab Manager
+├── Vouillé                   (appareil de site : alertes et problème remontés)
+│   ├── pve1
+│   └── Switch salon          (équipement)
+└── nas-sans-site             (hôte ou équipement sans site : sous Homelab Manager)
+```
+
+Un site sans hôte ni équipement publié n'a pas d'appareil. Les appareils gardent leurs identifiants : activer ou désactiver la case ne fait que changer leur appareil parent.
 
 ### Homelab Manager
 
@@ -156,6 +169,22 @@ Un par hôte dont l'agent remonte un onduleur NUT. Détail et seuils : [Onduleur
 | Tension batterie, Alertes, Problème | diagnostic |
 
 Indisponible quand l'agent est hors ligne, comme APT et Docker.
+
+### Appareils de site
+
+Avec *Regrouper les entités par site* : **Alertes** (nombre ; attributs `critical` et `alerts`) et **Problème**, agrégés sur les hôtes et équipements du site.
+
+### Équipements
+
+Un appareil par [équipement](equipements.md), catégorie **Équipements** (niveaux Standard et Complet, niveau global seulement).
+
+| Entité | Type |
+|---|---|
+| Nom de la sonde | capteur binaire de connectivité, même format que les [sondes de service](#sondes-de-service) des hôtes |
+| Alertes, Problème | capteur (nombre, attributs `critical` et `alerts`) et capteur binaire, allumé dès qu'une alerte existe |
+| Adresse IP | diagnostic |
+
+Sur Homelab Manager : **Équipements** (nombre) et **Équipements en alerte** (niveau alerte ; un équipement dont la mesure est inconnue n'est pas compté). Les alertes des équipements remontent sur Alertes et Problème de Homelab Manager.
 
 ### Sondes de service
 

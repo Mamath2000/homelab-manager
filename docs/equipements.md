@@ -58,9 +58,7 @@ Un équipement manuel n'a donc que ses sondes. Son niveau est le pire de ses dom
 - **Fiche équipement** : informations, frise des alertes sur 30 jours, état remonté par la source (équipement synchronisé) et panneau **Sondes**.
 - **Tableau de bord** : le bloc **Équipements**, sous les sites, groupé par site. Une colonne par équipement, **un carré par sonde** (haut → bas, vert / rouge / gris) ; la connexion remontée par la source vient en premier. Un équipement sans sonde a un carré vide. Les équipements ne comptent pas dans la couleur des sites ni dans la frise « arrivée des alertes ».
 
-:::info Pas encore dans Home Assistant
-Les équipements et leurs sondes ne sont pas encore publiés dans Home Assistant.
-:::
+Les équipements et leurs sondes sont publiés dans Home Assistant (niveaux Standard et Complet) : voir [Appareils créés](home-assistant.md#équipements).
 
 ## API
 
