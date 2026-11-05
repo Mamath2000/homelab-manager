@@ -41,7 +41,15 @@ function SiteEquipment({ name, items, all, status }: { name: string; items: Equi
         ))}
       </ResponsiveList>
       <ResponsiveList mode="desktop">
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col className="w-[26%]" />
+            <col className="w-[14%]" />
+            <col className="w-[15%]" />
+            <col className="w-[16%]" />
+            <col className="w-[16%]" />
+            <col className="w-[13%]" />
+          </colgroup>
           <thead className="border-b border-line">
             <tr>
               <th className="th">Équipement</th>
