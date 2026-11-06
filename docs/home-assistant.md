@@ -48,7 +48,7 @@ Sous le lien, **Paramètres de publication** règle ce qui est créé dans Home 
 | Sondes de service : une entité par sonde | — | ✅ | ✅ |
 | Équipements : un appareil par [équipement](equipements.md), comptés par Homelab Manager | — | ✅ | ✅ |
 | Sessions Windows | — | — | ✅ |
-| Actions : boutons et entités `update` installables | — | — | ✅ |
+| Actions : mises à jour lancées depuis Home Assistant (voir [Sécurité des commandes](#sécurité-des-commandes)) | — | — | ✅ |
 | Diagnostics : système, noyau, IP, dernière vue, alertes des sous-composants | — | — | ✅ |
 
 **Personnalisé** coche les catégories une à une (en partant du niveau courant). Les alertes ne dépendent pas du niveau : un sous-composant non publié fait toujours remonter ses alertes sur son hôte et sur Homelab Manager.
@@ -111,7 +111,6 @@ Les top 5 classent les hôtes en ligne, hors hôtes itinérants (leurs dernière
 |---|---|
 | État | capteur binaire de connectivité (agent connecté au hub : en ligne / hors ligne) ; `unique_id` `hm_ID_etat`, entité `binary_sensor.HOTE_etat` à la création |
 | Redémarrage requis | capteur binaire (problème), dès que l'hôte a remonté son état APT |
-| Redémarrer | bouton (`systemctl reboot` sur l'hôte) |
 | Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA ; indisponible quand l’agent est hors ligne |
 | Vérifier les images Docker | bouton (hôtes avec Docker) : compare les images des stacks à leur registre |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
@@ -127,7 +126,7 @@ Un [poste Windows](installation.md#postes-windows) a en plus, sur son appareil, 
 | Session verrouillée | capteur binaire : toutes les sessions ouvertes sont verrouillées |
 | Utilisateurs | capteur : nombre d'utilisateurs connectés ; attributs `users` (noms) et `sessions` (détail : poste, état, ouverture) |
 
-Ni APT, ni Docker, ni bouton Redémarrer, ni entité de mise à jour de l'agent.
+Ni APT, ni Docker, ni entité de mise à jour de l'agent.
 
 ### Sous-composant APT
 
@@ -136,7 +135,6 @@ Ni APT, ni Docker, ni bouton Redémarrer, ni entité de mise à jour de l'agent.
 | Paquets système | entité `update` : version installée / disponible, résumé des paquets, **installable depuis Home Assistant** (mise à jour complète) |
 | Mises à jour, Mises à jour de sécurité | capteurs |
 | Paquets à nettoyer | capteur : paquets supprimables par `apt autoremove` (liste en attribut `packages`) |
-| Nettoyer les paquets | bouton : `apt-get autoremove` |
 | Paquets bloqués, Dernière vérification | diagnostic |
 | Alertes, Problème | diagnostic : alertes propres aux paquets |
 | Rechercher les mises à jour | bouton : `apt-get update` |
@@ -150,7 +148,6 @@ Toutes les entités APT sont **indisponibles quand l'agent est hors ligne** : la
 | État | capteur : En marche, Partielle, Arrêtée, Down ; services, images et conteneurs en attribut |
 | Conteneurs | capteur : conteneurs en marche / total (`2/3`) |
 | Images | entité `update` : « N mise(s) à jour » quand une image plus récente est publiée ou téléchargée sans être redéployée, **installable depuis Home Assistant** (`docker compose pull` + `up -d`) |
-| Démarrer, Arrêter, Redémarrer | boutons (`docker compose up -d`, `stop`, `restart`) |
 | Alertes, Problème | diagnostic : alertes propres à la stack |
 
 Comme APT, une stack est indisponible quand l'agent est hors ligne. Voir [Docker](docker.md). Une stack non managée n'est pas publiée (son appareil est retiré).
@@ -213,9 +210,40 @@ Une sonde **inconnue** (broker MQTT injoignable, ping non autorisé, hôte itin�
 | Onduleur | avertissement | Charge ou autonomie sous le seuil NUT, auto-test en échec, statut inhabituel |
 | Services | critique | Sonde hors service (les sondes inconnues ne comptent pas) |
 
-« Paquets à nettoyer », « Nettoyer les paquets » et « Redémarrer » n'apparaissent qu'avec un agent récent (0.1.1 et plus) : l'agent annonce au hub les actions qu'il sait faire.
+« Paquets à nettoyer » n'apparaît qu'avec un agent récent (0.1.1 et plus) : l'agent annonce au hub ce qu'il sait faire.
 
 Une stack arrêtée volontairement ne déclenche pas d'alerte. Les prochains composants (sauvegardes…) s'ajouteront comme sous-composants de l'hôte, avec leurs propres alertes remontées de la même façon.
+
+## Sécurité des commandes
+
+Le hub ne sait pas qui publie sur le broker : toute commande reçue sur `PREFIXE/APPAREIL/ENTITE/set` est exécutée, sans compte sur le hub. C'est pourquoi seules les **mises à jour** sont publiées en actions (catégorie *Actions*, incluse dans le niveau *Complet*) :
+
+- recherche et installation des mises à jour APT ;
+- vérification et mise à jour des images d'une stack (`docker compose pull` + `up -d`) ;
+- mise à jour de l'agent (binaire signé).
+
+Ni redémarrage d'un hôte, ni arrêt, démarrage ou redémarrage d'une stack, ni nettoyage des paquets : ces actions se lancent depuis le hub. Chaque commande reçue est écrite dans le journal du hub (topic, action, hôtes) et le job apparaît dans l'activité avec la mention « Home Assistant ».
+
+Le hub signale un broker qui accepte les **connexions anonymes** (rôle Broker MQTT et page Home Assistant) : n'importe qui sur le réseau peut alors lancer ces mises à jour. Sur Mosquitto, désactiver l'accès anonyme et réserver l'écriture des commandes au compte de Home Assistant :
+
+```
+# mosquitto.conf
+allow_anonymous false
+password_file /mosquitto/config/passwd
+acl_file /mosquitto/config/acl
+
+# acl
+user homeassistant
+topic readwrite homeassistant/#
+topic write homelab-manager/+/+/set
+topic read homelab-manager/#
+
+user homelab-manager
+topic readwrite homelab-manager/#
+topic readwrite homeassistant/#
+```
+
+Adapter `homelab-manager` au préfixe des états choisi, et donner aux autres clients (Zigbee2MQTT, ESPHome…) leur propre compte, sans écriture sur ces topics.
 
 ## Topics MQTT
 

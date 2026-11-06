@@ -1,4 +1,5 @@
 import { createWriteStream, existsSync, mkdirSync } from 'node:fs';
+import { startBrokerAnonymousCheck } from './brokerAnonymous.js';
 import { dirname } from 'node:path';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
@@ -129,7 +130,9 @@ await bridge.apply(await loadHaBridgeSettings());
 watchSettingsRoles();
 // the broker role of the bridge changed (edited, moved, its host got other IPs): apply does nothing when the address and
 // account are the same
+const brokerCheck = startBrokerAnonymousCheck(app.log);
 subscribe((event) => {
+  if (event === 'probe.config') brokerCheck.run();
   if (event === 'probe.config') loadHaBridgeSettings().then((s) => bridge.apply(s), (err) => app.log.error({ err }, 'Home Assistant: broker role'));
 });
 

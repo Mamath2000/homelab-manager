@@ -5,7 +5,7 @@ import { Aedes } from 'aedes';
 import { ObjectId } from 'mongodb';
 import { testConnection } from '../src/homeassistant/bridge.js';
 import { evaluateAll, evaluateEquipment } from '../src/monitoring.js';
-import { build, deviceOf, INSTALL, PRESS, ROOT_ID, ROOT_KEY, parseDiscoveryTopic, topicKeys, type Device, type HostState } from '../src/homeassistant/discovery.js';
+import { build, deviceOf, INSTALL, MQTT_ACTIONS, mqttActionAllowed, PRESS, ROOT_ID, ROOT_KEY, parseDiscoveryTopic, topicKeys, type Device, type HostState } from '../src/homeassistant/discovery.js';
 import type { EquipmentDoc, HostDoc, ProbeDoc } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -200,25 +200,26 @@ test('autoremove entities appear only when the agent reports them', () => {
   const old = host('old', {});
   const { devices, commands } = build([{ host: recent, online: true, busy: false }, { host: old, online: true, busy: false }], opts);
   const comps = (h: HostDoc) => (devices.find((d) => d.id === `hm_${h._id.toHexString()}_apt`)!.discovery.components as Record<string, unknown>);
-  assert.ok(comps(recent).autoremovable && comps(recent).autoremove);
+  // shown, but not run from Home Assistant (MQTT: the updates only)
+  assert.ok(comps(recent).autoremovable);
+  assert.equal(comps(recent).autoremove, undefined);
   assert.equal(comps(old).autoremovable, undefined);
   const rid = recent._id.toHexString();
-  assert.deepEqual(commands.get(`${at(devices, `hm_${rid}_apt`)}/autoremove/set`), { payload: PRESS, action: 'apt_autoremove', hostIds: [rid] });
+  assert.equal(commands.get(`${at(devices, `hm_${rid}_apt`)}/autoremove/set`), undefined);
   const states = new Map(devices.flatMap((d) => d.states));
   assert.equal(states.get(`${at(devices, `hm_${rid}_apt`)}/autoremovable/state`), '2');
   assert.deepEqual(JSON.parse(states.get(`${at(devices, `hm_${rid}_apt`)}/autoremovable/attributes`)!).packages.length, 2);
   assert.equal(states.get(`hm/${ROOT_KEY}/hosts_to_clean/state`), '1');
 });
 
-test('reboot button only for agents able to reboot', () => {
+test('MQTT runs the updates only: no reboot, stop, restart or cleanup (F-03)', () => {
   const able = { ...host('able'), capabilities: ['reboot'] };
-  const old = host('old');
-  const { devices, commands } = build([{ host: able, online: true, busy: false }, { host: old, online: true, busy: false }], opts);
-  const comps = (h: HostDoc) => devices.find((d) => d.id === `hm_${h._id.toHexString()}`)!.discovery.components as Record<string, Record<string, unknown>>;
-  assert.equal(comps(able).reboot.device_class, 'restart');
-  assert.equal(comps(old).reboot, undefined);
-  const id = able._id.toHexString();
-  assert.deepEqual(commands.get(`${at(devices, `hm_${id}`)}/reboot/set`), { payload: PRESS, action: 'reboot', hostIds: [id] });
+  const { devices, commands } = build([{ host: able, online: true, busy: false }], opts);
+  const comps = devices.find((d) => d.id === `hm_${able._id.toHexString()}`)!.discovery.components as Record<string, unknown>;
+  assert.equal(comps.reboot, undefined);
+  assert.equal(commands.get(`${at(devices, `hm_${able._id.toHexString()}`)}/reboot/set`), undefined);
+  for (const c of commands.values()) assert.ok(mqttActionAllowed(c.action), c.action);
+  assert.deepEqual([...MQTT_ACTIONS].sort(), ['agent_update', 'apt_update', 'apt_upgrade', 'docker_check', 'docker_update']);
 });
 
 test('outdated agents: update entity, alert and root counter', () => {
@@ -290,7 +291,8 @@ test('one sub-component per docker stack, with its update and actions', () => {
   assert.equal(update.latest_version, '1 mise(s) à jour');
   assert.match(update.release_summary, /app \(nginx\)/);
   assert.deepEqual(commands.get(`${at(devices, id)}/images/set`), { payload: INSTALL, action: 'docker_update', hostIds: [hid], target: { stack: 'web' } });
-  assert.deepEqual(commands.get(`${at(devices, id)}/restart/set`), { payload: PRESS, action: 'docker_restart', hostIds: [hid], target: { stack: 'web' } });
+  assert.equal(commands.get(`${at(devices, id)}/restart/set`), undefined);
+  assert.equal(commands.get(`${at(devices, id)}/stop/set`), undefined);
   // the partial stack is an alert of the stack, the host and the root
   assert.equal(states.get(`${at(devices, id)}/alerts/state`), '1');
   assert.equal(states.get(`${at(devices, `hm_${hid}`)}/alerts/state`), '1');
@@ -445,7 +447,7 @@ test('custom level of a host: its own sections, kept to the host ones', async ()
   // actions without the APT sub-device, no diagnostics
   assert.equal(devices.some((d) => d.id === `${hid}_apt`), false);
   const comps = devices.find((d) => d.id === hid)!.discovery.components as Record<string, unknown>;
-  assert.ok(comps.reboot);
+  assert.equal(comps.reboot, undefined);
   assert.equal(comps.os, undefined);
 });
 

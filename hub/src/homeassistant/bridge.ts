@@ -14,7 +14,7 @@ import { subscribe } from '../events.js';
 import { equipmentProbes, hostProbes } from '../probes.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
-import { build, deviceOf, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
+import { build, deviceOf, mqttActionAllowed, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
 
@@ -334,7 +334,13 @@ export class HomeAssistantBridge {
     if (retained) return;
     const cmd = this.commands.get(topic);
     if (!cmd || payload !== cmd.payload) return;
-    this.log.info({ action: cmd.action, hosts: cmd.hostIds.length }, 'Home Assistant: command received');
+    // checked again at run time: only the updates (discovery.ts, MQTT_ACTIONS)
+    if (!mqttActionAllowed(cmd.action)) {
+      this.log.warn({ topic, action: cmd.action }, 'Home Assistant: command refused (not an update)');
+      return;
+    }
+    // whoever wrote on the broker: MQTT does not say, the topic and the hosts are kept
+    this.log.warn({ topic, action: cmd.action, hosts: cmd.hostIds, stack: cmd.target?.stack }, 'Home Assistant: command received by MQTT');
     this.run(cmd).catch((err) => this.log.error({ err }, 'Home Assistant: command failed'));
   }
 

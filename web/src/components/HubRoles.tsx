@@ -22,6 +22,8 @@ import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } fr
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
 
 const SCHEMES: BrokerScheme[] = ['mqtt', 'mqtts', 'ws', 'wss'];
+// a broker open without an account: anyone on the network may publish, the commands of Home Assistant included
+const ANONYMOUS_HINT = "n'importe qui sur le réseau peut y publier, y compris les commandes de Home Assistant. Désactiver l'accès anonyme du broker (allow_anonymous false).";
 
 // A host and the port of the service its agent found: what carries a role.
 interface RolePick {
@@ -111,7 +113,13 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
     setTest(null);
     try {
       const r = await api.testRole({ type, carrier, config: config(), ...(role ? { roleId: role.id } : {}) });
-      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: shown } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      setTest(
+        !r.ok
+          ? { level: 'error', title: 'Échec', detail: r.error ?? 'échec' }
+          : r.anonymous
+            ? { level: 'warn', title: 'Connexion réussie, mais connexions anonymes acceptées', detail: ANONYMOUS_HINT }
+            : { level: 'ok', title: 'Connexion réussie', detail: shown },
+      );
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
@@ -734,6 +742,7 @@ export function RolesSettings() {
                       <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
                     </div>
                     <p className="break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
+                    {r.type === 'mqtt-broker' && r.anonymous && <p className="text-xs text-red-300">Connexions anonymes acceptées : {ANONYMOUS_HINT}</p>}
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs text-muted">{carrierLink(r)} · {uses(r).join(', ') || r.summary || 'inutilisé'}</p>
                       {actions(r)}
@@ -780,6 +789,7 @@ export function RolesSettings() {
                       <td className="td">
                         <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
                         {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
+                        {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-0.5 truncate text-xs text-red-300" title={ANONYMOUS_HINT}>connexions anonymes acceptées</p>}
                       </td>
                       <td className="td truncate text-muted" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</td>
                       <td className="td"><div className="flex justify-end">{actions(r)}</div></td>

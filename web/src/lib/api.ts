@@ -1483,7 +1483,8 @@ interface HubRoleBase {
   uses?: string[];
 }
 export type HubRole =
-  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string } })
+  // anonymous: the broker also accepts connections without an account (null: not checked yet)
+  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string }; anonymous?: boolean | null })
   | (HubRoleBase & { type: 'pve-cluster'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
   // kept in the settings of the backups (pbsSettings, pbsRemoteSettings), roles once connected
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
@@ -1508,6 +1509,7 @@ export interface HubRoleTest {
   ok: boolean;
   error?: string;
   detail?: string;
+  anonymous?: boolean; // broker: also accepts connections without an account
   fingerprint?: string;
 }
 

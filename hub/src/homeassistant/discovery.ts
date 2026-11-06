@@ -21,6 +21,11 @@ import { dockerView } from '../docker.js';
 import { TYPE_LABELS } from '../equipments.js';
 import { hostLevel, hostSections, sectionsOf } from './detail.js';
 
+// Actions Home Assistant may run through MQTT: the updates only (F-03). Whoever can write on the broker may send
+// them (MQTT does not say who), so neither a reboot, a stop or a restart of a stack, nor a cleanup of packages.
+export const MQTT_ACTIONS: readonly JobAction[] = ['apt_update', 'apt_upgrade', 'docker_check', 'docker_update', 'agent_update'];
+export const mqttActionAllowed = (a: JobAction) => MQTT_ACTIONS.includes(a);
+
 export const PRESS = 'PRESS';
 export const INSTALL = 'INSTALL';
 export const ROOT_ID = 'homelab_manager';
@@ -223,12 +228,12 @@ export function build(all: HostState[], opts: BuildOptions) {
         });
       },
       button(key: string, name: string, cmd: Omit<Command, 'payload'>, extra: Component = {}) {
-        if (!sec.has('actions')) return;
+        if (!sec.has('actions') || !mqttActionAllowed(cmd.action)) return;
         add(key, 'button', name, { command_topic: t(key, 'set'), payload_press: PRESS, ...extra });
         commands.set(t(key, 'set'), { payload: PRESS, ...cmd });
       },
       update(key: string, name: string, state: Record<string, unknown>, cmd: Omit<Command, 'payload'>, extra: Component = {}) {
-        if (!sec.has('actions')) return;
+        if (!sec.has('actions') || !mqttActionAllowed(cmd.action)) return;
         add(key, 'update', name, { state_topic: t(key), command_topic: t(key, 'set'), payload_install: INSTALL, ...extra });
         states.push([t(key), JSON.stringify(state)]);
         commands.set(t(key, 'set'), { payload: INSTALL, ...cmd });
@@ -330,7 +335,6 @@ export function build(all: HostState[], opts: BuildOptions) {
           icon: 'mdi:broom', json_attributes_topic: `${hostTopic}_apt/autoremovable/attributes`,
         });
         d.attributes('autoremovable', { packages: r.autoremovable });
-        d.button('autoremove', 'Nettoyer les paquets', { action: 'apt_autoremove', hostIds: [hid] }, { icon: 'mdi:broom' });
       }
       d.alerts(apt, diag);
       d.button('check', 'Rechercher les mises à jour', { action: 'apt_update', hostIds: [hid] }, { icon: 'mdi:refresh' });
@@ -371,9 +375,6 @@ export function build(all: HostState[], opts: BuildOptions) {
         release_summary: summary.length > 255 ? `${summary.slice(0, 252)}...` : summary,
         in_progress: busy,
       }, { action: 'docker_update', hostIds: [hid], target });
-      d.button('restart', 'Redémarrer', { action: 'docker_restart', hostIds: [hid], target }, { device_class: 'restart' });
-      d.button('start', 'Démarrer', { action: 'docker_up', hostIds: [hid], target }, { icon: 'mdi:play' });
-      d.button('stop', 'Arrêter', { action: 'docker_stop', hostIds: [hid], target }, { icon: 'mdi:stop' });
       d.alerts(alerts, diag);
       if (probeSection) {
         for (const p of hostProbes.filter((x) => x.subject.stack === st.name)) {
@@ -490,9 +491,6 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
     // reported with the packages, but a reboot concerns the whole host
     if (r && sec.has('apt')) d.binary('reboot_required', 'Redémarrage requis', r.rebootRequired, { device_class: 'problem', icon: 'mdi:restart-alert' });
-    if (host.capabilities?.includes('reboot')) {
-      d.button('reboot', 'Redémarrer', { action: 'reboot', hostIds: [hid] }, { device_class: 'restart' });
-    }
     if (view) d.button('docker_check', 'Vérifier les images Docker', { action: 'docker_check', hostIds: [hid] }, { icon: 'mdi:docker' });
     if (probeSection) for (const p of hostProbes.filter((x) => !placed.has(String(x._id)))) d.probe(p, readable(p));
     d.alerts(hostAlerts);
