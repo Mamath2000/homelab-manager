@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import { registerAuth } from './auth.js';
 import { config } from './config.js';
 import { closeDb, connectDb } from './db.js';
+import { prepareStoredSecrets } from './storedSecrets.js';
 import { migrateGroups } from './catalog.js';
 import { migrateEnabled } from './disconnect.js';
 import { registerEvents, subscribe } from './events.js';
@@ -65,6 +66,14 @@ await migrateEnabled();
 await migrateHostRoles();
 await migratePveRoleType();
 await migratePveClusters(app.log);
+// before anything reads a secret: a hub without its master key does not run on sealed secrets
+try {
+  await prepareStoredSecrets(app.log);
+} catch (err) {
+  app.log.fatal({ err }, 'secrets: cannot start');
+  await closeDb();
+  process.exit(1);
+}
 await loadRoles();
 await migrateHaBroker();
 await recoverJobs();

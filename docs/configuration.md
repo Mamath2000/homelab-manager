@@ -70,7 +70,7 @@ Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse 
 | `jobs` | tâches et leurs sorties, supprimées après 90 jours |
 | `users`, `sessions` | comptes utilisateurs et sessions |
 
-Sauvegarder le dossier `mongo-data/` (hub arrêté) ou un `mongodump` suffit pour tout restaurer, y compris l'autorité de certification : les agents se reconnectent sans réinstallation. La sauvegarde contient les clés privées du hub, elle est à protéger comme un secret.
+Sauvegarder le dossier `mongo-data/` (hub arrêté) ou un `mongodump` suffit pour tout restaurer, y compris l'autorité de certification : les agents se reconnectent sans réinstallation. Sans clé maître, la sauvegarde contient les clés privées du hub en clair : elle est à protéger comme un secret. Avec une [clé maître](securite.md#base-de-données-et-secrets), elle ne livre aucun secret mais ne se restaure qu'avec cette clé : **sauvegarder `HM_MASTER_KEY` à part**, hors de la sauvegarde de la base.
 
 `mongodump` et `mongorestore` sont inclus dans l'image `mongo` : rien à installer.
 
@@ -79,6 +79,9 @@ Sauvegarder le dossier `mongo-data/` (hub arrêté) ou un `mongodump` suffit pou
 docker exec homelab-manager-mongo mongodump --db homelab --archive --gzip > homelab.archive.gz
 # restauration (écrase les collections existantes)
 docker exec -i homelab-manager-mongo mongorestore --archive --gzip --drop < homelab.archive.gz
+# base avec compte (MONGO_USERNAME / MONGO_PASSWORD du .env) : même chose, authentifié
+docker exec homelab-manager-mongo sh -c 'mongodump -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --db homelab --archive --gzip' > homelab.archive.gz
+docker exec -i homelab-manager-mongo sh -c 'mongorestore -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --archive --gzip --drop' < homelab.archive.gz
 ```
 
 Exemple de dump quotidien avec 7 jours de rétention (crontab root de l'hôte du hub) :
@@ -90,6 +93,7 @@ umask 077                      # le dump contient les clés privées du hub
 DIR=/home/mamath/homelab-manager/backups
 mkdir -p "$DIR"
 OUT="$DIR/homelab-$(date +%F).archive.gz"
+# base avec compte : sh -c 'mongodump -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin …'
 docker exec homelab-manager-mongo mongodump --quiet --db homelab --archive --gzip > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
 find "$DIR" -name "homelab-*.archive.gz" -mtime +7 -delete

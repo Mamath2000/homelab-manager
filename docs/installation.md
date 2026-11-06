@@ -25,6 +25,9 @@ services:
       - "3443:3443"           # agents, en TLS : <port publié>:3443 (à reporter dans Paramètres > Agent s'il diffère)
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
+      MONGO_USERNAME: ${MONGO_USERNAME:-}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-}
+      HM_MASTER_KEY: ${HM_MASTER_KEY:-}
       LOG_LEVEL: info         # fatal | error | warn | info | debug
       TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
       # SESSION_DAYS: 30
@@ -32,16 +35,43 @@ services:
       # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
     depends_on:
       - mongo
+    networks: [default, backend]
 
   mongo:
     image: mongo:7
     container_name: homelab-manager-mongo
     restart: unless-stopped
     command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-}
     volumes:
       - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
       - ./mongo-config:/data/configdb
+    networks: [backend]
+
+networks:
+  backend:
+    internal: true                      # MongoDB : joignable par le hub seulement
 ```
+
+### Options de sécurité (recommandées)
+
+Avant le **premier** démarrage, créer un fichier `.env` à côté du `compose.yml` (modèle : `.env.example` du dépôt) :
+
+```bash
+cat > .env <<EOF
+MONGO_USERNAME=root
+MONGO_PASSWORD=$(openssl rand -hex 24)
+HM_MASTER_KEY=$(openssl rand -base64 32)
+EOF
+chmod 600 .env
+```
+
+- `MONGO_USERNAME` / `MONGO_PASSWORD` : la base refuse toute connexion sans mot de passe. Le compte est créé au premier démarrage d'un `mongo-data` vide.
+- `HM_MASTER_KEY` : les secrets de la base (clé de l'autorité des agents, jetons PBS, PVE et Omada, mot de passe MQTT) sont chiffrés avec cette clé. **La sauvegarder à part de la base** : sans elle, le hub ne démarre plus et tous les agents sont à réinstaller.
+
+Toutes deux sont facultatives : sans `.env`, le hub fonctionne comme avant. Pour les ajouter à une installation existante, suivre [Migrer une installation existante](securite.md#migrer-une-installation-existante).
 
 ### Premier démarrage
 

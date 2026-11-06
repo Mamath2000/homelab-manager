@@ -11,6 +11,7 @@ import { DEFAULT_DETAIL, HA_PRESETS, HA_SECTIONS, haLevelSchema, normalizeDetail
 import { loadMqttBrokers } from '../probes.js';
 import { ROLE_ID_RE } from '../roles.js';
 import type { MqttBroker } from '../types.js';
+import { openSettings } from '../storedSecrets.js';
 
 const DEFAULTS: HomeAssistantSettings = {
   _id: 'homeassistant',
@@ -26,7 +27,7 @@ const DEFAULTS: HomeAssistantSettings = {
 };
 
 export async function loadHomeAssistantSettings() {
-  const stored = (await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null;
+  const stored = openSettings('homeassistant', (await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null);
   return { ...DEFAULTS, ...stored, detail: normalizeDetail(stored?.detail) };
 }
 
@@ -48,7 +49,7 @@ export function matchHaBroker(brokers: MqttBroker[], s: Pick<HomeAssistantSettin
 // The bridge publishes to a broker role: the broker typed before the roles is linked to the role that matches it,
 // else kept (and shown to be linked by hand) so that the publication goes on.
 export async function migrateHaBroker() {
-  const s = (await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null;
+  const s = openSettings('homeassistant', (await settings.findOne({ _id: 'homeassistant' })) as HomeAssistantSettings | null);
   if (!s || s.brokerRoleId || !s.broker) return;
   const role = matchHaBroker((await loadMqttBrokers()).brokers, s);
   if (role) await settings.updateOne({ _id: 'homeassistant' }, { $set: { brokerRoleId: role.id, broker: '', username: '', password: '' } });

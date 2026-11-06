@@ -2,7 +2,11 @@ import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
 import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, ApiKeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
-const client = new MongoClient(config.mongoUrl);
+// an account given apart from the URL (no escaping of the password); none: the URL as it is (with its own account, if any)
+const client = new MongoClient(
+  config.mongoUrl,
+  config.mongoUsername ? { auth: { username: config.mongoUsername, password: config.mongoPassword ?? '' }, authSource: config.mongoAuthSource } : {},
+);
 
 export let hosts: Collection<HostDoc>;
 export let jobs: Collection<JobDoc>;

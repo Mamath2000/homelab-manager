@@ -123,6 +123,56 @@ Un agent de release embarque l'image du client de sauvegarde par son digest (`@s
 
 Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre nœud, puis lance `homelab-agent install`. Aucun script du hub n'y est exécuté. Le code d'enrôlement et l'autorité du hub passent sur l'entrée standard.
 
+## Base de données et secrets
+
+Deux options, facultatives et indépendantes, se règlent dans le fichier `.env` à côté du `compose.yml` (modèle : `.env.example`). Le réseau interne `backend` du `compose.yml` vaut pour toutes les installations : MongoDB n'est joignable que par le hub et n'a aucune route vers l'extérieur.
+
+- **Compte MongoDB** (`MONGO_USERNAME`, `MONGO_PASSWORD`) : la base refuse toute connexion sans mot de passe. Le hub se connecte avec ce compte, défini dans la base `admin` (`MONGO_AUTH_SOURCE` pour une autre) ; un compte dédié avec le seul rôle `readWrite` sur `homelab` convient aussi.
+- **Clé maître** (`HM_MASTER_KEY`, 32 octets en base64, ou `HM_MASTER_KEY_FILE` pour un secret Docker) : le hub chiffre (AES-256-GCM) les secrets qu'il stocke :
+  - les clés privées de l'autorité des agents et du certificat serveur ;
+  - les jetons des PBS principal et hors site, des clusters Proxmox VE et de chaque hôte ;
+  - le secret client Omada et le mot de passe du broker MQTT.
+
+  Un dump ou une copie de `mongo-data` ne livre alors plus aucun secret. Les mots de passe des comptes, les clés d'API et les codes d'enrôlement sont déjà hachés.
+
+Avec la clé maître :
+
+- au démarrage, le hub chiffre ce qui est encore en clair ; ce qu'il écrit ensuite est chiffré dans la seconde ;
+- **sans sa clé**, ou avec une autre, le hub **refuse de démarrer** si la base contient des secrets chiffrés. Il ne recrée jamais d'autorité, ce qui couperait tous les agents ;
+- la clé est à **sauvegarder à part** de la base (gestionnaire de mots de passe, coffre). Perdue, les secrets sont irrécupérables : restaurer une sauvegarde d'avant le chiffrement, ou repartir d'une base vide et réinstaller tous les agents ;
+- un hub d'une version antérieure ne sait pas lire une base chiffrée.
+
+### Migrer une installation existante
+
+Hub en marche et **à jour** (`docker compose pull && docker compose up -d` : un hub plus ancien ne connaît ni le compte ni la clé), dans le dossier du `compose.yml`, avec le `compose.yml` à jour (réseau `backend`, variables `MONGO_*` et `HM_MASTER_KEY`) :
+
+1. **Sauvegarder la base** (retour arrière) :
+   ```bash
+   docker exec homelab-manager-mongo mongodump --quiet --db homelab --archive --gzip > avant-migration.archive.gz
+   ```
+2. **Créer le `.env`**, puis noter son contenu dans un gestionnaire de mots de passe :
+   ```bash
+   cat > .env <<EOF
+   MONGO_USERNAME=root
+   MONGO_PASSWORD=$(openssl rand -hex 24)
+   HM_MASTER_KEY=$(openssl rand -base64 32)
+   EOF
+   chmod 600 .env
+   ```
+3. **Créer le compte dans la base**, qui n'a pas encore d'authentification :
+   ```bash
+   . ./.env && docker exec homelab-manager-mongo mongosh admin --quiet \
+     --eval "db.createUser({user: '$MONGO_USERNAME', pwd: '$MONGO_PASSWORD', roles: ['root']})"
+   ```
+4. **Redémarrer** avec l'authentification et la clé : `docker compose up -d`. Les variables `MONGO_INITDB_ROOT_*` activent `--auth` sur la base existante ; le compte, lui, n'est créé que sur une base vide, d'où l'étape 3.
+5. **Vérifier** :
+   - `docker compose logs hub | grep secrets` affiche `stored secrets sealed with the master key` ;
+   - les agents restent connectés (liste des hôtes) : l'autorité n'a pas changé ;
+   - `docker exec homelab-manager-mongo mongosh homelab --quiet --eval 'db.settings.countDocuments()'` est refusé (`requires authentication`).
+6. **Mettre à jour le script de sauvegarde** avec le compte (voir [Données](configuration.md#données)).
+
+**Retour arrière** : restaurer le dump de l'étape 1 (`mongorestore --drop`, authentifié si le compte est actif), retirer `HM_MASTER_KEY` du `.env`, puis `docker compose up -d`. Pour retirer aussi l'authentification, vider `MONGO_USERNAME` et `MONGO_PASSWORD`.
+
 ## Ce qui est protégé, et contre quoi
 
 | Menace | Protection |
@@ -136,7 +186,8 @@ Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre n
 | Hôte compromis ou retiré du parc | « Révoquer l'agent » ou suppression de l'hôte |
 | Binaire modifié pendant une mise à jour, hub compromis | signature de release vérifiée par l'agent |
 | Hub ou compte administrateur compromis | [politique locale](#politique-locale-de-lhôte) de l'hôte, image du client de sauvegarde épinglée |
-| Vol de la base MongoDB | mots de passe hachés (scrypt), codes d'enrôlement hachés ; la clé de l'autorité y figure, la base est donc à protéger comme un secret |
+| Vol de la base MongoDB ou d'une sauvegarde | mots de passe hachés (scrypt), codes d'enrôlement hachés ; avec la [clé maître](#base-de-données-et-secrets), secrets chiffrés (sinon la clé de l'autorité y figure en clair) |
+| Accès à MongoDB depuis un autre conteneur | réseau interne `backend` ; [compte MongoDB](#base-de-données-et-secrets) |
 
 ## Réseau d'accès Tailscale
 
@@ -147,7 +198,7 @@ Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même
 - **Le hub est l'équivalent d'un accès root sur le parc.** Un hub, une base MongoDB ou un compte administrateur compromis ne peut pas installer un agent non signé, mais des fonctions légitimes (image du client de sauvegarde, répertoires sauvegardés, standardisation, installation d'agents depuis Proxmox VE) lui permettent d'agir en root sur les hôtes ou d'en lire les fichiers. La [politique locale](#politique-locale-de-lhôte) en borne une partie, sur les hôtes qui en ont une. Le hub et ses comptes administrateurs sont à protéger en conséquence : voir l'[audit de sécurité](audit-securite.md).
 - À l'installation initiale, tout vient du hub. La sécurité repose sur la commande copiée depuis l'interface, et donc sur l'accès à cette interface.
 - Il n'y a pas de protection contre le retour à une version plus ancienne : un hub compromis peut redistribuer un ancien agent signé.
-- L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, le hub en crée une nouvelle au démarrage et tous les agents sont à réinstaller.
+- L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, ou sa clé maître perdue, tous les agents sont à réinstaller.
 - Les certificats ne sont pas renouvelés automatiquement : 5 ans pour les agents (une réinstallation en délivre un nouveau), 10 ans pour le serveur, 20 ans pour l'autorité.
 - Le port `3443` doit rester en accès direct, ou passer par un proxy TCP (*passthrough*). Un reverse proxy qui termine le TLS casserait l'épinglage et l'authentification des agents.
 - L'interface (port `3000`) est servie en HTTP. Elle est prévue pour le réseau local ; pour du HTTPS, la placer derrière un reverse proxy (voir [Configuration](configuration.md)).

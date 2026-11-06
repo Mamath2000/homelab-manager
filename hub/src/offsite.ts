@@ -9,6 +9,7 @@ import { appendJobLog, finishJob, startHubJob } from './jobs.js';
 import { HISTORY, loadPbsSettings, pbsCall, retryAfterMin } from './pbs.js';
 import { recordUsage } from './pbsStats.js';
 import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, OffsiteSeriesReport, PbsRemoteSettings } from './types.js';
+import { openSettings } from './storedSecrets.js';
 
 // Copy of chosen backups to a secondary PBS ("copie déportée"). The secondary pulls from the main PBS:
 // a remote entry (REMOTE_NAME) with a read-only token of the main PBS, and one sync job per datastore and
@@ -41,7 +42,7 @@ export const DEFAULT_REMOTE: PbsRemoteSettings = {
 };
 
 export async function loadRemoteSettings(): Promise<PbsRemoteSettings> {
-  return { ...DEFAULT_REMOTE, ...((await settings.findOne({ _id: 'pbs-remote' })) as PbsRemoteSettings | null), _id: 'pbs-remote' };
+  return { ...DEFAULT_REMOTE, ...openSettings('pbs-remote', (await settings.findOne({ _id: 'pbs-remote' })) as PbsRemoteSettings | null), _id: 'pbs-remote' };
 }
 
 export const startOf = (r: Pick<PbsRemoteSettings, 'startTime'>) => (r.startTime && HHMM_RE.test(r.startTime) ? r.startTime : DEFAULT_START);

@@ -1,5 +1,10 @@
 # Déploiement du hub. Les paramètres fonctionnels (URL du hub pour les agents, fréquence des vérifications)
 # se règlent dans l'interface : Paramètres > Agent.
+#
+# Options de sécurité (fichier .env à côté de ce fichier, voir .env.example et docs/securite.md) :
+#   MONGO_USERNAME / MONGO_PASSWORD  compte MongoDB : la base refuse toute connexion sans mot de passe
+#   HM_MASTER_KEY                    clé maître : les secrets (autorité des agents, jetons) sont chiffrés dans la base
+# Sans .env, tout fonctionne comme avant : base sans authentification, secrets en clair.
 services:
   hub:
     image: mathmath350/homelab-manager:latest
@@ -10,6 +15,9 @@ services:
       - "3443:3443"           # agents, en TLS : <port publié>:3443 (à reporter dans Paramètres > Agent s'il diffère)
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
+      MONGO_USERNAME: ${MONGO_USERNAME:-}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-}
+      HM_MASTER_KEY: ${HM_MASTER_KEY:-}
       LOG_LEVEL: info         # fatal | error | warn | info | debug
       TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
       # CHANNEL: dev           # déploiement de test : affiche le bandeau « DEV » (absente : prod)
@@ -25,6 +33,7 @@ services:
       net.ipv4.ping_group_range: "0 65535"
     depends_on:
       - mongo
+    networks: [default, backend]
 
   # Accès Tailscale (hôtes hors LAN), optionnel : décommenter ce service, mettre TS_AUTHKEY dans tailscale.env,
   # puis `docker compose --profile tailscale up -d`. Mode userspace : aucun /dev/net/tun ni interface sur l'hôte
@@ -52,6 +61,16 @@ services:
     container_name: homelab-manager-mongo
     restart: unless-stopped
     command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
+    environment:
+      # compte root créé à l'initialisation d'un mongo-data vide ; renseignés, ils activent aussi --auth
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-}
     volumes:
       - ./mongo-data:/data/db           # dossier local : survit à « docker compose down -v »
       - ./mongo-config:/data/configdb
+    networks: [backend]                 # joignable par le hub seulement, sans accès au réseau extérieur
+
+networks:
+  # réseau interne : MongoDB n'a aucune route vers l'extérieur et seuls les services qui y sont reliés l'atteignent
+  backend:
+    internal: true
