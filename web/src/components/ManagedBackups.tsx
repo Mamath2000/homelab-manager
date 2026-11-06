@@ -519,7 +519,16 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
   const setKind = (k: FormKind) =>
     set(k === 'directories' ? { kind: k, database: null, archives: form.archives.length ? form.archives : [{ name: 'home', path: '/home' }] } : { kind: k, database: newDatabase(k) });
 
+  // same rule as the hub (ARCHIVE_NAME_RE): flagged before saving, on the Contenu tab
+  const badName = (n: string) => !/^[A-Za-z0-9_-]{1,64}$/.test(n);
+  const archiveError = db ? null : form.archives.find((a) => badName(a.name)) ? "Nom d'archive invalide (lettres, chiffres, - et _) — onglet Contenu" : null;
+
   const save = async () => {
+    if (archiveError) {
+      setTab('content');
+      toast.error(archiveError);
+      return;
+    }
     setBusy(true);
     const body = db ? { ...form, archives: [], excludes: [] } : { ...form, database: null, excludes: excludeList };
     if (job) delete body.kind;
@@ -560,8 +569,8 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
       title={job ? `Sauvegarde ${job.name}` : cached ? `Restaurer la sauvegarde ${cached.name}` : `Nouvelle sauvegarde de ${host.name}`}
       footer={
         <>
-          <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken ? 'text-amber-400' : 'hidden text-muted sm:block')} title={summary}>
-            {taken ? 'Identifiant déjà pris sur le PBS (onglet Destination)' : summary}
+          <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken || archiveError ? 'text-amber-400' : 'hidden text-muted sm:block')} title={summary}>
+            {archiveError ?? (taken ? 'Identifiant déjà pris sur le PBS (onglet Destination)' : summary)}
           </span>
           <Button onClick={onClose}>Annuler</Button>
           <Button variant="primary" icon={Save} loading={busy} disabled={!!taken} onClick={save}>Enregistrer</Button>
@@ -612,7 +621,7 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
                       <div ref={archivesRef} className="space-y-2">
                         {form.archives.map((a, i) => (
                           <div key={i} className="flex flex-wrap gap-2">
-                            <input className="input w-full font-mono text-xs sm:w-36" value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
+                            <input className={clsx('input w-full font-mono text-xs sm:w-36', badName(a.name) && 'border-red-500/70')} aria-invalid={badName(a.name)} value={a.name} onChange={(e) => setArchive(i, { name: e.target.value.trim() })} placeholder="home" title="Nom de l'archive" />
                             <input className="input min-w-0 flex-1 font-mono text-xs" value={a.path} onChange={(e) => setArchive(i, { path: e.target.value.trim() })} placeholder="/home" />
                             <Button variant="ghost" icon={X} title="Retirer" disabled={form.archives.length === 1} onClick={() => set({ archives: form.archives.filter((_, j) => j !== i) })} />
                           </div>
