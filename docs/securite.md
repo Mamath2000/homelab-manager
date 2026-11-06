@@ -100,7 +100,7 @@ Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même
 
 ## Limites
 
-- Le hub reste le point de commande : un hub compromis peut lancer les actions prévues (mises à jour APT, nettoyage, redémarrage, extinction, verrouillage de session). Il ne peut ni exécuter de commande arbitraire ni installer un agent non signé.
+- **Le hub est l'équivalent d'un accès root sur le parc.** Un hub, une base MongoDB ou un compte administrateur compromis ne peut pas installer un agent non signé, mais des fonctions légitimes (image du client de sauvegarde, répertoires sauvegardés, standardisation, installation d'agents depuis Proxmox VE) lui permettent d'agir en root sur les hôtes ou d'en lire les fichiers. Le hub et ses comptes administrateurs sont à protéger en conséquence : voir l'[audit de sécurité](audit-securite.md).
 - À l'installation initiale, tout vient du hub. La sécurité repose sur la commande copiée depuis l'interface, et donc sur l'accès à cette interface.
 - Il n'y a pas de protection contre le retour à une version plus ancienne : un hub compromis peut redistribuer un ancien agent signé.
 - L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, le hub en crée une nouvelle au démarrage et tous les agents sont à réinstaller.

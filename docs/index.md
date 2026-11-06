@@ -56,4 +56,5 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Comptes et profils](comptes.md) : premier démarrage, profils, mots de passe, comptes sans mot de passe, clés d'API.
 - [API](api.md) : accès par clé d'API et endpoint `/api/summary` pour les tableaux de bord.
 - [Sécurité](securite.md) : connexion des agents, enrôlement, révocation, signature des binaires.
+- [Audit de sécurité](audit-securite.md) : bilan de l'audit, précautions à prendre, corrections prévues.
 - [Développement et architecture](developpement.md) : architecture, API, lancement local, release.
