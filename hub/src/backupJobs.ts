@@ -188,6 +188,24 @@ export function pbsServer(pbs: Pick<PbsSettings, 'url'>) {
   return `${u.hostname}:${u.port || '8007'}`;
 }
 
+// The PBS the agent of a host checks against its local policy (policy.go, pbsAllowed): the fingerprint of the
+// main PBS, or its address when its certificate is of a public CA. null: no PBS for this host.
+export function expectedPbsPin(host: Pick<HostDoc, 'accessNetwork'>, pbs: Pick<PbsSettings, 'url' | 'tailscaleUrl' | 'fingerprint'>): string | null {
+  const url = host.accessNetwork === 'tailscale' ? pbs.tailscaleUrl ?? '' : pbs.url;
+  if (!url) return null;
+  return pbs.fingerprint ? pbs.fingerprint.trim().toUpperCase() : `server ${pbsServer({ url })}`;
+}
+
+// The agent will refuse the main PBS: absent from backup.pbsFingerprints, or another PBS pinned. Unlocking is done
+// on the host only (the hub cannot change the policy).
+export function pbsPinRefused(host: Pick<HostDoc, 'accessNetwork' | 'policy'>, pbs: Pick<PbsSettings, 'url' | 'tailscaleUrl' | 'fingerprint'>): boolean {
+  const p = host.policy;
+  const fp = expectedPbsPin(host, pbs);
+  if (!p || !fp) return false;
+  if (p.pbsFingerprints.length) return !p.pbsFingerprints.includes(fp);
+  return p.pinPbs && !!p.pinnedPbs && p.pinnedPbs !== fp;
+}
+
 // An agent too old for database jobs would back up nothing: such jobs are held back until it is
 // updated (shown as not applied).
 export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'kind' | 'prepare' | 'connectEveryDays'>) {

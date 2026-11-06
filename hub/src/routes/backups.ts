@@ -18,7 +18,7 @@ import {
 import { CLUSTER_ID_RE, PVE_TOKEN_ID_RE, PveLinkError, followedCluster, forgetPveLink, loadPveSettings, nodeHosts, pollPve, pveClusterOf, pveGet, removePveCluster, restorePveLink, savePveCluster } from '../pve.js';
 import { describeCalendar, validTimeZone } from '../calendar.js';
 import { normalizeMountRoot } from '../pbsMount.js';
-import { IMAGE_RE, refreshManaged, syncAll } from '../backupJobs.js';
+import { IMAGE_RE, pbsPinRefused, refreshManaged, syncAll } from '../backupJobs.js';
 import { statsView, usageView } from '../pbsStats.js';
 import { PBS_TOKEN_ACLS, PbsAgentError, checkLink, detectPbsOn, ensurePbsToken, sameLink } from '../pbsAgent.js';
 import { nodeCarrier, staticEligibility, staticNodeEligibility, PveInstallError } from '../pveInstall.js';
@@ -32,6 +32,13 @@ import { OFF_PBS_SOURCES, type PbsAgentLink, type PbsSettings, type PveCluster }
 function settingsDto(s: PbsSettings) {
   const { _id, tokenSecret, ...rest } = s;
   return { ...rest, hasSecret: !!tokenSecret, connected: pbsConnected(s) };
+}
+
+// hosts whose local policy refuses this PBS (another one pinned, or not listed): their backups fail until it is
+// unlocked on the host
+async function pinRefusedHosts(s: PbsSettings) {
+  const list = await hosts.find({ policy: { $exists: true }, pbsCredential: { $exists: true } }, { projection: { name: 1, accessNetwork: 1, policy: 1 } }).toArray();
+  return list.filter((h) => pbsPinRefused(h, s)).map((h) => ({ id: h._id.toHexString(), name: h.name, pinFile: h.policy!.pinFile }));
 }
 
 // A node of a cluster the hub already follows (through another entry) is refused: its guests would be listed twice
@@ -118,7 +125,10 @@ async function resolve(body: SettingsBody): Promise<PbsSettings | string> {
 
 export function registerBackupRoutes(app: FastifyInstance) {
   // --- settings (admin: /api/settings/*)
-  app.get('/api/settings/pbs', async () => settingsDto(await loadPbsSettings()));
+  app.get('/api/settings/pbs', async () => {
+    const s = await loadPbsSettings();
+    return { ...settingsDto(s), pinRefused: await pinRefusedHosts(s) };
+  });
 
   app.put<{ Body: SettingsBody }>('/api/settings/pbs', { schema: { body: settingsBody } }, async (req, reply) => {
     const next = await resolve(req.body);
@@ -132,7 +142,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
       .catch((err) => req.log.warn({ err }, 'backup sync failed'));
     // the second pass of the copies is part of the definition of the agent of the secondary
     syncOffsiteAgent().catch((err) => req.log.warn({ err }, 'offsite series definition not sent'));
-    return settingsDto(next);
+    return { ...settingsDto(next), pinRefused: await pinRefusedHosts(next) };
   });
 
   app.post<{ Body: SettingsBody }>('/api/settings/pbs/test', { schema: { body: settingsBody } }, async (req, reply) => {

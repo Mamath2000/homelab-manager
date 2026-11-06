@@ -357,6 +357,8 @@ export interface HostDoc {
   // store: datastore the token was given rights on (token created by the command of the UI); unknown otherwise
   // services its agent found that may become roles of the hub (undefined: never reported)
   roleCandidates?: RoleCandidate[];
+  // local policy of the host, as its agent reports it (policy.go); undefined: agent too old to tell
+  policy?: HostPolicy;
   pbsCredential?: { tokenId: string; tokenSecret: string; updatedAt: Date; store?: string };
   backupSync?: { hash: string; at: Date; error?: string | null };
   // Windows: path of the directory CLI of Nimbus Backup, installed by hand (sent with the definition)
@@ -1334,4 +1336,17 @@ export interface EquipmentDoc {
   uplinkId?: ObjectId;
   native?: EquipmentNative;
   createdAt: Date;
+}
+
+// Local policy of a host (/etc/homelab-agent/policy.json), reported by its agent; the hub cannot change it.
+// file "": no policy, the agent accepts everything. pinnedPbs: PBS recorded at the first backup (pinFile).
+export interface HostPolicy {
+  file: string;
+  invalid: boolean;
+  agentInstall: boolean;
+  deny: string[];
+  pbsFingerprints: string[];
+  pinPbs: boolean;
+  pinnedPbs: string;
+  pinFile: string;
 }

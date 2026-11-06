@@ -9,7 +9,7 @@ le canal `dev`.
 
 ### Sécurité
 
-- **Politique locale de l'hôte** (`/etc/homelab-agent/policy.json`, hors de portée du hub) : installation d'agents depuis un nœud Proxmox VE, dossiers jamais sauvegardés, PBS autorisés ou épinglés au premier usage, images du client de sauvegarde. Les nouvelles installations reçoivent une politique stricte ; un hôte existant sans fichier garde son comportement. Voir [Politique locale](docs/securite.md#politique-locale-de-lhôte).
+- **Politique locale de l'hôte** (`/etc/homelab-agent/policy.json`, hors de portée du hub) : installation d'agents depuis un nœud Proxmox VE, dossiers jamais sauvegardés, PBS autorisés ou épinglés au premier usage, images du client de sauvegarde. Les nouvelles installations reçoivent une politique stricte ; un hôte existant sans fichier garde son comportement. Elle est affichée en lecture seule sur la fiche de l'hôte, et les hôtes qui refuseront un nouveau PBS principal sont signalés dans Paramètres › Rôles. Voir [Politique locale](docs/securite.md#politique-locale-de-lhôte).
 - **Image du client de sauvegarde épinglée** : l'agent de release embarque l'image par son digest et refuse les autres ; une image personnalisée est à ajouter à `backup.images`.
 - **Installation de l'agent depuis Proxmox VE sans script du hub** : le nœud copie son propre binaire signé dans le CT ou sur l'autre nœud et lance `homelab-agent install` ; curl n'est plus nécessaire dans le CT.
 

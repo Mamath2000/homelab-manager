@@ -914,6 +914,8 @@ export interface PbsTokenOutcome {
 
 export interface PbsSettings {
   connected: boolean; // address and monitoring token
+  // hosts whose local policy refuses this PBS (another one pinned): their backups fail until unlocked on the host
+  pinRefused?: { id: string; name: string; pinFile: string }[];
   agent?: PbsAgentLink;
   url: string;
   fingerprint: string;
@@ -1108,6 +1110,19 @@ export interface BackupJobInput {
   database?: DatabaseDump | null;
 }
 
+// /etc/homelab-agent/policy.json of a host (file "": none, everything accepted); unlocked on the host only
+export interface HostPolicy {
+  file: string;
+  invalid: boolean;
+  agentInstall: boolean;
+  deny: string[];
+  pbsFingerprints: string[];
+  pinPbs: boolean;
+  pinnedPbs: string;
+  pinFile: string;
+  pbsRefused: boolean;
+}
+
 export interface HostBackupJobs {
   // PBS client: installed (native), image present (docker), directory CLI of a Windows host (cli), none;
   // how it can be installed
@@ -1125,6 +1140,8 @@ export interface HostBackupJobs {
   credential: { tokenId: string; updatedAt: string; store: string | null } | null;
   sync: { hash: string; at: string; error: string | null; current: boolean } | null;
   pbsReady: boolean;
+  // local policy of the host, read only (null: agent too old to report it); pbsRefused: the agent refuses the main PBS
+  policy: HostPolicy | null;
   pbsAgent: boolean; // the agent of the PBS can create the token of the host
   datastores: string[];
   // retention the PBS applies to the namespace Hosts of each datastore; null: no pruning

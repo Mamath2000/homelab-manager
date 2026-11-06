@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, normDatabase, pbsServer, runError, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
+import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, normDatabase, pbsPinRefused, pbsServer, runError, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/profiles.js';
 import type { BackupDoc, BackupJobDoc, DatabaseDump, PbsSettings } from '../src/types.js';
@@ -362,4 +362,20 @@ test('second pass of a failed backup: only for an agent that knows it', () => {
   assert.equal('retryAfterMin' in plain, false);
   assert.equal('retryAfterMin' in buildSpec({ pbsCredential: cred, capabilities: caps }, [job], { ...pbs, retryAfterHours: 0 } as PbsSettings), false);
   assert.equal(buildSpec({ pbsCredential: cred, capabilities: caps }, [job], { ...pbs, retryAfterHours: 0 } as PbsSettings).hash, plain.hash);
+});
+
+test('PBS refused by the local policy of a host (policy.go, pbsAllowed)', () => {
+  const fp = 'AA:'.repeat(31) + 'AA';
+  const pbs = { url: 'https://pbs:8007', fingerprint: fp.toLowerCase() };
+  const policy = { file: '/etc/homelab-agent/policy.json', invalid: false, agentInstall: true, deny: [], pbsFingerprints: [] as string[], pinPbs: true, pinnedPbs: '', pinFile: '/var/lib/homelab-agent/pbs-pin' };
+  // agent without the report, nothing pinned yet, the same PBS pinned
+  assert.equal(pbsPinRefused({}, pbs), false);
+  assert.equal(pbsPinRefused({ policy }, pbs), false);
+  assert.equal(pbsPinRefused({ policy: { ...policy, pinnedPbs: fp } }, pbs), false);
+  // another PBS pinned, or one known by its address
+  assert.equal(pbsPinRefused({ policy: { ...policy, pinnedPbs: 'BB:'.repeat(31) + 'BB' } }, pbs), true);
+  assert.equal(pbsPinRefused({ policy: { ...policy, pinnedPbs: 'server pbs:8007' } }, { url: 'https://pbs:8007', fingerprint: '' }), false);
+  // an explicit list wins over the pin
+  assert.equal(pbsPinRefused({ policy: { ...policy, pbsFingerprints: [fp], pinnedPbs: 'other' } }, pbs), false);
+  assert.equal(pbsPinRefused({ policy: { ...policy, pbsFingerprints: ['BB'] } }, pbs), true);
 });

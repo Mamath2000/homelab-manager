@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobDatabase, jobKind, jobView, normDatabase, refreshManaged, syncHost, validWindowsPath, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobDatabase, jobKind, jobView, normDatabase, pbsPinRefused, refreshManaged, syncHost, validWindowsPath, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import type { BackupArchive, BackupJobDoc, BackupJobKind, CachedBackupJob, DatabaseDump, HostDoc, PbsSettings } from '../types.js';
 import { publish } from '../events.js';
@@ -175,6 +175,8 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       credential: host.pbsCredential ? { tokenId: host.pbsCredential.tokenId, updatedAt: host.pbsCredential.updatedAt, store: host.pbsCredential.store ?? null } : null,
       sync: host.backupSync ? { ...host.backupSync, current: host.backupSync.hash === (await currentHash(host)) } : null,
       pbsReady: pbsConnected(pbs),
+      // local policy of the host (read only), and whether it refuses the main PBS
+      policy: host.policy ? { ...host.policy, pbsRefused: pbsPinRefused(host, pbs) } : null,
       // jobs entered by hand before the main PBS was disconnected, to restore or drop (shown once it is back)
       cache: host.backupCache?.jobs.length ? { at: host.backupCache.at, jobs: host.backupCache.jobs.map((j) => jobView({ ...j, hostId: host._id, lastRun: null, plugin: null })) } : null,
       // the agent of the PBS creates the token of the host

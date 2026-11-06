@@ -174,3 +174,16 @@ func TestApplyBackupPolicy(t *testing.T) {
 		t.Fatal("/root/.ssh backed up")
 	}
 }
+
+func TestPolicyReport(t *testing.T) {
+	dir := t.TempDir()
+	pin := filepath.Join(dir, "pbs-pin")
+	r := legacyPolicy().report(pin)
+	if r.File != "" || r.PinnedPBS != "" || r.Deny == nil || r.PBSFingerprints == nil {
+		t.Fatalf("legacy %+v", r)
+	}
+	os.WriteFile(pin, []byte("AA:BB\n"), 0o600)
+	if r := closedPolicy("/x").report(pin); !r.Invalid || r.PinnedPBS != "AA:BB" || r.AgentInstall {
+		t.Fatalf("closed %+v", r)
+	}
+}

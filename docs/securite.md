@@ -107,6 +107,14 @@ Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'a
 | `backup.pbsFingerprints` | empreintes des PBS autorisés. Liste vide avec `pinPbs` : le premier PBS utilisé est retenu (`/var/lib/homelab-agent/pbs-pin`) et lui seul est accepté ensuite ; pour changer de PBS, supprimer ce fichier ou lister le nouveau |
 | `backup.images` | images du client de sauvegarde autorisées en plus de celles embarquées dans l'agent |
 
+### Dans l'interface
+
+L'agent remonte sa politique au hub, qui l'affiche en lecture seule dans la fiche de l'hôte (onglet Sauvegardes, encadré de l'agent) : le fichier, les dossiers jamais sauvegardés et le PBS autorisé ou épinglé. Le hub ne peut ni épingler ni déverrouiller :
+
+- **Verrouillage** : automatique, à la première sauvegarde de l'hôte.
+- **PBS principal changé** (réaffectation du rôle, nouveau certificat) : les hôtes qui refuseront le nouveau PBS sont listés dans **Paramètres › Rôles**, avec la commande à lancer sur chacun, et signalés à l'enregistrement.
+- **Déverrouillage** : sur l'hôte, `rm /var/lib/homelab-agent/pbs-pin` (le PBS suivant est épinglé), ou ajout de l'empreinte du nouveau PBS à `backup.pbsFingerprints`.
+
 ### Image du client de sauvegarde
 
 Un agent de release embarque l'image du client de sauvegarde par son digest (`@sha256:…`) et refuse toute autre image, avec ou sans politique locale. Une image personnalisée doit être ajoutée à `backup.images` sur chaque hôte concerné.

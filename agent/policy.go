@@ -40,7 +40,8 @@ type Policy struct {
 	AgentInstall *bool        `json:"agentInstall"`
 	Backup       BackupPolicy `json:"backup"`
 
-	source string // the file, "" for the defaults of an agent without policy
+	source  string // the file, "" for the defaults of an agent without policy
+	invalid bool   // unreadable or invalid file: closedPolicy
 }
 
 // Strict policy written by the installer on a new install.
@@ -66,7 +67,7 @@ func legacyPolicy() Policy {
 // A policy that cannot be read refuses what it would have to allow.
 func closedPolicy(source string) Policy {
 	no := false
-	return Policy{AgentInstall: &no, Backup: BackupPolicy{PinPBS: true, Deny: strictPolicy().Backup.Deny}, source: source}
+	return Policy{AgentInstall: &no, Backup: BackupPolicy{PinPBS: true, Deny: strictPolicy().Backup.Deny}, source: source, invalid: true}
 }
 
 // agentDir is the directory of the agent identity (set by main), where the policy lives.
@@ -142,6 +143,34 @@ func writePolicyIfAbsent(dir string) (bool, error) {
 	}
 	raw, _ := json.MarshalIndent(strictPolicy(), "", "  ")
 	return true, writeFileAtomic(file, append(raw, '\n'), 0o644)
+}
+
+// PolicyReport: the policy as the hub shows it (hello), with the PBS pinned on this host. Read only: the hub
+// cannot change any of it, unpinning is done on the host (pinFile).
+type PolicyReport struct {
+	File            string   `json:"file"` // "": no local policy, everything is accepted
+	Invalid         bool     `json:"invalid,omitempty"`
+	AgentInstall    bool     `json:"agentInstall"`
+	Deny            []string `json:"deny"`
+	PBSFingerprints []string `json:"pbsFingerprints"`
+	PinPBS          bool     `json:"pinPbs"`
+	PinnedPBS       string   `json:"pinnedPbs,omitempty"`
+	PinFile         string   `json:"pinFile"`
+}
+
+func (p Policy) report(pinFile string) *PolicyReport {
+	r := &PolicyReport{File: p.source, Invalid: p.invalid, AgentInstall: p.agentInstallAllowed(), Deny: p.Backup.Deny,
+		PBSFingerprints: p.Backup.PBSFingerprints, PinPBS: p.Backup.PinPBS, PinFile: pinFile}
+	if r.Deny == nil {
+		r.Deny = []string{}
+	}
+	if r.PBSFingerprints == nil {
+		r.PBSFingerprints = []string{}
+	}
+	if raw, err := os.ReadFile(pinFile); err == nil {
+		r.PinnedPBS = strings.TrimSpace(string(raw))
+	}
+	return r
 }
 
 // --- agent installs ----------------------------------------------------------------------------
