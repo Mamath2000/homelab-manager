@@ -141,8 +141,20 @@ export class ProbeEngine {
     return this.live.get(id) ?? null;
   }
 
+  // what a measure depends on: when it changes, what was measured before says nothing about the probe any more
+  private static signature = (p: Pick<ProbeDoc, 'target' | 'runFrom'>) => JSON.stringify([p.target, p.runFrom]);
+
   private async reload() {
+    const before = new Map(this.list.map((p) => [p._id.toHexString(), ProbeEngine.signature(p)]));
     this.list = await probes.find({}).toArray();
+    for (const p of this.list) {
+      const id = p._id.toHexString();
+      if (before.has(id) && before.get(id) !== ProbeEngine.signature(p)) {
+        this.running.delete(id);
+        this.live.delete(id);
+        this.nextAt.delete(id); // measured again at the next tick, on the new target
+      }
+    }
     const brokers = (await loadMqttBrokers()).brokers;
     const wanted = new Map<string, Set<string>>();
     const ids = new Set<string>();
@@ -176,8 +188,9 @@ export class ProbeEngine {
   private async run(p: ProbeDoc) {
     const id = p._id.toHexString();
     const m = await measure(p, this.pool);
-    // the probe may have been removed during the measure
-    if (!this.list.some((x) => x._id.equals(p._id))) return;
+    // the probe may have been removed, or pointed elsewhere, during the measure: the result is of the old target
+    const now = this.list.find((x) => x._id.equals(p._id));
+    if (!now || ProbeEngine.signature(now) !== ProbeEngine.signature(p)) return;
     const prev = this.running.get(id) ?? { state: p.state, message: p.message ?? null, failures: 0 };
     const next = nextState(prev, m, p.retries);
     this.running.set(id, next);
