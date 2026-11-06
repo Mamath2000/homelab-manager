@@ -174,6 +174,8 @@ func runAgent(ctx context.Context, cfg config) {
 		log.Printf("identity: %v", err)
 		return
 	}
+	agentDir = cfg.Dir
+	ensurePolicy(cfg.Dir)
 	client := httpClient(tlsConfig(roots, cert))
 	// scheduled backups run whether the hub is reachable or not
 	backups = newBackupModule(cfg.Dir)

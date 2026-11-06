@@ -33,12 +33,12 @@ En attendant les corrections listées plus bas :
 
 1. **Ne pas exposer l'interface sur Internet.** Sur le réseau local, la servir en **HTTPS** derrière un reverse proxy, avec `COOKIE_SECURE: "true"`, et ne publier le port `3000` que vers ce proxy (par exemple `127.0.0.1:3000:3000`). Avec `TRUST_PROXY: "true"`, le port `3000` ne doit être joignable que par le proxy.
 2. **Protéger MongoDB.** Ne jamais publier son port, restreindre les droits du dossier `mongo-data` (`chmod 700`) et chiffrer ses sauvegardes : la base contient la clé de l'autorité des agents et les jetons des serveurs (PBS, PVE, Omada, MQTT).
-3. **Limiter les comptes Administrateur** au strict nécessaire, avec des mots de passe longs et uniques. Ne confier le profil **Opérateur** qu'à des personnes de confiance tant que la [standardisation](standardisation.md) est activée (`FEATURE_STANDARDISATION`).
+3. **Limiter les comptes Administrateur** au strict nécessaire, avec des mots de passe longs et uniques. Sur un hub antérieur à la correction de la standardisation, ne confier le profil **Opérateur** qu'à des personnes de confiance si elle est activée (`FEATURE_STANDARDISATION`).
 4. **Verrouiller le broker MQTT** utilisé par le [pont Home Assistant](home-assistant.md). Les boutons publiés (redémarrer un hôte, arrêter une stack, mettre à jour…) répondent à tout client autorisé à écrire sur leurs topics. Il faut donc :
    - interdire l'accès anonyme ;
    - réserver l'écriture sur `<topic>/+/+/set` au seul compte de Home Assistant ;
    - préférer `mqtts://`.
-5. **Hôtes installés avant la politique locale** : y créer `/etc/homelab-agent/policy.json` (voir [Politique locale](securite.md#politique-locale-de-lhôte)) ; sans ce fichier, l'agent accepte tout ce que le hub demande.
+5. **Mettre à jour les agents** : la mise à jour pose la [politique locale](securite.md#politique-locale-de-lhôte) stricte sur chaque hôte qui n'en a pas.
 6. **Tenir le hub à jour**, et ses agents avec lui.
 
 ## Liste des corrections prévues
@@ -48,7 +48,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | Priorité | Sujet | Type | État |
 |---|---|---|---|
 | P0 | Documenter le modèle de menace réel (le hub est l'équivalent de root sur le parc) | correction | ✅ fait (cette page, [Sécurité](securite.md#limites)) |
-| P0 | Restreindre les droits du profil Opérateur sur la standardisation | correction | à faire |
+| P0 | Restreindre les droits du profil Opérateur sur la standardisation | correction | ✅ fait ([Standardisation](standardisation.md#rôles-et-sécurité)) |
 | P0 | Commandes du pont Home Assistant : désactivées par défaut, liste d'actions autorisées, journalisées | correction | à faire |
 | P0 | Mettre à jour les dépendances qui ont des vulnérabilités connues | correction | à faire |
 | P1 | Image du client de sauvegarde épinglée et vérifiée par l'agent | correction | ✅ fait ([Sécurité](securite.md#image-du-client-de-sauvegarde)) |

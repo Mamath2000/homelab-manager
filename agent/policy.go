@@ -5,8 +5,8 @@ package main
 // hub has no way to change it, so a compromised hub or admin account cannot use the legitimate features
 // (backups, agent installs from a PVE node) to take the host over.
 //
-// No file: the behaviour of the agents installed before the policy existed (everything the hub asks is accepted),
-// except for the client image of the backups, always checked (backupImageAllowed).
+// The agent writes the strict policy at start when there is none (ensurePolicy). No file (write failed, HAOS add-on):
+// everything the hub asks is accepted, except for the client image of the backups, always checked.
 
 import (
 	"encoding/json"
@@ -133,6 +133,19 @@ func (p Policy) where() string {
 		return "politique par défaut de l'agent"
 	}
 	return "politique locale " + p.source
+}
+
+// ensurePolicy, at start: a host without policy gets the strict one (updated agents included), so that every host
+// is bounded; it is then loosened by root on the host only. A failed write leaves the legacy behaviour, logged.
+func ensurePolicy(dir string) {
+	if onHAOS {
+		return
+	}
+	if wrote, err := writePolicyIfAbsent(dir); err != nil {
+		log.Printf("policy: %v (no local policy: everything the hub asks is accepted)", err)
+	} else if wrote {
+		log.Printf("policy: strict local policy written to %s", filepath.Join(dir, policyFile))
+	}
 }
 
 // writePolicyIfAbsent puts the strict policy on a new install; an existing file is kept as it is.

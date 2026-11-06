@@ -3,7 +3,7 @@ import type { UserDoc } from './types.js';
 // What each profile may call, decided on the matched route pattern (see isPublic in auth.ts).
 // Anything not explicitly allowed is refused.
 //   admin     everything
-//   operator  reads + runs jobs (updates, cleanup, reboot, lock, agent updates; not shutdown: checked on the job route) + standardisation of a host; no hosts, settings or accounts
+//   operator  reads + runs jobs (updates, cleanup, reboot, lock, agent updates; not shutdown: checked on the job route) (standardisation: checks and applies the values an admin set, never changes them); no hosts, settings or accounts
 //   viewer    reads only
 //   superadmin  accounts only: list, create, reset passwords (first install and recovery)
 export function authorize(profile: UserDoc['profile'], method: string, route: string) {
@@ -29,8 +29,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
             route === '/api/hosts/:id/refresh' ||
             route === '/api/backups/refresh' ||
             route === '/api/backup-jobs/:jobId/run' ||
-            route === '/api/backups/:id/offsite/run')) ||
-        (method === 'PUT' && route === '/api/hosts/:id/setup')
+            route === '/api/backups/:id/offsite/run'))
       );
     case 'viewer':
       if (read) return !accounts && !settings && !stackDetails;

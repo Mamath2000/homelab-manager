@@ -84,8 +84,8 @@ Si la clé est perdue ou remplacée, les agents installés refusent les binaires
 
 Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'agent accepte de son hub. Il appartient à root sur l'hôte et le hub n'a aucun moyen de le modifier : un hub ou un compte administrateur compromis ne peut donc pas se servir des sauvegardes ou de l'installation d'agents pour prendre la main sur l'hôte. Il est relu à chaque usage : une modification s'applique sans redémarrer l'agent.
 
-- **Nouvelle installation** : l'installateur écrit la politique stricte ci-dessous.
-- **Hôte déjà installé, sans fichier** : rien ne change, l'agent accepte tout ce que le hub demande, comme avant. Pour durcir un hôte existant, y créer le fichier.
+- **Sans fichier** (nouvelle installation, ou agent mis à jour) : l'agent écrit la politique stricte ci-dessous au démarrage. Un fichier existant n'est jamais remplacé.
+- **Assouplir un hôte** : modifier le fichier à la main, en root, sur l'hôte ; il est relu à chaque usage.
 - **Fichier illisible ou invalide** (clé inconnue, valeur hors liste) : tout ce qu'il régit est refusé, et l'erreur est écrite dans le journal de l'agent.
 
 ```json

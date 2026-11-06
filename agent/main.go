@@ -635,6 +635,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	ensurePolicy(cfg.Dir)
 	client := httpClient(tlsConfig(roots, cert))
 
 	jobResults.recover()

@@ -202,9 +202,11 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   ) : (
     <>
       <Button onClick={close}>Annuler</Button>
-      <Button icon={Save} disabled={!draft} loading={busy === 'save'} onClick={saveOnly}>
-        Enregistrer
-      </Button>
+      {canManage && (
+        <Button icon={Save} disabled={!draft} loading={busy === 'save'} onClick={saveOnly}>
+          Enregistrer
+        </Button>
+      )}
       <Button variant="primary" icon={Wand2} loading={busy === 'apply'} disabled={!host.online || running} onClick={apply}>
         {draft ? 'Enregistrer et appliquer' : 'Appliquer'}
       </Button>
@@ -220,7 +222,8 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       onChange={(o) => setOverride(k, o)}
       check={checks.get(k)}
       managed={isManaged(standard.options, overrides, k)}
-      disabled={!canWrite}
+      // the values of a host give root on it (SSH keys, account, aliases): admins only (F-02)
+      disabled={!canManage}
     />
   );
 
@@ -271,6 +274,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
         </div>
         <p className="text-xs text-muted">
           {host.setup ? <>Vérifié {timeAgo(host.setup.checkedAt)}. </> : null}
+          {!canManage && canWrite && <>Valeurs de cet hôte réglées par un administrateur : vérification et application seulement. </>}
           Valeurs standard : {canManage ? <Link to="/settings?tab=setup" className="text-emerald-400 hover:underline">configuration standard</Link> : 'configuration standard'}.
         </p>
       </div>

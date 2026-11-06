@@ -187,3 +187,17 @@ func TestPolicyReport(t *testing.T) {
 		t.Fatalf("closed %+v", r)
 	}
 }
+
+func TestEnsurePolicy(t *testing.T) {
+	dir := t.TempDir()
+	ensurePolicy(dir)
+	if p := loadPolicy(filepath.Join(dir, policyFile)); p.source == "" || !p.Backup.PinPBS || len(p.Backup.Deny) == 0 {
+		t.Fatalf("not strict: %+v", p)
+	}
+	// loosened by root on the host: kept
+	os.WriteFile(filepath.Join(dir, policyFile), []byte(`{"backup":{"deny":[]}}`), 0o644)
+	ensurePolicy(dir)
+	if p := loadPolicy(filepath.Join(dir, policyFile)); len(p.Backup.Deny) != 0 {
+		t.Fatalf("replaced: %+v", p)
+	}
+}
