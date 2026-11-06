@@ -38,7 +38,7 @@ En attendant les corrections listées plus bas :
    - interdire l'accès anonyme ;
    - réserver l'écriture sur `<topic>/+/+/set` au seul compte de Home Assistant ;
    - préférer `mqtts://`.
-5. **Hôtes installés avant la politique locale** : y créer `/etc/homelab-agent/policy.json` (voir [Politique locale](securite.md#politique-locale-de-lhôte)) ; sans ce fichier, l'agent accepte tout ce que le hub demande.
+5. **Mettre à jour les agents** : la mise à jour pose la [politique locale](securite.md#politique-locale-de-lhôte) stricte sur chaque hôte qui n'en a pas.
 6. **Tenir le hub à jour**, et ses agents avec lui.
 
 ## Liste des corrections prévues
