@@ -138,14 +138,16 @@ test('drift counts modules that differ or failed to check', () => {
   assert.equal(setupDto(h), null);
 });
 
-test('profiles: the setup profile is admin only, operators apply and check', () => {
+test('profiles: the setup profile is admin only, operators apply and check without changing the values of a host', () => {
   assert.ok(!authorize('operator', 'GET', '/api/settings/setup'));
   assert.ok(!authorize('operator', 'PUT', '/api/settings/setup'));
   assert.ok(authorize('operator', 'GET', '/api/setup'));
   assert.ok(authorize('operator', 'POST', '/api/hosts/:id/setup/check'));
   assert.ok(authorize('viewer', 'GET', '/api/setup'));
   assert.ok(!authorize('viewer', 'POST', '/api/hosts/:id/setup/check'));
-  assert.ok(authorize('operator', 'PUT', '/api/hosts/:id/setup'));
+  // the values of a host give root on it (SSH keys, account, aliases): admins only (F-02)
+  assert.ok(!authorize('operator', 'PUT', '/api/hosts/:id/setup'));
+  assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/setup'));
   assert.ok(!authorize('viewer', 'PUT', '/api/hosts/:id/setup'));
   assert.ok(authorize('admin', 'PUT', '/api/settings/setup'));
 });

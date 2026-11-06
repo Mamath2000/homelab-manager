@@ -125,6 +125,6 @@ Les mises à jour et les conteneurs viennent de l'agent, qui tient `/etc/homelab
 
 ## Rôles et sécurité
 
-Les opérateurs règlent les choix d'un hôte, appliquent et vérifient ; seuls les administrateurs modifient la configuration standard. Les lecteurs voient l'état.
+Seuls les administrateurs modifient la configuration standard et les choix d'un hôte : clés SSH, compte, alias et connexion par mot de passe donnent root sur l'hôte. Les opérateurs vérifient et appliquent les valeurs enregistrées, et peuvent remettre au standard plusieurs hôtes à la fois, sans rien pouvoir y changer. Les lecteurs voient l'état.
 
-L'agent ne reçoit que des valeurs, jamais de commandes. Il vérifie à nouveau chaque valeur : nom d'utilisateur, noms de paquets, format des clés publiques, styles connus, JSON de fastfetch (le TOML de Starship est vérifié par le hub). Le contenu des alias et des configurations Starship et fastfetch est écrit tel quel dans les fichiers (une commande de fastfetch s'exécute à chaque connexion) : ne donner le rôle administrateur qu'à qui peut écrire sur les hôtes.
+L'agent ne reçoit que des valeurs, jamais de commandes. Il vérifie à nouveau chaque valeur : nom d'utilisateur, noms de paquets, format des clés publiques, styles connus, JSON de fastfetch (le TOML de Starship est vérifié par le hub). Le contenu des alias et des configurations Starship et fastfetch est écrit tel quel dans les fichiers (une commande de fastfetch s'exécute à chaque connexion) : ne donner le profil administrateur qu'à qui peut écrire sur les hôtes.
