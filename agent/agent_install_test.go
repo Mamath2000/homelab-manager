@@ -30,7 +30,16 @@ func fakeStream(ran *[]ranCmd, exit int, echo string) streamIn {
 	}
 }
 
-func fetchOK(context.Context) ([]byte, error) { return []byte("#!/bin/sh\necho installer\n"), nil }
+const installCA = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+
+func testSource(allow bool) installSource {
+	return installSource{
+		hub:    "https://192.168.1.5:3443",
+		ca:     func() ([]byte, error) { return []byte(installCA), nil },
+		binary: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("ELF-binary")), nil },
+		policy: func() Policy { p := legacyPolicy(); p.AgentInstall = &allow; return p },
+	}
+}
 
 // the target of the tests: pct exec for a CT, a fixed ssh destination for a node
 func fakeTarget(_ context.Context, s *AgentInstallSpec) (string, []string, string, error) {
@@ -40,41 +49,47 @@ func fakeTarget(_ context.Context, s *AgentInstallSpec) (string, []string, strin
 	return "pct", []string{"exec", fmt.Sprint(s.VMID), "--"}, "CT " + fmt.Sprint(s.VMID), nil
 }
 
-func installAgentInLxc(ctx context.Context, run streamIn, fetch func(context.Context) ([]byte, error), s *AgentInstallSpec, emit func(string)) (int, error) {
-	return installAgent(ctx, run, fetch, fakeTarget, s, emit)
+func installAgentInLxc(ctx context.Context, run streamIn, s *AgentInstallSpec, emit func(string)) (int, error) {
+	return installAgent(ctx, run, testSource(true), fakeTarget, s, emit)
 }
 
 func TestInstallAgentInLxc(t *testing.T) {
 	var ran []ranCmd
 	var journal strings.Builder
-	// an installer that would print the code must not leak it
-	code, err := installAgentInLxc(context.Background(), fakeStream(&ran, 0, "code is "+testCode+"\n"), fetchOK,
-		&AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode}, func(d string) { journal.WriteString(d) })
+	// a target that would print the code must not leak it
+	code, err := installAgentInLxc(context.Background(), fakeStream(&ran, 0, "code is "+testCode+"\n"),
+		&AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode, InstallCurl: true}, func(d string) { journal.WriteString(d) })
 	if err != nil || code != 0 {
 		t.Fatalf("code %d, err %v", code, err)
 	}
-	if len(ran) != 1 || ran[0].line != "pct exec 101 -- sh -s" {
-		t.Fatalf("commands: %+v", ran)
+	// its own binary copied, then installed: no script of the hub, no curl
+	if len(ran) != 2 || ran[0].line != "pct exec 101 -- sh -c "+pushScript || ran[0].stdin != "ELF-binary" {
+		t.Fatalf("copy: %+v", ran)
 	}
-	if !strings.HasPrefix(ran[0].stdin, "HLM_ENROLL_CODE="+testCode+"; export HLM_ENROLL_CODE\n#!/bin/sh") {
-		t.Errorf("stdin: %q", ran[0].stdin)
+	if ran[1].line != "pct exec 101 -- sh -c "+pushedBin+" install -hub 'https://192.168.1.5:3443' -stdin" || ran[1].stdin != testCode+"\n"+installCA {
+		t.Fatalf("install: %+v", ran[1])
 	}
-	if strings.Contains(ran[0].line, testCode) || strings.Contains(journal.String(), testCode) {
-		t.Errorf("code leaked: %q / %q", ran[0].line, journal.String())
+	for _, c := range ran {
+		if strings.Contains(c.line, testCode) {
+			t.Errorf("code in a command line: %q", c.line)
+		}
+	}
+	if strings.Contains(journal.String(), testCode) {
+		t.Errorf("code leaked in the journal: %q", journal.String())
 	}
 }
 
-func TestInstallAgentInLxcCurl(t *testing.T) {
+func TestInstallAgentFailedCopy(t *testing.T) {
 	var ran []ranCmd
-	_, err := installAgentInLxc(context.Background(), fakeStream(&ran, 0, ""), fetchOK,
-		&AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode, InstallCurl: true}, func(string) {})
-	if err != nil || len(ran) != 2 || ran[0].line != "pct exec 101 -- env DEBIAN_FRONTEND=noninteractive sh -s" || !strings.Contains(ran[0].stdin, "apt-get install -y -q curl") || ran[1].line != "pct exec 101 -- sh -s" {
+	if _, err := installAgentInLxc(context.Background(), fakeStream(&ran, 1, ""), &AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode}, func(string) {}); err == nil || len(ran) != 1 {
 		t.Fatalf("err %v, commands %+v", err, ran)
 	}
-	// a failed curl installation stops before the installer
-	ran = nil
-	if _, err := installAgentInLxc(context.Background(), fakeStream(&ran, 100, ""), fetchOK,
-		&AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode, InstallCurl: true}, func(string) {}); err == nil || len(ran) != 1 {
+}
+
+func TestInstallAgentPolicy(t *testing.T) {
+	var ran []ranCmd
+	_, err := installAgent(context.Background(), fakeStream(&ran, 0, ""), testSource(false), fakeTarget, &AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode}, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "agentInstall") || len(ran) != 0 {
 		t.Fatalf("err %v, commands %+v", err, ran)
 	}
 }
@@ -90,7 +105,7 @@ func TestInstallAgentInLxcRejects(t *testing.T) {
 		"bad code":   {Kind: "lxc", VMID: 101, Code: "abcdefghijklmnop'; rm -rf /"},
 	} {
 		var ran []ranCmd
-		if _, err := installAgentInLxc(context.Background(), fakeStream(&ran, 0, ""), fetchOK, s, func(string) {}); err == nil || len(ran) != 0 {
+		if _, err := installAgentInLxc(context.Background(), fakeStream(&ran, 0, ""), s, func(string) {}); err == nil || len(ran) != 0 {
 			t.Errorf("%s: accepted (%v, %+v)", name, err, ran)
 		}
 	}
@@ -98,14 +113,16 @@ func TestInstallAgentInLxcRejects(t *testing.T) {
 
 func TestInstallAgentOnNode(t *testing.T) {
 	var ran []ranCmd
-	code, err := installAgent(context.Background(), fakeStream(&ran, 0, ""), fetchOK, fakeTarget,
+	code, err := installAgent(context.Background(), fakeStream(&ran, 0, ""), testSource(true), fakeTarget,
 		&AgentInstallSpec{Kind: "node", Node: "pve", Code: testCode}, func(string) {})
-	if err != nil || code != 0 || len(ran) != 1 || ran[0].line != "ssh -o BatchMode=yes root@10.0.0.2 sh -s" || !strings.HasPrefix(ran[0].stdin, "HLM_ENROLL_CODE="+testCode) {
+	// ssh: the remote command is one argument, fixed
+	if err != nil || code != 0 || len(ran) != 2 || ran[0].line != "ssh -o BatchMode=yes root@10.0.0.2 "+pushScript ||
+		ran[1].line != "ssh -o BatchMode=yes root@10.0.0.2 "+pushedBin+" install -hub 'https://192.168.1.5:3443' -stdin" || !strings.HasPrefix(ran[1].stdin, testCode+"\n") {
 		t.Fatalf("code %d, err %v, commands %+v", code, err, ran)
 	}
 	// an unknown host key is explained
 	ran = nil
-	_, err = installAgent(context.Background(), fakeStream(&ran, 255, "Host key verification failed.\n"), fetchOK, fakeTarget,
+	_, err = installAgent(context.Background(), fakeStream(&ran, 255, "Host key verification failed.\n"), testSource(true), fakeTarget,
 		&AgentInstallSpec{Kind: "node", Node: "pve", Code: testCode}, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "pvecm updatecerts") {
 		t.Fatalf("err %v", err)

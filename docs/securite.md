@@ -80,6 +80,49 @@ Les agents de développement (`make dev`, ou `make docker-build` sans clé de re
 Si la clé est perdue ou remplacée, les agents installés refusent les binaires signés par la nouvelle clé. Il faut alors lancer une fois, sur chaque hôte, la commande de mise à jour manuelle (**Paramètres > Agent**) : elle passe par le canal épinglé et installe un agent qui embarque la nouvelle clé.
 :::
 
+## Politique locale de l'hôte
+
+Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'agent accepte de son hub. Il appartient à root sur l'hôte et le hub n'a aucun moyen de le modifier : un hub ou un compte administrateur compromis ne peut donc pas se servir des sauvegardes ou de l'installation d'agents pour prendre la main sur l'hôte. Il est relu à chaque usage : une modification s'applique sans redémarrer l'agent.
+
+- **Nouvelle installation** : l'installateur écrit la politique stricte ci-dessous.
+- **Hôte déjà installé, sans fichier** : rien ne change, l'agent accepte tout ce que le hub demande, comme avant. Pour durcir un hôte existant, y créer le fichier.
+- **Fichier illisible ou invalide** (clé inconnue, valeur hors liste) : tout ce qu'il régit est refusé, et l'erreur est écrite dans le journal de l'agent.
+
+```json
+{
+  "agentInstall": true,
+  "backup": {
+    "deny": ["/etc/shadow", "/etc/gshadow", "/etc/ssh", "/root/.ssh", "/etc/homelab-agent", "/var/run/docker.sock", "/run/docker.sock"],
+    "pbsFingerprints": [],
+    "pinPbs": true,
+    "images": []
+  }
+}
+```
+
+| Clé | Rôle |
+|---|---|
+| `agentInstall` | nœud Proxmox VE : autorise l'installation d'agents dans ses CT et sur les autres nœuds (absent : refusé) |
+| `backup.deny` | dossiers jamais sauvegardés : une archive qui s'y trouve est refusée, une archive qui les contient les exclut |
+| `backup.pbsFingerprints` | empreintes des PBS autorisés. Liste vide avec `pinPbs` : le premier PBS utilisé est retenu (`/var/lib/homelab-agent/pbs-pin`) et lui seul est accepté ensuite ; pour changer de PBS, supprimer ce fichier ou lister le nouveau |
+| `backup.images` | images du client de sauvegarde autorisées en plus de celles embarquées dans l'agent |
+
+### Dans l'interface
+
+L'agent remonte sa politique au hub, qui l'affiche en lecture seule dans la fiche de l'hôte (onglet Sauvegardes, encadré de l'agent) : le fichier, les dossiers jamais sauvegardés et le PBS autorisé ou épinglé. Le hub ne peut ni épingler ni déverrouiller :
+
+- **Verrouillage** : automatique, à la première sauvegarde de l'hôte.
+- **PBS principal changé** (réaffectation du rôle, nouveau certificat) : les hôtes qui refuseront le nouveau PBS sont listés dans **Paramètres › Rôles**, avec la commande à lancer sur chacun, et signalés à l'enregistrement.
+- **Déverrouillage** : sur l'hôte, `rm /var/lib/homelab-agent/pbs-pin` (le PBS suivant est épinglé), ou ajout de l'empreinte du nouveau PBS à `backup.pbsFingerprints`.
+
+### Image du client de sauvegarde
+
+Un agent de release embarque l'image du client de sauvegarde par son digest (`@sha256:…`) et refuse toute autre image, avec ou sans politique locale. Une image personnalisée doit être ajoutée à `backup.images` sur chaque hôte concerné.
+
+### Installation depuis Proxmox VE
+
+Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre nœud, puis lance `homelab-agent install`. Aucun script du hub n'y est exécuté. Le code d'enrôlement et l'autorité du hub passent sur l'entrée standard.
+
 ## Ce qui est protégé, et contre quoi
 
 | Menace | Protection |
@@ -92,6 +135,7 @@ Si la clé est perdue ou remplacée, les agents installés refusent les binaires
 | Faux agent | certificat client signé par le hub et dont l'empreinte est enregistrée pour l'hôte |
 | Hôte compromis ou retiré du parc | « Révoquer l'agent » ou suppression de l'hôte |
 | Binaire modifié pendant une mise à jour, hub compromis | signature de release vérifiée par l'agent |
+| Hub ou compte administrateur compromis | [politique locale](#politique-locale-de-lhôte) de l'hôte, image du client de sauvegarde épinglée |
 | Vol de la base MongoDB | mots de passe hachés (scrypt), codes d'enrôlement hachés ; la clé de l'autorité y figure, la base est donc à protéger comme un secret |
 
 ## Réseau d'accès Tailscale
@@ -100,7 +144,7 @@ Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même
 
 ## Limites
 
-- Le hub reste le point de commande : un hub compromis peut lancer les actions prévues (mises à jour APT, nettoyage, redémarrage, extinction, verrouillage de session). Il ne peut ni exécuter de commande arbitraire ni installer un agent non signé.
+- **Le hub est l'équivalent d'un accès root sur le parc.** Un hub, une base MongoDB ou un compte administrateur compromis ne peut pas installer un agent non signé, mais des fonctions légitimes (image du client de sauvegarde, répertoires sauvegardés, standardisation, installation d'agents depuis Proxmox VE) lui permettent d'agir en root sur les hôtes ou d'en lire les fichiers. La [politique locale](#politique-locale-de-lhôte) en borne une partie, sur les hôtes qui en ont une. Le hub et ses comptes administrateurs sont à protéger en conséquence : voir l'[audit de sécurité](audit-securite.md).
 - À l'installation initiale, tout vient du hub. La sécurité repose sur la commande copiée depuis l'interface, et donc sur l'accès à cette interface.
 - Il n'y a pas de protection contre le retour à une version plus ancienne : un hub compromis peut redistribuer un ancien agent signé.
 - L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, le hub en crée une nouvelle au démarrage et tous les agents sont à réinstaller.

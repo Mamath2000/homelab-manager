@@ -28,10 +28,12 @@ type SessionReport struct {
 
 // agent -> hub
 type Outbound struct {
-	Type         string         `json:"type"` // hello | session_report | rpc_result | job_log | job_done | backup_synced | backup_result | ups_report
-	Version      string         `json:"version,omitempty"`
-	Info         *HostInfo      `json:"info,omitempty"`
-	Capabilities []string       `json:"capabilities,omitempty"`
+	Type         string    `json:"type"` // hello | session_report | rpc_result | job_log | job_done | backup_synced | backup_result | ups_report
+	Version      string    `json:"version,omitempty"`
+	Info         *HostInfo `json:"info,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	// hello: local policy of the host (policy.go)
+	Policy       *PolicyReport  `json:"policy,omitempty"`
 	BinaryHash   string         `json:"binaryHash,omitempty"`
 	Sessions     *SessionReport `json:"sessions,omitempty"`
 	Ups          *UpsReport     `json:"ups,omitempty"`

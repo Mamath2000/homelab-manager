@@ -364,6 +364,41 @@ function AgentHeader({ host, view, sync, actions }: { host: Host; view: HostBack
           {view.credential ? view.credential.tokenId : 'aucun : renseigner l’accès PBS'}
           {view.credential?.store && <span className="font-sans text-muted"> · droits sur {view.credential.store === '*' ? 'tous les datastores' : view.credential.store} › Hosts</span>}
         </dd>
+        {view.policy && (
+          <>
+            <dt className="text-muted">Politique locale</dt>
+            <dd className={view.policy.invalid ? 'text-red-400' : view.policy.file ? 'text-zinc-300' : 'text-muted'}>
+              {view.policy.invalid
+                ? `${view.policy.file} invalide : sauvegardes et installations d'agents refusées`
+                : view.policy.file
+                  ? <span className="font-mono">{view.policy.file}</span>
+                  : 'aucune : l’agent accepte tout ce que le hub demande'}
+              {view.policy.deny.length > 0 && <span className="block text-muted">Jamais sauvegardés : <span className="font-mono">{view.policy.deny.join(', ')}</span></span>}
+            </dd>
+            {(view.policy.pinPbs || view.policy.pbsFingerprints.length > 0) && (
+              <>
+                <dt className="text-muted">PBS autorisé</dt>
+                <dd className={view.policy.pbsRefused ? 'text-amber-400' : 'text-zinc-300'}>
+                  {view.policy.pbsFingerprints.length
+                    ? <span className="break-all font-mono">{view.policy.pbsFingerprints.join(', ')}</span>
+                    : view.policy.pinnedPbs
+                      ? <span className="break-all font-mono" title={view.policy.pinFile}>{view.policy.pinnedPbs}</span>
+                      : 'épinglé à la première sauvegarde'}
+                  {view.policy.pbsRefused && (
+                    <span className="mt-1 block">
+                      Le PBS principal n'est pas celui-ci : les sauvegardes sont refusées. Le verrou se lève sur l'hôte seulement :{' '}
+                      {view.policy.pbsFingerprints.length ? (
+                        <>ajouter l'empreinte du PBS à <code>backup.pbsFingerprints</code> de <code>{view.policy.file}</code>.</>
+                      ) : (
+                        <code className="text-zinc-300">rm {view.policy.pinFile}</code>
+                      )}
+                    </span>
+                  )}
+                </dd>
+              </>
+            )}
+          </>
+        )}
         {!view.windows && (
           <>
             <dt className="text-muted">Bases</dt>

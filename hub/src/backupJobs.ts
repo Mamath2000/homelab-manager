@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { isOnline, sendToAgent } from './agents.js';
+import { defaultClientImage } from './agentBinaries.js';
 import { parseCalendar, validTimeZone } from './calendar.js';
 import { sha256 } from './crypto.js';
 import { backupJobs, backups, hosts, jobs } from './db.js';
@@ -14,7 +15,6 @@ import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo
 // the hub acknowledges. The hub creates the job, so it knows the group it writes on the PBS: that
 // group is attached to the host by construction.
 
-export const DEFAULT_CLIENT_IMAGE = 'mathmath350/pbs-client:latest';
 // Default time zone of the backup jobs: the one of the hub (TZ of the container), else Europe/Paris.
 export const DEFAULT_TIMEZONE = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'Europe/Paris';
 // namespace of the backups of the hosts: the only one their token may write (see pbsAgent.ts)
@@ -188,6 +188,24 @@ export function pbsServer(pbs: Pick<PbsSettings, 'url'>) {
   return `${u.hostname}:${u.port || '8007'}`;
 }
 
+// The PBS the agent of a host checks against its local policy (policy.go, pbsAllowed): the fingerprint of the
+// main PBS, or its address when its certificate is of a public CA. null: no PBS for this host.
+export function expectedPbsPin(host: Pick<HostDoc, 'accessNetwork'>, pbs: Pick<PbsSettings, 'url' | 'tailscaleUrl' | 'fingerprint'>): string | null {
+  const url = host.accessNetwork === 'tailscale' ? pbs.tailscaleUrl ?? '' : pbs.url;
+  if (!url) return null;
+  return pbs.fingerprint ? pbs.fingerprint.trim().toUpperCase() : `server ${pbsServer({ url })}`;
+}
+
+// The agent will refuse the main PBS: absent from backup.pbsFingerprints, or another PBS pinned. Unlocking is done
+// on the host only (the hub cannot change the policy).
+export function pbsPinRefused(host: Pick<HostDoc, 'accessNetwork' | 'policy'>, pbs: Pick<PbsSettings, 'url' | 'tailscaleUrl' | 'fingerprint'>): boolean {
+  const p = host.policy;
+  const fp = expectedPbsPin(host, pbs);
+  if (!p || !fp) return false;
+  if (p.pbsFingerprints.length) return !p.pbsFingerprints.includes(fp);
+  return p.pinPbs && !!p.pinnedPbs && p.pinnedPbs !== fp;
+}
+
 // An agent too old for database jobs would back up nothing: such jobs are held back until it is
 // updated (shown as not applied).
 export function heldBack(host: Pick<HostDoc, 'capabilities'>, j: Pick<BackupJobDoc, 'kind' | 'prepare' | 'connectEveryDays'>) {
@@ -210,7 +228,7 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
     fingerprint: pbs.fingerprint,
     tokenId: usable ? host.pbsCredential!.tokenId : '',
     tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',
-    image: pbs.clientImage || DEFAULT_CLIENT_IMAGE,
+    image: pbs.clientImage || defaultClientImage(),
     // Windows: the CLI installed by hand; only when set, so that the hashes of the other hosts do not change
     ...(host.backupClientPath ? { clientPath: host.backupClientPath } : {}),
     // second pass of a failed run; only when set and known to the agent, so that the other hashes do not change

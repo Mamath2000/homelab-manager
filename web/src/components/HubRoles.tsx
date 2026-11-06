@@ -698,6 +698,23 @@ export function RolesSettings() {
         PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site. Un rôle utilisé ne peut pas être
         supprimé, ni l'hôte ou l'équipement qui le porte.
       </p>
+      {!!pbs?.pinRefused?.length && (
+        <div className="space-y-2 border-b border-line bg-amber-500/5 px-4 py-3 text-xs">
+          <p className="text-amber-300">
+            Le PBS principal est refusé par {pbs.pinRefused.length > 1 ? `${pbs.pinRefused.length} hôtes` : 'un hôte'} : un autre PBS y est épinglé par la politique locale,
+            leurs sauvegardes échouent. Le hub ne peut pas lever ce verrou : sur chaque hôte, supprimer le fichier d'épinglage (le PBS suivant est retenu) ou ajouter
+            l'empreinte du nouveau PBS à <code>backup.pbsFingerprints</code> de <code>/etc/homelab-agent/policy.json</code>.
+          </p>
+          <ul className="space-y-1">
+            {pbs.pinRefused.map((h) => (
+              <li key={h.id} className="flex flex-wrap items-center gap-2">
+                <Link className="underline" to={`/hosts/${h.id}`}>{h.name}</Link>
+                <code className="font-mono text-zinc-300">rm {h.pinFile}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {isLoading ? (
         <div className="flex justify-center p-6"><Spinner /></div>
       ) : error ? (

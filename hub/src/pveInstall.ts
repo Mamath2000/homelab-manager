@@ -8,6 +8,8 @@ export const INSTALL_CAPABILITY = 'agent_install:lxc';
 export const CHECK_CAPABILITY = 'pve_guest_check';
 // another node of the cluster, reached by ssh from the agent of one of them (also gives the rpc pve_node_check)
 export const NODE_CAPABILITY = 'agent_install:node';
+// the agent of the node installs a copy of itself (no script of the hub, no curl needed in the CT)
+export const SELF_INSTALL_CAPABILITY = 'agent_install:self';
 
 export interface InstallEligibility {
   eligible: boolean;
@@ -76,18 +78,18 @@ export interface CheckVerdict extends InstallEligibility {
 }
 
 // What the agent of the node found in a running CT: the blocking reasons, else notes on what the installation will do.
-export function checkVerdict(c: GuestCheck): CheckVerdict {
+export function checkVerdict(c: GuestCheck, selfInstall = false): CheckVerdict {
   const verdict = (reasons: string[], eligible: boolean, extra: Partial<CheckVerdict> = {}): CheckVerdict => ({ eligible, reasons, installCurl: false, relink: false, ...extra });
   if (c.error) return verdict([c.error], false);
   if (c.status !== 'running') return verdict(["le CT n'est pas démarré"], false);
   const blocking: string[] = [];
   if (!c.systemd) blocking.push('systemd est requis (Alpine, OpenRC… ne sont pas pris en charge)');
   if (!c.arch || !ARCHS.has(c.arch)) blocking.push(`architecture non prise en charge (${c.arch || 'inconnue'})`);
-  if (!c.curl && !c.apt) blocking.push("curl absent et apt indisponible pour l'installer");
+  if (!selfInstall && !c.curl && !c.apt) blocking.push("curl absent et apt indisponible pour l'installer");
   if (c.hubReachable === false) blocking.push('le hub est injoignable depuis le CT (port des agents)');
   if (blocking.length) return verdict(blocking, false);
   const notes: string[] = [];
-  const installCurl = !c.curl;
+  const installCurl = !selfInstall && !c.curl;
   if (installCurl) notes.push("curl sera installé (apt) avant l'agent");
   if (!/(^|\s)(debian|ubuntu)(\s|$)/.test(`${c.osId ?? ''} ${c.idLike ?? ''}`)) notes.push('hors Debian / Ubuntu : sans apt ni standardisation');
   if (c.agentInstalled) notes.push("un agent est déjà installé : il sera enrôlé à nouveau et son lien avec le cluster recréé");

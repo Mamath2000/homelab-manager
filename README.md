@@ -76,7 +76,7 @@ Reverse proxy, URL du hub, adresse donnée aux agents : [Configuration](docs/con
 
 ## Sécurité
 
-Pensé pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy HTTPS et authentification supplémentaire. Les agents n'exécutent qu'une **liste fixe d'actions**, jamais de commande arbitraire ; leur connexion est protégée par la clé du hub épinglée, un code d'installation à usage unique et un certificat par agent, révocable en un clic. Voir [Sécurité](docs/securite.md).
+Pensé pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy HTTPS et authentification supplémentaire. Les agents n'exécutent qu'une **liste fixe d'actions**, avec des paramètres contrôlés ; leur connexion est protégée par la clé du hub épinglée, un code d'installation à usage unique et un certificat par agent, révocable en un clic. Le hub reste l'équivalent d'un accès root sur le parc : à protéger comme tel. Voir [Sécurité](docs/securite.md) et l'[audit de sécurité](docs/audit-securite.md).
 
 ## Documentation
 
@@ -86,6 +86,6 @@ Pensé pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy 
 | Comprendre | [Notions clés](docs/concepts.md) · [Alertes et statuts](docs/alertes.md) · [Créer des éléments](docs/creer-des-elements.md) |
 | Sauvegardes | [Suivi des sauvegardes](docs/suivi-des-sauvegardes.md) · [Sauvegardes](docs/sauvegardes.md) · [Proxmox VE](docs/proxmox-ve.md) |
 | Surveiller | [Sondes](docs/sondes.md) · [Équipements](docs/equipements.md) · [Docker](docs/docker.md) · [Santé](docs/sante.md) · [Onduleur](docs/onduleur.md) |
-| Administrer | [Rôles du hub](docs/roles.md) · [Comptes et profils](docs/comptes.md) · [Standardisation](docs/standardisation.md) · [Sécurité](docs/securite.md) |
+| Administrer | [Rôles du hub](docs/roles.md) · [Comptes et profils](docs/comptes.md) · [Standardisation](docs/standardisation.md) · [Sécurité](docs/securite.md) · [Audit de sécurité](docs/audit-securite.md) |
 | Intégrer | [Home Assistant](docs/home-assistant.md) · [API et clés d'API](docs/api.md) |
 | Contribuer | [Développement et architecture](docs/developpement.md) · [Changelog](CHANGELOG.md) |

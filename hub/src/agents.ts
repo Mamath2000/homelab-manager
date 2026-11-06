@@ -20,7 +20,7 @@ import { isUpsReport } from './ups.js';
 import { isSessionReport } from './sessions.js';
 import { healthConfigForHost, receiveHealthReport } from './health.js';
 import { randomUUID } from 'node:crypto';
-import { BROKER_SCHEMES, type AptReport, type HostDoc, type HostInfo, type RoleCandidate } from './types.js';
+import { BROKER_SCHEMES, type AptReport, type HostDoc, type HostInfo, type HostPolicy, type RoleCandidate } from './types.js';
 import { removeStackProbes } from './probes.js';
 import { carriedBy } from './roles.js';
 
@@ -153,12 +153,31 @@ function cleanCandidates(raw: unknown[]): RoleCandidate[] {
   return out;
 }
 
+// the local policy of the host as its agent reports it: kept only in its form
+const str = (v: unknown, max = 512) => (typeof v === 'string' ? v.slice(0, max) : '');
+const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 64).map((x) => x.slice(0, 512)) : []);
+export function cleanPolicy(v: unknown): HostPolicy | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const p = v as Record<string, unknown>;
+  return {
+    file: str(p.file),
+    invalid: p.invalid === true,
+    agentInstall: p.agentInstall === true,
+    deny: strs(p.deny),
+    pbsFingerprints: strs(p.pbsFingerprints),
+    pinPbs: p.pinPbs === true,
+    pinnedPbs: str(p.pinnedPbs, 256),
+    pinFile: str(p.pinFile),
+  };
+}
+
 interface AgentMessage {
   type: string;
   version?: string;
   info?: HostInfo;
   capabilities?: unknown;
   roleCandidates?: unknown;
+  policy?: unknown;
   binaryHash?: unknown;
   report?: unknown;
   docker?: unknown;
@@ -243,6 +262,8 @@ export function registerAgentSocket(app: FastifyInstance) {
                     ...roaming,
                     // absent: this agent cannot tell (old, or no `ss`): what was known stays
                     ...(Array.isArray(msg.roleCandidates) ? { roleCandidates: cleanCandidates(msg.roleCandidates) } : {}),
+                    // absent: agent older than the local policy
+                    ...(cleanPolicy(msg.policy) ? { policy: cleanPolicy(msg.policy)! } : {}),
                   },
                 },
               );
