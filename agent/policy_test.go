@@ -15,31 +15,30 @@ func TestLoadPolicy(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, policyFile)
 	// no file: what the agents accepted before the policy existed
-	if p := loadPolicy(file); p.Setup != "full" || !p.agentInstallAllowed() || p.Backup.PinPBS || len(p.Backup.Deny) != 0 {
+	if p := loadPolicy(file); !p.agentInstallAllowed() || p.Backup.PinPBS || len(p.Backup.Deny) != 0 {
 		t.Fatalf("legacy: %+v", p)
 	}
 	// unreadable or invalid: closed
 	for name, raw := range map[string]string{
 		"syntax":      "{",
-		"unknown key": `{"setup":"full","extra":1}`,
-		"bad setup":   `{"setup":"all"}`,
+		"unknown key": `{"agentInstall":true,"extra":1}`,
 		"bad deny":    `{"backup":{"deny":["etc"]}}`,
 		"bad fp":      `{"backup":{"pbsFingerprints":["AB:CD"]}}`,
 		"bad image":   `{"backup":{"images":["Bad Image"]}}`,
 	} {
 		os.WriteFile(file, []byte(raw), 0o644)
-		if p := loadPolicy(file); p.Setup != "off" || p.agentInstallAllowed() || !p.Backup.PinPBS {
+		if p := loadPolicy(file); p.agentInstallAllowed() || !p.Backup.PinPBS {
 			t.Errorf("%s: not closed: %+v", name, p)
 		}
 	}
 	// omitted fields: the strict side
 	os.WriteFile(file, []byte(`{}`), 0o644)
-	if p := loadPolicy(file); p.Setup != "basic" || p.agentInstallAllowed() {
+	if p := loadPolicy(file); p.agentInstallAllowed() {
 		t.Errorf("empty: %+v", p)
 	}
 	// fingerprints are normalised
-	os.WriteFile(file, []byte(`{"setup":"full","agentInstall":true,"backup":{"pbsFingerprints":[" `+strings.Repeat("ab:", 31)+`ab "]}}`), 0o644)
-	if p := loadPolicy(file); p.Setup != "full" || !p.agentInstallAllowed() || p.Backup.PBSFingerprints[0] != strings.Repeat("AB:", 31)+"AB" {
+	os.WriteFile(file, []byte(`{"agentInstall":true,"backup":{"pbsFingerprints":[" `+strings.Repeat("ab:", 31)+`ab "]}}`), 0o644)
+	if p := loadPolicy(file); !p.agentInstallAllowed() || p.Backup.PBSFingerprints[0] != strings.Repeat("AB:", 31)+"AB" {
 		t.Errorf("full: %+v", p)
 	}
 }
@@ -55,8 +54,8 @@ func TestWritePolicyIfAbsent(t *testing.T) {
 		t.Fatalf("written %+v, want %+v", p, strictPolicy())
 	}
 	// an existing policy is kept
-	os.WriteFile(filepath.Join(dir, policyFile), []byte(`{"setup":"full"}`), 0o644)
-	if wrote, _ := writePolicyIfAbsent(dir); wrote || loadPolicy(filepath.Join(dir, policyFile)).Setup != "full" {
+	os.WriteFile(filepath.Join(dir, policyFile), []byte(`{"agentInstall":false}`), 0o644)
+	if wrote, _ := writePolicyIfAbsent(dir); wrote || loadPolicy(filepath.Join(dir, policyFile)).agentInstallAllowed() {
 		t.Fatal("existing policy replaced")
 	}
 }
@@ -80,19 +79,6 @@ func TestInstallScriptPolicy(t *testing.T) {
 		a, _ := json.Marshal(p)
 		b, _ := json.Marshal(want)
 		t.Fatalf("install.sh %s\nstrictPolicy %s", a, b)
-	}
-}
-
-func TestSetupRefused(t *testing.T) {
-	mods := []string{"user", "packages", "root_keys", "root_prompt", "user_aliases", "ssh_password"}
-	if r := legacyPolicy().setupRefused(mods); r != nil {
-		t.Errorf("full: %v", r)
-	}
-	if r := strictPolicy().setupRefused(mods); !slices.Equal(r, []string{"user", "root_keys", "user_aliases", "ssh_password"}) {
-		t.Errorf("basic: %v", r)
-	}
-	if r := (Policy{Setup: "off"}).setupRefused(mods); !slices.Equal(r, mods) {
-		t.Errorf("off: %v", r)
 	}
 }
 

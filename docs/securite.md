@@ -82,7 +82,7 @@ Si la clé est perdue ou remplacée, les agents installés refusent les binaires
 
 ## Politique locale de l'hôte
 
-Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'agent accepte de son hub. Il appartient à root sur l'hôte et le hub n'a aucun moyen de le modifier : un hub ou un compte administrateur compromis ne peut donc pas se servir de la standardisation, des sauvegardes ou de l'installation d'agents pour prendre la main sur l'hôte. Il est relu à chaque usage : une modification s'applique sans redémarrer l'agent.
+Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'agent accepte de son hub. Il appartient à root sur l'hôte et le hub n'a aucun moyen de le modifier : un hub ou un compte administrateur compromis ne peut donc pas se servir des sauvegardes ou de l'installation d'agents pour prendre la main sur l'hôte. Il est relu à chaque usage : une modification s'applique sans redémarrer l'agent.
 
 - **Nouvelle installation** : l'installateur écrit la politique stricte ci-dessous.
 - **Hôte déjà installé, sans fichier** : rien ne change, l'agent accepte tout ce que le hub demande, comme avant. Pour durcir un hôte existant, y créer le fichier.
@@ -90,7 +90,6 @@ Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'a
 
 ```json
 {
-  "setup": "basic",
   "agentInstall": true,
   "backup": {
     "deny": ["/etc/shadow", "/etc/gshadow", "/etc/ssh", "/root/.ssh", "/etc/homelab-agent", "/var/run/docker.sock", "/run/docker.sock"],
@@ -103,7 +102,6 @@ Le fichier `/etc/homelab-agent/policy.json` (dossier de l'agent) fixe ce que l'a
 
 | Clé | Rôle |
 |---|---|
-| `setup` | `full` : tous les modules de [standardisation](standardisation.md) ; `basic` (défaut) : sans les modules qui donnent un accès root (compte, clés SSH, alias du shell, connexion SSH par mot de passe) ; `off` : aucune standardisation |
 | `agentInstall` | nœud Proxmox VE : autorise l'installation d'agents dans ses CT et sur les autres nœuds (absent : refusé) |
 | `backup.deny` | dossiers jamais sauvegardés : une archive qui s'y trouve est refusée, une archive qui les contient les exclut |
 | `backup.pbsFingerprints` | empreintes des PBS autorisés. Liste vide avec `pinPbs` : le premier PBS utilisé est retenu (`/var/lib/homelab-agent/pbs-pin`) et lui seul est accepté ensuite ; pour changer de PBS, supprimer ce fichier ou lister le nouveau |

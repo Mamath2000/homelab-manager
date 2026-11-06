@@ -196,7 +196,6 @@ CA
 if [ -z "$OLDDIR" ] && [ ! -f "$DIR/policy.json" ]; then
   cat > "$DIR/policy.json" <<'POLICY'
 {
-  "setup": "basic",
   "agentInstall": true,
   "backup": {
     "deny": ["/etc/shadow", "/etc/gshadow", "/etc/ssh", "/root/.ssh", "/etc/homelab-agent", "/var/run/docker.sock", "/run/docker.sock"],

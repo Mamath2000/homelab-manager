@@ -12,7 +12,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -871,15 +870,6 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 	if err := validateSetup(s); err != nil {
 		return -1, err
 	}
-	// local policy of the host (policy.go): the modules it refuses are left out, the others applied
-	pol := currentPolicy()
-	refused := pol.setupRefused(s.Modules)
-	if len(refused) > 0 {
-		emit(fmt.Sprintf("refused by the %s: %s\n", pol.where(), strings.Join(refused, ", ")))
-		allowed := *s
-		allowed.Modules = slices.DeleteFunc(slices.Clone(s.Modules), func(m string) bool { return slices.Contains(refused, m) })
-		s = &allowed
-	}
 	var failed []string
 	for _, m := range setupModules {
 		if !s.has(m) {
@@ -907,9 +897,6 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 	}
 	if len(failed) > 0 {
 		return 1, fmt.Errorf("failed: %s", strings.Join(failed, ", "))
-	}
-	if len(refused) > 0 {
-		return 1, fmt.Errorf("modules refusés par la %s : %s (\"setup\": \"full\" pour les autoriser)", pol.where(), strings.Join(refused, ", "))
 	}
 	emit("\ndone\n")
 	return 0, nil

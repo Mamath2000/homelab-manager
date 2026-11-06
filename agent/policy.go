@@ -3,7 +3,7 @@ package main
 // Local policy of the host (/etc/homelab-agent/policy.json): what this agent accepts from its hub, beyond the
 // checks of form. It is written by root on the host (the installer puts strict defaults on a new install) and the
 // hub has no way to change it, so a compromised hub or admin account cannot use the legitimate features
-// (standardisation, backups, agent installs from a PVE node) to take the host over.
+// (backups, agent installs from a PVE node) to take the host over.
 //
 // No file: the behaviour of the agents installed before the policy existed (everything the hub asks is accepted),
 // except for the client image of the backups, always checked (backupImageAllowed).
@@ -25,10 +25,6 @@ const policyFile = "policy.json"
 
 var policyFingerprintRe = regexp.MustCompile(`^[0-9A-F]{2}(:[0-9A-F]{2}){31}$`)
 
-// Standardisation modules that make an account root-equivalent: SSH keys, an account (sudo and docker groups),
-// shell code in .bashrc, SSH password logins.
-var sensitiveSetupModules = []string{"user", "user_keys", "root_keys", "root_aliases", "user_aliases", "ssh_password"}
-
 type BackupPolicy struct {
 	// directories never backed up: an archive inside one is refused, an archive above one leaves it out
 	Deny []string `json:"deny"`
@@ -40,8 +36,6 @@ type BackupPolicy struct {
 }
 
 type Policy struct {
-	// full: every module; basic: no sensitive module (see sensitiveSetupModules); off: no standardisation
-	Setup string `json:"setup"`
 	// agent installs in the CTs or on the other nodes of this PVE node
 	AgentInstall *bool        `json:"agentInstall"`
 	Backup       BackupPolicy `json:"backup"`
@@ -53,7 +47,6 @@ type Policy struct {
 func strictPolicy() Policy {
 	yes := true
 	return Policy{
-		Setup:        "basic",
 		AgentInstall: &yes,
 		Backup: BackupPolicy{
 			Deny:            []string{"/etc/shadow", "/etc/gshadow", "/etc/ssh", "/root/.ssh", "/etc/homelab-agent", "/var/run/docker.sock", "/run/docker.sock"},
@@ -67,13 +60,13 @@ func strictPolicy() Policy {
 // What an agent without policy file accepts: everything, as before the policy existed.
 func legacyPolicy() Policy {
 	yes := true
-	return Policy{Setup: "full", AgentInstall: &yes}
+	return Policy{AgentInstall: &yes}
 }
 
 // A policy that cannot be read refuses what it would have to allow.
 func closedPolicy(source string) Policy {
 	no := false
-	return Policy{Setup: "off", AgentInstall: &no, Backup: BackupPolicy{PinPBS: true, Deny: strictPolicy().Backup.Deny}, source: source}
+	return Policy{AgentInstall: &no, Backup: BackupPolicy{PinPBS: true, Deny: strictPolicy().Backup.Deny}, source: source}
 }
 
 // agentDir is the directory of the agent identity (set by main), where the policy lives.
@@ -108,13 +101,6 @@ func parsePolicy(raw []byte) (Policy, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return p, err
-	}
-	switch p.Setup {
-	case "":
-		p.Setup = "basic"
-	case "full", "basic", "off":
-	default:
-		return p, fmt.Errorf("setup: %q (full, basic or off)", p.Setup)
 	}
 	if p.AgentInstall == nil {
 		no := false
@@ -156,25 +142,6 @@ func writePolicyIfAbsent(dir string) (bool, error) {
 	}
 	raw, _ := json.MarshalIndent(strictPolicy(), "", "  ")
 	return true, writeFileAtomic(file, append(raw, '\n'), 0o644)
-}
-
-// --- standardisation ---------------------------------------------------------------------------
-
-// setupRefused: the modules of a standardisation the policy does not allow.
-func (p Policy) setupRefused(modules []string) []string {
-	switch p.Setup {
-	case "full":
-		return nil
-	case "off":
-		return slices.Clone(modules)
-	}
-	var out []string
-	for _, m := range modules {
-		if slices.Contains(sensitiveSetupModules, m) {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 // --- agent installs ----------------------------------------------------------------------------
