@@ -1,3 +1,4 @@
+import { brokerAnonymous } from './brokerAnonymous.js';
 import { bridgeStatusOf } from './homeassistant/bridge.js';
 import { omadaPollOf } from './omadaSync.js';
 import { probeEngine, roleUrl } from './probes.js';
@@ -22,6 +23,8 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
         url: roleUrl(r.config, host?.info?.ips),
         account: r.config.username,
         status: worst([probeEngine()?.pool.status(r._id) ?? null, bridgeStatusOf(r._id)]),
+        // also accepts connections without an account: anyone on the network may publish (brokerAnonymous.ts)
+        anonymous: brokerAnonymous(r._id),
         summary: null,
       };
     }

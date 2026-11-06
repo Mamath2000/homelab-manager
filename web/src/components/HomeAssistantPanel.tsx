@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import clsx from 'clsx';
 import { useNavigate } from 'react-router';
 import { Home, Pencil, Plug, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { api, type HaDetail, type HomeAssistantInput, type HomeAssistantSettings, type MqttHubRole } from '../lib/api';
@@ -14,7 +15,7 @@ import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDial
 import { field } from './ProxmoxServer';
 import { SettingsFormActions } from './SettingsForm';
 import { useSettingsDraft } from './settingsDraft';
-import { Button, ConfirmModal, Modal, Panel, Spinner, StatusDot } from './ui';
+import { Badge, Button, ConfirmModal, Modal, Panel, Spinner, StatusDot } from './ui';
 
 const stateMeta: Record<HomeAssistantSettings['status']['state'], { label: string; tone: Tone }> = {
   disabled: { label: 'Désactivée', tone: 'neutral' },
@@ -324,6 +325,7 @@ export function HomeAssistantPanel() {
                 <span className="text-zinc-200">{broker.name}</span>
                 <span className="font-mono text-xs text-zinc-300">{broker.url || 'adresse inconnue'}</span>
                 <span className="text-xs text-muted">{broker.config.username ? `compte ${broker.config.username}` : 'anonyme'}</span>
+                {broker.anonymous && <Badge tone="bad">connexions anonymes acceptées</Badge>}
               </>
             ) : (
               <span className="font-mono text-xs text-zinc-300">{data.legacyBroker}</span>
@@ -367,6 +369,22 @@ export function HomeAssistantPanel() {
             </p>
           )}
         </HaDetailTable>
+        {(detail.level === 'custom' ? detail.sections : data.presets[detail.level] ?? []).includes('actions') && (
+          <div className={clsx('rounded-md border px-4 py-3 text-xs', broker?.anonymous ? 'border-red-500/40 bg-red-500/10 text-red-300' : 'border-amber-500/30 bg-amber-500/5 text-amber-300')}>
+            {broker?.anonymous ? (
+              <p>
+                <b>Le broker accepte les connexions anonymes</b> : n'importe qui sur le réseau peut lancer les mises à jour des hôtes publiées en actions. Désactiver
+                l'accès anonyme du broker (<code>allow_anonymous false</code>) ou retirer les actions.
+              </p>
+            ) : (
+              <p>
+                Actions publiées : tout client autorisé à écrire sur <code>{data.topic}/+/+/set</code> peut lancer les mises à jour des hôtes (paquets, images, agent),
+                sans compte sur le hub. Seules les mises à jour sont exposées, jamais un redémarrage ni un arrêt. Réserver l'écriture sur ces topics au compte de
+                Home Assistant (ACL du broker, voir la documentation).
+              </p>
+            )}
+          </div>
+        )}
         <label className="flex cursor-pointer items-start gap-2 text-sm">
           <input
             type="checkbox"

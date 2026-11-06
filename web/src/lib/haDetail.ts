@@ -3,7 +3,7 @@ import type { HaLevel, HaSection } from './api';
 export const HA_LEVELS: { id: HaLevel; label: string; hint: string }[] = [
   { id: 'minimal', label: 'Minimal', hint: 'Alertes, connectivité des hôtes et top 5 seulement' },
   { id: 'standard', label: 'Standard', hint: 'Minimal + compteurs et sous-composants (APT, Docker, onduleur, sauvegardes) et sondes, sans actions ni diagnostics' },
-  { id: 'full', label: 'Complet', hint: 'Tout : actions, diagnostics, sessions Windows' },
+  { id: 'full', label: 'Complet', hint: 'Tout, y compris les actions : mises à jour lancées depuis Home Assistant. Diagnostics, sessions Windows' },
 ];
 
 export const HA_SECTIONS: { id: HaSection; label: string; hint: string }[] = [
@@ -16,7 +16,7 @@ export const HA_SECTIONS: { id: HaSection; label: string; hint: string }[] = [
   { id: 'backup', label: 'Sauvegardes', hint: 'Sous-composant par hôte sauvegardé' },
   { id: 'probes', label: 'Sondes', hint: 'Une entité par sonde de service, sur l\'hôte ou sa stack ; indisponible quand la sonde est inconnue' },
   { id: 'sessions', label: 'Sessions Windows', hint: 'Utilisateurs connectés, session verrouillée…' },
-  { id: 'actions', label: 'Actions', hint: 'Boutons et mises à jour installables depuis Home Assistant' },
+  { id: 'actions', label: 'Actions', hint: 'Mises à jour (paquets, images, agent) lancées depuis Home Assistant, par tout client qui peut écrire sur le broker' },
   { id: 'diagnostics', label: 'Diagnostics', hint: 'Système, noyau, IP, dernière vue, alertes des sous-composants' },
 ];
 

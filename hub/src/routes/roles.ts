@@ -258,7 +258,9 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!url) return { ok: false, error: "adresse de l'hôte inconnue : la saisir" };
     try {
       await testConnection(url, body.username!, secret);
-      return { ok: true };
+      // without an account too: anyone on the network may publish on it
+      const anonymous = await testConnection(url, '', '').then(() => true, () => false);
+      return { ok: true, ...(anonymous ? { anonymous: true, detail: 'le broker accepte aussi les connexions anonymes : tout le réseau peut y publier' } : {}) };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
