@@ -32,6 +32,17 @@ export function agentBinaryPath(arch: string, os: AgentOs = 'linux') {
 // OS of the agent of a host, from its hello
 export const hostOs = (h: Pick<HostDoc, 'info'>): AgentOs => (h.info?.osId === 'windows' ? 'windows' : 'linux');
 
+// Client image of the backups the release agents trust, written next to the binaries at build time (by digest);
+// absent (development build): the tag, which development agents accept as any other image.
+export function defaultClientImage() {
+  try {
+    return readFileSync(join(config.agentBinDir, 'CLIENT_IMAGE'), 'utf8').trim() || FALLBACK_CLIENT_IMAGE;
+  } catch {
+    return FALLBACK_CLIENT_IMAGE;
+  }
+}
+const FALLBACK_CLIENT_IMAGE = 'mathmath350/pbs-client:latest';
+
 // Version written next to the binaries at build time (agent/dist/VERSION).
 function binariesVersion() {
   try {

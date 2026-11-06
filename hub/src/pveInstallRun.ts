@@ -4,7 +4,7 @@ import { guests, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { createJob } from './jobs.js';
 import { loadPveSettings, nodeHosts } from './pve.js';
-import { checkVerdict, nodeCarrier, staticEligibility, staticNodeEligibility, PveInstallError, type CheckVerdict, type GuestCheck, type InstallTarget } from './pveInstall.js';
+import { SELF_INSTALL_CAPABILITY, checkVerdict, nodeCarrier, staticEligibility, staticNodeEligibility, PveInstallError, type CheckVerdict, type GuestCheck, type InstallTarget } from './pveInstall.js';
 import { UNMANAGED, newEnrollCode } from './routes/hosts.js';
 import type { HostDoc } from './types.js';
 
@@ -73,7 +73,7 @@ export async function planInstall(clusterId: string, vmids: number[], nodes: str
     for (const id of ids) {
       const t = targets.get(id)!;
       const c = checks.find((x) => x.vmid === id);
-      const v = c ? checkVerdict(c) : { eligible: false, reasons: ["pas de réponse de l'agent du nœud"], installCurl: false, relink: false };
+      const v = c ? checkVerdict(c, !!t.carrier?.capabilities?.includes(SELF_INSTALL_CAPABILITY)) : { eligible: false, reasons: ["pas de réponse de l'agent du nœud"], installCurl: false, relink: false };
       Object.assign(t, { eligible: v.eligible, reasons: v.reasons, installCurl: v.installCurl, check: v });
     }
   }
@@ -117,7 +117,7 @@ export async function planInstall(clusterId: string, vmids: number[], nodes: str
     }
     for (const t of nodeT.filter((x) => names.includes(x.node))) {
       const c = checks.find((x) => x.node === t.node);
-      const v = c ? checkVerdict(c) : { eligible: false, reasons: ["pas de réponse de l'agent du nœud"], installCurl: false, relink: false };
+      const v = c ? checkVerdict(c, !!t.carrier?.capabilities?.includes(SELF_INSTALL_CAPABILITY)) : { eligible: false, reasons: ["pas de réponse de l'agent du nœud"], installCurl: false, relink: false };
       Object.assign(t, { eligible: v.eligible, reasons: v.reasons, installCurl: v.installCurl, check: v });
     }
   }

@@ -39,7 +39,7 @@ func (b *backupModule) image() string {
 	if b.state.Spec != nil && b.state.Spec.Image != "" {
 		return b.state.Spec.Image
 	}
-	return defaultClientImage
+	return defaultTrustedImage(defaultClientImage)
 }
 
 // The client image is published for amd64 only.
@@ -197,6 +197,10 @@ func runBackup(ctx context.Context, spec *BackupSpec, j BackupJob, emit func(str
 		if spec.Image == "" {
 			return -1, errors.New("no proxmox-backup-client and no client image")
 		}
+		// the image runs as root with the backed up directories: only the trusted ones (policy.go)
+		if err := currentPolicy().backupImageAllowed(spec.Image); err != nil {
+			return -1, err
+		}
 		if err := exec.CommandContext(ctx, "docker", "image", "inspect", spec.Image).Run(); err != nil {
 			emit("pulling " + spec.Image + "\n")
 			if code, err := runStreaming(ctx, os.Environ(), emit, "docker", "pull", spec.Image); err != nil || code != 0 {
@@ -250,6 +254,10 @@ func (b *backupModule) ensureClientImage(ctx context.Context) {
 		}
 	}
 	img := b.image()
+	if err := currentPolicy().backupImageAllowed(img); err != nil {
+		log.Printf("backup: %v", err)
+		return
+	}
 	if imagePresent(ctx, img) {
 		return
 	}

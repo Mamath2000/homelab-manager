@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -231,6 +232,24 @@ func newBackupModule(dir string) *backupModule {
 
 func (b *backupModule) statePath() string  { return filepath.Join(b.dir, "backup.json") }
 func (b *backupModule) resultsDir() string { return filepath.Join(b.dir, "backup-results") }
+func (b *backupModule) pbsPinPath() string { return filepath.Join(b.dir, "pbs-pin") }
+
+// applyBackupPolicy checks a run against the local policy, before anything is dumped or sent: the PBS it goes
+// to and the directories it backs up; the denied directories inside an archive are added to its exclusions.
+func applyBackupPolicy(p Policy, spec *BackupSpec, j *BackupJob, pinFile string) error {
+	if err := p.pbsAllowed(spec.Fingerprint, spec.Server, pinFile); err != nil {
+		return err
+	}
+	if isDatabaseKind(j.Kind) {
+		return nil // dumps of a work directory checked by validateDatabase
+	}
+	more, err := p.backupExclusions(j.Archives)
+	if err != nil {
+		return err
+	}
+	j.Excludes = append(slices.Clone(j.Excludes), more...)
+	return nil
+}
 
 // holds the token secret: 0600 (the agent directory is root only)
 func (b *backupModule) saveLocked() {
@@ -432,6 +451,12 @@ func (b *backupModule) runJob(ctx context.Context, jobID, trigger, runID string,
 			code, err = -1, fmt.Errorf("dump %s : %w", j.Kind, derr)
 		} else {
 			dumps = dumpSizes(rctx, j.Kind, j.Database)
+		}
+	}
+	if err == nil {
+		// local policy of the host: PBS allowed, directories never backed up (policy.go)
+		if perr := applyBackupPolicy(currentPolicy(), spec, &j, b.pbsPinPath()); perr != nil {
+			code, err = -1, perr
 		}
 	}
 	if err == nil {

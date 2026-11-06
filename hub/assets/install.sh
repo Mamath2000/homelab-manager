@@ -191,6 +191,23 @@ cat > "$DIR/ca.pem" <<'CA'
 __CA_PEM__
 CA
 
+# local policy (what the agent accepts from the hub, see docs/securite.md): strict on a new install; an existing
+# installation keeps its own, or none (everything accepted, as before the policy existed)
+if [ -z "$OLDDIR" ] && [ ! -f "$DIR/policy.json" ]; then
+  cat > "$DIR/policy.json" <<'POLICY'
+{
+  "setup": "basic",
+  "agentInstall": true,
+  "backup": {
+    "deny": ["/etc/shadow", "/etc/gshadow", "/etc/ssh", "/root/.ssh", "/etc/homelab-agent", "/var/run/docker.sock", "/run/docker.sock"],
+    "pbsFingerprints": [],
+    "pinPbs": true,
+    "images": []
+  }
+}
+POLICY
+fi
+
 if [ -n "$CODE" ]; then
   # the key is generated on this host; only a certificate request is sent
   # on stdin: the code is not visible in the process list

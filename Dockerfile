@@ -12,6 +12,9 @@ COPY agent/ ./
 # updates. RELEASE_PUB is also part of the cache key: an unsigned layer is never reused for a release.
 # Without it (local docker build): unsigned development agents.
 ARG RELEASE_PUB=""
+# Client images of the backups the release agents accept (repository@sha256:…, comma separated; the first one is the
+# default the hub hands out). Empty (local build): any image, as before.
+ARG CLIENT_IMAGES=""
 RUN --mount=type=secret,id=release_key \
     version=$(cat VERSION) && \
     if [ -n "$RELEASE_PUB" ]; then \
@@ -21,12 +24,13 @@ RUN --mount=type=secret,id=release_key \
     else echo "warning: unsigned development agents (no RELEASE_PUB)" >&2; fi && \
     for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
-        -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB" -o /out/homelab-agent-linux-$arch . ; \
+        -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-linux-$arch . ; \
     done && \
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
-      -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB" -o /out/homelab-agent-windows-amd64.exe . && \
+      -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-windows-amd64.exe . && \
     if [ -n "$RELEASE_PUB" ]; then hm-sign sign -key /run/secrets/release_key /out/homelab-agent-*; fi && \
-    echo "$version" > /out/VERSION
+    echo "$version" > /out/VERSION && \
+    if [ -n "$CLIENT_IMAGES" ]; then echo "${CLIENT_IMAGES%%,*}" > /out/CLIENT_IMAGE; fi
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src

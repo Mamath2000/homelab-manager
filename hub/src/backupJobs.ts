@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { isOnline, sendToAgent } from './agents.js';
+import { defaultClientImage } from './agentBinaries.js';
 import { parseCalendar, validTimeZone } from './calendar.js';
 import { sha256 } from './crypto.js';
 import { backupJobs, backups, hosts, jobs } from './db.js';
@@ -14,7 +15,6 @@ import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo
 // the hub acknowledges. The hub creates the job, so it knows the group it writes on the PBS: that
 // group is attached to the host by construction.
 
-export const DEFAULT_CLIENT_IMAGE = 'mathmath350/pbs-client:latest';
 // Default time zone of the backup jobs: the one of the hub (TZ of the container), else Europe/Paris.
 export const DEFAULT_TIMEZONE = process.env.TZ && validTimeZone(process.env.TZ) ? process.env.TZ : 'Europe/Paris';
 // namespace of the backups of the hosts: the only one their token may write (see pbsAgent.ts)
@@ -210,7 +210,7 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
     fingerprint: pbs.fingerprint,
     tokenId: usable ? host.pbsCredential!.tokenId : '',
     tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',
-    image: pbs.clientImage || DEFAULT_CLIENT_IMAGE,
+    image: pbs.clientImage || defaultClientImage(),
     // Windows: the CLI installed by hand; only when set, so that the hashes of the other hosts do not change
     ...(host.backupClientPath ? { clientPath: host.backupClientPath } : {}),
     // second pass of a failed run; only when set and known to the agent, so that the other hashes do not change

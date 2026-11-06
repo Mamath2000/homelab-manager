@@ -94,7 +94,13 @@ signing_args() {
         echo "❌ $RELEASE_KEY ne correspond pas à agent/release.pub" >&2
         exit 1
     }
-    SIGNING=(--secret "id=release_key,src=$RELEASE_KEY" --build-arg "RELEASE_PUB=$pub")
+    # client image of the backups, pinned by digest in the release agents (they refuse any other one)
+    local client="${PBS_CLIENT_IMAGE:-mathmath350/pbs-client:latest}" digest
+    digest=$(docker buildx imagetools inspect "$client" --format '{{json .Manifest.Digest}}' | tr -d '"') && [[ $digest == sha256:* ]] || {
+        echo "❌ digest de l'image du client $client introuvable" >&2
+        exit 1
+    }
+    SIGNING=(--secret "id=release_key,src=$RELEASE_KEY" --build-arg "RELEASE_PUB=$pub" --build-arg "CLIENT_IMAGES=${client%:*}@$digest")
 }
 
 if [ "$action" = "prune" ]; then

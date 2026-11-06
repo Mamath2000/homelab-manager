@@ -7,6 +7,12 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 Tout ce qui suit la dernière version **promue en prod** (`latest` = 1.0.1). Les versions 1.0.2 à 1.0.19 n'existent que sur
 le canal `dev`.
 
+### Sécurité
+
+- **Politique locale de l'hôte** (`/etc/homelab-agent/policy.json`, hors de portée du hub) : modules de standardisation autorisés, installation d'agents depuis un nœud Proxmox VE, dossiers jamais sauvegardés, PBS autorisés ou épinglés au premier usage, images du client de sauvegarde. Les nouvelles installations reçoivent une politique stricte ; un hôte existant sans fichier garde son comportement. Voir [Politique locale](docs/securite.md#politique-locale-de-lhôte).
+- **Image du client de sauvegarde épinglée** : l'agent de release embarque l'image par son digest et refuse les autres ; une image personnalisée est à ajouter à `backup.images`.
+- **Installation de l'agent depuis Proxmox VE sans script du hub** : le nœud copie son propre binaire signé dans le CT ou sur l'autre nœud et lance `homelab-agent install` ; curl n'est plus nécessaire dans le CT.
+
 ### Ajouté
 
 - **Home Assistant : équipements et appareils de site** : un appareil par équipement (alertes, une entité par sonde, adresse IP), catégorie **Équipements** aux niveaux Standard et Complet, comptés (Équipements, Équipements en alerte) et remontés sur Homelab Manager. Nouvelle case **Regrouper les entités par site** : un appareil par site entre Homelab Manager et ses hôtes / équipements. Voir [Appareils créés](docs/home-assistant.md#appareils-créés). (homelab#250)

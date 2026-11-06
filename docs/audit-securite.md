@@ -38,7 +38,7 @@ En attendant les corrections listées plus bas :
    - interdire l'accès anonyme ;
    - réserver l'écriture sur `<topic>/+/+/set` au seul compte de Home Assistant ;
    - préférer `mqtts://`.
-5. **Image du client de sauvegarde** : n'utiliser que l'image par défaut, ou une image de confiance référencée par son digest (`@sha256:…`). Elle est lancée en root sur les hôtes.
+5. **Hôtes installés avant la politique locale** : y créer `/etc/homelab-agent/policy.json` (voir [Politique locale](securite.md#politique-locale-de-lhôte)) ; sans ce fichier, l'agent accepte tout ce que le hub demande.
 6. **Tenir le hub à jour**, et ses agents avec lui.
 
 ## Liste des corrections prévues
@@ -51,7 +51,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P0 | Restreindre les droits du profil Opérateur sur la standardisation | correction | à faire |
 | P0 | Commandes du pont Home Assistant : désactivées par défaut, liste d'actions autorisées, journalisées | correction | à faire |
 | P0 | Mettre à jour les dépendances qui ont des vulnérabilités connues | correction | à faire |
-| P1 | Image du client de sauvegarde épinglée et vérifiée par l'agent | correction | à faire |
+| P1 | Image du client de sauvegarde épinglée et vérifiée par l'agent | correction | ✅ fait ([Sécurité](securite.md#image-du-client-de-sauvegarde)) |
 | P1 | HTTPS natif pour l'interface, cookie `Secure` par défaut | correction | à faire |
 | P1 | Authentification MongoDB dans le déploiement de référence | correction | à faire |
 | P1 | Limitation des tentatives de connexion par compte, proxy de confiance restreint | correction | à faire |
@@ -63,7 +63,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P2 | Double authentification (TOTP, WebAuthn), sessions plus courtes, liste des sessions | évolution | à faire |
 | P2 | Chiffrement côté client des sauvegardes PBS | évolution | à faire |
 | P2 | Signature par l'administrateur des actions sensibles, vérifiée par l'agent | évolution | à faire |
-| P2 | Politique locale par hôte, qui borne ce que le hub peut demander à l'agent | évolution | à faire |
+| P2 | Politique locale par hôte, qui borne ce que le hub peut demander à l'agent | évolution | ✅ fait ([Sécurité](securite.md#politique-locale-de-lhôte)) |
 | P2 | Déploiement durci de référence et page « Santé sécurité » | évolution | à faire |
 | P3 | Durcissement systemd de l'agent, puis séparation de privilèges | évolution | à faire |
 | P3 | Masquage des secrets dans les fichiers compose affichés, journaux filtrés selon le profil | correction | à faire |

@@ -127,7 +127,7 @@ func (s *session) hello(ctx context.Context) error {
 	if hasPve() {
 		caps = append(caps, "pve", "pve_token_delete")
 		if _, err := exec.LookPath("pct"); err == nil {
-			caps = append(caps, "pve_guest_check", "agent_install:lxc")
+			caps = append(caps, "pve_guest_check", "agent_install:lxc", "agent_install:self")
 		}
 		// the other nodes of the cluster, by ssh
 		if _, err := exec.LookPath("ssh"); err == nil {
@@ -484,7 +484,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 	case "docker_up", "docker_stop", "docker_restart", "docker_update":
 		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
 	case "agent_install":
-		code, err = installAgent(jctx, runStreamingIn, fetchInstaller(s.http, s.hub), installTarget(pveExec), in.Install, emit)
+		code, err = installAgent(jctx, runStreamingIn, nodeInstallSource(s.hub, agentDir), installTarget(pveExec), in.Install, emit)
 	case "backup_install":
 		code, err = installBackupClient(jctx, in.Method, emit)
 		// the hub learns the new mode from the capabilities
@@ -620,8 +620,13 @@ func main() {
 		runEnroll(ctx, os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "install" {
+		runSelfInstall(ctx, os.Args[2:])
+		return
+	}
 	cfg, _ := loadConfig(os.Args[1:])
 	upsPassPath = filepath.Join(cfg.Dir, upsPassFile)
+	agentDir = cfg.Dir
 	if releasePubKey == "" {
 		log.Printf("development build: agent updates are not signature-checked")
 	}
