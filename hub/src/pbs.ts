@@ -6,6 +6,7 @@ import { adhocBlocker, offsiteState } from './offsite.js';
 import { collectBackupStats, recordUsage } from './pbsStats.js';
 import { ApiError, apiGet, apiRequest, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import { OFF_PBS_SOURCES, type BackupDoc, type BackupSnapshot, type HostDoc, type PbsDatastoreUsage, type PbsSettings } from './types.js';
+import { openSettings } from './storedSecrets.js';
 
 // Backups kept on a Proxmox Backup Server, read through its API with a read-only token
 // (DatastoreAudit). Nothing runs on the hosts: the PBS is the source of truth.
@@ -28,7 +29,7 @@ export const PBS_URL_RE = SERVER_URL_RE;
 export { ApiError as PbsError, FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint };
 
 export async function loadPbsSettings(): Promise<PbsSettings> {
-  return { ...DEFAULT_PBS, ...((await settings.findOne({ _id: 'pbs' })) as PbsSettings | null), _id: 'pbs' };
+  return { ...DEFAULT_PBS, ...openSettings('pbs', (await settings.findOne({ _id: 'pbs' })) as PbsSettings | null), _id: 'pbs' };
 }
 
 // The main PBS is connected once it has an address and the monitoring token: it is then polled, the

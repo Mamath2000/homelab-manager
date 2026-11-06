@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { hosts, probes, roles, settings } from './db.js';
 import type { CarrierKind, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
+import { openRole, openSettings } from './storedSecrets.js';
 
 export type RoleOf<T extends RoleType> = Extract<RoleDoc, { type: T }>;
 
@@ -90,7 +91,7 @@ let cache: RoleDoc[] = [];
 
 export async function loadRoles() {
   const [stored, kept] = await Promise.all([roles.find().sort({ name: 1 }).toArray(), settingsRoles()]);
-  cache = [...kept, ...stored];
+  cache = [...kept, ...stored.map((r) => openRole(r as RoleDoc))];
   return cache;
 }
 
@@ -109,7 +110,7 @@ export function pbsRoles(pbs: PbsSettings | null, remote: PbsRemoteSettings | nu
 
 async function settingsRoles() {
   const [pbs, remote] = await Promise.all([settings.findOne({ _id: 'pbs' }), settings.findOne({ _id: 'pbs-remote' })]);
-  return pbsRoles(pbs as PbsSettings | null, remote as PbsRemoteSettings | null);
+  return pbsRoles(openSettings('pbs', pbs as PbsSettings | null), openSettings('pbs-remote', remote as PbsRemoteSettings | null));
 }
 
 export const allRoles = () => cache;

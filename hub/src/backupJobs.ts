@@ -8,6 +8,7 @@ import { publish } from './events.js';
 import { jobDto } from './jobs.js';
 import { groupKey, loadPbsSettings, pollPbs, retryAfterMin } from './pbs.js';
 import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo, HostDoc, JobDoc, PbsSettings } from './types.js';
+import { openCredential } from './storedSecrets.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
 // the hub sends the whole definition of a host (backup_sync) whenever it changes and at each
@@ -223,11 +224,12 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
   // the hosts of the Tailscale access network reach the PBS at its own address
   const url = host.accessNetwork === 'tailscale' ? pbs.tailscaleUrl ?? '' : pbs.url;
   const usable = !!host.pbsCredential && !!url;
+  const credential = openCredential(host.pbsCredential);
   const body = {
     server: usable ? pbsServer({ url }) : '',
     fingerprint: pbs.fingerprint,
     tokenId: usable ? host.pbsCredential!.tokenId : '',
-    tokenSecret: usable ? host.pbsCredential!.tokenSecret : '',
+    tokenSecret: usable ? credential!.tokenSecret : '',
     image: pbs.clientImage || defaultClientImage(),
     // Windows: the CLI installed by hand; only when set, so that the hashes of the other hosts do not change
     ...(host.backupClientPath ? { clientPath: host.backupClientPath } : {}),

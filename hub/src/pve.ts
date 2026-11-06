@@ -8,6 +8,7 @@ import { rolesSaved } from './roleEvents.js';
 import { allRoles, loadRoles, newRoleId } from './roles.js';
 import { apiGet, normalizeFingerprint } from './tlsApi.js';
 import type { BackupSnapshot, GuestDoc, HostPveLink, HostPveLost, PbsSettings, PveCluster, PveClusterRole, PveJobRef, PveNode, PveSettings, PveTaskResult } from './types.js';
+import { openRole } from './storedSecrets.js';
 
 // Proxmox VE clusters, read through their API with a read-only token (PVEAuditor): the inventory (nodes, guests, their
 // MAC addresses), the vzdump backup jobs and the result of their last tasks. A host of the hub is the guest that has
@@ -20,7 +21,7 @@ export const PVE_TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+![A-Za-z0-9._-]+
 
 // The clusters followed: the pve-cluster roles of the hub, read from the database (the poll writes their state).
 export async function loadPveSettings(): Promise<PveSettings> {
-  const list = (await roles.find({ type: 'pve-cluster' }).sort({ name: 1 }).toArray()) as PveClusterRole[];
+  const list = ((await roles.find({ type: 'pve-cluster' }).sort({ name: 1 }).toArray()) as PveClusterRole[]).map(openRole);
   return { _id: 'pve', clusters: list.map(clusterOf) };
 }
 

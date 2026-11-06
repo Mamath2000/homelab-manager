@@ -24,6 +24,11 @@ export const config = {
   // optional: the logs also go to this file (stdout stays the main output)
   logFile: env('LOG_FILE'),
   mongoUrl: env('MONGO_URL') ?? 'mongodb://localhost:27017/homelab',
+  // optional account of MongoDB (compose: MONGO_USERNAME / MONGO_PASSWORD of the .env); authSource: where it is defined
+  // (admin for the root account the mongo image creates)
+  mongoUsername: env('MONGO_USERNAME'),
+  mongoPassword: env('MONGO_PASSWORD'),
+  mongoAuthSource: env('MONGO_AUTH_SOURCE') ?? 'admin',
   webDir: env('WEB_DIR') ?? resolve(here, '../../web/dist'),
   agentBinDir: env('AGENT_BIN_DIR') ?? resolve(here, '../../agent/dist'),
   assetsDir: resolve(here, '../assets'),
