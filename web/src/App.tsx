@@ -70,6 +70,18 @@ export default function App() {
     return <ForcePasswordChange me={user} onLogout={logout} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
   }
 
+  if (!live && user.profile !== 'superadmin') {
+    return (
+      <div role="status" aria-live="polite" className="flex min-h-screen flex-col items-center justify-center gap-4 text-center">
+        <Spinner />
+        <div>
+          <p className="text-sm font-medium text-zinc-100">Connexion au hub interrompue</p>
+          <p className="mt-1 text-sm text-muted">Reconnexion automatique en cours…</p>
+        </div>
+      </div>
+    );
+  }
+
   const me = rights(user);
 
   return (
