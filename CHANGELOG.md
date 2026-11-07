@@ -4,6 +4,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+## 1.2.2 - 2026-11-07
+
 ### Sécurité
 
 - **Accès à l'interface sécurisé** (constat F-05 de l'audit) : le cookie de session devient `Secure` tout seul quand la requête arrive en HTTPS (`COOKIE_SECURE` absente ; `true` le force toujours). `TRUST_PROXY` accepte l'adresse du proxy (ou une liste) : les en-têtes `X-Forwarded-*` des autres clients sont ignorés, ce qui ferme le contournement de l'anti-bruteforce. Port HTTPS natif facultatif (`HTTPS_PORT`, `4443` en Docker) avec un certificat émis par le hub pour l'interface seule (397 jours, renouvelé automatiquement, distinct de celui des agents) ou fourni (`HTTPS_CERT_FILE`/`HTTPS_KEY_FILE`) ; le port HTTP redirige alors les pages et refuse la connexion et les clés d'API en clair (`HTTP_MODE`). Bandeau quand la page est servie en HTTP, et pour les admins quand le trajet proxy → hub est en clair. Aucun en-tête HSTS envoyé par le hub. Les intégrations qui appellent l'API en HTTP sont à passer en `https://` si `HTTPS_PORT` est activé. Voir [HTTPS natif](docs/configuration.md#https-natif). (homelab#315)
