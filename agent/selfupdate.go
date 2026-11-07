@@ -53,7 +53,8 @@ func fetchBinary(ctx context.Context, client *http.Client, hub, expected, dir st
 	if releasePubKey == "" {
 		emit("development build: signature not checked\n")
 	} else {
-		sig, err := get(ctx, client, url+".sig")
+		// v2 only: the signed version is checked against the floor (the v1 .sig stays for the agents below it)
+		sig, err := get(ctx, client, url+".sig2")
 		if err != nil {
 			return "", fmt.Errorf("signature: %w", err)
 		}
@@ -62,10 +63,14 @@ func fetchBinary(ctx context.Context, client *http.Client, hub, expected, dir st
 		if err != nil {
 			return "", fmt.Errorf("signature: %w", err)
 		}
-		if err := verifySignature(releasePubKey, got, raw); err != nil {
+		version, err := verifySignatureV2(releasePubKey, runtime.GOOS+"/"+runtime.GOARCH, got, raw)
+		if err != nil {
 			return "", err
 		}
-		emit("signature ok\n")
+		if err := checkFloor(minVersion, version); err != nil {
+			return "", err
+		}
+		emit(fmt.Sprintf("signature ok (version %s, floor %s)\n", version, minVersion))
 	}
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
 		return "", err

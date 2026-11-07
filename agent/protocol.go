@@ -89,8 +89,10 @@ type Outbound struct {
 	// actions this agent can run, so that the hub only offers those
 	Capabilities []string `json:"capabilities,omitempty"`
 	// hello: local policy of the host (policy.go)
-	Policy       *PolicyReport   `json:"policy,omitempty"`
-	BinaryHash   string          `json:"binaryHash,omitempty"`
+	Policy     *PolicyReport `json:"policy,omitempty"`
+	BinaryHash string        `json:"binaryHash,omitempty"`
+	// hello: version floor of the updates this agent accepts (release agents only, signature.go)
+	MinVersion   string          `json:"minVersion,omitempty"`
 	Report       *AptReport      `json:"report,omitempty"`
 	Docker       *DockerReport   `json:"docker,omitempty"`
 	Updates      *DockerUpdates  `json:"updates,omitempty"`

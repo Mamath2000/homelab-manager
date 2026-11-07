@@ -2,11 +2,15 @@
 //
 //	hm-sign keygen -key FILE -pub FILE   new key pair (refuses to overwrite an existing key)
 //	hm-sign pub -key FILE                print the public key (base64)
-//	hm-sign sign -key FILE BINARY...     write BINARY.sig next to each binary
+//	hm-sign sign -key FILE -version X.Y.Z BINARY...
+//	                                     write BINARY.sig (v1) and BINARY.sig2 (v2) next to each binary
 //
 // The private key file holds the base64 seed; it stays out of the repository. The public key is
 // embedded in the agents (-X main.releasePubKey=…), which refuse an update whose signature does
-// not verify. The signed message must match agent/signature.go.
+// not verify. The signed messages must match agent/signature.go: v1 (sha256 alone) for the agents older than the
+// version floor, v2 (target, version and sha256, file « v2 <version> <signature> ») checked by the release agents
+// against their floor. BINARY is named homelab-agent-<os>-<arch>[.exe] (agent/build.sh, Dockerfile): the target
+// comes from the name.
 package main
 
 import (
@@ -21,11 +25,30 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 func signedMessage(sha256hex string) []byte {
 	return []byte("homelab-agent/v1:" + sha256hex)
+}
+
+func signedMessageV2(target, version, sha256hex string) []byte {
+	return []byte("homelab-agent/v2:" + target + ":" + version + ":" + sha256hex)
+}
+
+var (
+	versionRe = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	binaryRe  = regexp.MustCompile(`^homelab-agent-(linux|windows)-(amd64|arm64)(\.exe)?$`)
+)
+
+// target of a binary from its name: homelab-agent-linux-arm64 → linux/arm64
+func binaryTarget(file string) (string, error) {
+	m := binaryRe.FindStringSubmatch(filepath.Base(file))
+	if m == nil || (m[1] == "windows") != (m[3] == ".exe") {
+		return "", fmt.Errorf("%s: not an agent binary name (homelab-agent-<os>-<arch>[.exe])", file)
+	}
+	return m[1] + "/" + m[2], nil
 }
 
 func loadKey(file string) (ed25519.PrivateKey, error) {
@@ -66,7 +89,11 @@ func keygen(keyFile, pubFile string) error {
 	return os.WriteFile(pubFile, []byte(pubString(key)+"\n"), 0o644)
 }
 
-func sign(key ed25519.PrivateKey, file string) error {
+func sign(key ed25519.PrivateKey, version, file string) error {
+	target, err := binaryTarget(file)
+	if err != nil {
+		return err
+	}
 	f, err := os.Open(file)
 	if err != nil {
 		return err
@@ -76,8 +103,13 @@ func sign(key ed25519.PrivateKey, file string) error {
 	if _, err := io.Copy(h, f); err != nil {
 		return err
 	}
-	sig := ed25519.Sign(key, signedMessage(hex.EncodeToString(h.Sum(nil))))
-	return os.WriteFile(file+".sig", []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o644)
+	sum := hex.EncodeToString(h.Sum(nil))
+	sig := ed25519.Sign(key, signedMessage(sum))
+	if err := os.WriteFile(file+".sig", []byte(base64.StdEncoding.EncodeToString(sig)+"\n"), 0o644); err != nil {
+		return err
+	}
+	sig2 := ed25519.Sign(key, signedMessageV2(target, version, sum))
+	return os.WriteFile(file+".sig2", []byte("v2 "+version+" "+base64.StdEncoding.EncodeToString(sig2)+"\n"), 0o644)
 }
 
 func run(args []string) error {
@@ -87,6 +119,7 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("hm-sign "+args[0], flag.ContinueOnError)
 	keyFile := fs.String("key", "", "private key file")
 	pubFile := fs.String("pub", "", "keygen: public key file to write")
+	version := fs.String("version", "", "sign: version of the binaries (X.Y.Z, agent/VERSION)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -111,14 +144,17 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
+		if !versionRe.MatchString(*version) {
+			return fmt.Errorf("sign: -version X.Y.Z is required (got %q)", *version)
+		}
 		if fs.NArg() == 0 {
 			return errors.New("sign: no file given")
 		}
 		for _, file := range fs.Args() {
-			if err := sign(key, file); err != nil {
+			if err := sign(key, *version, file); err != nil {
 				return err
 			}
-			fmt.Printf("signed %s\n", file)
+			fmt.Printf("signed %s (%s)\n", file, *version)
 		}
 		return nil
 	default:

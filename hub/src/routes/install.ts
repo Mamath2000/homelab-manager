@@ -26,18 +26,19 @@ export function registerInstallRoutes(app: FastifyInstance) {
     return `${(await loadPki()).caCert.trim()}\n`;
   });
 
-  // <arch> (Linux) or windows-<arch>: the binary; <file>.sig: its release signature, checked by the agents on self-update
+  // <arch> (Linux) or windows-<arch>: the binary; <file>.sig2: its release signature with the version (release agents),
+  // <file>.sig: the older one without it (agents below the version floor), checked on self-update
   app.get<{ Params: { file: string } }>('/agent/download/:file', async (req, reply) => {
-    const sig = req.params.file.endsWith('.sig');
-    const target = parseTarget(sig ? req.params.file.slice(0, -4) : req.params.file);
+    const m = /^(.+?)(\.sig2?)?$/.exec(req.params.file);
+    const target = m && parseTarget(m[1]);
     if (!target) return reply.code(404).send({ error: 'unsupported architecture' });
-    return sendBinary(reply, target, sig);
+    return sendBinary(reply, target, (m[2] ?? '') as Signature);
   });
 }
 
 // The Windows binary is downloaded from the UI too: it is installed with the token, by hand.
 export function registerAgentDownloadRoute(app: FastifyInstance) {
-  app.get('/api/agent/download/windows-amd64', async (_req, reply) => sendBinary(reply, { os: 'windows', arch: 'amd64' }, false));
+  app.get('/api/agent/download/windows-amd64', async (_req, reply) => sendBinary(reply, { os: 'windows', arch: 'amd64' }, ''));
 }
 
 function parseTarget(name: string) {
@@ -46,8 +47,10 @@ function parseTarget(name: string) {
   return m && AGENT_TARGETS.some((t) => t.os === os && t.arch === m[2]) ? { os, arch: m[2] } : null;
 }
 
-function sendBinary(reply: FastifyReply, { os, arch }: { os: AgentOs; arch: string }, sig: boolean) {
-  const file = `${agentBinaryPath(arch, os)}${sig ? '.sig' : ''}`;
+type Signature = '' | '.sig' | '.sig2';
+
+function sendBinary(reply: FastifyReply, { os, arch }: { os: AgentOs; arch: string }, sig: Signature) {
+  const file = `${agentBinaryPath(arch, os)}${sig}`;
   if (!existsSync(file)) return reply.code(404).send({ error: sig ? 'agent binary not signed' : 'agent binary not built' });
   if (sig) return reply.type('text/plain').send(readFileSync(file, 'utf8'));
   reply.type('application/octet-stream');

@@ -1,5 +1,5 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
-.PHONY: help install dev start logs stop agent agent-minor agent-major agent-run build lint fmt test check audit clean version \
+.PHONY: help install dev start logs stop agent agent-minor agent-major agent-floor agent-run build lint fmt test check audit clean version \
         docker-build docker-prune release-key access-manifest access-publish \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
@@ -86,6 +86,11 @@ agent-minor: ## Version mineure de l'agent +1 (X.Y+1.0), puis compile
 
 agent-major: ## Version majeure de l'agent +1 (X+1.0.0), puis compile
 	@./agent/build.sh major
+
+agent-floor: ## Plancher des mises à jour de l'agent (anti-rollback) = version courante de l'agent : à commiter dans la release qui corrige une faille de l'agent
+	@old=$$(cat agent/MIN_VERSION); new=$$(cat agent/VERSION); echo "$$new" > agent/MIN_VERSION; \
+		echo "agent/MIN_VERSION : $$old → $$new (les agents de release refuseront toute version plus ancienne)"; \
+		echo "à commiter : git commit -m \"🔒 Plancher agent $$new\" agent/MIN_VERSION"
 
 agent-run: ## Lance l'agent en local (root pour apt-get) : make agent-run [CODE=<code de la commande d'installation>]
 	@mkdir -p $(AGENT_DIR)

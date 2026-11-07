@@ -6,6 +6,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ### Sécurité
 
+- **Agents protégés contre le retour à une ancienne version** : la signature des binaires porte désormais leur version et leur plateforme (`.sig2`), et chaque agent de release refuse une mise à jour sous sa version minimum (`agent/MIN_VERSION`, 1.0.12 : toutes les corrections de l'audit), même signée. Un hub compromis ne peut plus ramener un agent vers une version d'avant la politique locale. Au-dessus du plancher, revenir à la release précédente du hub reste possible. Le hub ne propose plus de mise à jour à un agent plus récent que lui (badge « plus récent que le hub », au lieu d'un échec toutes les heures). Plancher affiché dans Paramètres › Agent et sur la fiche de l'hôte ; il se monte avec `make agent-floor`. Les agents actuels se mettent à jour normalement (l'ancienne signature reste publiée). Voir [Version minimum](docs/securite.md#version-minimum-anti-retour-arrière). (homelab#295)
+
 - **CI durcie** : actions GitHub épinglées par SHA, jeton de la CI en lecture seule, contrôles de sécurité à chaque push et pull request (`make audit` : `npm audit` des dépendances livrées du hub et de l'interface, `govulncheck` de l'agent Linux et Windows, bloquants en sévérité élevée ; scan de secrets gitleaks). Scan hebdomadaire des images publiées (hub `latest` et `dev`, client de sauvegarde) avec Grype. Dependabot propose chaque semaine les mises à jour groupées (actions, Go, npm, images de base, compose). Les images de release portent un SBOM et une attestation de provenance. (homelab#295)
 
 ## 1.2.2 - 2026-11-07

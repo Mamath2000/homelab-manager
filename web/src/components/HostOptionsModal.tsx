@@ -300,9 +300,24 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
                   <dt className="text-muted">Version</dt>
                   <dd className="text-zinc-200">
                     {host.agentVersion ?? '—'}{' '}
-                    {host.agentVersion && (host.agentOutdated ? <Badge tone="warn">à mettre à jour</Badge> : <Badge tone="ok">à jour</Badge>)}
+                    {host.agentVersion &&
+                      (host.agentOutdated ? (
+                        <Badge tone="warn">à mettre à jour</Badge>
+                      ) : host.agentAhead ? (
+                        <Badge tone="neutral">plus récent que le hub</Badge>
+                      ) : (
+                        <Badge tone="ok">à jour</Badge>
+                      ))}
                   </dd>
                 </div>
+                {host.agentMinVersion && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted">Version minimum</dt>
+                    <dd className="text-zinc-200" title="L'agent refuse toute mise à jour vers une version plus ancienne (anti-retour arrière).">
+                      {host.agentMinVersion}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted">Authentification</dt>
                   <dd className={needsReinstall(host) || agentRevoked(host) ? 'text-red-300' : 'text-zinc-200'}>{authLabel(host)}</dd>

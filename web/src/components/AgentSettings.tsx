@@ -38,6 +38,7 @@ export function AgentAutoUpdate({ children }: { children?: (actions: ReactNode) 
   useSettingsDraft(dirty, save, discard);
   if (!data) return null;
   const version = data.binaries.find((b) => b.version)?.version;
+  const floor = data.binaries.find((b) => b.floor)?.floor;
 
   return (
     <>
@@ -47,7 +48,7 @@ export function AgentAutoUpdate({ children }: { children?: (actions: ReactNode) 
           <span>
             <span className="block font-medium text-zinc-100">Mettre à jour les agents automatiquement</span>
             <span className="mt-1 block text-xs text-muted">
-              Dès qu'un agent se connecte avec une version différente de celle du hub, il télécharge la nouvelle, vérifie son empreinte et sa signature, puis redémarre.
+              Dès qu'un agent se connecte avec une version plus ancienne que celle du hub (ou un autre build de la même version), il télécharge celle du hub, vérifie son empreinte et sa signature, puis redémarre.
               Un nouvel essai a lieu au plus une fois par heure.
             </span>
           </span>
@@ -62,6 +63,11 @@ export function AgentAutoUpdate({ children }: { children?: (actions: ReactNode) 
               <span className="text-amber-300"> · non signé (build de développement : les agents de release refuseront cette mise à jour)</span>
             ))}
         </p>
+        {floor && (
+          <p className="mt-1 text-xs text-muted">
+            Version minimum : <span className="font-mono text-zinc-300">{floor}</span>. Les agents refusent toute mise à jour vers une version plus ancienne, même signée.
+          </p>
+        )}
       </div>
       {children
         ? children(<SettingsFormActions dirty={dirty} saving={busy} onSave={() => void save()} onCancel={discard} />)

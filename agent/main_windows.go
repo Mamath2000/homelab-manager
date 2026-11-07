@@ -226,7 +226,7 @@ func (s *session) hello(ctx context.Context) error {
 	s.mu.Lock()
 	s.client = client
 	s.mu.Unlock()
-	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash, Policy: currentPolicy().report(backups.pbsPinPath())})
+	return s.send(ctx, Outbound{Type: "hello", Version: version, Info: collectInfo(), Capabilities: caps, BinaryHash: binaryHash, MinVersion: updateFloor(), Policy: currentPolicy().report(backups.pbsPinPath())})
 }
 
 // backupSync applies a definition of the hub; a new client path that changes what the hello says sends it again.

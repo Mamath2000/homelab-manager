@@ -71,6 +71,16 @@ Ainsi, même un hub compromis ne peut pas pousser sur les hôtes un agent qui ne
 
 Les agents de développement (`make dev`, ou `make docker-build` sans clé de release) n'embarquent pas de clé : ils acceptent une mise à jour sur la seule empreinte et l'indiquent dans leurs logs (`development build`). **Paramètres > Agent** précise si les binaires distribués par le hub sont signés.
 
+### Version minimum (anti-retour arrière)
+
+La signature porte aussi la **version** du binaire et sa **plateforme** (fichier `.sig2`). Chaque agent de release embarque une **version minimum** (`agent/MIN_VERSION`) et refuse toute mise à jour vers une version plus ancienne, même correctement signée. Sans cela, un hub compromis pourrait ramener un agent vers une ancienne version signée, d'avant un correctif de sécurité (par exemple, une version antérieure à la politique locale, qui acceptait n'importe quelle image de sauvegarde). Au-dessus de ce plancher, le retour à une version précédente reste possible : on peut revenir à la release d'avant du hub sans bloquer les agents.
+
+- Le plancher est affiché dans **Paramètres > Agent** (agents distribués par le hub) et sur la fiche de l'hôte (**Options** › **Agent**). Un agent plus récent que le hub, ou dont le plancher est au-dessus de ce que le hub distribue, est marqué « plus récent que le hub » : aucune mise à jour ne lui est proposée.
+- Pour redescendre sous le plancher, il faut une action en root sur l'hôte : réinstaller l'agent avec la commande d'installation.
+- Les agents d'avant cette protection (≤ 1.0.12) vérifient encore l'ancienne signature (`.sig`), toujours publiée : ils se mettent à jour normalement, puis sont protégés.
+
+**Mainteneur.** Le plancher se monte à la main, dans la release qui corrige une faille de l'agent : `make agent-floor` (plancher = version courante de l'agent), puis un commit à part. Il ne dépend d'aucune option de build : le `Dockerfile` lit `agent/MIN_VERSION` et refuse une release dont le plancher manque ou dépasse la version de l'agent, et `make docker-release` refuse un plancher plus bas que celui de la release précédente. Un agent de release construit sans plancher refuse toute mise à jour.
+
 ### Clé de release (mainteneur)
 
 1. Une seule fois : `make release-key`. La clé privée est écrite dans `~/.config/homelab-manager/release.key` (droits 600, hors du dépôt ; autre chemin possible avec `RELEASE_KEY=…`). La clé publique est écrite dans `agent/release.pub`, **à commiter**.

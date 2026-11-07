@@ -179,6 +179,7 @@ interface AgentMessage {
   roleCandidates?: unknown;
   policy?: unknown;
   binaryHash?: unknown;
+  minVersion?: unknown;
   report?: unknown;
   docker?: unknown;
   updates?: unknown;
@@ -258,6 +259,7 @@ export function registerAgentSocket(app: FastifyInstance) {
                     agentVersion: msg.version,
                     capabilities: Array.isArray(msg.capabilities) ? msg.capabilities.filter((c) => typeof c === 'string') : [],
                     agentHash: typeof msg.binaryHash === 'string' ? msg.binaryHash : '',
+                    agentMinVersion: typeof msg.minVersion === 'string' ? msg.minVersion : '',
                     lastSeenAt: new Date(),
                     ...roaming,
                     // absent: this agent cannot tell (old, or no `ss`): what was known stays

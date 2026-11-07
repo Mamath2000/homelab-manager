@@ -305,6 +305,8 @@ export interface HostDoc {
   lastSeenAt?: Date;
   lastAutoCheckAt?: Date;
   agentVersion?: string;
+  // version floor of the updates of a release agent (anti-rollback; absent: development agent or older than the floor)
+  agentMinVersion?: string;
   // actions announced by the agent (absent with old agents)
   capabilities?: string[];
   // sha256 of the agent binary, compared with the one the hub distributes

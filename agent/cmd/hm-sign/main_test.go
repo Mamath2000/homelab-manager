@@ -29,8 +29,19 @@ func TestKeygenAndSign(t *testing.T) {
 
 	bin := filepath.Join(dir, "homelab-agent-linux-amd64")
 	os.WriteFile(bin, []byte("binary"), 0o755)
-	if err := run([]string{"sign", "-key", keyFile, bin}); err != nil {
+	if run([]string{"sign", "-key", keyFile, bin}) == nil {
+		t.Fatal("signed without a version")
+	}
+	if run([]string{"sign", "-key", keyFile, "-version", "1.0.13-dev", bin}) == nil {
+		t.Fatal("signed a development version")
+	}
+	if err := run([]string{"sign", "-key", keyFile, "-version", "1.0.13", bin}); err != nil {
 		t.Fatal(err)
+	}
+	odd := filepath.Join(dir, "agent.bin")
+	os.WriteFile(odd, []byte("binary"), 0o755)
+	if run([]string{"sign", "-key", keyFile, "-version", "1.0.13", odd}) == nil {
+		t.Fatal("signed a file whose target is unknown")
 	}
 
 	// the format the agent verifies (agent/signature.go)
@@ -41,5 +52,15 @@ func TestKeygenAndSign(t *testing.T) {
 	h := sha256.Sum256([]byte("binary"))
 	if !ed25519.Verify(pub, []byte("homelab-agent/v1:"+hex.EncodeToString(h[:])), sig) {
 		t.Fatal("signature does not verify with the public key")
+	}
+	// v2: target and version signed with the hash, « v2 <version> <signature> »
+	rawSig2, _ := os.ReadFile(bin + ".sig2")
+	f := strings.Fields(string(rawSig2))
+	if len(f) != 3 || f[0] != "v2" || f[1] != "1.0.13" {
+		t.Fatalf("v2 signature file %q", rawSig2)
+	}
+	sig2, _ := base64.StdEncoding.DecodeString(f[2])
+	if !ed25519.Verify(pub, []byte("homelab-agent/v2:linux/amd64:1.0.13:"+hex.EncodeToString(h[:])), sig2) {
+		t.Fatal("v2 signature does not verify with the public key")
 	}
 }

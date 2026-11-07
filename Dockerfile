@@ -15,21 +15,26 @@ ARG RELEASE_PUB=""
 # Client images of the backups the release agents accept (repository@sha256:…, comma separated; the first one is the
 # default the hub hands out). Empty (local build): any image, as before.
 ARG CLIENT_IMAGES=""
+# Version floor of the updates (anti-rollback, agent/signature.go): read from agent/MIN_VERSION, never a build argument,
+# so that a release cannot leave it out. A release refuses to build without a valid floor, or with one above the version.
 RUN --mount=type=secret,id=release_key \
-    version=$(cat VERSION) && \
+    version=$(cat VERSION) && floor=$(cat MIN_VERSION 2>/dev/null || true) && \
     if [ -n "$RELEASE_PUB" ]; then \
+      echo "$floor" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "agent/MIN_VERSION missing or invalid (« $floor »): a release must embed a version floor" >&2; exit 1; }; \
+      awk -v f="$floor" -v v="$version" 'BEGIN { split(f, a, "."); split(v, b, "."); for (i = 1; i <= 3; i++) { if (a[i] + 0 != b[i] + 0) exit (a[i] + 0 > b[i] + 0) } }' || { echo "agent/MIN_VERSION $floor is above the agent version $version" >&2; exit 1; }; \
       [ -s /run/secrets/release_key ] || { echo "RELEASE_PUB set but no release_key secret" >&2; exit 1; }; \
       CGO_ENABLED=0 go build -o /usr/local/bin/hm-sign ./cmd/hm-sign && \
       [ "$(hm-sign pub -key /run/secrets/release_key)" = "$RELEASE_PUB" ] || { echo "release key does not match agent/release.pub" >&2; exit 1; }; \
     else echo "warning: unsigned development agents (no RELEASE_PUB)" >&2; fi && \
     for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
-        -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-linux-$arch . ; \
+        -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.minVersion=$floor -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-linux-$arch . ; \
     done && \
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
-      -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-windows-amd64.exe . && \
-    if [ -n "$RELEASE_PUB" ]; then hm-sign sign -key /run/secrets/release_key /out/homelab-agent-*; fi && \
+      -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.minVersion=$floor -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-windows-amd64.exe . && \
+    if [ -n "$RELEASE_PUB" ]; then hm-sign sign -key /run/secrets/release_key -version "$version" /out/homelab-agent-*; fi && \
     echo "$version" > /out/VERSION && \
+    if [ -n "$RELEASE_PUB" ]; then echo "$floor" > /out/MIN_VERSION; fi && \
     if [ -n "$CLIENT_IMAGES" ]; then echo "${CLIENT_IMAGES%%,*}" > /out/CLIENT_IMAGE; fi
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS web
