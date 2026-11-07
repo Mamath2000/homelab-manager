@@ -617,8 +617,12 @@ export interface Me {
 export interface AuthStatus {
   // fresh install: log in as superadmin with the password printed in the hub logs
   noAccounts: boolean;
-  // COOKIE_SECURE is on: the session cookie is refused over plain http
+  // Secure attribute the session cookie gets on this request: refused by the browser over plain http
   cookieSecure?: boolean;
+  // how the request reached the hub (hub/src/transport.ts): https up to the browser, hop in clear behind a proxy
+  transport?: { https: boolean; hopClear: boolean };
+  // TLS port of the UI when the page is in http and there is one (HTTPS_PORT)
+  httpsUrl?: string | null;
   user: Me | null;
 }
 

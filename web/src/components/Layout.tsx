@@ -9,6 +9,7 @@ import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { HostQuickSwitch } from './HostQuickSwitch';
+import { TransportBanner } from './TransportBanner';
 import { Spinner, StatusDot } from './ui';
 
 interface NavItem {
@@ -235,6 +236,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
 
       <main className={clsx('px-4 py-6 lg:px-8', collapsed ? 'lg:ml-16' : 'lg:ml-60')}>
         <div>
+          <TransportBanner />
           {/* pages are lazy chunks: the menu stays in place while one loads */}
           <HeaderSlotContext.Provider value={slots}>
             <Suspense fallback={<div className="flex justify-center p-10"><Spinner /></div>}>

@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { Spinner } from './components/ui';
-import { api, type Me } from './lib/api';
+import { api, type AuthStatus, type Me } from './lib/api';
 import { MeContext, rights } from './lib/auth';
 import { useLiveEvents } from './lib/live';
 import { ForcePasswordChange, Login } from './pages/Login';
@@ -37,11 +37,12 @@ export default function App() {
   // Switch user state without detaching the ['auth'] observer (qc.clear() would).
   const setUser = (me: Me | null) => {
     qc.removeQueries({ predicate: (q) => q.queryKey[0] !== 'auth' });
-    qc.setQueryData(['auth'], { noAccounts: false, user: me });
+    // the transport of the status is kept: the banners of the layout read it
+    qc.setQueryData<AuthStatus>(['auth'], (old) => ({ ...old, noAccounts: false, user: me }));
   };
 
   useEffect(() => {
-    const onUnauthorized = () => qc.setQueryData(['auth'], { noAccounts: false, user: null });
+    const onUnauthorized = () => qc.setQueryData<AuthStatus>(['auth'], (old) => ({ ...old, noAccounts: false, user: null }));
     window.addEventListener('hm:unauthorized', onUnauthorized);
     return () => window.removeEventListener('hm:unauthorized', onUnauthorized);
   }, [qc]);
@@ -54,6 +55,7 @@ export default function App() {
       <Login
         noAccounts={auth.data!.noAccounts}
         cookieSecure={!!auth.data!.cookieSecure}
+        httpsUrl={auth.data!.httpsUrl ?? null}
         onDone={setUser}
       />
     );
