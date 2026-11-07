@@ -1,6 +1,6 @@
 module github.com/mamath2000/homelab-manager/agent
 
-go 1.24.0
+go 1.25.0
 
 toolchain go1.27.3
 
@@ -8,7 +8,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/shirou/gopsutil/v4 v4.25.10
 	github.com/yusufpapurcu/wmi v1.2.4
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.44.0
 )
 
 require (

@@ -1,6 +1,6 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start logs stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
-        docker-build docker-prune release-key \
+        docker-build docker-prune release-key access-manifest access-publish \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
 
@@ -16,13 +16,19 @@ MONGO_URL ?= mongodb://localhost:27017/homelab
 LOG_FILE  ?= $(CURDIR)/logs/hub.log
 HUB       ?= http://localhost:$(PORT)
 AGENT_TLS_PORT ?= 3443
-RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LOG) LOG_FILE=$(LOG_FILE) MONGO_URL=$(MONGO_URL);
+# Dossier du manifeste d'accès signé : en local, celui où `make access-manifest` l'écrit (tools/manifest.sig.json)
+ACCESS_DIR ?= $(CURDIR)/tools
+RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LOG) LOG_FILE=$(LOG_FILE) MONGO_URL=$(MONGO_URL) ACCESS_DIR=$(ACCESS_DIR);
 # Agent local (make agent-run) : adresse TLS du hub et dossier de configuration (certificat, clé)
 AGENT_HUB ?= https://localhost:$(AGENT_TLS_PORT)
 AGENT_DIR ?= $(CURDIR)/agent/.dev
 # Clé privée de signature des binaires de l'agent, hors du dépôt (make release-key)
 RELEASE_KEY ?= $(HOME)/.config/homelab-manager/release.key
 export RELEASE_KEY
+# Manifeste d'accès signé (make access-manifest) : définition (clés publiques), clé de signature (FIDO conseillée), sortie à téléverser
+ACCESS_CONFIG ?= tools/access.json
+ACCESS_KEY    ?= $(HOME)/.ssh/hlm_signer
+ACCESS_OUT    ?= tools/manifest.sig.json
 # Stack de prod (make publish) : hôte ssh, CT Proxmox (vide = l'hôte ssh lui-même), dossier du compose
 PROD_SSH  ?= pve1.lo
 PROD_PCT  ?= 171
@@ -119,6 +125,13 @@ release-key: ## Crée la clé de signature des agents (une fois) : clé privée 
 	cd agent && go run ./cmd/hm-sign keygen -key $(RELEASE_KEY) -pub release.pub
 	@echo "Clé privée : $(RELEASE_KEY) (à sauvegarder, jamais dans le dépôt)"
 	@echo "Clé publique : agent/release.pub (à commiter : les agents de release l'embarquent)"
+
+access-manifest: ## Signe le manifeste d'accès (clés root, utilisateur sudo), sans le déposer : make access-manifest [ACCESS_CONFIG=… ACCESS_KEY=… ACCESS_OUT=…] ; modèle : tools/access.example.json
+	bash tools/access-manifest.sh -c $(ACCESS_CONFIG) -k $(ACCESS_KEY) -o $(ACCESS_OUT)
+
+access-publish: access-manifest ## Signe le manifeste d'accès puis le dépose sur la prod (dossier access/ du hub, relu toutes les 30 s)
+	$(call PROD_RUN,mkdir -p access && cat > access/.manifest.tmp && chmod 644 access/.manifest.tmp && mv access/.manifest.tmp access/manifest.sig.json) < $(ACCESS_OUT)
+	@echo "Déposé sur $(PROD_SSH)$(if $(PROD_PCT), / CT $(PROD_PCT)):$(PROD_DIR)/access : à appliquer aux hôtes dans Paramètres > Standardisation > Accès"
 
 docker-build: ## Construit l'image locale homelab-manager:latest (sans push ; agents signés si la clé de release est présente)
 	bash docker-release.sh build

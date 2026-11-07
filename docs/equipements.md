@@ -39,7 +39,7 @@ Pour un équipement Omada, la **présence** vient du contrôleur, la sonde véri
 
 ### Omada
 
-**Paramètres › Omada** présente en tête les **VPN site à site** de chaque contrôleur (tunnels IPsec, relus à chaque relevé) : réseaux locaux → distants, tunnel établi ou non selon le contrôleur, passerelle qui le porte et état de sa [sonde VPN](sondes.md#sondes-vpn). Une icône d'avertissement, avec son explication au survol, signale ce qui demande une intervention : passerelle à créer ou relier comme équipement, source et cible de la sonde à choisir (bouton **Configurer**). Une passerelle a un check natif « Tunnel _nom_ » par tunnel activé de son site (alerte sans associations de sécurité en entrée et en sortie).
+**Paramètres › Omada** présente en tête les **VPN site à site** de chaque contrôleur (tunnels IPsec, relus à chaque relevé) : réseaux locaux → distants, tunnel établi ou non selon le contrôleur, passerelle qui le porte et état de sa [sonde VPN](sondes.md#sondes-vpn). Une icône d'avertissement, avec son explication au survol, signale ce qui demande une intervention : passerelle à créer ou relier comme équipement, source et cible de la sonde à choisir (bouton **Configurer**). Une passerelle a un check natif « Tunnel _nom_ » par tunnel activé de son site (alerte sans associations de sécurité en entrée et en sortie pendant 3 relevés consécutifs, voir [Sondes VPN](sondes.md#sondes-vpn)).
 
 ## Alertes et statuts
 

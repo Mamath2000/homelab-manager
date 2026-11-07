@@ -340,6 +340,7 @@ export function Hosts() {
                         <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
                         {h.agentOutdated && <AgentBadge short />}
                         {!!h.setup?.drift && <Badge tone="warn" className="gap-1"><Wand2 className="h-3 w-3" />non standard</Badge>}
+                        {!!h.setup?.access?.keys.some((k) => !k.managed) && <Badge tone="warn" className="gap-1" ><KeyRound className="h-3 w-3" />clé inconnue</Badge>}
                         {(() => {
                           const b = hostBackups(backups?.groups, h.id);
                           return b && b.state !== 'ok' && (

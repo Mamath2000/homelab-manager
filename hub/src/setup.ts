@@ -9,8 +9,12 @@ import { DEFAULT_FASTFETCH } from './fastfetch.js';
 import { createJob } from './jobs.js';
 import { DEFAULT_STARSHIP } from './starship.js';
 import {
+  ACCESS_OPTIONS,
   LIST_OPTIONS,
   SETUP_OPTIONS,
+  isAccessOption,
+  type AccessManifest,
+  type AccessSettings,
   type HostDoc,
   type JobDoc,
   type ListOption,
@@ -72,6 +76,10 @@ export const DEFAULT_SETUP: SetupProfile = {
 export const isListOption = (k: SetupOption): k is ListOption => (LIST_OPTIONS as readonly string[]).includes(k);
 export const isUserOption = (k: SetupOption) => k.startsWith('user_');
 
+export async function loadAccess(): Promise<AccessSettings | null> {
+  return (await settings.findOne({ _id: 'access' })) as AccessSettings | null;
+}
+
 export async function loadSetupProfile(): Promise<SetupProfile> {
   const saved = (await settings.findOne({ _id: 'setup' })) as Partial<SetupProfile> | null;
   const options = { ...DEFAULT_SETUP.options };
@@ -86,6 +94,7 @@ export async function loadSetupProfile(): Promise<SetupProfile> {
     options,
     fastfetch: saved?.fastfetch ?? DEFAULT_SETUP.fastfetch,
     starship: saved?.starship ?? DEFAULT_SETUP.starship,
+    access: await loadAccess(),
   };
 }
 
@@ -129,12 +138,25 @@ function lockoutError(v: Partial<SetupValues>) {
   return keys ? null : "interdire le mot de passe SSH demande des clés SSH pour root ou l'utilisateur, sinon l'hôte devient injoignable";
 }
 
+// Content of the access options: always the signed manifest's (issue #312). Without manifest the keys are empty and
+// the user has no name: the agent reports it instead of applying anything.
+function accessValue(m: AccessManifest | undefined, k: (typeof ACCESS_OPTIONS)[number]) {
+  if (k === 'root_keys') return m?.root.sshKeys ?? [];
+  if (k === 'user_keys') return m?.user?.sshKeys ?? [];
+  return { name: m?.user?.name ?? '', sudoNoPassword: m?.user?.sudoNoPassword ?? false };
+}
+
 // Values applied to a host: the standard ones, changed by its overrides; options absent are not managed.
+// Access options: managed when the standard enables them and the host does not switch them off ("Non géré").
 export function effectiveValues(p: SetupProfile, overrides: SetupOverrides = {}): Partial<SetupValues> {
   const out: Partial<Record<SetupOption, unknown>> = {};
   for (const k of SETUP_OPTIONS) {
     const std = p.options[k];
     const o = overrides[k];
+    if (isAccessOption(k)) {
+      if (std.enabled && o?.mode !== 'off') out[k] = accessValue(p.access?.manifest, k);
+      continue;
+    }
     if (!o) {
       if (std.enabled) out[k] = std.value;
     } else if (o.mode === 'custom') {
@@ -151,10 +173,10 @@ export function effectiveValues(p: SetupProfile, overrides: SetupOverrides = {})
 // Error message for an invalid profile, null when it is fine.
 export function profileError(p: SetupProfile): string | null {
   for (const k of SETUP_OPTIONS) {
+    // the content of the access options is the manifest's, not the profile's
+    if (isAccessOption(k)) continue;
     const o = p.options[k];
-    // an unused user name may stay empty
-    if (k === 'user' && !o.enabled) continue;
-    const err = valueError(k, o.value);
+    const err = valueError(k, o.value as SetupValues[typeof k]);
     if (err) return err;
   }
   const v = effectiveValues(p);
@@ -167,6 +189,8 @@ export function profileError(p: SetupProfile): string | null {
 export function overridesError(p: SetupProfile, overrides: SetupOverrides): string | null {
   for (const k of SETUP_OPTIONS) {
     const o = overrides[k];
+    // the keys and the user come from the signed manifest: a host can only stop managing them
+    if (isAccessOption(k) && o && o.mode !== 'off') return `${k} : le contenu vient du manifeste d'accès signé, seul « Non géré » est possible sur un hôte`;
     if (o?.mode === 'custom') {
       if (o.value === undefined) return `valeur manquante pour ${k}`;
       const err = valueError(k, o.value as SetupValues[typeof k]);
@@ -199,6 +223,8 @@ export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: Se
     ...(v.ssh_password !== undefined ? { allowPassword: v.ssh_password } : {}),
     root: accountSpec(v, 'root'),
     ...(v.user ? { user: { ...v.user, ...accountSpec(v, 'user') } } : {}),
+    // the access options are served from the signed manifest, relayed as it was signed
+    ...(modules.some(isAccessOption) && p.access ? { access: p.access.bundle } : {}),
     ...(v.root_motd === 'fastfetch' || v.user_motd === 'fastfetch' ? { fastfetch: p.fastfetch } : {}),
     ...(v.root_prompt === 'starship' || v.user_prompt === 'starship' ? { starship: p.starship } : {}),
   };

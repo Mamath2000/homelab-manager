@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { isOnline } from '../agents.js';
+import { accessView, syncAccessFile } from '../accessFile.js';
 import { config } from '../config.js';
 import { hosts, parseId, settings } from '../db.js';
 import { hostDto } from '../hostDto.js';
-import { MAX_TEXT, canSetup, checkAllHosts, checkHostSetup, isListOption, loadSetupProfile, overridesError, profileError } from '../setup.js';
-import { MOTD_STYLES, PROMPT_STYLES, SETUP_OPTIONS, type SetupOption, type SetupOverrides, type SetupProfile } from '../types.js';
+import { MAX_TEXT, applySetup, canSetup, checkAllHosts, checkHostSetup, effectiveValues, isListOption, loadAccess, loadSetupProfile, overridesError, profileError } from '../setup.js';
+import { ACCESS_OPTIONS, MOTD_STYLES, PROMPT_STYLES, SETUP_OPTIONS, type SetupOption, type SetupOverrides, type SetupProfile } from '../types.js';
 
 const packages = { type: 'array', maxItems: 300, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 128 } };
 const keys = { type: 'array', maxItems: 50, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 16384 } };
@@ -115,6 +116,39 @@ export function registerSetupRoutes(app: FastifyInstance) {
     checkAllHosts().catch((e) => req.log.warn({ err: e }, 'standardisation check failed'));
     const { _id, ...p } = next;
     return p;
+  });
+
+  // Signed access manifest (admin: /api/settings/*): root keys, sudo user and its keys. It is made and signed on the
+  // admin workstation (make access-publish) and dropped in the access folder the hub reads (accessFile.ts).
+  app.get('/api/settings/access', async () => accessView());
+
+  // reads the folder now instead of waiting for the next pass
+  app.post('/api/settings/access/reload', async () => {
+    await syncAccessFile(app.log);
+    return accessView();
+  });
+
+  // Pushes the active manifest to the hosts that manage the access options. Offline hosts keep the old keys
+  // (their check shows the difference) until the next application.
+  app.post('/api/settings/access/apply', async (_req, reply) => {
+    const access = await loadAccess();
+    if (!access) return reply.code(409).send({ error: "aucun manifeste d'accès publié" });
+    const p = await loadSetupProfile();
+    let started = 0;
+    const offline: string[] = [];
+    for (const host of await hosts.find({ capabilities: 'setup' }).toArray()) {
+      if (!canSetup(host)) continue;
+      const v = effectiveValues(p, host.setupOverrides);
+      if (!ACCESS_OPTIONS.some((k) => k in v)) continue;
+      if (!isOnline(host._id.toHexString())) {
+        offline.push(host.name);
+        continue;
+      }
+      await applySetup(host, 'manual', [...ACCESS_OPTIONS]);
+      started++;
+    }
+    reply.code(202);
+    return { started, offline };
   });
 
   // what every profile sees on a host page: the standard values, shown next to the host ones

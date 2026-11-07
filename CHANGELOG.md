@@ -9,7 +9,8 @@ le canal `dev`.
 
 ### Sécurité
 
-- **Dépendances vulnérables corrigées** : hub (`smol-toml`, `fastify`, `@fastify/static`/`glob`, `minimatch`, `ip-address`, `fast-uri` : `npm audit` propre), interface (`vite`, `zod`, `minimatch` : `npm audit` propre) et agent compilé avec Go 1.27.3 au lieu de 1.24.4 (37 failles de la bibliothèque standard atteintes par l'agent, dont `net/http`, `crypto/tls` et `crypto/x509` ; `govulncheck` propre). (homelab#297)
+- **Dépendances vulnérables corrigées** : hub (`smol-toml`, `fastify`, `@fastify/static`/`glob`, `minimatch`, `ip-address`, `fast-uri` : `npm audit` propre), interface (`vite`, `zod`, `minimatch` : `npm audit` propre) et agent compilé avec Go 1.27.3 au lieu de 1.24.4 (37 failles de la bibliothèque standard atteintes par l'agent, dont `net/http`, `crypto/tls` et `crypto/x509`) et `golang.org/x/sys` 0.44.0 ; `govulncheck` propre. (homelab#297)
+- **Accès root et utilisateur sudo par manifeste signé hors ligne** : les clés SSH de root, l'utilisateur sudo (et son sudo sans mot de passe) et ses clés ne sont plus des valeurs saisies dans le hub. Elles viennent d'un manifeste signé sur le poste de l'administrateur (`make access-manifest`, `ssh-keygen -Y sign`, clé FIDO possible), que le hub relit dans un dossier monté en lecture seule (`./access`, déposé par `make access-publish`) et relaie (Paramètres › Standardisation › Accès). Chaque agent vérifie la signature avec sa propre ancre (`access-anchor.json`, hors de portée du hub), refuse un numéro de série plus ancien (rejeu), ne retire que les clés qu'il a posées et remonte l'inventaire des `authorized_keys` (clés inconnues signalées). L'ancre est posée au premier manifeste valide reçu pendant une fenêtre de 14 jours après la mise à jour de l'agent (migration), puis plus jamais par le hub. Sans manifeste valide, les options « Clés SSH » et « Compte » n'appliquent rien. (homelab#312)
 - **Base de données protégée (options)** : compte MongoDB (`MONGO_USERNAME`, `MONGO_PASSWORD`) et clé maître (`HM_MASTER_KEY`) qui chiffre les secrets stockés (autorité des agents, jetons PBS, PVE et Omada, mot de passe MQTT), réglés dans un `.env` ; MongoDB sur un réseau interne joignable par le hub seulement. Sans `.env`, rien ne change. Une base chiffrée ne démarre pas sans sa clé. Voir [Migrer une installation existante](docs/securite.md#migrer-une-installation-existante). (homelab#288)
 - **Commandes depuis Home Assistant limitées aux mises à jour** : le pont MQTT ne publie et n'exécute plus le redémarrage d'un hôte, l'arrêt, le démarrage ou le redémarrage d'une stack, ni le nettoyage des paquets (le broker ne dit pas qui publie). Chaque commande reçue est journalisée ; un broker qui accepte les connexions anonymes est signalé sur son rôle et sur la page Home Assistant. Les automatisations HA qui utilisaient ces boutons sont à revoir. Voir [Sécurité des commandes](docs/home-assistant.md#sécurité-des-commandes). (homelab#287)
 - **Standardisation réservée aux admins** : les opérateurs ne modifient plus les choix de standardisation d'un hôte (clés SSH, compte, alias…), ils vérifient et appliquent les valeurs réglées par un admin. (homelab#286)
@@ -20,6 +21,8 @@ le canal `dev`.
 ### Ajouté
 
 - **Home Assistant : équipements et appareils de site** : un appareil par équipement (alertes, une entité par sonde, adresse IP), catégorie **Équipements** aux niveaux Standard et Complet, comptés (Équipements, Équipements en alerte) et remontés sur Homelab Manager. Nouvelle case **Regrouper les entités par site** : un appareil par site entre Homelab Manager et ses hôtes / équipements. Voir [Appareils créés](docs/home-assistant.md#appareils-créés). (homelab#250)
+- **Documentation : page « Audit de sécurité »** : bilan, précautions et corrections prévues, voir [Audit de sécurité](docs/audit-securite.md).
+- **Tableau des équipements** : colonnes redimensionnables.
 - **Documentation orientée utilisateur** : README refondu, nouvelles pages [Démarrage rapide](docs/demarrage-rapide.md), [Les notions clés](docs/concepts.md), [Créer des éléments](docs/creer-des-elements.md) et [Suivi des sauvegardes](docs/suivi-des-sauvegardes.md) (Proxmox VE, PBS, Home Assistant OS), nouvelles captures d'écran ; architecture, API et release déplacées dans [Développement](docs/developpement.md).
 - **Régénération des jetons PBS des hôtes** : bouton **Régénérer le jeton** dans la section Accès PBS d'un hôte, et actions groupées, depuis la sélection de la liste
   des hôtes ou sur le PBS principal (Paramètres › Rôles), avec aperçu des cibles. Le nouveau secret garde le même identifiant, est transmis à l'agent sans
@@ -57,6 +60,11 @@ le canal `dev`.
 
 ### Corrigé
 
+- **Omada : faux « Tunnel … non établi »** : le check natif d'un tunnel VPN site à site ne passe plus en alerte sur un seul relevé sans associations de sécurité (un rekey IPsec en retire une quelques secondes) mais après 3 relevés consécutifs (15 min). La sonde VPN du tunnel signale toujours une vraie coupure en moins de 2 min. Voir [Sondes VPN](docs/sondes.md#sondes-vpn).
+- Sondes : quand la cible (ou l'hôte d'exécution) d'une sonde change, l'état et la mesure précédents sont écartés, et une mesure en cours sur l'ancienne cible
+  est ignorée ; la sonde est remesurée au tick suivant.
+- Sauvegardes : le nom d'une archive invalide (lettres, chiffres, `-` et `_`, 64 caractères max) est signalé dans la fenêtre de sauvegarde (onglet Contenu)
+  avant l'enregistrement, au lieu d'un refus du hub.
 - Sonde HTTP : une réponse avec à la fois `Content-Length` et `Transfer-Encoding` (interface web des routeurs Omada) n'est plus
   en échec « Parse Error ».
 

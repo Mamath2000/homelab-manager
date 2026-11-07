@@ -47,6 +47,15 @@ const loadLevel = (pct: number): AlertLevel => (pct >= LOAD_ALERT ? 'alert' : pc
 // The site-to-site VPNs a gateway carries: the enabled ones of its site (a disabled tunnel is cut on purpose).
 export const vpnsOf = (d: Pick<OmadaDevice, 'type' | 'siteId'>, vpns: OmadaVpn[] = []) => (d.type === 'gateway' ? vpns.filter((v) => v.siteId === d.siteId && v.enabled) : []);
 
+// A tunnel is an alert only after this many polls in a row without its associations in and out: a rekey drops one of them
+// for a few seconds, and the probe of the tunnel (retried) covers a real cut in the meantime.
+export const VPN_ALERT_POLLS = 3;
+const vpnDown = (v: OmadaVpn) => !v.established && (v.missedPolls ?? 1) >= VPN_ALERT_POLLS;
+
+// Counts the consecutive polls a tunnel is seen not established, from the ones of the previous poll.
+export const withMissedPolls = (vpns: OmadaVpn[], before: OmadaVpn[] = []): OmadaVpn[] =>
+  vpns.map((v) => ({ ...v, missedPolls: v.established ? 0 : (before.find((b) => b.id === v.id)?.missedPolls ?? 0) + 1 }));
+
 // The native checks of a device: connected to the controller, processor and memory load when it reports them, and for a
 // gateway each of its tunnels established (security associations in and out).
 export function nativeOf(d: OmadaDevice, now = new Date(), vpns: OmadaVpn[] = []): EquipmentNative {
@@ -61,7 +70,7 @@ export function nativeOf(d: OmadaDevice, now = new Date(), vpns: OmadaVpn[] = []
       { key: 'connected', label: 'Connecté au contrôleur', level: d.connected ? 'ok' : 'alert', ...(d.connected ? {} : { reason: 'Déconnecté du contrôleur' }) },
       ...load('cpu', 'Processeur', d.cpu),
       ...load('memory', 'Mémoire', d.mem),
-      ...vpnsOf(d, vpns).map((v) => ({ key: `vpn:${v.id}`, label: `Tunnel ${v.name}`, level: (v.established ? 'ok' : 'alert') as AlertLevel, ...(v.established ? {} : { reason: `Tunnel ${v.name} non établi` }) })),
+      ...vpnsOf(d, vpns).map((v) => ({ key: `vpn:${v.id}`, label: `Tunnel ${v.name}`, level: (vpnDown(v) ? 'alert' : 'ok') as AlertLevel, ...(!vpnDown(v) ? {} : { reason: `Tunnel ${v.name} non établi` }) })),
     ],
   };
 }
@@ -119,7 +128,7 @@ export async function pollRole(role: OmadaControllerRole) {
   try {
     const snap = await omadaSnapshot(role.config);
     // VPNs not read this time: the last ones read are kept (a tunnel is only gone when a read says so)
-    const vpns = snap.vpns ?? before?.vpns;
+    const vpns = snap.vpns ? withMissedPolls(snap.vpns, before?.vpns) : before?.vpns;
     const state: OmadaStateDoc = {
       _id: role._id,
       omadacId: snap.omadacId,
