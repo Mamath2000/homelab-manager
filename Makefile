@@ -148,7 +148,7 @@ docker-release-minor: check ## Release dev : mineur +1, build remis à 0 (X.Y+1.
 docker-release-major: check ## Release dev : majeur +1, mineur et build à 0 (X+1.0.0), commit, build et push dev, tag git, push, synchro HAOS dev (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release-major
 
-docker-promote: ## Prod : publie l'image X.Y.Z-dev telle quelle sous X.Y.Z et latest, puis synchro HAOS prod [VERSION=X.Y.Z, défaut : version courante] [YES=1]
+docker-promote: ## Prod : publie l'image X.Y.Z-dev telle quelle sous X.Y.Z et latest, release GitHub vX.Y.Z (notes = CHANGELOG « Non publié »), puis synchro HAOS prod [VERSION=X.Y.Z, défaut : version courante] [YES=1]
 	PROMOTE_VERSION=$(VERSION) YES=$(YES) bash docker-release.sh promote
 
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]

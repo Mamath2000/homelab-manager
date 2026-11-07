@@ -8,8 +8,8 @@
 #   release-minor : mineur +1, build remis à 0 (X.Y+1.0)
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
 #   promote       : prod : l'image X.Y.Z-dev (défaut : VERSION, sinon PROMOTE_VERSION) est publiée telle quelle
-#                   (sans rebuild, toutes architectures) sous X.Y.Z et latest, puis synchro des applications HAOS
-#                   prod lancée ; confirmation demandée sauf YES=1
+#                   (sans rebuild, toutes architectures) sous X.Y.Z et latest, puis release GitHub vX.Y.Z (notes = section « Non publié » du CHANGELOG.md, renommée en version
+#                   et commitée) et synchro des applications HAOS prod lancée ; confirmation demandée sauf YES=1
 #   prune         : libère le disque : agent/hub/web dist, anciennes images locales de homelab-manager et
 #                   homelab-agent-haos (restent latest, dev et la version courante), images orphelines, cache buildx > 7 j
 #                   (proposé aussi en fin de release, avec confirmation ; YES=1 l'accepte d'office)
@@ -126,6 +126,35 @@ haos_sync() {
     done
 }
 
+# github_release VERSION : release GitHub vX.Y.Z (notes = section « Non publié » du CHANGELOG.md, renommée en
+# version et commitée), sans bloquer en cas d'échec : l'image est déjà publiée
+github_release() {
+    local tag="v$1" repo prev notes day
+    repo=$(git remote get-url origin | sed -E 's#^(git@github.com:|https://github.com/)##; s#\.git$##')
+    if gh api "repos/$repo/releases/tags/$tag" >/dev/null 2>&1; then
+        echo "⚠️  Release GitHub $tag déjà existante, ignorée"
+        return 0
+    fi
+    prev=$(gh api "repos/$repo/releases" --jq '[.[] | select(.draft | not)][0].tag_name // empty' 2>/dev/null || true)
+    notes=$(awk '/^## Non publié/{f=1;next} /^## /{f=0} f' CHANGELOG.md | sed '/./,$!d')
+    if [ -n "$notes" ]; then
+        day=$(date +%F)
+        awk -v v="$1" -v d="$day" '/^## Non publié/{print; print ""; print "## " v " - " d; next} {print}' CHANGELOG.md > CHANGELOG.md.tmp \
+            && mv CHANGELOG.md.tmp CHANGELOG.md
+        git commit -q -m "📝 Changelog $1" CHANGELOG.md && git push -q origin HEAD \
+            || { echo "⚠️  Changelog $1 non commité/poussé : à faire à la main"; return 0; }
+        echo "📌 CHANGELOG.md : « Non publié » devient $1 ($day)"
+        printf '%s\n' "$notes" | gh release create "$tag" -R "$repo" --title "$tag" --notes-file - --verify-tag \
+            && echo "✅ Release GitHub $tag créée (notes : CHANGELOG)" \
+            || echo "⚠️  Release GitHub $tag non créée : gh release create $tag -R $repo --generate-notes"
+    else
+        echo "⚠️  Section « Non publié » vide : notes générées par GitHub"
+        gh release create "$tag" -R "$repo" --title "$tag" --generate-notes --verify-tag ${prev:+--notes-start-tag "$prev"} \
+            && echo "✅ Release GitHub $tag créée (notes générées depuis ${prev:-le début})" \
+            || echo "⚠️  Release GitHub $tag non créée : gh release create $tag -R $repo --generate-notes"
+    fi
+}
+
 if [ "$action" = "promote" ]; then
     command -v gh >/dev/null 2>&1 || { echo "❌ gh est requis (synchro HAOS)."; exit 1; }
     docker buildx version >/dev/null 2>&1 || { echo "❌ docker buildx est requis."; exit 1; }
@@ -138,6 +167,9 @@ if [ "$action" = "promote" ]; then
         echo "❌ $IMAGE:$PROMOTE existe déjà en prod"
         exit 1
     fi
+    git rev-parse -q --verify "refs/tags/v$PROMOTE" >/dev/null \
+        && git ls-remote --exit-code --tags origin "refs/tags/v$PROMOTE" >/dev/null 2>&1 \
+        || { echo "❌ Tag v$PROMOTE absent en local ou sur origin (créé par docker-release)"; exit 1; }
     echo "🚀 Promotion $IMAGE:$PROMOTE-dev → $PROMOTE, latest"
     if [ "${YES:-}" != "1" ]; then
         read -r -p "Publier $PROMOTE en prod (image publique et applications HAOS) ? [o/N] " answer
@@ -146,6 +178,7 @@ if [ "$action" = "promote" ]; then
     # le manifeste multi-arch est recopié : mêmes images, mêmes labels que la dev testée
     docker buildx imagetools create -t "$IMAGE:$PROMOTE" -t "$IMAGE:latest" "$IMAGE:$PROMOTE-dev"
     echo "✅ $IMAGE:{$PROMOTE,latest} publiées"
+    github_release "$PROMOTE"
     haos_sync prod
     exit 0
 fi

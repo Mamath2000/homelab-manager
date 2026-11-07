@@ -1,11 +1,8 @@
 # Changelog
 
-Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'historique complet est dans git et les tags `v*`.
+Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'historique complet est dans git et les tags `v*`. La section « Non publié » liste ce qui suit la dernière version promue en prod : `make docker-promote` la renomme en version et en fait les notes de la release GitHub.
 
 ## Non publié
-
-Tout ce qui suit la dernière version **promue en prod** (`latest` = 1.0.1). Les versions 1.0.2 à 1.0.19 n'existent que sur
-le canal `dev`.
 
 ### Sécurité
 
