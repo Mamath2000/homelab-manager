@@ -210,6 +210,7 @@ route('settings', 'role.update', 'PUT /api/roles/:id');
 route('settings', 'role.delete', 'DELETE /api/roles/:id');
 route('setup', 'setup.standard', 'PUT /api/settings/setup');
 route('setup', 'setup.overrides', 'PUT /api/hosts/:id/setup');
+route('setup', 'setup.keyAck', 'PUT /api/hosts/:id/access-keys/ack');
 route('setup', 'setup.accessApply', 'POST /api/settings/access/apply');
 
 const routeKey = (req: FastifyRequest) => `${req.method} ${req.routeOptions.url ?? ''}`;

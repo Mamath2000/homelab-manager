@@ -11,6 +11,7 @@ import { RebootStatus } from '../components/Reboot';
 import { AgentBadge, ReinstallBadge, UpdateAgentsModal } from '../components/Agent';
 import { BulkHaDetailModal } from '../components/BulkHaDetailModal';
 import { BulkSetupModal } from '../components/SetupPanel';
+import { hasNewSshKey } from '../lib/setup';
 import { PbsRotateModal } from '../components/PbsRotate';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { HostsOverview } from '../components/HostsOverview';
@@ -340,7 +341,7 @@ export function Hosts() {
                         <span className="font-mono text-xs text-zinc-400">{h.agentVersion ?? '—'}</span>
                         {h.agentOutdated && <AgentBadge short />}
                         {!!h.setup?.drift && <Badge tone="warn" className="gap-1"><Wand2 className="h-3 w-3" />non standard</Badge>}
-                        {!!h.setup?.access?.keys.some((k) => !k.managed) && <Badge tone="warn" className="gap-1" ><KeyRound className="h-3 w-3" />clé inconnue</Badge>}
+                        {hasNewSshKey(h) && <Badge tone="warn" className="gap-1"><KeyRound className="h-3 w-3" />nouvelle clé SSH</Badge>}
                         {(() => {
                           const b = hostBackups(backups?.groups, h.id);
                           return b && b.state !== 'ok' && (

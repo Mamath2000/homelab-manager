@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, ShieldCheck } from 'lucide-react';
+import { Check, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { api, type AccessKey, type AccessKeyInfo, type AccessReport, type Host } from '../lib/api';
 import { timeAgo } from '../lib/format';
-import { useHosts } from '../lib/queries';
+import { useMe } from '../lib/auth';
+import { useHosts, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { Badge, Button, ConfirmModal } from './ui';
 
@@ -174,28 +175,56 @@ function AnchorTable({ hosts, signers }: { hosts: Host[]; signers: string[] }) {
   );
 }
 
-// authorized_keys found on a host, by account; a key the manifest does not list is flagged.
-export function HostAccessKeys({ access, account }: { access?: AccessReport; account: 'root' | 'user' }) {
-  const keys: AccessKey[] = (access?.keys ?? []).filter((k) => (account === 'root' ? k.account === 'root' : k.account !== 'root'));
+// authorized_keys found on a host, by account; a key the manifest does not list is flagged until an admin validates it
+// (bound to its fingerprint: it stays validated while the key stays on the host).
+export function HostAccessKeys({ host, account }: { host: Host; account: 'root' | 'user' }) {
+  const access = host.setup?.access;
+  const toast = useToast();
+  const me = useMe();
+  const updateHost = useUpdateHostCache();
+  const [busy, setBusy] = useState<string | null>(null);
   if (!access) return null;
-  const unknown = keys.filter((k) => !k.managed);
+  const keys: AccessKey[] = access.keys.filter((k) => (account === 'root' ? k.account === 'root' : k.account !== 'root'));
+  const fresh = keys.filter((k) => !k.managed && !k.acknowledged);
+  const canAck = me?.profile === 'admin';
+  const ack = async (k: AccessKey, acknowledged: boolean) => {
+    setBusy(k.account + k.fingerprint);
+    try {
+      updateHost(await api.ackAccessKey(host.id, k.account, k.fingerprint, acknowledged));
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+    setBusy(null);
+  };
   return (
     <div className="mt-3 rounded-md border border-line/60 p-3">
       <div className="mb-1 flex items-center gap-2 text-xs font-medium text-zinc-300">
         Clés présentes sur l'hôte ({keys.length})
-        {unknown.length > 0 && <Badge tone="warn">{unknown.length} inconnue(s)</Badge>}
+        {fresh.length > 0 && <Badge tone="warn">{fresh.length} nouvelle(s)</Badge>}
       </div>
       {access.status === 'error' && access.detail && <p className="mb-1 text-xs text-amber-200/80">{access.detail}</p>}
       {keys.length === 0 ? (
         <p className="text-xs text-muted">Aucune clé.</p>
       ) : (
-        <ul className="space-y-0.5">
+        <ul className="space-y-1">
           {keys.map((k) => (
-            <li key={k.account + k.fingerprint} className="flex flex-wrap items-baseline gap-x-2 font-mono text-xs">
-              <span className={k.managed ? 'text-zinc-300' : 'text-amber-300'}>{k.fingerprint}</span>
+            <li key={k.account + k.fingerprint} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-xs">
+              <span className={k.managed || k.acknowledged ? 'text-zinc-300' : 'text-amber-300'}>{k.fingerprint}</span>
               <span className="text-muted">{k.comment || k.type}</span>
               {k.options && <span className="text-muted">(options)</span>}
-              {!k.managed && <span className="text-amber-300">inconnue : gérée à la main sur l'hôte</span>}
+              {!k.managed && !k.acknowledged && <span className="text-amber-300">nouvelle clé : hors manifeste</span>}
+              {!k.managed && k.acknowledged && <span className="text-muted">hors manifeste, validée</span>}
+              {!k.managed && canAck && (
+                <button
+                  type="button"
+                  className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-sans text-zinc-400 hover:bg-white/5 hover:text-zinc-100 disabled:opacity-50"
+                  title={k.acknowledged ? 'Annuler la validation : la clé sera de nouveau signalée' : 'Valider cette clé : elle ne déclenche plus le badge'}
+                  disabled={busy === k.account + k.fingerprint}
+                  onClick={() => ack(k, !k.acknowledged)}
+                >
+                  {k.acknowledged ? <><X className="h-3.5 w-3.5" aria-hidden="true" />Annuler</> : <><Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />Valider</>}
+                </button>
+              )}
             </li>
           ))}
         </ul>

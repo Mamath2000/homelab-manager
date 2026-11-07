@@ -462,6 +462,8 @@ export interface AccessKey {
   comment?: string;
   options?: boolean;
   managed: boolean;
+  // outside the manifest and validated by an admin: no badge
+  acknowledged?: boolean;
 }
 export interface AccessReport {
   status: 'ok' | 'error';
@@ -1809,5 +1811,7 @@ export const api = {
   setupStandard: () => request<{ autoApply: boolean; options: SetupOptions }>('GET', '/api/setup'),
   saveHostSetup: (hostId: string, overrides: SetupOverrides) => request<Host>('PUT', `/api/hosts/${hostId}/setup`, { overrides }),
   applySetup: (hostId: string) => request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action: 'setup_apply' }),
+  ackAccessKey: (hostId: string, account: string, fingerprint: string, acknowledged: boolean) =>
+    request<Host>('PUT', `/api/hosts/${hostId}/access-keys/ack`, { account, fingerprint, acknowledged }),
   checkSetup: (hostId: string) => request<Host>('POST', `/api/hosts/${hostId}/setup/check`),
 };

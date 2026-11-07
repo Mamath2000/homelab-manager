@@ -45,6 +45,7 @@ const ACTIONS: Record<string, string> = {
   'role.delete': 'Rôle supprimé',
   'setup.standard': 'Standard modifié',
   'setup.overrides': "Valeurs propres d'un hôte",
+  'setup.keyAck': 'Clé SSH validée ou retirée de la validation',
   'setup.accessApply': "Manifeste d'accès appliqué",
 };
 

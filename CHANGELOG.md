@@ -4,6 +4,10 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+### Ajouté
+
+- **Validation des clés SSH hors manifeste** : dans la fenêtre de standardisation d'un hôte, chaque clé d'`authorized_keys` (root et utilisateur) que le manifeste ne liste pas peut être validée clé par clé (admins, tracé au journal). Une clé validée ne lève plus le badge, qui devient **nouvelle clé SSH** et s'affiche aussi dans l'en-tête de la fiche. La validation est liée à l'empreinte et au compte, et s'efface quand la clé quitte l'hôte ou entre dans le manifeste. Fenêtre de standardisation élargie. Voir [Clés SSH hors manifeste](docs/standardisation.md#clés-ssh-hors-manifeste).
+
 ### Sécurité
 
 - **Tentatives de connexion limitées par compte et par adresse** (constat F-08 de l'audit) : les échecs sont comptés pour un compte depuis une adresse (5, puis refus de 2 s doublé à chaque échec, 15 min au plus), pour une adresse (20 en 15 min, puis 15 min) et pour un compte depuis toutes les adresses (50 en 1 h, puis ralentissement de 5 min au plus, pour ne pas permettre de bloquer un admin). Mémoire bornée (les anciens compteurs sont oubliés), IPv6 comptée par `/64`, réponse `429` avec `Retry-After` et délai affiché à la connexion. Le mot de passe est vérifié au même coût que le compte existe ou non (plus d'énumération des comptes par le temps de réponse). Les clés d'API inconnues et les codes d'enrôlement des agents ont leur propre compteur borné. Voir [Tentatives de connexion](docs/comptes.md#tentatives-de-connexion). (homelab#292)

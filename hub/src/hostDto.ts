@@ -28,7 +28,12 @@ export function setupDto(h: HostDoc) {
   if (!h.setup || !config.featureStandardisation) return null;
   // checks of options that no longer exist (stored before an upgrade) are dropped
   const modules = h.setup.modules.filter((m) => SETUP_OPTIONS.includes(m.module));
-  return { ...h.setup, modules, drift: modules.filter((m) => m.state === 'drift' || m.state === 'error').length };
+  const acked = h.ackedKeys ?? [];
+  const access = h.setup.access && {
+    ...h.setup.access,
+    keys: h.setup.access.keys.map((k) => ({ ...k, acknowledged: !k.managed && acked.some((a) => a.account === k.account && a.fingerprint === k.fingerprint) })),
+  };
+  return { ...h.setup, ...(access ? { access } : {}), modules, drift: modules.filter((m) => m.state === 'drift' || m.state === 'error').length };
 }
 
 export function hostDto(h: HostDoc) {

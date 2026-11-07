@@ -111,6 +111,18 @@ Les mises à jour et les conteneurs viennent de l'agent, qui tient `/etc/homelab
 
 **Starship** et **fastfetch** s'installent par APT : Debian 13 ou Ubuntu 24.04 et plus récents. Ni Debian 12 ni ses backports ne les ont : l'option y échoue avec un message clair, la mettre en « Non géré » sur ces hôtes. Starship a besoin d'une police Nerd Font côté terminal pour ses icônes.
 
+## Clés SSH hors manifeste
+
+À chaque vérification, l'agent remonte les clés présentes dans `~/.ssh/authorized_keys` de root et de l'utilisateur. Une clé que le [manifeste d'accès](securite.md) ne liste pas (et que l'agent n'a pas posée lui-même) est **nouvelle** : l'hôte porte le badge **nouvelle clé SSH** dans la liste des hôtes et dans l'en-tête de sa fiche.
+
+Certaines clés ont une raison d'être (accès propre à un hôte, outil tiers). Dans la fenêtre de standardisation de l'hôte, chaque section (root, Utilisateur) liste ses clés avec leur empreinte et leur commentaire ; sur une clé hors manifeste, **Valider** l'acquitte, clé par clé :
+
+- une clé validée ne déclenche plus le badge ; la ligne indique « hors manifeste, validée » et **Annuler** remet la clé en nouvelle ;
+- la validation est liée à l'**empreinte** de la clé et au compte : une autre clé, même avec le même commentaire, reste nouvelle ;
+- elle disparaît dès que la clé quitte l'hôte, ou que le manifeste la liste : si la clé revient plus tard, elle est de nouveau signalée ;
+- la validation ne change rien sur l'hôte (la clé n'est ni retirée ni approuvée côté SSH), elle n'agit que sur le badge ;
+- réservée aux admins, tracée dans le [journal des actions](comptes.md#journal-des-actions).
+
 ## Garde-fous SSH
 
 - L'agent refuse d'interdire le mot de passe tant qu'aucune clé n'est installée pour root ou l'utilisateur.
@@ -125,6 +137,6 @@ Les mises à jour et les conteneurs viennent de l'agent, qui tient `/etc/homelab
 
 ## Rôles et sécurité
 
-Seuls les administrateurs modifient la configuration standard et les choix d'un hôte : clés SSH, compte, alias et connexion par mot de passe donnent root sur l'hôte. Les opérateurs vérifient et appliquent les valeurs enregistrées, et peuvent remettre au standard plusieurs hôtes à la fois, sans rien pouvoir y changer. Les lecteurs voient l'état.
+Seuls les administrateurs modifient la configuration standard et les choix d'un hôte, et valident les clés SSH hors manifeste : clés SSH, compte, alias et connexion par mot de passe donnent root sur l'hôte. Les opérateurs vérifient et appliquent les valeurs enregistrées, et peuvent remettre au standard plusieurs hôtes à la fois, sans rien pouvoir y changer. Les lecteurs voient l'état.
 
 L'agent ne reçoit que des valeurs, jamais de commandes. Il vérifie à nouveau chaque valeur : nom d'utilisateur, noms de paquets, format des clés publiques, styles connus, JSON de fastfetch (le TOML de Starship est vérifié par le hub). Le contenu des alias et des configurations Starship et fastfetch est écrit tel quel dans les fichiers (une commande de fastfetch s'exécute à chaque connexion) : ne donner le profil administrateur qu'à qui peut écrire sur les hôtes.

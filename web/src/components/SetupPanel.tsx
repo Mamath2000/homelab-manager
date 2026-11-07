@@ -244,6 +244,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       open
       onClose={close}
       wide="xl"
+      wider
       title={
         <span className="flex items-center gap-2">
           Standardisation de {host.name}
@@ -263,7 +264,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
         <div className="overflow-hidden rounded-md border border-line">
           <VerticalTabs tabs={tabs} value={tab} onChange={setTab} bodyClassName="px-4 py-2">
             <p className="pt-2 text-xs text-muted">{sec.hint}</p>
-            {sec.id !== 'system' && <HostAccessKeys access={host.setup?.access} account={sec.id} />}
+            {sec.id !== 'system' && <HostAccessKeys host={host} account={sec.id} />}
             <ul>
               {sec.id === 'user' ? (
                 <>

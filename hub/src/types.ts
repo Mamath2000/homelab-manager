@@ -338,6 +338,8 @@ export interface HostDoc {
   // standardisation: what this host does differently from the standard configuration, last check
   setupOverrides?: SetupOverrides;
   setup?: SetupState;
+  // keys outside the manifest the admin validated, bound to their fingerprint (dropped when the key leaves the host)
+  ackedKeys?: AckedKey[];
   // new host: the standard configuration is applied at its first connection (Paramètres > Standardisation)
   setupPending?: boolean;
   // not connected permanently (laptop...): being offline is expected, neither an error nor an alert
@@ -512,6 +514,10 @@ export interface AccessKey {
   comment?: string;
   options?: boolean;
   managed: boolean; // listed by the manifest or added by the agent earlier; false: unknown key
+}
+export interface AckedKey {
+  account: string;
+  fingerprint: string;
 }
 export interface AccessReport {
   status: 'ok' | 'error';

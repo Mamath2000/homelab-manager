@@ -4,6 +4,7 @@ import { isOnline } from '../agents.js';
 import { accessView, syncAccessFile } from '../accessFile.js';
 import { config } from '../config.js';
 import { hosts, parseId, settings } from '../db.js';
+import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { MAX_TEXT, applySetup, canSetup, checkAllHosts, checkHostSetup, effectiveValues, isListOption, loadAccess, loadSetupProfile, overridesError, profileError } from '../setup.js';
 import { ACCESS_OPTIONS, MOTD_STYLES, PROMPT_STYLES, SETUP_OPTIONS, type SetupOption, type SetupOverrides, type SetupProfile } from '../types.js';
@@ -178,6 +179,41 @@ export function registerSetupRoutes(app: FastifyInstance) {
     }
     return hostDto(updated);
   });
+
+  // Validates (or cancels the validation of) a key found on the host outside the manifest: it no longer raises the
+  // « nouvelle clé SSH » badge. Bound to the fingerprint, dropped by the next check once the key has left the host.
+  app.put<{ Params: { id: string }; Body: { account: string; fingerprint: string; acknowledged: boolean } }>(
+    '/api/hosts/:id/access-keys/ack',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['account', 'fingerprint', 'acknowledged'],
+          properties: {
+            account: { type: 'string', minLength: 1, maxLength: 64 },
+            fingerprint: { type: 'string', minLength: 1, maxLength: 128 },
+            acknowledged: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      const { account, fingerprint, acknowledged } = req.body;
+      const same = (a: { account: string; fingerprint: string }) => a.account === account && a.fingerprint === fingerprint;
+      const key = host.setup?.access?.keys.find(same);
+      if (acknowledged && (!key || key.managed)) return reply.code(404).send({ error: "clé inconnue sur cet hôte ou déjà gérée par le manifeste" });
+      const kept = (host.ackedKeys ?? []).filter((a) => !same(a));
+      const ackedKeys = acknowledged ? [...kept, { account, fingerprint }] : kept;
+      const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { ackedKeys } }, { returnDocument: 'after' }))!;
+      req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: { account, fingerprint, acknowledged, comment: key?.comment } };
+      publish('host', hostDto(updated));
+      return hostDto(updated);
+    },
+  );
 
   app.post<{ Params: { id: string } }>('/api/hosts/:id/setup/check', async (req, reply) => {
     const _id = parseId(req.params.id);

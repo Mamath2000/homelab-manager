@@ -158,6 +158,24 @@ test('profiles: the setup profile is admin only, operators apply and check witho
   assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/setup'));
   assert.ok(!authorize('viewer', 'PUT', '/api/hosts/:id/setup'));
   assert.ok(authorize('admin', 'PUT', '/api/settings/setup'));
+  // validating a key outside the manifest: admins only
+  assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/access-keys/ack'));
+  assert.ok(!authorize('operator', 'PUT', '/api/hosts/:id/access-keys/ack'));
+  assert.ok(!authorize('viewer', 'PUT', '/api/hosts/:id/access-keys/ack'));
+});
+
+test('setupDto: only a validated key outside the manifest is acknowledged, bound to account and fingerprint', () => {
+  const key = (account: string, fingerprint: string, managed: boolean) => ({ account, type: 'ssh-ed25519', fingerprint, managed });
+  const h = {
+    setup: { checkedAt: 1, user: 'root', modules: [], drift: 0, access: { status: 'ok', applied: 1, signers: [], keys: [key('root', 'SHA256:a', false), key('root', 'SHA256:b', false), key('mat', 'SHA256:a', false), key('root', 'SHA256:m', true)] } },
+    ackedKeys: [{ account: 'root', fingerprint: 'SHA256:a' }, { account: 'root', fingerprint: 'SHA256:m' }],
+  } as unknown as HostDoc;
+  config.featureStandardisation = true;
+  try {
+    assert.deepEqual(setupDto(h)!.access!.keys.map((k) => k.acknowledged), [true, false, false, false]);
+  } finally {
+    config.featureStandardisation = false;
+  }
 });
 
 test('access options: a host can only stop managing them', () => {

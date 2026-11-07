@@ -80,3 +80,7 @@ export function hostHasUser(options: SetupOptions, overrides: SetupOverrides) {
   const o = overrides.user;
   return o ? o.mode === 'custom' : options.user.enabled;
 }
+
+// a key on the host that neither the manifest lists nor an admin validated
+export const hasNewSshKey = (h: { setup?: { access?: { keys: { managed: boolean; acknowledged?: boolean }[] } } | null }) =>
+  !!h.setup?.access?.keys.some((k) => !k.managed && !k.acknowledged);

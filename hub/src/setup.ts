@@ -14,7 +14,9 @@ import {
   SETUP_OPTIONS,
   isAccessOption,
   type AccessManifest,
+  type AccessReport,
   type AccessSettings,
+  type AckedKey,
   type HostDoc,
   type JobDoc,
   type ListOption,
@@ -233,13 +235,21 @@ export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: Se
 // FEATURE_STANDARDISATION off: no host can be standardised (no application, no check)
 export const canSetup = (h: { capabilities?: string[] }) => config.featureStandardisation && !!h.capabilities?.includes('setup');
 
+// A validation lasts as long as its key stays on the host outside the manifest: gone, or listed by the manifest since,
+// it is dropped (a key coming back is flagged again). An unreadable report (error, option off) changes nothing.
+function prunedAckedKeys(acked: AckedKey[] | undefined, access: AccessReport | undefined) {
+  if (!acked?.length || access?.status !== 'ok') return {};
+  const kept = acked.filter((a) => access.keys.some((k) => !k.managed && k.account === a.account && k.fingerprint === a.fingerprint));
+  return kept.length === acked.length ? {} : { ackedKeys: kept };
+}
+
 // Conformity of a host with its values (standard ones and overrides), as checked by its agent.
 export async function checkHostSetup(hostId: ObjectId) {
   const host = await hosts.findOne({ _id: hostId });
   if (!host || !canSetup(host) || !isOnline(hostId.toHexString())) return;
   const p = await loadSetupProfile();
   const state = await agentRequest<SetupState>(hostId.toHexString(), 'setup_check', { setup: buildSpec(p, host.setupOverrides) }, 60_000);
-  const updated = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { setup: state } }, { returnDocument: 'after' });
+  const updated = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { setup: state, ...prunedAckedKeys(host.ackedKeys, state.access) } }, { returnDocument: 'after' });
   if (updated) publish('host', hostDto(updated));
 }
 
