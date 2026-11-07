@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { actorOf, recordAudit, recordAuthFailure } from './audit.js';
 import { config } from './config.js';
 import { dummyPasswordHash, hashPassword, randomToken, sha256, verifyPasswordOrDummy } from './crypto.js';
 import { apiKeys, sessions, users } from './db.js';
@@ -56,7 +57,9 @@ async function userFromApiKey(req: FastifyRequest) {
   if (!match) return undefined;
   const key = await apiKeys.findOneAndUpdate({ hash: sha256(match[1]) }, { $set: { lastUsedAt: new Date() } });
   if (!key) return null;
-  return users.findOne({ _id: key.userId, profile: { $ne: SUPERADMIN } });
+  const user = await users.findOne({ _id: key.userId, profile: { $ne: SUPERADMIN } });
+  if (user) req.apiKey = { id: key._id, name: key.name };
+  return user;
 }
 
 async function userFromRequest(req: FastifyRequest) {
@@ -136,7 +139,10 @@ export function registerAuth(app: FastifyInstance) {
       if (wait) return tooManyAttempts(reply, wait);
     }
     const byKey = await userFromApiKey(req);
-    if (byKey === null && apiKeyLimit.fail(ipKey(req.ip))) req.log.warn({ ip: req.ip }, 'too many unknown API keys from this client, blocked');
+    if (byKey === null) {
+      if (apiKeyLimit.fail(ipKey(req.ip))) req.log.warn({ ip: req.ip }, 'too many unknown API keys from this client, blocked');
+      recordAuthFailure('auth.apiKey', req.ip, null, 'clé d\'API inconnue');
+    }
     const user = byKey === undefined ? await userFromRequest(req) : byKey;
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
     const route = req.routeOptions.url!;
@@ -174,8 +180,11 @@ export function registerAuth(app: FastifyInstance) {
       const wait = loginWait(account, ip);
       if (wait) return tooManyAttempts(reply, wait);
       const user = await users.findOne({ username: req.body.username.trim() });
+      // scrypt first, whether the account exists or not (constant time)
       if (!(await checkPassword(user, req.body.password)) || !user) {
         loginFailed(req, account, ip);
+        // the name typed is kept only when it is an account: otherwise it may be a password typed in the wrong field
+        recordAuthFailure('auth.login', req.ip, user ? user.username : null, user ? 'mot de passe incorrect' : 'compte inconnu');
         return reply.code(401).send({ error: 'invalid credentials' });
       }
       // the superadmin password is not consumed here: a login whose cookie never sticks (e.g. Secure cookie over
@@ -185,13 +194,18 @@ export function registerAuth(app: FastifyInstance) {
       loginLimits.pair.reset(pairKey(account, ip));
       await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
       await startSession(req, reply, user);
+      void recordAudit({ category: 'auth', action: 'auth.login', actor: actorOf({ user }), ip: req.ip });
       return me(user);
     },
   );
 
   app.post('/api/auth/logout', async (req, reply) => {
     const token = req.cookies[COOKIE];
-    if (token) await sessions.deleteOne({ _id: sha256(token) });
+    if (token) {
+      const session = await sessions.findOneAndDelete({ _id: sha256(token) });
+      const user = session && (await users.findOne({ _id: session.userId }));
+      if (user) void recordAudit({ category: 'auth', action: 'auth.logout', actor: actorOf({ user }), ip: req.ip });
+    }
     reply.clearCookie(COOKIE, { path: '/', secure: cookieSecure(req) });
     return { ok: true };
   });

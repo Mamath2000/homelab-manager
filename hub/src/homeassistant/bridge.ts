@@ -12,6 +12,7 @@ import { backups, equipments, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
 import { equipmentProbes, hostProbes } from '../probes.js';
+import { HOME_ASSISTANT, runAs } from '../audit.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
 import { build, deviceOf, mqttActionAllowed, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
@@ -341,7 +342,8 @@ export class HomeAssistantBridge {
     }
     // whoever wrote on the broker: MQTT does not say, the topic and the hosts are kept
     this.log.warn({ topic, action: cmd.action, hosts: cmd.hostIds, stack: cmd.target?.stack }, 'Home Assistant: command received by MQTT');
-    this.run(cmd).catch((err) => this.log.error({ err }, 'Home Assistant: command failed'));
+    // its own context: the MQTT client may have been started by a request of an admin, whose context it would inherit
+    runAs({ actor: { ...HOME_ASSISTANT, keyName: topic } }, () => this.run(cmd)).catch((err) => this.log.error({ err }, 'Home Assistant: command failed'));
   }
 
   private async run(cmd: Command) {

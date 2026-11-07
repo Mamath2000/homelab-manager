@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { settingsDiff } from '../audit.js';
 import { settings } from '../db.js';
 import { testConnection, type HomeAssistantBridge } from '../homeassistant/bridge.js';
 import { AGENT_TARGETS, agentBinary } from '../agentBinaries.js';
@@ -118,6 +119,7 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
     if (next.brokerRoleId && !(await loadMqttBrokers()).brokers.some((b) => b.id === next.brokerRoleId)) return reply.code(400).send({ error: 'broker MQTT inconnu' });
     if (next.enabled && !next.brokerRoleId && !next.broker) return reply.code(400).send({ error: 'choisir un broker MQTT' });
     await settings.replaceOne({ _id: 'homeassistant' }, next, { upsert: true });
+    req.auditNote = { details: settingsDiff(current, next) };
     await bridge.apply(await loadHaBridgeSettings());
     return dto(next, bridge);
   });
@@ -225,6 +227,7 @@ export function registerAgentSettingsRoutes(app: FastifyInstance, bridge: HomeAs
     next.tailscaleHub = next.tailscaleHub.trim();
     if (next.tailscaleHub && !TAILSCALE_HOST.test(next.tailscaleHub)) return reply.code(400).send({ error: 'adresse Tailscale invalide (nom d\'hôte ou IP, sans http:// ni port)' });
     await settings.replaceOne({ _id: 'agents' }, next, { upsert: true });
+    req.auditNote = { details: settingsDiff(current, next) };
     if (next.hubUrl !== current.hubUrl) bridge.refresh();
     if (next.autoUpdate && !current.autoUpdate) {
       for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) await maybeAutoUpdate(h._id);

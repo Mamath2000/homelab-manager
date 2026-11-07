@@ -2,7 +2,7 @@ import type { UserDoc } from './types.js';
 
 // What each profile may call, decided on the matched route pattern (see isPublic in auth.ts).
 // Anything not explicitly allowed is refused.
-//   admin     everything
+//   admin     everything (the journal of the key actions is theirs alone)
 //   operator  reads + runs jobs (updates, cleanup, reboot, lock, agent updates; not shutdown: checked on the job route) (standardisation: checks and applies the values an admin set, never changes them); no hosts, settings or accounts
 //   viewer    reads only
 //   superadmin  accounts only: list, create, reset passwords (first install and recovery)
@@ -12,13 +12,15 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
   // agent settings only expose the distributed agent version (shown in the header)
   const settings = route.startsWith('/api/settings/') && route !== '/api/settings/agents';
   const ownPassword = method === 'POST' && route === '/api/account/password';
+  // journal of the key actions (who did what, addresses): admins only
+  const audit = route === '/api/audit' || route.startsWith('/api/audit/');
   // container logs and compose files may hold secrets: not for read-only accounts
   const stackDetails = route === '/api/hosts/:id/stacks/:stack/logs' || route === '/api/hosts/:id/stacks/:stack/compose';
   switch (profile) {
     case 'admin':
       return true;
     case 'operator':
-      if (read) return !accounts && !settings;
+      if (read) return !accounts && !settings && !audit;
       return (
         ownPassword ||
         (method === 'POST' &&
@@ -32,7 +34,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
             route === '/api/backups/:id/offsite/run'))
       );
     case 'viewer':
-      if (read) return !accounts && !settings && !stackDetails;
+      if (read) return !accounts && !settings && !stackDetails && !audit;
       return ownPassword;
     case 'superadmin':
       return (

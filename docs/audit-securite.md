@@ -56,7 +56,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P1 | Authentification MongoDB dans le déploiement de référence | correction | ✅ fait, optionnelle ([Sécurité](securite.md#base-de-données-et-secrets)) |
 | P1 | Limitation des tentatives de connexion par compte, proxy de confiance restreint | correction | ✅ fait ([Comptes](comptes.md#tentatives-de-connexion)) |
 | P1 | Fermer les flux temps réel d'une session révoquée, filtrer selon le profil | correction | à faire |
-| P1 | Journal d'audit des actions (qui a lancé quoi), avec alertes | évolution | à faire |
+| P1 | Journal des actions clés (qui a fait quoi), dans l'application | évolution | ✅ fait ([Comptes](comptes.md#journal-des-actions)) |
 | P1 | En-têtes de sécurité HTTP (CSP, anti-iframe, HSTS) | évolution | à faire |
 | P1 | Chaîne de livraison : images épinglées, CI durcie, protection contre le retour à une version plus ancienne | évolution | à faire |
 | P2 | Chiffrement des secrets stockés dans MongoDB (clé maître hors base) | évolution | ✅ fait, optionnel ([Sécurité](securite.md#base-de-données-et-secrets)) |

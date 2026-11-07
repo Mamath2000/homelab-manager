@@ -1,4 +1,5 @@
 // Account recovery, run inside the hub container: `docker compose exec hub hm-admin <command>`.
+import { recordAudit } from './audit.js';
 import { closeDb, connectDb } from './db.js';
 import { issueSuperadminPassword } from './superadmin.js';
 import { SUPERADMIN } from './types.js';
@@ -12,6 +13,7 @@ const usage = `usage: hm-admin <command>
 
 async function superadmin() {
   const password = await issueSuperadminPassword(VALIDITY_MINUTES);
+  await recordAudit({ category: 'auth', action: 'auth.superadminIssued', actor: { kind: 'cli', name: 'hm-admin' }, details: { validityMinutes: VALIDITY_MINUTES } });
   console.log(`user:     ${SUPERADMIN}`);
   console.log(`password: ${password}`);
   console.log(`single use, valid ${VALIDITY_MINUTES} minutes`);
