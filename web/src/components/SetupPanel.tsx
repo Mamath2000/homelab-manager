@@ -192,7 +192,8 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
 
   const drift = host.setup?.drift ?? 0;
   // a unit action: launched at once, the job console shows the result (see CLAUDE.md)
-  const footer = !canWrite ? (
+  // nothing to apply: conformity checked, no gap, no change in progress
+  const footer = !canWrite || (host.setup && !drift && !draft) ? (
     <Button onClick={close}>Fermer</Button>
   ) : (
     <>
