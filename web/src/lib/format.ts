@@ -84,3 +84,11 @@ export function groupIps(ips: string[] | null | undefined): { lan: string[]; tai
   }
   return { lan, tailscale };
 }
+
+// Who launched a job or did an action: the account, with the API key it used; Home Assistant for an MQTT command.
+export function byLabel(by: { kind: string; name: string | null; keyName?: string | null }) {
+  if (by.kind === 'homeassistant') return 'Home Assistant';
+  if (by.kind === 'cli') return 'hm-admin';
+  const name = by.name ?? 'inconnu';
+  return by.kind === 'apiKey' && by.keyName ? `${name} · clé ${by.keyName}` : name;
+}

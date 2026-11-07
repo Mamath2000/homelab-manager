@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { recordAudit } from '../audit.js';
 import { config } from '../config.js';
 import { sha256 } from '../crypto.js';
 import { hosts } from '../db.js';
@@ -65,6 +66,14 @@ export function registerEnrollRoute(app: FastifyInstance) {
       );
       if (updated) publish('host', hostDto(updated));
       req.log.info({ host: host.name }, 'agent enrolled');
+      void recordAudit({
+        category: 'host',
+        action: 'host.enroll',
+        actor: { kind: 'agent', name: host.name },
+        ip: req.ip,
+        target: { kind: 'host', id: hostId, name: host.name },
+        details: { certFingerprint: fingerprint, again: !!host.enrolledAt },
+      });
       return { hostId, cert: certPem };
     },
   );

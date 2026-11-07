@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
+import { flushAudit, registerAudit } from './audit.js';
 import { registerAuth } from './auth.js';
 import { config } from './config.js';
 import { closeDb, connectDb } from './db.js';
@@ -15,6 +16,7 @@ import { flushLogs, recoverJobs } from './jobs.js';
 import { bootstrapSuperadmin } from './superadmin.js';
 import { registerHostRoutes } from './routes/hosts.js';
 import { registerJobRoutes } from './routes/jobs.js';
+import { registerAuditRoutes } from './routes/audit.js';
 import { registerSiteRoutes } from './routes/sites.js';
 import { registerProbeRoutes } from './routes/probes.js';
 import { registerRoleRoutes } from './routes/roles.js';
@@ -101,8 +103,11 @@ registerProxyGuard(app);
 // before the authentication: the http port sends the browsers to the TLS one, when there is one
 registerHttpPolicy(app);
 
+// before any route: who acts, and the journal of the key actions
+registerAudit(app);
 registerAuth(app);
 registerEvents(app);
+registerAuditRoutes(app);
 registerHostRoutes(app);
 registerJobRoutes(app);
 registerSiteRoutes(app);
@@ -182,6 +187,7 @@ async function shutdown() {
   stopProbes();
   await bridge.stop(false);
   await flushLogs().catch(() => {});
+  await flushAudit();
   await uiTlsServer?.close();
   await app.close();
   await agentServer?.close();
