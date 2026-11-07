@@ -763,6 +763,14 @@ export class ApiError extends Error {
   }
 }
 
+// Brute-force protection of the hub (homelab#292): the French message of a 429, null for any other error.
+export function tooManyAttemptsMessage(err: unknown) {
+  if (!(err instanceof ApiError) || err.status !== 429) return null;
+  const s = Number(err.data.retryAfter) || 0;
+  const wait = s >= 60 ? `${Math.ceil(s / 60)} min` : `${Math.max(1, s)} s`;
+  return `Trop de tentatives, réessayez dans ${wait}.`;
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,

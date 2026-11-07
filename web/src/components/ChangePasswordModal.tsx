@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../lib/api';
+import { api, tooManyAttemptsMessage } from '../lib/api';
 import { useToast } from '../lib/toast';
 import { Button, Modal } from './ui';
 
@@ -23,7 +23,7 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
       toast.success('Mot de passe modifié');
       close();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(tooManyAttemptsMessage(err) ?? (err as Error).message);
     } finally {
       setBusy(false);
     }

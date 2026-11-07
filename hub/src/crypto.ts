@@ -30,3 +30,18 @@ export function safeEqualHex(a: string, b: string) {
   const bb = Buffer.from(b, 'hex');
   return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
+
+// Stand-in hash, same parameters as hashPassword: an unknown account, one without a password or an expired
+// superadmin cost the same scrypt as a real check, so the response time does not tell them apart (homelab#292).
+let dummyHash: Promise<string> | undefined;
+export function dummyPasswordHash() {
+  dummyHash ??= hashPassword(randomToken());
+  return dummyHash;
+}
+
+// verifyPassword against `stored`, or against the stand-in (always false) when there is no usable hash
+export async function verifyPasswordOrDummy(password: string, stored: string | null | undefined) {
+  if (stored) return verifyPassword(password, stored);
+  await verifyPassword(password, await dummyPasswordHash());
+  return false;
+}

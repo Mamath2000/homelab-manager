@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { api, type Me } from '../lib/api';
+import { api, tooManyAttemptsMessage, type Me } from '../lib/api';
 import { insecureOrigin, onHttps } from '../lib/transport';
 import { Button } from '../components/ui';
 
@@ -38,11 +38,12 @@ export function Login({ noAccounts, cookieSecure, httpsUrl, onDone }: { noAccoun
     } catch (err) {
       const message = (err as Error).message;
       setError(
-        message === 'invalid credentials'
+        tooManyAttemptsMessage(err) ??
+        (message === 'invalid credentials'
           ? 'Identifiants invalides'
           : message === 'https_required'
             ? 'Connexion refusée en HTTP : le hub est aussi servi en HTTPS, utilisez cette adresse.'
-            : message,
+            : message),
       );
     } finally {
       setBusy(false);
