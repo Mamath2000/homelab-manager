@@ -50,9 +50,9 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P0 | Documenter le modèle de menace réel (le hub est l'équivalent de root sur le parc) | correction | ✅ fait (cette page, [Sécurité](securite.md#limites)) |
 | P0 | Restreindre les droits du profil Opérateur sur la standardisation | correction | ✅ fait ([Standardisation](standardisation.md#rôles-et-sécurité)) |
 | P0 | Commandes du pont Home Assistant : limitées aux mises à jour, journalisées, broker anonyme signalé | correction | ✅ fait ([Home Assistant](home-assistant.md#sécurité-des-commandes)) |
-| P0 | Mettre à jour les dépendances qui ont des vulnérabilités connues | correction | à faire |
+| P0 | Mettre à jour les dépendances qui ont des vulnérabilités connues | correction | ✅ fait (version 1.2.2) |
 | P1 | Image du client de sauvegarde épinglée et vérifiée par l'agent | correction | ✅ fait ([Sécurité](securite.md#image-du-client-de-sauvegarde)) |
-| P1 | HTTPS natif pour l'interface, cookie `Secure` par défaut | correction | à faire |
+| P1 | HTTPS natif pour l'interface, cookie `Secure` automatique en HTTPS | correction | ✅ fait, HTTPS optionnel ([HTTPS natif](configuration.md#https-natif)) |
 | P1 | Authentification MongoDB dans le déploiement de référence | correction | ✅ fait, optionnelle ([Sécurité](securite.md#base-de-données-et-secrets)) |
 | P1 | Limitation des tentatives de connexion par compte, proxy de confiance restreint | correction | ✅ fait ([Comptes](comptes.md#tentatives-de-connexion)) |
 | P1 | Fermer les flux temps réel d'une session révoquée, filtrer selon le profil | correction | à faire |
