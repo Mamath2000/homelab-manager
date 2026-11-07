@@ -69,8 +69,27 @@ Les clés se gèrent dans le dialogue **Modifier** d'un compte (page **Comptes**
 - **Révoquer** (à confirmer) refuse aussitôt le service qui l'utilise.
 - Supprimer le compte supprime ses clés. Le compte `superadmin` ne peut pas en avoir.
 
-Les clés ne passent jamais par le cookie de session. Une clé inconnue compte comme un échec de connexion (5 échecs par
-minute et par adresse IP, puis refus temporaire).
+Les clés ne passent jamais par le cookie de session. Les clés inconnues ont leur propre compteur, distinct de celui des
+connexions (10 échecs par adresse IP, puis refus d'une minute qui double à chaque nouvel échec, 15 min au plus) : un
+script qui garde une clé révoquée ne bloque pas la connexion à l'interface.
+
+## Tentatives de connexion
+
+Le hub compte les **échecs** de connexion (pas les connexions réussies) de trois façons :
+
+| Compteur | Seuil | Effet |
+|---|---|---|
+| un compte depuis une adresse IP | 5 échecs | refus de 2 s, qui double à chaque nouvel échec (15 min au plus) ; seul ce couple est bloqué |
+| une adresse IP, tous comptes confondus | 20 échecs en 15 min | refus de 15 min pour cette adresse |
+| un compte, toutes adresses confondues | 50 échecs en 1 h | ralentissement (2 s, doublé, 5 min au plus) et avertissement dans les journaux |
+
+Un refus répond `429` avec l'en-tête `Retry-After`, et l'écran de connexion indique le délai. Le dernier compteur ne
+fait que ralentir : un tiers qui tape de faux mots de passe ne peut pas bloquer durablement le compte d'un admin. Une
+adresse IPv6 compte pour son préfixe `/64`. Les compteurs sont en mémoire : **redémarrer le hub les remet à zéro**.
+
+La réponse est la même, et prend le même temps, que le compte existe ou non, qu'il soit sans mot de passe ou que le
+mot de passe `superadmin` ait expiré. Derrière un reverse proxy, l'adresse vue est celle que donne le proxy : déclarez
+son adresse exacte dans [`TRUST_PROXY`](configuration.md#variables-denvironnement), pas une plage.
 
 ## Compte `superadmin`
 

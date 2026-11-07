@@ -4,6 +4,10 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+### Sécurité
+
+- **Tentatives de connexion limitées par compte et par adresse** (constat F-08 de l'audit) : les échecs sont comptés pour un compte depuis une adresse (5, puis refus de 2 s doublé à chaque échec, 15 min au plus), pour une adresse (20 en 15 min, puis 15 min) et pour un compte depuis toutes les adresses (50 en 1 h, puis ralentissement de 5 min au plus, pour ne pas permettre de bloquer un admin). Mémoire bornée (les anciens compteurs sont oubliés), IPv6 comptée par `/64`, réponse `429` avec `Retry-After` et délai affiché à la connexion. Le mot de passe est vérifié au même coût que le compte existe ou non (plus d'énumération des comptes par le temps de réponse). Les clés d'API inconnues et les codes d'enrôlement des agents ont leur propre compteur borné. Voir [Tentatives de connexion](docs/comptes.md#tentatives-de-connexion). (homelab#292)
+
 ## 1.2.2 - 2026-11-07
 
 ### Sécurité

@@ -4,20 +4,9 @@ import { sha256 } from '../crypto.js';
 import { hosts } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
+import { enrollLimit, ipKey, tooManyAttempts } from '../loginGuard.js';
 import { checkCsr, signClientCsr } from '../pki.js';
 import { loadPki } from '../pkiStore.js';
-
-// naive in-memory brute-force protection, as for the UI login
-const failures = new Map<string, { count: number; until: number }>();
-function blocked(ip: string) {
-  const f = failures.get(ip);
-  return !!f && f.count >= 10 && f.until > Date.now();
-}
-function fail(ip: string) {
-  const f = failures.get(ip);
-  const fresh = !f || f.until < Date.now();
-  failures.set(ip, { count: fresh ? 1 : f.count + 1, until: Date.now() + 10 * 60_000 });
-}
 
 // Enrollment: the install command's single-use code + a CSR whose private key stays on the host
 // give the agent its client certificate.
@@ -38,7 +27,9 @@ export function registerEnrollRoute(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      if (blocked(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry later' });
+      // bounded store, by client (loginGuard.ts): 10 wrong codes, then 10 minutes
+      const wait = enrollLimit.check(ipKey(req.ip));
+      if (wait) return tooManyAttempts(reply, wait, 'too many attempts, retry later');
       // a malformed CSR must not burn the code
       if (!(await checkCsr(req.body.csr))) return reply.code(400).send({ error: 'invalid CSR' });
       // consumed atomically: a code can never enroll twice
@@ -48,7 +39,7 @@ export function registerEnrollRoute(app: FastifyInstance) {
         { returnDocument: 'after' },
       );
       if (!host) {
-        fail(req.ip);
+        enrollLimit.fail(ipKey(req.ip));
         return reply.code(401).send({ error: 'invalid or expired enrollment code' });
       }
       const hostId = host._id.toHexString();

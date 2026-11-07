@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
-import { hashPassword, randomToken, sha256, verifyPassword } from './crypto.js';
+import { dummyPasswordHash, hashPassword, randomToken, sha256, verifyPasswordOrDummy } from './crypto.js';
 import { apiKeys, sessions, users } from './db.js';
+import { accountKey, apiKeyLimit, ipKey, loginLimits, pairKey, tooManyAttempts } from './loginGuard.js';
 import { allowedBeforePasswordChange, authorize } from './profiles.js';
 import { cookieSecure, httpsUrl, transport } from './transport.js';
 import { SUPERADMIN, type UserDoc } from './types.js';
@@ -23,18 +24,6 @@ function isPublic(req: FastifyRequest) {
   // static UI and the notice of the old install script (the agents use their own TLS server)
   if (!route.startsWith('/api/')) return true;
   return route.startsWith('/api/auth/') || route === '/api/health';
-}
-
-// naive in-memory brute-force protection, plenty for a LAN-only tool
-const failures = new Map<string, { count: number; until: number }>();
-function tooManyFailures(ip: string) {
-  const f = failures.get(ip);
-  return !!f && f.count >= 5 && f.until > Date.now();
-}
-function recordFailure(ip: string) {
-  const f = failures.get(ip);
-  const fresh = !f || f.until < Date.now();
-  failures.set(ip, { count: fresh ? 1 : f.count + 1, until: Date.now() + 60_000 });
 }
 
 // the superadmin only gets a short session out of its one-time password
@@ -106,10 +95,27 @@ function me(user: UserDoc) {
   };
 }
 
-async function checkPassword(user: UserDoc, password: string) {
-  if (!user.passwordHash || !password) return false;
-  if (user.profile === SUPERADMIN && !(user.passwordExpiresAt && user.passwordExpiresAt > new Date())) return false;
-  return verifyPassword(password, user.passwordHash);
+// Constant cost: scrypt runs whether the account exists, has a password, or is an expired superadmin, so that the
+// response time does not tell these cases apart (homelab#292).
+export async function checkPassword(user: UserDoc | null, password: string, verify = verifyPasswordOrDummy) {
+  const usable =
+    !!user?.passwordHash &&
+    !!password &&
+    !(user.profile === SUPERADMIN && !(user.passwordExpiresAt && user.passwordExpiresAt > new Date()));
+  const ok = await verify(password, usable ? user!.passwordHash : null);
+  return usable && ok;
+}
+
+// A failed login counts for the account from this client, for the client, and for the account from anywhere.
+function loginFailed(req: FastifyRequest, account: string, ip: string) {
+  loginLimits.pair.fail(pairKey(account, ip));
+  if (loginLimits.ip.fail(ip)) req.log.warn({ ip }, 'login: too many failures from this client, blocked');
+  const wait = loginLimits.account.fail(account);
+  if (wait) req.log.warn({ account, waitMs: wait }, 'login: too many failures on this account from all clients, slowed down');
+}
+
+function loginWait(account: string, ip: string) {
+  return Math.max(loginLimits.pair.check(pairKey(account, ip)), loginLimits.ip.check(ip), loginLimits.account.check(account));
 }
 
 async function consumeSuperadminPassword() {
@@ -120,12 +126,17 @@ async function consumeSuperadminPassword() {
 }
 
 export function registerAuth(app: FastifyInstance) {
+  // computed once at start rather than on the first unknown account (which would then take twice as long)
+  void dummyPasswordHash();
   app.addHook('onRequest', async (req, reply) => {
     if (isPublic(req)) return;
     // a key is a credential of its own: it never falls back to the session cookie
-    if (tooManyFailures(req.ip) && req.headers.authorization) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
+    if (req.headers.authorization) {
+      const wait = apiKeyLimit.check(ipKey(req.ip));
+      if (wait) return tooManyAttempts(reply, wait);
+    }
     const byKey = await userFromApiKey(req);
-    if (byKey === null) recordFailure(req.ip);
+    if (byKey === null && apiKeyLimit.fail(ipKey(req.ip))) req.log.warn({ ip: req.ip }, 'too many unknown API keys from this client, blocked');
     const user = byKey === undefined ? await userFromRequest(req) : byKey;
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
     const route = req.routeOptions.url!;
@@ -157,15 +168,21 @@ export function registerAuth(app: FastifyInstance) {
     '/api/auth/login',
     { schema: loginSchema },
     async (req, reply) => {
-      if (tooManyFailures(req.ip)) return reply.code(429).send({ error: 'too many attempts, retry in a minute' });
+      const account = accountKey(req.body.username);
+      const ip = ipKey(req.ip);
+      // refused before any lookup: the answer is the same for an unknown account
+      const wait = loginWait(account, ip);
+      if (wait) return tooManyAttempts(reply, wait);
       const user = await users.findOne({ username: req.body.username.trim() });
-      if (!user || !(await checkPassword(user, req.body.password))) {
-        recordFailure(req.ip);
+      if (!(await checkPassword(user, req.body.password)) || !user) {
+        loginFailed(req, account, ip);
         return reply.code(401).send({ error: 'invalid credentials' });
       }
       // the superadmin password is not consumed here: a login whose cookie never sticks (e.g. Secure cookie over
       // http) would lock the install out. It is consumed once a first account has set its own password.
-      failures.delete(req.ip);
+      // Only this account from this client is cleared: a login of one's own account must not reset the counter of the
+      // client (tries on other accounts), nor the one of the account from all clients (distributed attack).
+      loginLimits.pair.reset(pairKey(account, ip));
       await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
       await startSession(req, reply, user);
       return me(user);
@@ -196,8 +213,14 @@ export function registerAuth(app: FastifyInstance) {
     async (req, reply) => {
       const user = req.user!;
       // with a temporary password the user just authenticated with it: no need to type it again
-      if (!user.mustChangePassword && !(await checkPassword(user, req.body.currentPassword ?? ''))) {
-        return reply.code(400).send({ error: 'current password is wrong' });
+      if (!user.mustChangePassword) {
+        const key = pairKey(accountKey(user.username), ipKey(req.ip));
+        const wait = loginLimits.pair.check(key);
+        if (wait) return tooManyAttempts(reply, wait);
+        if (!(await checkPassword(user, req.body.currentPassword ?? ''))) {
+          loginLimits.pair.fail(key);
+          return reply.code(400).send({ error: 'current password is wrong' });
+        }
       }
       await users.updateOne(
         { _id: user._id },

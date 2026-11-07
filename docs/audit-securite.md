@@ -31,7 +31,7 @@ Le point principal est le **modèle de menace** : **le hub est l'équivalent d'u
 
 En attendant les corrections listées plus bas :
 
-1. **Ne pas exposer l'interface sur Internet.** Sur le réseau local, la servir en **HTTPS** (reverse proxy, ou [port HTTPS natif](configuration.md#https-natif)), et ne publier le port `3000` que vers ce proxy (par exemple `127.0.0.1:3000:3000`). Donner l'adresse du proxy à `TRUST_PROXY` (`TRUST_PROXY: "192.168.1.20"`) plutôt que `true`. Proxy sur une autre machine : le faire pointer sur le port HTTPS du hub.
+1. **Ne pas exposer l'interface sur Internet.** Sur le réseau local, la servir en **HTTPS** (reverse proxy, ou [port HTTPS natif](configuration.md#https-natif)), et ne publier le port `3000` que vers ce proxy (par exemple `127.0.0.1:3000:3000`). Donner l'adresse **exacte** du proxy à `TRUST_PROXY` (`TRUST_PROXY: "192.168.1.20"`) plutôt que `true` ou une plage : tout poste compris dans la plage déclarée peut choisir l'adresse IP que le hub lui attribue. Proxy sur une autre machine : le faire pointer sur le port HTTPS du hub.
 2. **Protéger MongoDB.** Ne jamais publier son port, restreindre les droits du dossier `mongo-data` (`chmod 700`), activer le [compte MongoDB et la clé maître](securite.md#base-de-données-et-secrets), et garder la clé à part des sauvegardes de la base.
 3. **Limiter les comptes Administrateur** au strict nécessaire, avec des mots de passe longs et uniques. Sur un hub antérieur à la correction de la standardisation, ne confier le profil **Opérateur** qu'à des personnes de confiance si elle est activée (`FEATURE_STANDARDISATION`).
 4. **Verrouiller le broker MQTT** utilisé par le [pont Home Assistant](home-assistant.md). Les actions publiées (mises à jour des hôtes et des stacks) répondent à tout client autorisé à écrire sur leurs topics ([exemple d’ACL](home-assistant.md#sécurité-des-commandes)). Il faut donc :
@@ -54,7 +54,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P1 | Image du client de sauvegarde épinglée et vérifiée par l'agent | correction | ✅ fait ([Sécurité](securite.md#image-du-client-de-sauvegarde)) |
 | P1 | HTTPS natif pour l'interface, cookie `Secure` par défaut | correction | à faire |
 | P1 | Authentification MongoDB dans le déploiement de référence | correction | ✅ fait, optionnelle ([Sécurité](securite.md#base-de-données-et-secrets)) |
-| P1 | Limitation des tentatives de connexion par compte, proxy de confiance restreint | correction | à faire |
+| P1 | Limitation des tentatives de connexion par compte, proxy de confiance restreint | correction | ✅ fait ([Comptes](comptes.md#tentatives-de-connexion)) |
 | P1 | Fermer les flux temps réel d'une session révoquée, filtrer selon le profil | correction | à faire |
 | P1 | Journal d'audit des actions (qui a lancé quoi), avec alertes | évolution | à faire |
 | P1 | En-têtes de sécurité HTTP (CSP, anti-iframe, HSTS) | évolution | à faire |
