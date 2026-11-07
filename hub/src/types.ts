@@ -428,6 +428,10 @@ export const SETUP_OPTIONS = [
   'user_motd',
 ] as const;
 export type SetupOption = (typeof SETUP_OPTIONS)[number];
+// Options whose content comes from the signed access manifest (access.ts, issue #312), never from the hub:
+// the hub only decides whether a host manages them.
+export const ACCESS_OPTIONS = ['root_keys', 'user', 'user_keys'] as const satisfies readonly SetupOption[];
+export const isAccessOption = (k: string): k is (typeof ACCESS_OPTIONS)[number] => (ACCESS_OPTIONS as readonly string[]).includes(k);
 export const PROMPT_STYLES = ['none', 'classic', 'starship'] as const;
 export const MOTD_STYLES = ['none', 'homelab', 'fastfetch'] as const;
 export type PromptStyle = (typeof PROMPT_STYLES)[number];
@@ -453,6 +457,29 @@ export type ListOption = (typeof LIST_OPTIONS)[number];
 // enabled: part of the standard configuration (applied, checked); value: also the default of a host
 export type SetupOptions = { [K in SetupOption]: { enabled: boolean; value: SetupValues[K] } };
 
+// Signed access manifest (see agent/access.go and tools/access-manifest.sh): the payload is signed offline, the hub
+// stores it and relays the bundle; the agents check the signature against their own anchor.
+export interface AccessManifest {
+  v: 1;
+  serial: number;
+  issuedAt: number;
+  expiresAt?: number;
+  signers: string[];
+  root: { sshKeys: string[] };
+  user?: { name: string; sudoNoPassword: boolean; sshKeys: string[] };
+}
+export interface AccessBundle {
+  payload: string; // base64 of the signed bytes
+  signature: string; // armored SSHSIG
+}
+export interface AccessSettings {
+  _id: 'access';
+  bundle: AccessBundle;
+  manifest: AccessManifest;
+  signer: string; // fingerprint of the key that signed
+  uploadedAt: Date; // when the hub loaded it from the access folder
+}
+
 export interface SetupProfile {
   _id: 'setup';
   // applied to a new host at its first connection
@@ -460,6 +487,8 @@ export interface SetupProfile {
   options: SetupOptions;
   fastfetch: string; // JSON configuration of fastfetch (welcome screen 'fastfetch')
   starship: string; // TOML configuration of Starship (prompt 'starship')
+  // current access manifest (loaded with the profile, not part of what the admin saves with it)
+  access?: AccessSettings | null;
 }
 
 // Host value of an option, absent: the standard one. off: neither applied nor checked; extra: the
@@ -473,10 +502,30 @@ export interface SetupCheck {
   detail?: string;
 }
 
+// authorized_keys inventory and state of the access manifest on a host, as reported by its agent
+export interface AccessKey {
+  account: string;
+  type: string;
+  fingerprint: string;
+  comment?: string;
+  options?: boolean;
+  managed: boolean; // listed by the manifest or added by the agent earlier; false: unknown key
+}
+export interface AccessReport {
+  status: 'ok' | 'error';
+  detail?: string;
+  serial?: number; // manifest in use
+  applied: number; // highest serial applied on the host
+  signers: string[]; // fingerprints of the host anchor
+  tofuUntil?: number; // ms: migration window still open (no anchor yet)
+  keys: AccessKey[];
+}
+
 export interface SetupState {
   checkedAt: number;
   user: string;
   modules: SetupCheck[];
+  access?: AccessReport;
 }
 
 export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;

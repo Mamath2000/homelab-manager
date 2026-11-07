@@ -7,17 +7,24 @@ import { setupDto } from '../src/hostDto.js';
 import { config } from '../src/config.js';
 import { DEFAULT_FASTFETCH } from '../src/fastfetch.js';
 import { DEFAULT_STARSHIP } from '../src/starship.js';
-import { SETUP_OPTIONS, type HostDoc, type SetupOption, type SetupOverrides, type SetupProfile, type SetupValues } from '../src/types.js';
+import { SETUP_OPTIONS, type AccessManifest, type HostDoc, type SetupOption, type SetupOverrides, type SetupProfile, type SetupValues } from '../src/types.js';
 
 const KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5 mamath@pc';
 const KEY2 = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGg0bWM3Y2xhdWRlLXRlc3Qta2V5Mg ops@pc';
-// profile with some options changed: enabled with this value, or disabled with null
+// profile with some options changed: enabled with this value, or disabled with null. The keys and the user are the
+// content of the signed access manifest (issue #312), not values of the profile.
 const profile = (o: { [K in SetupOption]?: SetupValues[K] | null } = {}, rest: Partial<SetupProfile> = {}): SetupProfile => {
   const options = structuredClone(DEFAULT_SETUP.options);
+  const manifest: AccessManifest = { v: 1, serial: 1, issuedAt: 0, signers: [], root: { sshKeys: [] } };
   for (const [k, v] of Object.entries(o) as [SetupOption, unknown][]) {
-    (options as Record<string, unknown>)[k] = v === null ? { ...options[k], enabled: false } : { enabled: true, value: v };
+    (options as Record<string, unknown>)[k] = v === null ? { ...options[k], enabled: false } : { enabled: true, value: k === 'root_keys' || k === 'user' || k === 'user_keys' ? options[k].value : v };
+    if (v === null) continue;
+    if (k === 'root_keys') manifest.root.sshKeys = v as string[];
+    if (k === 'user') manifest.user = { ...(v as { name: string; sudoNoPassword: boolean }), sshKeys: manifest.user?.sshKeys ?? [] };
+    if (k === 'user_keys' && o.user) manifest.user = { ...manifest.user!, sshKeys: v as string[] };
   }
-  return { ...DEFAULT_SETUP, ...rest, options };
+  const access = { _id: 'access' as const, bundle: { payload: 'cGF5bG9hZA==', signature: 'sig' }, manifest, signer: 'SHA256:x', uploadedAt: new Date() };
+  return { ...DEFAULT_SETUP, ...rest, options, access };
 };
 const USER = { name: 'mamath', sudoNoPassword: true };
 
@@ -26,6 +33,9 @@ test('the agent only receives the managed options and their values, in order', (
   assert.deepEqual(spec.modules, ['root_keys', 'root_aliases', 'root_motd', 'user', 'user_motd']);
   assert.ok(!('packages' in spec) && !('allowPassword' in spec));
   assert.deepEqual(spec.root.sshKeys, [KEY]);
+  assert.deepEqual(spec.access, { payload: 'cGF5bG9hZA==', signature: 'sig' });
+  // no access option managed: the manifest is not relayed
+  assert.ok(!('access' in buildSpec(profile({ root_keys: null, user: null }), undefined, ['packages'])));
   assert.equal(spec.root.motd, 'homelab');
   assert.ok(!('prompt' in spec.root));
   assert.deepEqual(spec.user, { name: 'mamath', sudoNoPassword: true, motd: 'fastfetch' });
@@ -62,18 +72,20 @@ test('host overrides: off, own value, standard list plus additions', () => {
   const p = profile({ ssh_password: true, root_keys: [KEY], packages: ['htop'] });
   const v = effectiveValues(p, {
     ssh_password: { mode: 'custom', value: false },
-    root_keys: { mode: 'extra', add: [KEY2, KEY] },
     root_motd: { mode: 'off' },
     root_prompt: { mode: 'custom', value: 'starship' },
   });
   assert.equal(v.ssh_password, false);
-  assert.deepEqual(v.root_keys, [KEY, KEY2]);
+  assert.deepEqual(v.root_keys, [KEY]);
   assert.ok(!('root_motd' in v));
   assert.equal(v.root_prompt, 'starship');
   assert.deepEqual(v.packages, ['htop']);
   // an option outside the standard can be enabled on a host
   assert.deepEqual(effectiveValues(profile({ packages: null }), { packages: { mode: 'extra', add: ['jq'] } }).packages, ['jq']);
-  assert.deepEqual(effectiveValues(profile({ user: null }), { user: { mode: 'custom', value: USER } }).user, USER);
+  // the user and the keys are the manifest's: a host cannot bring its own, only stop managing them
+  assert.ok(!('user' in effectiveValues(profile({ user: null }), { user: { mode: 'custom', value: USER } })));
+  assert.deepEqual(effectiveValues(profile({ root_keys: [KEY] }), { root_keys: { mode: 'custom', value: [KEY2] } }).root_keys, [KEY]);
+  assert.ok(!('root_keys' in effectiveValues(profile({ root_keys: [KEY] }), { root_keys: { mode: 'off' } })));
 });
 
 test('a host created unmanaged (every option off) has nothing to apply', () => {
@@ -85,11 +97,7 @@ test('a host created unmanaged (every option off) has nothing to apply', () => {
 test('profile and overrides validation', () => {
   assert.equal(profileError(DEFAULT_SETUP), null);
   assert.equal(profileError(profile({ user: USER, user_keys: [KEY], root_motd: 'fastfetch' })), null);
-  assert.match(profileError(profile({ user: { name: 'Mamath', sudoNoPassword: false } }))!, /utilisateur/);
-  assert.match(profileError(profile({ user: { name: 'root', sudoNoPassword: false } }))!, /utilisateur/);
   assert.match(profileError(profile({ packages: ['htop', 'rm -rf'] }))!, /paquet/);
-  assert.match(profileError(profile({ root_keys: ['not a key'] }))!, /clé SSH/);
-  assert.match(profileError(profile({ user_keys: [KEY + '\nssh-rsa AAAA'] }))!, /clé SSH/);
   assert.match(profileError(profile({ root_motd: 'fastfetch' }, { fastfetch: '{ "logo": ' }))!, /fastfetch/);
   assert.match(profileError(profile({ root_prompt: 'starship' }, { starship: 'format = "x' }))!, /Starship/);
   assert.equal(profileError(profile({ root_prompt: 'starship' })), null);
@@ -150,4 +158,20 @@ test('profiles: the setup profile is admin only, operators apply and check witho
   assert.ok(authorize('admin', 'PUT', '/api/hosts/:id/setup'));
   assert.ok(!authorize('viewer', 'PUT', '/api/hosts/:id/setup'));
   assert.ok(authorize('admin', 'PUT', '/api/settings/setup'));
+});
+
+test('access options: a host can only stop managing them', () => {
+  const p = profile({ root_keys: [KEY] });
+  assert.match(overridesError(p, { root_keys: { mode: 'custom', value: [KEY2] } })!, /manifeste/);
+  assert.match(overridesError(p, { user_keys: { mode: 'extra', add: [KEY2] } })!, /manifeste/);
+  assert.match(overridesError(p, { user: { mode: 'custom', value: USER } })!, /manifeste/);
+  assert.equal(overridesError(p, { user: { mode: 'off' }, user_keys: { mode: 'off' } }), null);
+});
+
+test('profiles: the access manifest is admin only, the profile of an operator cannot publish or push it', () => {
+  for (const [method, route] of [['GET', '/api/settings/access'], ['PUT', '/api/settings/access'], ['POST', '/api/settings/access/apply']] as const) {
+    assert.ok(authorize('admin', method, route));
+    assert.ok(!authorize('operator', method, route), `operator ${method} ${route}`);
+    assert.ok(!authorize('viewer', method, route), `viewer ${method} ${route}`);
+  }
 });

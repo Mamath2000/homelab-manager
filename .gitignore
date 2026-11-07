@@ -11,3 +11,7 @@ mongo-config/
 tailscale.env
 tailscale/
 logs/
+
+# Manifeste d'accès (clés publiques de l'installation, voir tools/access-manifest.sh)
+tools/access.json
+tools/manifest.sig.json

@@ -1,0 +1,14 @@
+{
+  "signers": [
+    "sk-ssh-ed25519@openssh.com AAAA… principale (clé FIDO)",
+    "ssh-ed25519 AAAA… secours (hors ligne)"
+  ],
+  "root": {
+    "sshKeys": ["ssh-ed25519 AAAA… admin@poste"]
+  },
+  "user": {
+    "name": "ops",
+    "sudoNoPassword": true,
+    "sshKeys": ["ssh-ed25519 AAAA… admin@poste"]
+  }
+}

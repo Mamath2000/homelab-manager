@@ -42,6 +42,7 @@ import { loadHaBridgeSettings, migrateHaBroker, registerAgentSettingsRoutes, reg
 import { registerAgentDownloadRoute } from './routes/install.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
+import { startAccessSync } from './accessFile.js';
 import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
 
@@ -128,6 +129,7 @@ app.setNotFoundHandler((req, reply) => {
 
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
+const stopAccessSync = config.featureStandardisation ? startAccessSync(app.log) : () => {};
 const stopAlerts = startAlerts(app.log);
 const stopPbsPoller = startPbsPoller(app.log);
 const stopOffsitePoller = startOffsitePoller(app.log);
@@ -152,6 +154,7 @@ async function shutdown() {
   shuttingDown = true;
   clearInterval(flushTimer);
   stopScheduler();
+  stopAccessSync();
   stopAlerts();
   stopPbsPoller();
   stopOffsitePoller();

@@ -42,4 +42,6 @@ export const config = {
   channel: env('CHANNEL') === 'dev' ? ('dev' as const) : ('prod' as const),
   // standardisation of the hosts (setup.ts): hidden and inactive unless set
   featureStandardisation: env('FEATURE_STANDARDISATION') === 'true',
+  // folder (read only) where the signed access manifest is dropped by `make access-publish` (accessFile.ts)
+  accessDir: env('ACCESS_DIR') ?? '/access',
 };

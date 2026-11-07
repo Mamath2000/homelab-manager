@@ -55,6 +55,9 @@ type SetupSpec struct {
 	User          *UserSpec   `json:"user,omitempty"`
 	Fastfetch     string      `json:"fastfetch,omitempty"` // JSON configuration (welcome screen fastfetch)
 	Starship      string      `json:"starship,omitempty"`  // TOML configuration (prompt starship)
+	// signed access manifest (access.go): the only source of the root keys, the user and its keys
+	Access *AccessBundle `json:"access,omitempty"`
+	access *accessCtx
 }
 
 // State of one module against the spec.
@@ -65,9 +68,10 @@ type SetupCheck struct {
 }
 
 type SetupReport struct {
-	CheckedAt int64        `json:"checkedAt"`
-	User      string       `json:"user"`
-	Modules   []SetupCheck `json:"modules"`
+	CheckedAt int64         `json:"checkedAt"`
+	User      string        `json:"user"`
+	Modules   []SetupCheck  `json:"modules"`
+	Access    *AccessReport `json:"access,omitempty"`
 }
 
 var (
@@ -646,28 +650,40 @@ func applyUser(ctx context.Context, s *SetupSpec, emit func(string)) error {
 	return syncFile(sudoersFile, content, 0o440, nil, emit)
 }
 
-// applySSHKeys adds the missing keys to ~/.ssh/authorized_keys of the account; the others are kept.
-func applySSHKeys(a *account, keys []string, emit func(string)) error {
-	if len(keys) == 0 {
-		emit("no key configured\n")
-		return nil
-	}
+// applySSHKeys adds the missing keys to ~/.ssh/authorized_keys of the account and removes the ones this agent added
+// earlier (prev) that the manifest no longer lists; the other keys are never touched.
+func applySSHKeys(a *account, keys, prev []string, emit func(string)) error {
 	d, err := sshDir(a)
 	if err != nil {
 		return err
 	}
 	p := filepath.Join(d, "authorized_keys")
 	cur, _ := readFile(p)
-	add := missingKeys(cur, keys)
-	if len(add) == 0 {
-		emit(p + ": keys already present\n")
+	stale := map[string]bool{}
+	for _, id := range staleKeys(cur, prev, keys) {
+		stale[id] = true
+	}
+	var kept []string
+	for _, l := range strings.Split(cur, "\n") {
+		if id := keyID(strings.TrimSpace(l)); id != "" && stale[id] {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	next := strings.Join(kept, "\n")
+	add := missingKeys(next, keys)
+	if len(add) == 0 && len(stale) == 0 {
+		emit(p + ": keys already up to date\n")
 		return nil
 	}
-	if cur != "" && !strings.HasSuffix(cur, "\n") {
-		cur += "\n"
+	if next != "" && !strings.HasSuffix(next, "\n") {
+		next += "\n"
 	}
-	emit(fmt.Sprintf("%s: adding %d key(s)\n", p, len(add)))
-	return writeOwned(p, cur+strings.Join(add, "\n")+"\n", 0o600, a)
+	emit(fmt.Sprintf("%s: adding %d key(s), removing %d\n", p, len(add), len(stale)))
+	if len(add) > 0 {
+		next += strings.Join(add, "\n") + "\n"
+	}
+	return writeOwned(p, next, 0o600, a)
 }
 
 func aliasesContent(aliases string) string {
@@ -714,6 +730,7 @@ func stylePackage(style string) string {
 }
 
 // applyAccountOption applies one option of the root or user section (keys, aliases, prompt, motd).
+
 func applyAccountOption(ctx context.Context, s *SetupSpec, m string, emit func(string)) error {
 	prefix, opt, _ := strings.Cut(m, "_")
 	a := s.account(prefix)
@@ -723,7 +740,11 @@ func applyAccountOption(ctx context.Context, s *SetupSpec, m string, emit func(s
 	acc := s.section(prefix)
 	switch opt {
 	case "keys":
-		return applySSHKeys(a, acc.SSHKeys, emit)
+		if err := applySSHKeys(a, acc.SSHKeys, s.access.prev(prefix), emit); err != nil {
+			return err
+		}
+		s.access.record(prefix, acc.SSHKeys)
+		return nil
 	case "aliases":
 		if err := syncFile(filepath.Join(a.home, hostAliases), aliasesContent(acc.Aliases), 0o644, a, emit); err != nil {
 			return err
@@ -871,6 +892,11 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 		return -1, err
 	}
 	var failed []string
+	blocked, _ := resolveAccess(s, true)
+	for _, b := range blocked {
+		emit("\n== " + b.Module + "\nerror: " + b.Detail + "\n")
+		failed = append(failed, b.Module)
+	}
 	for _, m := range setupModules {
 		if !s.has(m) {
 			continue
@@ -1013,6 +1039,9 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			if n := len(missingKeys(cur, acc.SSHKeys)); n > 0 {
 				set("drift", fmt.Sprintf("%s: %d key(s) missing", p, n))
 			}
+			if n := len(staleKeys(cur, s.access.prev(prefix), acc.SSHKeys)); n > 0 {
+				set("drift", fmt.Sprintf("%s: %d key(s) to remove", p, n))
+			}
 			return c
 		case "aliases":
 			set(checkFile(filepath.Join(a.home, hostAliases), aliasesContent(acc.Aliases)))
@@ -1036,12 +1065,19 @@ func checkSetup(ctx context.Context, s *SetupSpec) (*SetupReport, error) {
 	if err := validateSetup(s); err != nil {
 		return nil, err
 	}
+	blocked, reason := resolveAccess(s, false)
 	r := &SetupReport{CheckedAt: time.Now().UnixMilli(), User: s.userName(), Modules: []SetupCheck{}}
 	for _, m := range setupModules {
 		if s.has(m) {
 			r.Modules = append(r.Modules, checkModule(ctx, s, m))
 		}
+		for _, b := range blocked {
+			if b.Module == m {
+				r.Modules = append(r.Modules, b)
+			}
+		}
 	}
+	r.Access = accessReport(s, reason)
 	return r, nil
 }
 

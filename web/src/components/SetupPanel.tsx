@@ -5,10 +5,11 @@ import { RefreshCw, Save, Wand2 } from 'lucide-react';
 import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import { describeValue, hostHasUser, isListOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
+import { describeValue, hostHasUser, isAccessOption, isListOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
 import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
+import { HostAccessKeys } from './SetupAccess';
 import { Badge, Button, Modal, Spinner, Tag, VerticalTabs } from './ui';
 
 function StateBadge({ check, managed }: { check?: SetupState['modules'][number]; managed: boolean }) {
@@ -62,6 +63,8 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
   disabled: boolean;
 }) {
   const mode: Mode = override?.mode ?? 'standard';
+  // keys, account: the signed manifest decides the content; a host can only stop managing them
+  const fromManifest = isAccessOption(k);
   const setMode = (m: Mode) => {
     if (m === 'standard') onChange(undefined);
     else if (m === 'off') onChange({ mode: 'off' });
@@ -75,9 +78,9 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
         <div className="flex items-center gap-2">
           <StateBadge check={check} managed={managed} />
           <select className="input h-8 w-auto py-0 text-xs" value={mode} disabled={disabled} onChange={(e) => setMode(e.target.value as Mode)}>
-            <option value="standard">Standard ({std.enabled ? describeValue(k, std.value) : 'non géré'})</option>
-            <option value="custom">Valeur propre</option>
-            {isListOption(k) && <option value="extra">Standard + ajouts</option>}
+            <option value="standard">Standard ({std.enabled ? (fromManifest ? 'manifeste signé' : describeValue(k, std.value)) : 'non géré'})</option>
+            {!fromManifest && <option value="custom">Valeur propre</option>}
+            {!fromManifest && isListOption(k) && <option value="extra">Standard + ajouts</option>}
             <option value="off">Non géré</option>
           </select>
         </div>
@@ -87,7 +90,7 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
       ) : (
         <p className="mt-0.5 text-xs text-zinc-500">{setupOptionInfo[k].hint}</p>
       )}
-      {!override && std.enabled && (
+      {!override && std.enabled && !fromManifest && (
         <div className="mt-2 opacity-60" title="Valeur standard (Paramètres › Standardisation)">
           <OptionEditor option={k} value={std.value} onChange={() => {}} disabled />
         </div>
@@ -260,6 +263,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
         <div className="overflow-hidden rounded-md border border-line">
           <VerticalTabs tabs={tabs} value={tab} onChange={setTab} bodyClassName="px-4 py-2">
             <p className="pt-2 text-xs text-muted">{sec.hint}</p>
+            {sec.id !== 'system' && <HostAccessKeys access={host.setup?.access} account={sec.id} />}
             <ul>
               {sec.id === 'user' ? (
                 <>

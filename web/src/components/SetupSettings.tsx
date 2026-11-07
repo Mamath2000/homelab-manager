@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Monitor, Settings2, Terminal, Wand2, type LucideIcon } from 'lucide-react';
+import { KeyRound, Monitor, Settings2, Terminal, Wand2, type LucideIcon } from 'lucide-react';
 import { api, type SetupOption, type SetupProfile, type SetupValues } from '../lib/api';
-import { sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
+import { isAccessOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
 import { useToast } from '../lib/toast';
 import { OptionEditor, OptionNotes, textarea } from './SetupFields';
+import { SetupAccess } from './SetupAccess';
 import { SettingsFormActions } from './SettingsForm';
 import { useSettingsDraft } from './settingsDraft';
 import { Panel, Spinner, VerticalTabs } from './ui';
 
-type Tab = 'general' | SetupSection | 'starship' | 'fastfetch';
+type Tab = 'general' | SetupSection | 'access' | 'starship' | 'fastfetch';
 
 // Standard configuration of the hosts (Paramètres > Standardisation), in vertical tabs: general, the
 // three sections (system, root, an optional user) and the Starship / fastfetch configurations. Checked options are applied to the hosts and checked for conformity;
@@ -66,7 +67,10 @@ export function SetupSettings() {
             <span className="mt-0.5 block text-xs text-muted">{setupOptionInfo[k].hint}</span>
           </span>
         </label>
-        {o.enabled && (
+        {o.enabled && isAccessOption(k) && (
+          <p className="mt-3 pl-7 text-xs text-muted">Contenu : manifeste d'accès signé (onglet Accès).</p>
+        )}
+        {o.enabled && !isAccessOption(k) && (
           <div className="mt-3 pl-7">
             <OptionEditor option={k} value={o.value} onChange={(value) => setOption(k, { value })} />
             <OptionNotes option={k} value={o.value} />
@@ -84,6 +88,7 @@ export function SetupSettings() {
       icon: sectionIcons[sec.id],
       count: sec.id === 'user' && !opts.user.enabled ? 'aucun' : `${sec.options.filter((k) => opts[k].enabled).length}/${sec.options.length}`,
     })),
+    { id: 'access' as const, label: 'Accès', icon: KeyRound },
     ...(starshipUsed ? [{ id: 'starship' as const, label: 'Starship', icon: Terminal }] : []),
     ...(fastfetchUsed ? [{ id: 'fastfetch' as const, label: 'fastfetch', icon: Monitor }] : []),
   ];
@@ -125,6 +130,8 @@ export function SetupSettings() {
               )}
             </>
           )}
+
+          {current === 'access' && <SetupAccess />}
 
           {current === 'starship' && (
             <label className="block">
