@@ -23,6 +23,8 @@ services:
     ports:
       - "3000:3000"           # interface et API : <port publié>:3000
       - "3443:3443"           # agents, en TLS : <port publié>:3443 (à reporter dans Paramètres > Agent s'il diffère)
+      # - "4443:4443"         # interface en HTTPS (HTTPS_PORT) : certificat émis par le hub, voir docs/configuration.md
+      # proxy sur le même hôte : "127.0.0.1:3000:3000" ; sur une autre machine : "<IP de l'hôte>:3000:3000" + pare-feu
     environment:
       MONGO_URL: mongodb://mongo:27017/homelab
       MONGO_USERNAME: ${MONGO_USERNAME:-}
@@ -31,8 +33,10 @@ services:
       LOG_LEVEL: info         # fatal | error | warn | info | debug
       TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
       # SESSION_DAYS: 30
-      # TRUST_PROXY: "true"   # derrière un reverse proxy (en-têtes X-Forwarded-*)
-      # COOKIE_SECURE: "true" # si le hub est servi en HTTPS
+      # TRUST_PROXY: "192.168.1.20"  # adresse(s) du reverse proxy (en-têtes X-Forwarded-*) ; "true" : tout client
+      # COOKIE_SECURE: "true" # cookie Secure forcé (absente : automatique, Secure dès que la requête arrive en HTTPS)
+      # HTTPS_PORT: 4443      # interface aussi en HTTPS ; le port 3000 redirige alors vers lui (HTTP_MODE)
+      # HTTPS_SAN: hub.lan,192.168.1.10   # noms et IP ajoutés au certificat émis
     depends_on:
       - mongo
     networks: [default, backend]

@@ -63,6 +63,7 @@ COPY --from=agent /out /app/agent
 # account recovery: docker compose exec hub hm-admin
 RUN printf '#!/bin/sh\nexec node /app/hub/dist/cli.js "$@"\n' > /usr/local/bin/hm-admin && chmod +x /usr/local/bin/hm-admin
 USER node
-EXPOSE 3000 3443
+# 4443: optional TLS port of the UI (HTTPS_PORT=4443)
+EXPOSE 3000 3443 4443
 HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
 CMD ["node", "dist/index.js"]

@@ -8,6 +8,7 @@ VERSION   := $(shell cat VERSION)
 # Réglages propres à cette machine (gitignoré) : ports du hub de test figés par `override`, ex. :
 #   override PORT := 3001
 #   override AGENT_TLS_PORT := 3444
+#   override HTTPS_PORT := 3445     (facultatif : port HTTPS de l'interface, https://localhost:3445)
 -include .env.local
 # Lancement local (make dev / make start), surchargeable (sauf ce que .env.local fige) : make start LOG=debug
 PORT      ?= 3000
@@ -16,9 +17,11 @@ MONGO_URL ?= mongodb://localhost:27017/homelab
 LOG_FILE  ?= $(CURDIR)/logs/hub.log
 HUB       ?= http://localhost:$(PORT)
 AGENT_TLS_PORT ?= 3443
+# Port HTTPS de l'interface, facultatif (vide : désactivé) ; à figer dans .env.local comme les deux autres
+HTTPS_PORT ?=
 # Dossier du manifeste d'accès signé : en local, celui où `make access-manifest` l'écrit (tools/manifest.sig.json)
 ACCESS_DIR ?= $(CURDIR)/tools
-RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) LOG_LEVEL=$(LOG) LOG_FILE=$(LOG_FILE) MONGO_URL=$(MONGO_URL) ACCESS_DIR=$(ACCESS_DIR);
+RUN_ENV   := export PORT=$(PORT) AGENT_TLS_PORT=$(AGENT_TLS_PORT) HTTPS_PORT=$(HTTPS_PORT) LOG_LEVEL=$(LOG) LOG_FILE=$(LOG_FILE) MONGO_URL=$(MONGO_URL) ACCESS_DIR=$(ACCESS_DIR);
 # Agent local (make agent-run) : adresse TLS du hub et dossier de configuration (certificat, clé)
 AGENT_HUB ?= https://localhost:$(AGENT_TLS_PORT)
 AGENT_DIR ?= $(CURDIR)/agent/.dev
@@ -49,7 +52,7 @@ install: ## Installe les dépendances (npm ci hub + web, go mod download)
 	cd agent && go mod download
 
 dev: agent ## Lance hub (rechargement auto) + interface Vite sur http://localhost:5173 ; Ctrl-C arrête tout
-	@echo "hub : $(HUB)   ·   interface : http://localhost:5173"
+	@echo "hub : $(HUB)   ·   interface : http://localhost:5173$(if $(HTTPS_PORT),   ·   https : https://localhost:$(HTTPS_PORT))"
 	@$(RUN_ENV) trap 'trap - INT TERM; kill 0' INT TERM; \
 		(cd hub && npm run dev) & \
 		(cd web && npm run dev) & \

@@ -31,7 +31,7 @@ Le point principal est le **modèle de menace** : **le hub est l'équivalent d'u
 
 En attendant les corrections listées plus bas :
 
-1. **Ne pas exposer l'interface sur Internet.** Sur le réseau local, la servir en **HTTPS** derrière un reverse proxy, avec `COOKIE_SECURE: "true"`, et ne publier le port `3000` que vers ce proxy (par exemple `127.0.0.1:3000:3000`). Avec `TRUST_PROXY: "true"`, le port `3000` ne doit être joignable que par le proxy.
+1. **Ne pas exposer l'interface sur Internet.** Sur le réseau local, la servir en **HTTPS** (reverse proxy, ou [port HTTPS natif](configuration.md#https-natif)), et ne publier le port `3000` que vers ce proxy (par exemple `127.0.0.1:3000:3000`). Donner l'adresse du proxy à `TRUST_PROXY` (`TRUST_PROXY: "192.168.1.20"`) plutôt que `true`. Proxy sur une autre machine : le faire pointer sur le port HTTPS du hub.
 2. **Protéger MongoDB.** Ne jamais publier son port, restreindre les droits du dossier `mongo-data` (`chmod 700`), activer le [compte MongoDB et la clé maître](securite.md#base-de-données-et-secrets), et garder la clé à part des sauvegardes de la base.
 3. **Limiter les comptes Administrateur** au strict nécessaire, avec des mots de passe longs et uniques. Sur un hub antérieur à la correction de la standardisation, ne confier le profil **Opérateur** qu'à des personnes de confiance si elle est activée (`FEATURE_STANDARDISATION`).
 4. **Verrouiller le broker MQTT** utilisé par le [pont Home Assistant](home-assistant.md). Les actions publiées (mises à jour des hôtes et des stacks) répondent à tout client autorisé à écrire sur leurs topics ([exemple d’ACL](home-assistant.md#sécurité-des-commandes)). Il faut donc :

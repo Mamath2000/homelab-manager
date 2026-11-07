@@ -68,7 +68,9 @@ Les variables d'environnement se règlent dans [`compose.yml`](compose.yml) ; la
 | `TZ` | `Europe/Paris` | Fuseau du hub (sauvegardes de répertoires) |
 | `LOG_LEVEL` | `info` | Niveau de logs |
 | `SESSION_DAYS` | `30` | Durée des sessions |
-| `COOKIE_SECURE` / `TRUST_PROXY` | `false` | `true` derrière un reverse proxy HTTPS |
+| `TRUST_PROXY` | `false` | Adresse du reverse proxy (`192.168.1.20`), ou `true` |
+| `COOKIE_SECURE` | *(automatique)* | Cookie `Secure` en HTTPS ; `true` le force |
+| `HTTPS_PORT` | *(vide)* | Port HTTPS natif de l'interface (`4443`), voir [HTTPS natif](docs/configuration.md#https-natif) |
 | `FEATURE_STANDARDISATION` | `false` | Active la standardisation des hôtes |
 | `FEATURE_BACKUP_NEXTCLOUD_AIO` | `false` | Affiche le plugin Nextcloud AIO |
 
