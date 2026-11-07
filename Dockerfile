@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Agent binaries for every supported architecture, served by the hub to the install script.
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS agent
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS agent
 WORKDIR /src
 COPY agent/go.mod agent/go.sum ./
 RUN go mod download
