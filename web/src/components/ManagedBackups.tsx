@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Calculator, Container, ListChecks, Package, Plus, RefreshCw, Save, X } from 'lucide-react';
+import { Calculator, Container, Package, Plus, RefreshCw, Save, X } from 'lucide-react';
 import { api, type BackupArchive, type BackupEstimate, type BackupJob, type BackupJobInput, type DatabaseCheck, type DatabaseDump, type DatabaseKind, type Host, type HostBackupJobs } from '../lib/api';
 import { databaseKindLabel, dumpArchives, formatBytes, offsiteForm, offsiteInput, offsiteNotCopiable } from '../lib/backups';
 import { OffsiteSettingsTab } from './OffsiteCopy';
@@ -109,11 +109,11 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
   const set = (patch: Partial<DatabaseDump>) => onChange({ ...value, ...patch });
   const cluster = kind === 'postgres' && value.mode === 'cluster';
   const unusable = view.databases && !view.databases.includes(kind);
-  // the listing is the one of the server asked: stale once the container changes
+  // the result is stale once the connection settings change
   const key = JSON.stringify({ c: value.container ?? '', u: value.username ?? '', p: value.password ?? '', a: value.authSource ?? '' });
-  const credentialsMissing = kind === 'mongodb' && !!value.username && !value.password;
-  const canList = !!host.online && !!view.databases && (kind === 'postgres' || (!!value.container && !credentialsMissing));
-  const list = async () => {
+  const credentialsComplete = !!value.username === !!value.password;
+  const canCheck = !!host.online && !!view.databases && (kind === 'postgres' || (!!value.container && credentialsComplete));
+  const checkDatabase = async () => {
     setChecking(true);
     try {
       setCheck({ result: await api.checkBackupDatabase(host.id, kind, value), key });
@@ -126,9 +126,9 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
   // a job being edited: its server is listed at once (its databases and their size)
   const listed = useRef(false);
   useEffect(() => {
-    if (!listed.current && canList && value.databases.length > 0) {
+    if (!listed.current && canCheck && value.databases.length > 0) {
       listed.current = true;
-      void list();
+      void checkDatabase();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -140,15 +140,15 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
   const chips = [...server.map((d) => d.name), ...value.databases.filter((d) => !sizes.has(d))];
   const needed = server.filter((d) => cluster || chosen.has(d.name)).reduce((n, d) => n + d.size, 0);
   const toggle = (name: string) => set({ databases: chosen.has(name) ? value.databases.filter((x) => x !== name) : [...value.databases, name] });
-  const listButton = (
+  const checkButton = (
     <Button
-      icon={ListChecks}
+      icon={RefreshCw}
       loading={checking}
-      disabled={!canList}
-      onClick={list}
-      title={kind === 'mongodb' && credentialsMissing ? 'Saisir le mot de passe pour lister les bases (laisser vide pour le conserver lors de la sauvegarde)' : kind === 'mongodb' && !value.container ? "Indiquer d'abord le conteneur" : "Demande à l'agent les bases du serveur, leur taille et la place libre"}
+      disabled={!canCheck}
+      onClick={checkDatabase}
+      title={kind === 'mongodb' && !credentialsComplete ? 'Renseigner ensemble utilisateur et mot de passe pour vérifier la connexion' : kind === 'mongodb' && !value.container ? "Indiquer d'abord le conteneur" : 'Vérifie la connexion, les bases disponibles et la place libre'}
     >
-      Lister les bases
+      Vérifier la base
     </Button>
   );
   return (
@@ -167,40 +167,45 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
               <option value="databases">Par base (pg_dump de chaque base + rôles)</option>
               <option value="cluster">Cluster complet (pg_basebackup, copie physique)</option>
             </select>
-            {listButton}
+            {checkButton}
           </div>
         </label>
       ) : (
-        <>
+        <section className="space-y-3 rounded-md border border-line bg-raised/30 p-3">
+          <div>
+            <h3 className="text-sm font-medium text-zinc-200">Connexion à MongoDB</h3>
+            <p className="mt-1 text-xs text-muted">Pour une instance protégée, renseignez les identifiants et la base d’authentification avant la vérification. Sans identifiants, une connexion sans authentification est utilisée.</p>
+          </div>
           <label className="block">
             <span className={field}>Conteneur MongoDB</span>
-            <div className="flex gap-2">
-              <input className="input flex-1 font-mono text-xs" value={value.container ?? ''} onChange={(e) => set({ container: e.target.value.trim() })} placeholder="mongo" />
-              {listButton}
-            </div>
+            <input className="input font-mono text-xs" value={value.container ?? ''} onChange={(e) => set({ container: e.target.value.trim() })} placeholder="mongo" />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className={field}>Utilisateur MongoDB (facultatif)</span>
-              <input className="input font-mono text-xs" value={value.username ?? ''} onChange={(e) => set({ username: e.target.value.trim() })} autoComplete="off" />
+              <span className={field}>Utilisateur</span>
+              <input className="input font-mono text-xs" value={value.username ?? ''} onChange={(e) => set({ username: e.target.value.trim() })} autoComplete="username" />
             </label>
             <label className="block">
               <span className={field}>Mot de passe</span>
-              <input className="input font-mono text-xs" type="password" value={value.password ?? ''} onChange={(e) => set({ password: e.target.value })} autoComplete="new-password" />
-              <span className="mt-1 block text-xs text-muted">En modification, laisser vide pour conserver le mot de passe enregistré.</span>
+              <input className="input font-mono text-xs" type="password" value={value.password ?? ''} onChange={(e) => set({ password: e.target.value })} autoComplete="new-password" placeholder={value.username ? 'Requis pour vérifier' : 'Facultatif'} />
+              <span className="mt-1 block text-xs text-muted">En modification, laissez-le vide pour conserver celui enregistré. Pour vérifier, saisissez-le à nouveau.</span>
             </label>
           </div>
-          <label className="block">
-            <span className={field}>Base d’authentification (authSource)</span>
-            <input className="input font-mono text-xs" value={value.authSource ?? 'admin'} onChange={(e) => set({ authSource: e.target.value.trim() })} placeholder="admin" />
-          </label>
-        </>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="block">
+              <span className={field}>Base d’authentification (<code>authSource</code>)</span>
+              <input className="input font-mono text-xs" value={value.authSource ?? 'admin'} onChange={(e) => set({ authSource: e.target.value.trim() })} placeholder="admin" />
+              <span className="mt-1 block text-xs text-muted">Base où l’utilisateur MongoDB a été créé (par défaut : <code>admin</code>).</span>
+            </label>
+            {checkButton}
+          </div>
+        </section>
       )}
       <div>
         <span className={field}>{cluster ? 'Bases du cluster (toutes sauvegardées)' : 'Bases à sauvegarder (clic pour choisir)'}</span>
         {result?.error && <p className="mb-1.5 text-xs text-red-400">{result.error}</p>}
         {chips.length === 0 ? (
-          <p className="text-xs text-muted">{result?.result ? 'Aucune base sur ce serveur.' : '« Lister les bases » pour les afficher.'}</p>
+          <p className="text-xs text-muted">{result?.result ? 'Aucune base sur ce serveur.' : 'Vérifiez la connexion pour afficher les bases disponibles.'}</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {chips.map((name) => {
