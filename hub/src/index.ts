@@ -45,6 +45,8 @@ import { startScheduler } from './scheduler.js';
 import { startAccessSync } from './accessFile.js';
 import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
+import { registerHttpPolicy } from './transport.js';
+import { startUiTlsServer } from './uiTls.js';
 
 // LOG_FILE: the JSON logs go to stdout and to this file (appended, rotation is up to the host).
 function logStream() {
@@ -60,6 +62,16 @@ const app = Fastify({
   trustProxy: config.trustProxy,
   forceCloseConnections: true,
 });
+
+// the ports of the hub must differ (the TLS port of the UI is optional)
+const ports = [config.port, config.agentTlsPort, ...(config.httpsPort ? [config.httpsPort] : [])];
+if (new Set(ports).size !== ports.length) {
+  app.log.fatal({ PORT: config.port, AGENT_TLS_PORT: config.agentTlsPort, HTTPS_PORT: config.httpsPort }, 'the ports of the hub must differ');
+  process.exit(1);
+}
+if (config.trustProxy === true) {
+  app.log.warn('TRUST_PROXY=true: any client is trusted for X-Forwarded-*; give the address of the proxy instead (TRUST_PROXY=192.168.1.20), or keep the port reachable by the proxy alone');
+}
 
 await connectDb();
 await migrateGroups();
@@ -83,6 +95,9 @@ await bootstrapSuperadmin();
 await refreshManaged();
 
 await app.register(cookie);
+
+// before the authentication: the http port sends the browsers to the TLS one, when there is one
+registerHttpPolicy(app);
 
 registerAuth(app);
 registerEvents(app);
@@ -148,6 +163,7 @@ subscribe((event) => {
 });
 
 let agentServer: Awaited<ReturnType<typeof startAgentServer>> | null = null;
+let uiTlsServer: Awaited<ReturnType<typeof startUiTlsServer>> | null = null;
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
@@ -164,6 +180,7 @@ async function shutdown() {
   stopProbes();
   await bridge.stop(false);
   await flushLogs().catch(() => {});
+  await uiTlsServer?.close();
   await app.close();
   await agentServer?.close();
   await closeDb();
@@ -172,5 +189,8 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-await app.listen({ port: config.port, host: config.host });
+// HTTP_MODE=local: next to the TLS port, http answers on the loopback only (Docker health check, local tools)
+const local = config.httpsPort && config.httpMode === 'local';
+await app.listen({ port: config.port, host: local ? '127.0.0.1' : config.host });
+if (config.httpsPort) uiTlsServer = await startUiTlsServer(app, app.log);
 agentServer = await startAgentServer();

@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { hashPassword, randomToken, sha256, verifyPassword } from './crypto.js';
 import { apiKeys, sessions, users } from './db.js';
 import { allowedBeforePasswordChange, authorize } from './profiles.js';
+import { cookieSecure, httpsUrl, transport } from './transport.js';
 import { SUPERADMIN, type UserDoc } from './types.js';
 
 const COOKIE = 'hm_session';
@@ -39,7 +40,7 @@ function recordFailure(ip: string) {
 // the superadmin only gets a short session out of its one-time password
 const SUPERADMIN_SESSION_MS = 15 * 60_000;
 
-async function startSession(reply: FastifyReply, user: UserDoc) {
+async function startSession(req: FastifyRequest, reply: FastifyReply, user: UserDoc) {
   const token = randomToken();
   const ttl = user.profile === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionDays * 24 * 3600 * 1000;
   const expiresAt = new Date(Date.now() + ttl);
@@ -48,7 +49,7 @@ async function startSession(reply: FastifyReply, user: UserDoc) {
     path: '/',
     httpOnly: true,
     sameSite: 'strict',
-    secure: config.cookieSecure,
+    secure: cookieSecure(req),
     expires: expiresAt,
   });
 }
@@ -140,7 +141,16 @@ export function registerAuth(app: FastifyInstance) {
     const user = await userFromRequest(req);
     // fresh install: log in as superadmin with the password printed in the hub logs
     const noAccounts = !user && (await users.countDocuments({ profile: { $ne: SUPERADMIN } })) === 0;
-    return { noAccounts, cookieSecure: config.cookieSecure, user: user ? me(user) : null };
+    const { https, hopClear } = transport(req);
+    return {
+      noAccounts,
+      // Secure attribute of the cookie a login would get here: refused by the browser over plain http
+      cookieSecure: cookieSecure(req),
+      // how this request reached the hub (banners of the UI); the TLS port of the UI, when there is one
+      transport: { https, hopClear },
+      httpsUrl: https ? null : httpsUrl(req),
+      user: user ? me(user) : null,
+    };
   });
 
   app.post<{ Body: { username: string; password: string } }>(
@@ -157,7 +167,7 @@ export function registerAuth(app: FastifyInstance) {
       // http) would lock the install out. It is consumed once a first account has set its own password.
       failures.delete(req.ip);
       await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
-      await startSession(reply, user);
+      await startSession(req, reply, user);
       return me(user);
     },
   );
@@ -165,7 +175,7 @@ export function registerAuth(app: FastifyInstance) {
   app.post('/api/auth/logout', async (req, reply) => {
     const token = req.cookies[COOKIE];
     if (token) await sessions.deleteOne({ _id: sha256(token) });
-    reply.clearCookie(COOKIE, { path: '/' });
+    reply.clearCookie(COOKIE, { path: '/', secure: cookieSecure(req) });
     return { ok: true };
   });
 

@@ -628,6 +628,16 @@ export interface PkiDoc {
   createdAt: Date;
 }
 
+// Certificate of the TLS port of the UI, issued by the CA of the hub (uiTls.ts); the key sealed with the master key
+export interface UiTlsDoc {
+  _id: 'uiTls';
+  cert: string; // PEM
+  key: string; // PKCS#8 PEM
+  sans: string[];
+  notAfter: Date;
+  createdAt: Date;
+}
+
 export interface AgentSettings {
   _id: 'agents';
   autoUpdate: boolean;

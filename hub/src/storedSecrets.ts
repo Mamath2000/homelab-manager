@@ -10,6 +10,7 @@ import type { RoleDoc } from './types.js';
 // settings documents: their secret fields (the legacy pve document is only read once, to become roles)
 export const SETTINGS_SECRETS = {
   pki: ['caKey', 'serverKey'],
+  uiTls: ['key'],
   pbs: ['tokenSecret'],
   'pbs-remote': ['tokenSecret', 'readerTokenSecret'],
   homeassistant: ['password'],
