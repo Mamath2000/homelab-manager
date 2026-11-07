@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { RefreshCw, Wand2 } from 'lucide-react';
@@ -10,7 +10,8 @@ import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
 import { HostAccessKeys } from './SetupAccess';
-import { Badge, Button, Modal, Spinner, Tag, VerticalTabs } from './ui';
+import clsx from 'clsx';
+import { Badge, Button, Modal, Spinner, Tag } from './ui';
 
 function StateBadge({ check, managed }: { check?: SetupState['modules'][number]; managed: boolean }) {
   if (!managed) return <span className="text-xs text-zinc-600">non géré</span>;
@@ -53,7 +54,7 @@ const isManaged = (options: SetupOptions, overrides: SetupOverrides, k: SetupOpt
 };
 
 // One option of a host: standard value, own value, standard list plus additions, or not managed.
-function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, managed, disabled }: {
+function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, managed, disabled, wide, children }: {
   k: K;
   std: SetupOptions[K];
   override: SetupOverride<K> | undefined;
@@ -61,6 +62,9 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
   check?: SetupState['modules'][number];
   managed: boolean;
   disabled: boolean;
+  // full-width card (SSH keys, which can be long), with extra content above the option
+  wide?: boolean;
+  children?: ReactNode;
 }) {
   const mode: Mode = override?.mode ?? 'standard';
   // keys, account: the signed manifest decides the content; a host can only stop managing them
@@ -72,7 +76,7 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
     else onChange({ mode: 'custom', value: structuredClone(std.value) });
   };
   return (
-    <li className="border-b border-line/60 py-3 last:border-b-0">
+    <li className={`min-w-0 rounded-lg border border-line bg-raised/40 p-3.5 ${wide ? 'md:col-span-2' : ''}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-zinc-200">{setupOptionInfo[k].label}</span>
         <div className="flex items-center gap-2">
@@ -90,6 +94,7 @@ function OptionRow<K extends SetupOption>({ k, std, override, onChange, check, m
       ) : (
         <p className="mt-0.5 text-xs text-zinc-500">{setupOptionInfo[k].hint}</p>
       )}
+      {children}
       {!override && std.enabled && !fromManifest && (
         <div className="mt-2 opacity-60" title="Valeur standard (Paramètres › Standardisation)">
           <OptionEditor option={k} value={std.value} onChange={() => {}} disabled />
@@ -206,6 +211,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
 
   const row = (k: SetupOption) => (
     <OptionRow
+      wide={isAccessOption(k) && k.endsWith('keys')}
       key={k}
       k={k}
       std={standard.options[k] as SetupOptions[typeof k]}
@@ -215,17 +221,19 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       managed={isManaged(standard.options, overrides, k)}
       // the values of a host give root on it (SSH keys, account, aliases): admins only (F-02)
       disabled={!canManage}
-    />
+    >
+      {k.endsWith('_keys') && <HostAccessKeys host={host} account={k.startsWith('root') ? 'root' : 'user'} />}
+    </OptionRow>
   );
 
   // options that differ from the values of the host, per section
   const sectionDrift = (sec: (typeof setupSections)[number]) =>
     sec.options.filter((k) => isManaged(standard.options, overrides, k) && ['drift', 'error'].includes(checks.get(k)?.state ?? '')).length;
-  const tabs = setupSections.map((sec) => {
-    const n = sectionDrift(sec);
-    return { id: sec.id, label: sec.title, icon: sectionIcons[sec.id], count: n ? <Badge tone="warn">{n}</Badge> : undefined };
-  });
   const sec = setupSections.find((x) => x.id === tab)!;
+  // conformity of the host: checked options that are compliant, out of the options managed on the host
+  const managedKeys = setupSections.flatMap((x) => x.options).filter((k) => isManaged(standard.options, overrides, k));
+  const okCount = managedKeys.filter((k) => checks.get(k)?.state === 'ok').length;
+  const checkedCount = managedKeys.filter((k) => checks.has(k)).length;
 
   return (
     <Modal
@@ -242,35 +250,67 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       }
       footer={footer}
     >
-      <div className="space-y-4 text-sm">
-        {canWrite && (
-          <div className="flex justify-end">
-            <Button size="sm" icon={RefreshCw} variant="ghost" loading={busy === 'check'} disabled={!host.online} onClick={check}>
-              Vérifier
-            </Button>
+      <div className="flex h-full flex-col text-sm md:flex-row md:gap-5">
+        <nav role="tablist" className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-visible">
+          {setupSections.map((x) => {
+            const n = sectionDrift(x);
+            const Icon = sectionIcons[x.id];
+            const total = x.options.filter((k) => isManaged(standard.options, overrides, k)).length;
+            const ok = x.options.filter((k) => isManaged(standard.options, overrides, k) && checks.get(k)?.state === 'ok').length;
+            return (
+              <button
+                key={x.id}
+                type="button"
+                role="tab"
+                aria-selected={x.id === tab}
+                onClick={() => setTab(x.id)}
+                className={clsx(
+                  'flex items-center gap-2 rounded-md px-3 py-2.5 text-left whitespace-nowrap',
+                  x.id === tab ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-muted hover:bg-raised hover:text-zinc-200',
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="flex-1">{x.title}</span>
+                {n ? <Badge tone="warn">{n}</Badge> : <span className="text-xs tabular-nums text-zinc-500">{host.setup ? `${ok}/${total}` : ''}</span>}
+              </button>
+            );
+          })}
+          <div className="mt-auto hidden rounded-lg border border-line bg-raised/40 p-3 md:block">
+            <div className="text-xs font-medium text-zinc-300">Conformité de l'hôte</div>
+            <div className="my-2 h-1.5 overflow-hidden rounded-full bg-line">
+              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${managedKeys.length ? (okCount / managedKeys.length) * 100 : 0}%` }} />
+            </div>
+            <p className="text-xs text-muted">
+              {host.setup ? `${okCount} / ${managedKeys.length} options conformes` : `${checkedCount} option(s) vérifiée(s)`}
+              {host.setup && <><br />Vérifié {timeAgo(host.setup.checkedAt)}</>}
+            </p>
+            {canWrite && (
+              <Button size="sm" icon={RefreshCw} variant="ghost" className="mt-2 w-full" loading={busy === 'check'} disabled={!host.online} onClick={check}>
+                Vérifier
+              </Button>
+            )}
           </div>
-        )}
-        <div className="overflow-hidden rounded-md border border-line">
-          <VerticalTabs tabs={tabs} value={tab} onChange={setTab} bodyClassName="px-4 py-2">
-            <p className="pt-2 text-xs text-muted">{sec.hint}</p>
-            {sec.id !== 'system' && <HostAccessKeys host={host} account={sec.id} />}
-            <ul>
-              {sec.id === 'user' ? (
-                <>
-                  {row('user')}
-                  {withUser ? sec.options.filter((k) => k !== 'user').map(row) : <li className="py-3 text-xs text-muted">Aucun utilisateur sur cet hôte : seul root est configuré.</li>}
-                </>
-              ) : (
-                sec.options.map(row)
-              )}
-            </ul>
-          </VerticalTabs>
+        </nav>
+        <div className="min-w-0 flex-1 space-y-3 max-md:mt-3">
+          <div>
+            <h4 className="text-base font-medium text-zinc-100">{sec.title}</h4>
+            <p className="text-xs text-muted">{sec.hint}</p>
+          </div>
+          <ul className="grid items-start gap-3 md:grid-cols-2">
+            {sec.id === 'user' ? (
+              <>
+                {row('user')}
+                {withUser ? sec.options.filter((k) => k !== 'user').map(row) : <li className="text-xs text-muted md:col-span-2">Aucun utilisateur sur cet hôte : seul root est configuré.</li>}
+              </>
+            ) : (
+              sec.options.map(row)
+            )}
+          </ul>
+          <p className="text-xs text-muted">
+            {!canManage && canWrite && <>Valeurs de cet hôte réglées par un administrateur : vérification et application seulement. </>}
+            Valeurs standard : {canManage ? <Link to="/settings?tab=setup" className="text-emerald-400 hover:underline">configuration standard</Link> : 'configuration standard'}.
+          </p>
         </div>
-        <p className="text-xs text-muted">
-          {host.setup ? <>Vérifié {timeAgo(host.setup.checkedAt)}. </> : null}
-          {!canManage && canWrite && <>Valeurs de cet hôte réglées par un administrateur : vérification et application seulement. </>}
-          Valeurs standard : {canManage ? <Link to="/settings?tab=setup" className="text-emerald-400 hover:underline">configuration standard</Link> : 'configuration standard'}.
-        </p>
       </div>
     </Modal>
   );
