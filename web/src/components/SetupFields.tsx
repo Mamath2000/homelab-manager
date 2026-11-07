@@ -68,7 +68,7 @@ export function OptionEditor<K extends SetupOption>({ option, value, onChange, d
       );
     case 'root_aliases':
     case 'user_aliases':
-      return <textarea className={`${textarea} min-h-[12rem]`} value={value as string} onChange={(e) => set(e.target.value)} spellCheck={false} disabled={disabled} />;
+      return <textarea className={`${textarea} min-h-[6rem]`} value={value as string} onChange={(e) => set(e.target.value)} spellCheck={false} disabled={disabled} />;
     case 'root_prompt':
     case 'user_prompt':
       return <Choice value={value as SetupValues['root_prompt']} onChange={set} options={promptOptions} disabled={disabled} />;
