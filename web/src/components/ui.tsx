@@ -225,7 +225,7 @@ export function Empty({ icon: Icon, title, children }: { icon: LucideIcon; title
 // open modals, innermost last: Escape closes the one on top only (modals can open from a modal)
 const modalStack: symbol[] = [];
 
-export function Modal({ open, onClose, title, children, footer, wide, wider, fixed, scroll, dismissable = true }: {
+export function Modal({ open, onClose, title, children, footer, wide, wider, fixed, tall, scroll, dismissable = true }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
@@ -238,6 +238,8 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   wider?: boolean;
   // with 'screen': fixed height (dialogs in steps), whatever the content; the body fills it and scrolls inside
   fixed?: boolean;
+  // with 'fixed': the whole height of the screen instead of 52rem at most (dense content that must not scroll)
+  tall?: boolean;
   // long content: the body scrolls inside the window, header and footer stay visible
   scroll?: boolean;
   // false: a true modal, neither a click outside, Escape nor the cross closes it (the footer does)
@@ -266,7 +268,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
           wide === 'xl' || screenWide ? clsx('max-w-[calc(100vw-2rem)]', wide === 'screen-wide' ? 'sm:max-w-7xl' : wider ? 'sm:max-w-6xl' : 'sm:max-w-5xl') : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
           // at most 70vh high: the window keeps a margin above and below
           screenWide
-            ? clsx('flex flex-col', fixed ? 'h-[min(52rem,calc(100vh-2rem))]' : 'max-h-[calc(100vh-2rem)] min-h-[20rem]')
+            ? clsx('flex flex-col', fixed ? (tall ? 'h-[calc(100vh-2rem)]' : 'h-[min(52rem,calc(100vh-2rem))]') : 'max-h-[calc(100vh-2rem)] min-h-[20rem]')
             : scroll && 'flex max-h-[70vh] flex-col',
         )}
         onMouseDown={(e) => e.stopPropagation()}

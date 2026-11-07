@@ -233,6 +233,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       onClose={close}
       wide="screen-wide"
       fixed
+      tall
       title={
         <span className="flex items-center gap-2">
           Standardisation de {host.name}
