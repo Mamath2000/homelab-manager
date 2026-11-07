@@ -96,7 +96,9 @@ const KIND_LABEL: Record<FormKind, string> = { directories: 'Répertoires', post
 
 
 const newDatabase = (kind: DatabaseKind): DatabaseDump =>
-  kind === 'postgres' ? { mode: 'databases', databases: [], workDir: DEFAULT_WORKDIR, keep: 1 } : { container: '', databases: [], workDir: DEFAULT_WORKDIR, keep: 1 };
+  kind === 'postgres'
+    ? { mode: 'databases', databases: [], workDir: DEFAULT_WORKDIR, keep: 1 }
+    : { container: '', databases: [], authSource: 'admin', workDir: DEFAULT_WORKDIR, keep: 1 };
 
 // What a database job dumps: fixed commands of the agent, only these parameters. The databases are chosen
 // among those the agent lists on the server (button at the end of the line), never typed.
@@ -108,8 +110,9 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
   const cluster = kind === 'postgres' && value.mode === 'cluster';
   const unusable = view.databases && !view.databases.includes(kind);
   // the listing is the one of the server asked: stale once the container changes
-  const key = JSON.stringify({ c: value.container ?? '' });
-  const canList = !!host.online && !!view.databases && (kind === 'postgres' || !!value.container);
+  const key = JSON.stringify({ c: value.container ?? '', u: value.username ?? '', p: value.password ?? '', a: value.authSource ?? '' });
+  const credentialsMissing = kind === 'mongodb' && !!value.username && !value.password;
+  const canList = !!host.online && !!view.databases && (kind === 'postgres' || (!!value.container && !credentialsMissing));
   const list = async () => {
     setChecking(true);
     try {
@@ -143,7 +146,7 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
       loading={checking}
       disabled={!canList}
       onClick={list}
-      title={kind === 'mongodb' && !value.container ? "Indiquer d'abord le conteneur" : "Demande à l'agent les bases du serveur, leur taille et la place libre"}
+      title={kind === 'mongodb' && credentialsMissing ? 'Saisir le mot de passe pour lister les bases (laisser vide pour le conserver lors de la sauvegarde)' : kind === 'mongodb' && !value.container ? "Indiquer d'abord le conteneur" : "Demande à l'agent les bases du serveur, leur taille et la place libre"}
     >
       Lister les bases
     </Button>
@@ -168,13 +171,30 @@ function DatabaseFields({ host, view, kind, value, onChange }: { host: Host; vie
           </div>
         </label>
       ) : (
-        <label className="block">
-          <span className={field}>Conteneur MongoDB</span>
-          <div className="flex gap-2">
-            <input className="input flex-1 font-mono text-xs" value={value.container ?? ''} onChange={(e) => set({ container: e.target.value.trim() })} placeholder="mongo" />
-            {listButton}
+        <>
+          <label className="block">
+            <span className={field}>Conteneur MongoDB</span>
+            <div className="flex gap-2">
+              <input className="input flex-1 font-mono text-xs" value={value.container ?? ''} onChange={(e) => set({ container: e.target.value.trim() })} placeholder="mongo" />
+              {listButton}
+            </div>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className={field}>Utilisateur MongoDB (facultatif)</span>
+              <input className="input font-mono text-xs" value={value.username ?? ''} onChange={(e) => set({ username: e.target.value.trim() })} autoComplete="off" />
+            </label>
+            <label className="block">
+              <span className={field}>Mot de passe</span>
+              <input className="input font-mono text-xs" type="password" value={value.password ?? ''} onChange={(e) => set({ password: e.target.value })} autoComplete="new-password" />
+              <span className="mt-1 block text-xs text-muted">En modification, laisser vide pour conserver le mot de passe enregistré.</span>
+            </label>
           </div>
-        </label>
+          <label className="block">
+            <span className={field}>Base d’authentification (authSource)</span>
+            <input className="input font-mono text-xs" value={value.authSource ?? 'admin'} onChange={(e) => set({ authSource: e.target.value.trim() })} placeholder="admin" />
+          </label>
+        </>
       )}
       <div>
         <span className={field}>{cluster ? 'Bases du cluster (toutes sauvegardées)' : 'Bases à sauvegarder (clic pour choisir)'}</span>

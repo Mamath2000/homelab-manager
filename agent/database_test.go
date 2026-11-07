@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,6 +48,12 @@ func TestValidateDatabase(t *testing.T) {
 		{"mongodb", DatabaseDump{Container: "-it", Databases: []string{"x"}, WorkDir: "/mnt/backup"}}, // option as container
 		{"mongodb", DatabaseDump{Container: "mongo", WorkDir: "/mnt/backup"}},                         // no database
 		{"mongodb", DatabaseDump{Container: "mongo", Mode: "cluster", Databases: []string{"x"}, WorkDir: "/mnt/backup"}},
+		{"mongodb", DatabaseDump{Container: "mongo", Username: "bad user", Password: "pw", Databases: []string{"x"}, WorkDir: "/mnt/backup"}},
+		{"mongodb", DatabaseDump{Container: "mongo", Username: "user", Databases: []string{"x"}, WorkDir: "/mnt/backup"}},
+		{"mongodb", DatabaseDump{Container: "mongo", Password: "pw", Databases: []string{"x"}, WorkDir: "/mnt/backup"}},
+		{"mongodb", DatabaseDump{Container: "mongo", Username: "user", Password: "pw", AuthSource: "bad/source", Databases: []string{"x"}, WorkDir: "/mnt/backup"}},
+		{"mongodb", DatabaseDump{Container: "mongo", Username: "user", Password: "line\nbreak", Databases: []string{"x"}, WorkDir: "/mnt/backup"}},
+		{"postgres", DatabaseDump{Mode: "cluster", Username: "user", Password: "pw", WorkDir: "/mnt/backup"}},
 		{"postgres", DatabaseDump{Mode: "cluster", WorkDir: "/mnt/backup", Keep: -1}},
 		{"postgres", DatabaseDump{Mode: "cluster", WorkDir: "/mnt/backup", Keep: 31}},
 	}
@@ -95,24 +102,36 @@ func TestDatabaseJobInSpec(t *testing.T) {
 }
 
 type dumpCall struct {
-	name string
-	args string
-	env  []string
+	name  string
+	args  string
+	env   []string
+	stdin string
 }
 
 func fakeDump(t *testing.T, fail string) *[]dumpCall {
 	t.Helper()
 	calls := &[]dumpCall{}
-	oldRun, oldLookup := dumpRun, lookupPostgres
+	oldRun, oldRunInput, oldLookup := dumpRun, dumpRunInput, lookupPostgres
 	dumpRun = func(_ context.Context, env []string, _ func(string), name string, args ...string) (int, error) {
-		*calls = append(*calls, dumpCall{name, strings.Join(args, " "), env})
+		*calls = append(*calls, dumpCall{name: name, args: strings.Join(args, " "), env: env})
+		if fail != "" && strings.Contains(name+" "+strings.Join(args, " "), fail) {
+			return 1, nil
+		}
+		return 0, nil
+	}
+	dumpRunInput = func(_ context.Context, env []string, stdin io.Reader, _ func(string), name string, args ...string) (int, error) {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return -1, err
+		}
+		*calls = append(*calls, dumpCall{name, strings.Join(args, " "), env, string(data)})
 		if fail != "" && strings.Contains(name+" "+strings.Join(args, " "), fail) {
 			return 1, nil
 		}
 		return 0, nil
 	}
 	lookupPostgres = func() (int, int, string, error) { return os.Getuid(), os.Getgid(), "/var/lib/postgresql", nil }
-	t.Cleanup(func() { dumpRun, lookupPostgres = oldRun, oldLookup })
+	t.Cleanup(func() { dumpRun, dumpRunInput, lookupPostgres = oldRun, oldRunInput, oldLookup })
 	return calls
 }
 
@@ -244,7 +263,7 @@ func TestCheckMongo(t *testing.T) {
 	fakeOutput(t, map[string]string{
 		"inspect":             "true\n",
 		"mongodump --version": "mongodump version: 100.10.0\ngit version: x\n",
-		"mongosh":             `[{"name":"admin","size":40960},{"name":"canicoif","size":1.25e8}]` + "\n",
+		"mongosh":             `{"version":"7.0.2","databases":[{"name":"admin","size":40960},{"name":"canicoif","size":1.25e8}]}` + "\n",
 	})
 	kind, p := "mongodb", &DatabaseDump{Container: "mongo", Databases: []string{"canicoif", "absent"}, WorkDir: t.TempDir() + "/w"}
 	r, err := checkDatabaseOnHost(context.Background(), kind, p)
@@ -264,10 +283,10 @@ func TestCheckMongo(t *testing.T) {
 	if _, err := checkDatabaseOnHost(context.Background(), kind, &DatabaseDump{WorkDir: p.WorkDir}); err == nil {
 		t.Fatal("listing without a container accepted")
 	}
-	// mongo before 6: no mongosh
-	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": "ERR", "mongo --quiet": `[{"name":"x","size":1}]`})
-	if r, err := checkDatabaseOnHost(context.Background(), kind, p); err != nil || r.Databases[0].Name != "x" {
-		t.Fatalf("fallback: %v %+v", err, r)
+	// MongoDB versions before 7 are unsupported and never fall back to the legacy mongo shell.
+	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": `{"version":"6.0.9","databases":[]}`})
+	if _, err := checkDatabaseOnHost(context.Background(), kind, p); err == nil || !strings.Contains(err.Error(), "MongoDB 7") {
+		t.Fatalf("old MongoDB accepted: %v", err)
 	}
 	fakeOutput(t, map[string]string{"inspect": "false"})
 	if _, err := checkDatabaseOnHost(context.Background(), kind, p); err == nil || !strings.Contains(err.Error(), "arrêté") {
@@ -275,8 +294,51 @@ func TestCheckMongo(t *testing.T) {
 	}
 }
 
+func TestCheckMongoAuthenticated(t *testing.T) {
+	oldOutput, oldOutputInput := dumpOutput, dumpOutputInput
+	var shellArgs, shellInput string
+	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmd, "inspect"):
+			return []byte("true\n"), nil
+		case strings.Contains(cmd, "mongodump --version"):
+			return []byte("mongodump version: 100.10.0\n"), nil
+		default:
+			return nil, errors.New("unexpected " + cmd)
+		}
+	}
+	dumpOutputInput = func(_ context.Context, _ []string, stdin io.Reader, name string, args ...string) ([]byte, error) {
+		shellArgs = name + " " + strings.Join(args, " ")
+		input, err := io.ReadAll(stdin)
+		shellInput = string(input)
+		return []byte(`{"version":"7.0.2","databases":[{"name":"app","size":1000}]}` + "\n"), err
+	}
+	t.Cleanup(func() { dumpOutput, dumpOutputInput = oldOutput, oldOutputInput })
+	p := &DatabaseDump{
+		Container:  "mongo",
+		Databases:  []string{"app"},
+		Username:   "backup",
+		Password:   "private@secret",
+		AuthSource: "admin",
+		WorkDir:    filepath.Join(t.TempDir(), "backup"),
+	}
+	r, err := checkDatabaseOnHost(context.Background(), "mongodb", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Databases) != 1 || r.Databases[0].Name != "app" {
+		t.Fatalf("database list = %+v", r.Databases)
+	}
+	if !strings.Contains(shellArgs, "exec -i mongo mongosh") ||
+		!strings.Contains(shellArgs, "--username backup --authenticationDatabase admin --password") ||
+		strings.Contains(shellArgs, p.Password) || shellInput != p.Password+"\n" {
+		t.Fatalf("mongosh auth was not passed securely: args=%q stdin=%q", shellArgs, shellInput)
+	}
+}
+
 func TestDumpSizes(t *testing.T) {
-	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": `[{"name":"db","size":1000}]`})
+	fakeOutput(t, map[string]string{"inspect": "true", "mongodump": "v", "mongosh": `{"version":"7.0.0","databases":[{"name":"db","size":1000}]}`})
 	work := t.TempDir()
 	kind, p := "mongodb", &DatabaseDump{Container: "mongo", Databases: []string{"db"}, WorkDir: work}
 	if err := os.MkdirAll(filepath.Join(work, "mongo-db", "db"), 0o700); err != nil {
@@ -323,10 +385,10 @@ func TestDumpMongo(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"exec mongo rm -rf /tmp/homelab-agent-dump",
+		"exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml",
 		"exec mongo mongodump --db canicoif --out /tmp/homelab-agent-dump",
 		"cp mongo:/tmp/homelab-agent-dump/canicoif/. " + work + "/mongo-canicoif",
-		"exec mongo rm -rf /tmp/homelab-agent-dump",
+		"exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml",
 	}
 	if len(*calls) != len(want) {
 		t.Fatalf("calls = %+v", *calls)
@@ -341,8 +403,82 @@ func TestDumpMongo(t *testing.T) {
 	if err := dumpDatabases(context.Background(), kind, p, func(string) {}); err == nil {
 		t.Fatal("failure not reported")
 	}
-	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-dump" {
+	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml" {
 		t.Fatalf("last call = %s", last.args)
+	}
+}
+
+func TestDumpMongoAuthenticated(t *testing.T) {
+	calls := fakeDump(t, "")
+	work := filepath.Join(t.TempDir(), "w")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := &DatabaseDump{
+		Container:  "mongo",
+		Databases:  []string{"db"},
+		Username:   "backup-user",
+		Password:   "p@ss word",
+		AuthSource: "admin",
+		WorkDir:    work,
+	}
+	var log strings.Builder
+	if err := dumpMongo(context.Background(), p, func(s string) { log.WriteString(s) }); err != nil {
+		t.Fatal(err)
+	}
+	var config *dumpCall
+	for i := range *calls {
+		c := &(*calls)[i]
+		if c.stdin != "" {
+			config = c
+		}
+	}
+	if config == nil || !strings.Contains(config.args, "exec -i mongo sh -c umask 077; cat > "+mongoConfigPath+" && chmod 600 "+mongoConfigPath) {
+		t.Fatalf("config was not delivered on stdin: %+v", *calls)
+	}
+	if strings.Contains(config.stdin, p.Password) || !strings.Contains(config.stdin, "p%40ss%20word") || !strings.Contains(config.stdin, "authSource=admin") {
+		t.Fatalf("unsafe or malformed config: %q", config.stdin)
+	}
+	var dump *dumpCall
+	for i := range *calls {
+		if strings.Contains((*calls)[i].args, "mongodump") {
+			dump = &(*calls)[i]
+		}
+	}
+	if dump == nil || !strings.Contains(dump.args, "--config "+mongoConfigPath) {
+		t.Fatalf("mongodump did not use config file: %+v", *calls)
+	}
+	if strings.Contains(log.String(), p.Password) || strings.Contains(log.String(), "p%40ss%20word") {
+		t.Fatalf("password leaked to log: %s", log.String())
+	}
+	if last := (*calls)[len(*calls)-1]; !strings.Contains(last.args, "rm -rf "+mongoTmp+" "+mongoConfigPath) {
+		t.Fatalf("config cleanup missing: %s", last.args)
+	}
+
+	calls = fakeDump(t, "mongodump")
+	if err := dumpMongo(context.Background(), p, func(string) {}); err == nil {
+		t.Fatal("failed authenticated dump reported success")
+	}
+	if last := (*calls)[len(*calls)-1]; !strings.Contains(last.args, "rm -rf "+mongoTmp+" "+mongoConfigPath) {
+		t.Fatalf("config not cleaned after failure: %s", last.args)
+	}
+}
+
+func TestMongoLogRedactsPasswordAndExplainsAuthenticationFailure(t *testing.T) {
+	oldRun := dumpRun
+	dumpRun = func(_ context.Context, _ []string, emit func(string), name string, args ...string) (int, error) {
+		emit("Authentication failed for password-secret\n")
+		return 1, nil
+	}
+	defer func() { dumpRun = oldRun }()
+	var log strings.Builder
+	p := &DatabaseDump{Password: "password-secret"}
+	err := runMongoDumpStep(context.Background(), nil, func(s string) { log.WriteString(s) }, p, "docker", "exec", "mongo", "mongodump")
+	if err == nil || !strings.Contains(err.Error(), "authentification MongoDB échouée") || strings.Contains(err.Error(), p.Password) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.Contains(log.String(), p.Password) || !strings.Contains(log.String(), "[REDACTED]") {
+		t.Fatalf("password leaked to log: %s", log.String())
 	}
 }
 

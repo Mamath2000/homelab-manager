@@ -1051,6 +1051,9 @@ export interface DatabaseDump {
   mode?: 'databases' | 'cluster' | 'database' | 'config'; // postgres: databases | cluster; nextcloud: database | config
   databases: string[];
   container?: string; // mongodb
+  username?: string; // mongodb
+  password?: string; // mongodb: write-only in the API
+  authSource?: string; // mongodb: default admin
   workDir: string;
   keep: number; // dumps kept on the host after the backup (0: removed once sent)
 }

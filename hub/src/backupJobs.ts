@@ -7,8 +7,9 @@ import { backupJobs, backups, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { jobDto } from './jobs.js';
 import { groupKey, loadPbsSettings, pollPbs, retryAfterMin } from './pbs.js';
+import { isSealed, open, seal } from './secrets.js';
 import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo, HostDoc, JobDoc, PbsSettings } from './types.js';
-import { openCredential } from './storedSecrets.js';
+import { databasePasswordAad, openCredential } from './storedSecrets.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
 // the hub sends the whole definition of a host (backup_sync) whenever it changes and at each
@@ -28,6 +29,7 @@ export const NS_RE = /^([A-Za-z0-9_][A-Za-z0-9._-]{0,31})(\/[A-Za-z0-9_][A-Za-z0
 export const IMAGE_RE = /^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[0-9a-f]{64})?$/;
 export const DB_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,47}$/;
 export const CONTAINER_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+export const MONGO_USER_RE = /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$/;
 // the agent empties sub-directories of the work directory: never under these
 const FORBIDDEN_WORK_ROOTS = ['/proc', '/sys', '/dev', '/run', '/boot', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64'];
 
@@ -88,7 +90,51 @@ export function normDatabase(kind: BackupJobKind, d: DatabaseDump | null | undef
   if (!d || !isDatabaseKind(kind)) return null;
   const base = { databases: d.databases.map((x) => x.trim()).filter(Boolean), workDir: d.workDir.trim(), keep: d.keep };
   if (kind === 'nextcloud') return { mode: d.mode, ...base, databases: [] };
-  return kind === 'postgres' ? { mode: d.mode, ...base } : { container: d.container?.trim() ?? '', ...base };
+  return kind === 'postgres'
+    ? { mode: d.mode, ...base }
+    : {
+        container: d.container?.trim() ?? '',
+        ...(d.username?.trim() ? { username: d.username.trim() } : {}),
+        ...(d.password ? { password: d.password } : {}),
+        ...(d.authSource?.trim() ? { authSource: d.authSource.trim() } : {}),
+        ...base,
+      };
+}
+
+export function keepDatabasePassword(next: DatabaseDump | null, current: DatabaseDump | null | undefined) {
+  if (
+    next &&
+    current?.password &&
+    !next.password &&
+    next.username === current.username &&
+    (next.authSource || 'admin') === (current.authSource || 'admin')
+  ) {
+    return { ...next, password: current.password };
+  }
+  return next;
+}
+
+export function sealDatabasePassword(database: DatabaseDump | null, id: ObjectId | string): DatabaseDump | null {
+  if (!database?.password || isSealed(database.password)) return database;
+  return { ...database, password: seal(database.password, databasePasswordAad(id)) };
+}
+
+export function rebindDatabasePassword(database: DatabaseDump | null, from: ObjectId | string, to: ObjectId | string) {
+  if (!database?.password || from.toString() === to.toString()) return database;
+  const password = open(database.password, databasePasswordAad(from));
+  return { ...database, password: seal(password, databasePasswordAad(to)) };
+}
+
+function agentDatabase(j: BackupJobDoc, kind: BackupJobKind): DatabaseDump | null {
+  const database = jobDatabase(j);
+  if (kind !== 'mongodb' || !database?.password) return database;
+  return { ...database, password: open(database.password, databasePasswordAad(j._id)) };
+}
+
+function publicDatabase(kind: BackupJobKind, database: DatabaseDump | null): DatabaseDump | null {
+  if (kind !== 'mongodb' || !database) return database;
+  const { password: _password, ...safe } = database;
+  return safe;
 }
 
 // Archives of a database job, one per dump (sub-directory of workDir): same as dumpArchives in agent/database.go.
@@ -118,6 +164,14 @@ export function checkDatabase(kind: DatabaseKind, d: DatabaseDump, chosen = true
     if (!DB_NAME_RE.test(x)) return `nom de base invalide : ${x} (lettres, chiffres, - et _)`;
     if (seen.has(x)) return `base en double : ${x}`;
     seen.add(x);
+  }
+  if (kind === 'mongodb') {
+    if (!!d.username !== !!d.password) return 'MongoDB : user et mot de passe requis ensemble';
+    if (d.username && !MONGO_USER_RE.test(d.username)) return 'MongoDB : nom d’utilisateur invalide';
+    if (d.password && ((!d.password.startsWith('hmenc:v1:') && d.password.length > 1024) || /[\r\n\0]/.test(d.password))) return 'MongoDB : mot de passe invalide';
+    if (d.authSource && !DB_NAME_RE.test(d.authSource)) return 'MongoDB : authSource invalide';
+  } else if (d.username || d.password || d.authSource) {
+    return 'les réglages d’authentification sont réservés à MongoDB';
   }
   if (kind === 'nextcloud') {
     if (d.container || d.databases.length) return 'Nextcloud : conteneurs et base trouvés sur l\'hôte';
@@ -253,7 +307,7 @@ export function buildSpec(host: Pick<HostDoc, 'pbsCredential' | 'capabilities' |
             // only when set: the hashes of the other jobs do not change
             ...(j.connectEveryDays ? { connectEveryDays: j.connectEveryDays } : {}),
             // database jobs only: the definitions (and hashes) of the directories jobs do not change
-            ...(db ? { kind, database: jobDatabase(j) } : {}),
+            ...(db ? { kind, database: agentDatabase(j, kind) } : {}),
           };
         })
       : [],
@@ -434,7 +488,7 @@ export async function refreshManaged() {
       enabled: j.enabled,
       lastRun: j.lastRun ? { at: j.lastRun.end, ok: j.lastRun.ok, error: j.lastRun.error ?? null, ...(j.lastRun.dumps ? { dumps: j.lastRun.dumps } : {}) } : null,
       kind: jobKind(j),
-      database: jobDatabase(j),
+      database: publicDatabase(jobKind(j), jobDatabase(j)),
       plugin: j.plugin ?? null,
       synced: !!host.backupSync && host.backupSync.hash === hashes.get(hid) && !heldBack(host, j),
       since: j.createdAt.getTime(),
@@ -483,7 +537,7 @@ export function jobView(j: BackupJobDoc) {
     timezone: j.timezone,
     enabled: j.enabled,
     kind: jobKind(j),
-    database: jobDatabase(j),
+    database: publicDatabase(jobKind(j), jobDatabase(j)),
     plugin: j.plugin ?? null,
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,

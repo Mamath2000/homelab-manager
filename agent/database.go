@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
@@ -15,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -38,6 +41,7 @@ const maxKeep = 30
 var (
 	dbNameRe    = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,47}$`)
 	containerRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+	mongoUserRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$`)
 )
 
 // directories a work directory may not be in: the agent empties its sub-directories
@@ -71,7 +75,7 @@ func validateDatabaseSettings(kind string, p *DatabaseDump, chosen bool) error {
 	}
 	switch kind {
 	case "postgres":
-		if p.Container != "" {
+		if p.Container != "" || p.Username != "" || p.Password != "" || p.AuthSource != "" {
 			return errors.New("postgres: local server only")
 		}
 		switch p.Mode {
@@ -90,9 +94,21 @@ func validateDatabaseSettings(kind string, p *DatabaseDump, chosen bool) error {
 		if p.Mode != "" || !containerRe.MatchString(p.Container) || (chosen && len(p.Databases) == 0) {
 			return errors.New("mongodb: container and at least one database")
 		}
+		if (p.Username == "") != (p.Password == "") {
+			return errors.New("mongodb: user and password must both be set")
+		}
+		if p.Username != "" && !mongoUserRe.MatchString(p.Username) {
+			return errors.New("mongodb: invalid user")
+		}
+		if p.Password != "" && (len(p.Password) > 1024 || strings.ContainsAny(p.Password, "\r\n\x00")) {
+			return errors.New("mongodb: invalid password")
+		}
+		if p.AuthSource != "" && !dbNameRe.MatchString(p.AuthSource) {
+			return errors.New("mongodb: invalid authSource")
+		}
 	case "nextcloud":
 		// the containers and the database are found on the host at each run
-		if (p.Mode != "database" && p.Mode != "config") || p.Container != "" || len(p.Databases) != 0 {
+		if (p.Mode != "database" && p.Mode != "config") || p.Container != "" || p.Username != "" || p.Password != "" || p.AuthSource != "" || len(p.Databases) != 0 {
 			return errors.New("nextcloud: mode database or config, nothing else")
 		}
 	default:
@@ -142,14 +158,10 @@ func jobArchives(j BackupJob) []BackupArchive {
 var (
 	dumpRun    = runStreaming
 	dumpOutput = func(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, name, args...)
-		cmd.Env = env
-		out, err := cmd.Output()
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return out, fmt.Errorf("%s: %s", name, strings.TrimSpace(lastLine(string(ee.Stderr))))
-		}
-		return out, err
+		return runDumpOutput(ctx, env, nil, name, args...)
+	}
+	dumpOutputInput = func(ctx context.Context, env []string, stdin io.Reader, name string, args ...string) ([]byte, error) {
+		return runDumpOutput(ctx, env, stdin, name, args...)
 	}
 	lookupPostgres = func() (uid, gid int, home string, err error) {
 		u, err := user.Lookup("postgres")
@@ -161,6 +173,18 @@ var (
 		return uid, gid, u.HomeDir, nil
 	}
 )
+
+func runDumpOutput(ctx context.Context, env []string, stdin io.Reader, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = env
+	cmd.Stdin = stdin
+	out, err := cmd.Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return out, fmt.Errorf("%s: %s", name, strings.TrimSpace(lastLine(string(ee.Stderr))))
+	}
+	return out, err
+}
 
 func runDumpStep(ctx context.Context, env []string, emit func(string), name string, args ...string) error {
 	emit(fmt.Sprintf("%s %s\n", name, strings.Join(args, " ")))
@@ -254,27 +278,137 @@ func dumpPostgres(ctx context.Context, p *DatabaseDump, emit func(string)) error
 
 // mongodump runs in the container (its tools, its socket); the dump is then copied out of it.
 const mongoTmp = "/tmp/homelab-agent-dump"
+const mongoConfigPath = "/tmp/homelab-agent-mongo.yaml"
+
+var dumpRunInput = runStreamingIn
+var mongoConfigMu sync.Mutex
+
+func mongoSafeEmit(emit func(string), password string) func(string) {
+	return func(s string) {
+		if password != "" {
+			s = strings.ReplaceAll(s, password, "[REDACTED]")
+			s = strings.ReplaceAll(s, url.QueryEscape(password), "[REDACTED]")
+			s = strings.ReplaceAll(s, url.PathEscape(password), "[REDACTED]")
+		}
+		emit(s)
+	}
+}
+
+func mongoConfig(p *DatabaseDump) ([]byte, error) {
+	authSource := p.AuthSource
+	if authSource == "" {
+		authSource = "admin"
+	}
+	uri := (&url.URL{
+		Scheme: "mongodb",
+		Host:   "localhost",
+		Path:   "/",
+		User:   url.UserPassword(p.Username, p.Password),
+	}).String()
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("authSource", authSource)
+	u.RawQuery = q.Encode()
+	quoted, err := json.Marshal(u.String())
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]byte("uri: "), quoted...), '\n'), nil
+}
+
+func mongoAuthFailure(s string) bool {
+	s = strings.ToLower(s)
+	return strings.Contains(s, "authentication failed") || strings.Contains(s, "authenticationfailure") || strings.Contains(s, "code 18")
+}
+
+func mongoCommandError(err error, output, password string) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if mongoAuthFailure(output) || mongoAuthFailure(message) {
+		message = "authentification MongoDB échouée (vérifier user, mot de passe et authSource): " + message
+	}
+	if password != "" {
+		message = strings.ReplaceAll(message, password, "[REDACTED]")
+		message = strings.ReplaceAll(message, url.QueryEscape(password), "[REDACTED]")
+		message = strings.ReplaceAll(message, url.PathEscape(password), "[REDACTED]")
+	}
+	return errors.New(message)
+}
+
+func runMongoDumpStep(ctx context.Context, env []string, emit func(string), p *DatabaseDump, name string, args ...string) error {
+	var output strings.Builder
+	log := mongoSafeEmit(func(s string) { output.WriteString(s); emit(s) }, p.Password)
+	err := runDumpStep(ctx, env, log, name, args...)
+	return mongoCommandError(err, output.String(), p.Password)
+}
+
+func runMongoDumpStepInput(ctx context.Context, env []string, emit func(string), p *DatabaseDump, stdin []byte, name string, args ...string) error {
+	var output strings.Builder
+	log := mongoSafeEmit(func(s string) { output.WriteString(s); emit(s) }, p.Password)
+	log(fmt.Sprintf("%s %s\n", name, strings.Join(args, " ")))
+	code, err := dumpRunInput(ctx, env, strings.NewReader(string(stdin)), log, name, args...)
+	if err != nil {
+		return mongoCommandError(fmt.Errorf("%s: %w", name, err), output.String(), p.Password)
+	}
+	if code != 0 {
+		return mongoCommandError(fmt.Errorf("%s a échoué (code %d)", name, code), output.String(), p.Password)
+	}
+	return nil
+}
+
+func mongoConfigArgs(p *DatabaseDump) []string {
+	if p.Username == "" {
+		return nil
+	}
+	return []string{"--config", mongoConfigPath}
+}
+
+func removeMongoFiles(ctx context.Context, env []string, emit func(string), p *DatabaseDump) error {
+	return runMongoDumpStep(ctx, env, emit, p, "docker", "exec", p.Container, "rm", "-rf", mongoTmp, mongoConfigPath)
+}
 
 func dumpMongo(ctx context.Context, p *DatabaseDump, emit func(string)) (err error) {
+	mongoConfigMu.Lock()
+	defer mongoConfigMu.Unlock()
 	env := append(os.Environ(), "LC_ALL=C")
-	if err := runDumpStep(ctx, env, emit, "docker", "exec", p.Container, "rm", "-rf", mongoTmp); err != nil {
-		return err
-	}
+	log := mongoSafeEmit(emit, p.Password)
 	defer func() {
-		if cerr := runDumpStep(context.WithoutCancel(ctx), env, emit, "docker", "exec", p.Container, "rm", "-rf", mongoTmp); cerr != nil && err == nil {
-			emit("nettoyage du conteneur : " + cerr.Error() + "\n")
+		if cerr := removeMongoFiles(context.WithoutCancel(ctx), env, log, p); cerr != nil {
+			log("nettoyage du conteneur : " + cerr.Error() + "\n")
+			if err == nil {
+				err = cerr
+			}
 		}
 	}()
+	if err := removeMongoFiles(ctx, env, log, p); err != nil {
+		return err
+	}
+	if p.Username != "" {
+		config, err := mongoConfig(p)
+		if err != nil {
+			return err
+		}
+		if err := runMongoDumpStepInput(ctx, env, log, p, config, "docker", "exec", "-i", p.Container, "sh", "-c", "umask 077; cat > "+mongoConfigPath+" && chmod 600 "+mongoConfigPath); err != nil {
+			return err
+		}
+	}
 	for _, d := range p.Databases {
 		dir := filepath.Join(p.WorkDir, "mongo-"+d)
 		if err := resetDir(dir, os.Getuid(), os.Getgid()); err != nil {
 			return err
 		}
-		if err := runDumpStep(ctx, env, emit, "docker", "exec", p.Container, "mongodump", "--db", d, "--out", mongoTmp); err != nil {
+		args := append([]string{"exec", p.Container, "mongodump"}, mongoConfigArgs(p)...)
+		args = append(args, "--db", d, "--out", mongoTmp)
+		if err := runMongoDumpStep(ctx, env, log, p, "docker", args...); err != nil {
 			return err
 		}
 		// "/." copies the content of the dump of the database into its archive directory
-		if err := runDumpStep(ctx, env, emit, "docker", "cp", p.Container+":"+mongoTmp+"/"+d+"/.", dir); err != nil {
+		if err := runMongoDumpStep(ctx, env, log, p, "docker", "cp", p.Container+":"+mongoTmp+"/"+d+"/.", dir); err != nil {
 			return err
 		}
 	}
@@ -388,6 +522,8 @@ func listDatabases(ctx context.Context, kind string, p *DatabaseDump) (tools str
 		}
 		return strings.TrimSpace(string(v)), dbs, nil
 	case "mongodb":
+		mongoConfigMu.Lock()
+		defer mongoConfigMu.Unlock()
 		env := append(os.Environ(), "LC_ALL=C")
 		state, err := dumpOutput(ctx, env, "docker", "inspect", "-f", "{{.State.Running}}", p.Container)
 		if err != nil {
@@ -400,22 +536,49 @@ func listDatabases(ctx context.Context, kind string, p *DatabaseDump) (tools str
 		if err != nil {
 			return "", nil, fmt.Errorf("mongodump absent du conteneur %s", p.Container)
 		}
-		const js = `JSON.stringify(db.adminCommand({listDatabases: 1}).databases.map((d) => ({name: d.name, size: Number(d.sizeOnDisk)})))`
-		// mongosh since MongoDB 6, mongo before
-		out, err := dumpOutput(ctx, env, "docker", "exec", p.Container, "mongosh", "--quiet", "--norc", "--eval", js)
-		if err != nil {
-			if out, err = dumpOutput(ctx, env, "docker", "exec", p.Container, "mongo", "--quiet", "--norc", "--eval", js); err != nil {
-				return "", nil, fmt.Errorf("liste des bases : %w", err)
+		const js = `JSON.stringify({version: db.version(), databases: db.adminCommand({listDatabases: 1}).databases.map((d) => ({name: d.name, size: Number(d.sizeOnDisk)}))})`
+		args := []string{"exec"}
+		if p.Username != "" {
+			args = append(args, "-i")
+		}
+		args = append(args, p.Container, "mongosh", "--quiet", "--norc")
+		if p.Username != "" {
+			authSource := p.AuthSource
+			if authSource == "" {
+				authSource = "admin"
 			}
+			args = append(args, "--username", p.Username, "--authenticationDatabase", authSource, "--password")
 		}
-		var list []struct {
-			Name string  `json:"name"`
-			Size float64 `json:"size"`
+		args = append(args, "--eval", js)
+		var out []byte
+		if p.Username == "" {
+			out, err = dumpOutput(ctx, env, "docker", args...)
+		} else {
+			out, err = dumpOutputInput(ctx, env, strings.NewReader(p.Password+"\n"), "docker", args...)
 		}
-		if err := json.Unmarshal([]byte(lastLine(string(out))), &list); err != nil {
+		if err != nil {
+			message := mongoCommandError(fmt.Errorf("liste des bases : %w", err), "", p.Password)
+			if !mongoAuthFailure(message.Error()) {
+				// mongosh has no legacy mongo fallback: authenticated and unauthenticated hosts alike need MongoDB 7+.
+				message = fmt.Errorf("mongosh absent ou échec de la liste des bases (MongoDB 7 ou plus requis): %w", message)
+			}
+			return "", nil, message
+		}
+		var result struct {
+			Version   string `json:"version"`
+			Databases []struct {
+				Name string  `json:"name"`
+				Size float64 `json:"size"`
+			} `json:"databases"`
+		}
+		if err := json.Unmarshal([]byte(lastLine(string(out))), &result); err != nil {
 			return "", nil, fmt.Errorf("liste des bases illisible : %w", err)
 		}
-		for _, d := range list {
+		major, _ := strconv.Atoi(strings.SplitN(result.Version, ".", 2)[0])
+		if major < 7 {
+			return "", nil, fmt.Errorf("MongoDB 7 ou plus requis (version trouvée : %s)", result.Version)
+		}
+		for _, d := range result.Databases {
 			dbs = append(dbs, DatabaseInfo{Name: d.Name, Size: int64(d.Size)})
 		}
 		return strings.SplitN(strings.TrimSpace(string(v)), "\n", 2)[0], dbs, nil

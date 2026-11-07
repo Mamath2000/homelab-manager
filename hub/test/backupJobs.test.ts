@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, normDatabase, pbsPinRefused, pbsServer, runError, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
+import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, jobView, keepDatabasePassword, normDatabase, pbsPinRefused, pbsServer, runError, sealDatabasePassword, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/profiles.js';
+import { setMasterKey } from '../src/secrets.js';
 import type { BackupDoc, BackupJobDoc, DatabaseDump, PbsSettings } from '../src/types.js';
 
 const input = (o: Partial<JobInput> = {}): JobInput => ({
@@ -67,6 +69,32 @@ test('definition sent to the agent', () => {
   assert.equal(buildSpec({ pbsCredential: cred }, [job], pbs).hash, spec.hash);
   // no token: nothing to run
   assert.deepEqual(buildSpec({}, [job], pbs).jobs, []);
+});
+
+test('MongoDB credentials are sealed, sent only to the agent, and omitted from job DTOs', (t) => {
+  t.after(() => setMasterKey(null));
+  setMasterKey(randomBytes(32));
+  const id = new ObjectId();
+  const database = {
+    container: 'mongo',
+    databases: ['app'],
+    username: 'backup-user',
+    password: 'mongo-secret',
+    authSource: 'admin',
+    workDir: '/var/backups/mongo',
+    keep: 1,
+  };
+  const storedDatabase = sealDatabasePassword(database, id)!;
+  assert.notEqual(storedDatabase.password, database.password);
+  const mongoJob: BackupJobDoc = { ...job, _id: id, kind: 'mongodb', archives: [], database: storedDatabase };
+  const dto = jobView(mongoJob);
+  assert.equal(dto.database?.username, database.username);
+  assert.equal('password' in dto.database!, false);
+  assert.equal(JSON.stringify(dto).includes(database.password), false);
+  const spec = buildSpec({ pbsCredential: cred, capabilities: ['backup_database'] }, [mongoJob], pbs);
+  assert.equal(spec.jobs[0].database?.password, database.password);
+  assert.equal(keepDatabasePassword({ ...database, password: '' }, storedDatabase).password, storedDatabase.password);
+  assert.equal(keepDatabasePassword({ ...database, username: 'another-user', password: '' }, storedDatabase).password, '');
 });
 
 test('Tailscale hosts reach the PBS at its own address', () => {
@@ -228,6 +256,10 @@ test('database settings are checked like the agent does', () => {
   assert.equal(checkDatabase('postgres', pg()), null);
   assert.equal(checkDatabase('postgres', pg({ mode: 'cluster', databases: [] })), null);
   assert.equal(checkDatabase('mongodb', mongo()), null);
+  assert.match(checkDatabase('mongodb', mongo({ username: 'bad user', password: 'pw' }))!, /utilisateur/);
+  assert.match(checkDatabase('mongodb', mongo({ username: 'user' }))!, /ensemble/);
+  assert.match(checkDatabase('mongodb', mongo({ username: 'user', password: 'pw', authSource: 'bad/source' }))!, /authSource/);
+  assert.match(checkDatabase('mongodb', mongo({ username: 'user', password: 'line\nbreak' }))!, /mot de passe/);
   assert.match(checkDatabase('postgres', pg({ databases: [] }))!, /au moins une base/);
   assert.match(checkDatabase('postgres', pg({ mode: 'cluster' }))!, /cluster/);
   assert.match(checkDatabase('postgres', pg({ databases: ['a;b'] }))!, /nom de base/);

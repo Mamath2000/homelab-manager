@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from '../agents.js';
-import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobDatabase, jobKind, jobView, normDatabase, pbsPinRefused, refreshManaged, syncHost, validWindowsPath, type JobInput } from '../backupJobs.js';
+import { DEFAULT_TIMEZONE, HOSTS_NS, checkDatabase, clientState, checkJob, currentHash, groupConflict, isDatabaseKind, jobDatabase, jobKind, jobView, keepDatabasePassword, normDatabase, pbsPinRefused, rebindDatabasePassword, refreshManaged, sealDatabasePassword, syncHost, validWindowsPath, type JobInput } from '../backupJobs.js';
 import { backupJobs, backups, hosts, parseId } from '../db.js';
 import type { BackupArchive, BackupJobDoc, BackupJobKind, CachedBackupJob, DatabaseDump, HostDoc, PbsSettings } from '../types.js';
 import { publish } from '../events.js';
@@ -49,6 +49,9 @@ const jobProps = {
       mode: { type: 'string', enum: ['databases', 'cluster'] },
       databases: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 64 } },
       container: { type: 'string', maxLength: 128 },
+      username: { type: 'string', maxLength: 128 },
+      password: { type: 'string', maxLength: 1024 },
+      authSource: { type: 'string', maxLength: 48 },
       workDir: { type: 'string', maxLength: 1024 },
       keep: { type: 'integer', minimum: 0, maximum: 30 },
     },
@@ -72,11 +75,18 @@ function normInput(b: JobInput, kind: BackupJobKind) {
 }
 
 // A job of the form, checked for the host: the error and its status, or what to store.
-async function prepareJob(host: HostDoc, input: JobInput) {
+async function prepareJob(host: HostDoc, input: JobInput, currentDatabase?: DatabaseDump | null) {
   const windows = hostOs(host) === 'windows';
   if (!clientState(host.capabilities).mode) return { code: 409, error: windows ? CLIENT_PATH_MISSING : "client PBS absent sur cet hôte : l'installer d'abord" };
   // namespace and time zone are fixed: Hosts, and the time zone of the hub (TZ)
-  const body = { ...normInput(input, input.kind ?? 'directories'), ns: HOSTS_NS, timezone: DEFAULT_TIMEZONE };
+  const kind = input.kind ?? 'directories';
+  const normalized = normInput(input, kind);
+  const body = {
+    ...normalized,
+    database: keepDatabasePassword(normalized.database, currentDatabase),
+    ns: HOSTS_NS,
+    timezone: DEFAULT_TIMEZONE,
+  };
   // edit: an error the form of the job can fix
   const err = checkJob(body, true, windows);
   if (err) return { code: 400, error: err, edit: true };
@@ -89,6 +99,7 @@ async function prepareJob(host: HostDoc, input: JobInput) {
 }
 
 function jobDoc(hostId: ObjectId, body: ReturnType<typeof normInput> & { ns: string; timezone: string }, _id = new ObjectId(), createdAt = new Date()): BackupJobDoc {
+  const database = sealDatabasePassword(body.database, _id);
   return {
     _id,
     hostId,
@@ -103,7 +114,7 @@ function jobDoc(hostId: ObjectId, body: ReturnType<typeof normInput> & { ns: str
     timezone: body.timezone,
     enabled: body.enabled,
     kind: body.kind,
-    database: body.database,
+    database,
     createdAt,
     updatedAt: new Date(),
     lastRun: null,
@@ -340,7 +351,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     if (!pbsConnected(pbs)) return reply.code(409).send({ error: 'PBS principal non connecté' });
     const input = req.body ?? cachedInput(cached);
     if (!(pbs.datastores ?? []).some((d) => d.store === input.store)) return reply.code(409).send({ error: `datastore ${input.store} absent du PBS : en choisir un autre`, edit: true });
-    const p = await prepareJob(host, input);
+    const p = await prepareJob(host, input, cached.database ?? null);
     if (!p.body) return reply.code(p.code).send({ error: p.error, ...(p.edit ? { edit: true } : {}) });
     try {
       await restoreCredential(host, pbs);
@@ -348,7 +359,9 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
       throw err;
     }
-    const doc = jobDoc(_id, p.body, (await backupJobs.findOne({ _id: cached._id })) ? new ObjectId() : cached._id, cached.createdAt);
+    const restoredId = (await backupJobs.findOne({ _id: cached._id })) ? new ObjectId() : cached._id;
+    const database = rebindDatabasePassword(p.body.database, cached._id, restoredId);
+    const doc = jobDoc(_id, { ...p.body, database }, restoredId, cached.createdAt);
     await backupJobs.insertOne(doc);
     await hosts.updateOne({ _id }, { $pull: { 'backupCache.jobs': { _id: cached._id } } });
     await dropEmptyCache(_id);
@@ -388,7 +401,13 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       // the kind is fixed too: its archives are of another nature
       const kind = jobKind(cur);
       if (req.body.kind !== undefined && req.body.kind !== kind) return reply.code(400).send({ error: 'le type de sauvegarde ne change pas' });
-      const body = { ...normInput(req.body, kind), ns: HOSTS_NS, timezone: cur.timezone };
+      const normalized = normInput(req.body, kind);
+      const body = {
+        ...normalized,
+        database: keepDatabasePassword(normalized.database, jobDatabase(cur)),
+        ns: HOSTS_NS,
+        timezone: cur.timezone,
+      };
       const host = await hosts.findOne({ _id: cur.hostId });
       const err = checkJob(body, false, !!host && hostOs(host) === 'windows');
       if (err) return reply.code(400).send({ error: err });
@@ -408,7 +427,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
         timezone: body.timezone,
         enabled: body.enabled,
         kind,
-        database: body.database,
+        database: sealDatabasePassword(body.database, _id),
         updatedAt: new Date(),
       };
       // the first form of the database jobs goes; connectEveryDays too when back to a schedule

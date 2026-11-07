@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import { isSealed, loadMasterKey, MasterKeyError, open, seal, setMasterKey } from '../src/secrets.js';
-import { credentialAad, openCredential, openRole, openSettings } from '../src/storedSecrets.js';
+import { credentialAad, databasePasswordAad, openCredential, openRole, openSettings } from '../src/storedSecrets.js';
 import type { RoleDoc } from '../src/types.js';
 
 const key = randomBytes(32);
@@ -51,5 +51,8 @@ test('the loaders open the stored documents', (t) => {
   const c = { tokenId: 'host-a@pbs!backup', tokenSecret: seal('t', credentialAad('host-a@pbs!backup')) };
   assert.equal(openCredential(c).tokenSecret, 't');
   assert.throws(() => openCredential({ ...c, tokenId: 'host-b@pbs!backup' }), MasterKeyError);
+  const password = seal('mongo-password', databasePasswordAad('job-1'));
+  assert.equal(open(password, databasePasswordAad('job-1')), 'mongo-password');
+  assert.throws(() => open(password, databasePasswordAad('job-2')), MasterKeyError);
   assert.equal(openCredential(undefined), undefined);
 });

@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { hosts, roles, settings } from './db.js';
+import { backupJobs, hosts, roles, settings } from './db.js';
 import { hasMasterKey, isSealed, MasterKeyError, open, openFields, seal } from './secrets.js';
 import type { RoleDoc } from './types.js';
 
@@ -24,6 +24,7 @@ const settingsAad = (id: string) => (f: string) => `settings/${id}/${f}`;
 const roleAad = (id: string, f: string) => `roles/${id}/config.${f}`;
 // the PBS token of a host: bound to its id, unique to the host
 export const credentialAad = (tokenId: string) => `hosts/pbsCredential/${tokenId}`;
+export const databasePasswordAad = (id: { toString(): string }) => `backupJobs/${id.toString()}/database.password`;
 
 // a secret read in clear while there is a key: written since the last sealing, sealed in a second
 const noteClear = (o: object, fields: readonly string[]) => {
@@ -82,6 +83,24 @@ export async function sealStored(): Promise<number> {
     const res = await hosts.updateOne({ _id: h._id, 'pbsCredential.tokenSecret': c.tokenSecret }, { $set: { 'pbsCredential.tokenSecret': seal(c.tokenSecret, credentialAad(c.tokenId)) } });
     n += res.modifiedCount;
   }
+  for (const j of await backupJobs.find({ 'database.password': { $type: 'string', $not: SEALED } }, { projection: { database: 1 } }).toArray()) {
+    const v = j.database?.password;
+    if (!clear(v)) continue;
+    const res = await backupJobs.updateOne({ _id: j._id, 'database.password': v }, { $set: { 'database.password': seal(v, databasePasswordAad(j._id)) } });
+    n += res.modifiedCount;
+  }
+  for (const h of await hosts.find({ 'backupCache.jobs.database.password': { $type: 'string', $not: SEALED } }, { projection: { backupCache: 1 } }).toArray()) {
+    for (const j of h.backupCache?.jobs ?? []) {
+      const v = j.database?.password;
+      if (!clear(v)) continue;
+      const res = await hosts.updateOne(
+        { _id: h._id },
+        { $set: { 'backupCache.jobs.$[job].database.password': seal(v, databasePasswordAad(j._id)) } },
+        { arrayFilters: [{ 'job._id': j._id, 'job.database.password': v }] },
+      );
+      n += res.modifiedCount;
+    }
+  }
   return n;
 }
 
@@ -92,7 +111,9 @@ export async function anySealed(): Promise<boolean> {
   }
   const roleQuery = Object.entries(ROLE_SECRETS).map(([type, f]) => ({ type, [`config.${f}`]: SEALED }));
   if (await roles.findOne({ $or: roleQuery } as never, { projection: { _id: 1 } })) return true;
-  return !!(await hosts.findOne({ 'pbsCredential.tokenSecret': SEALED }, { projection: { _id: 1 } }));
+  if (await hosts.findOne({ 'pbsCredential.tokenSecret': SEALED }, { projection: { _id: 1 } })) return true;
+  if (await backupJobs.findOne({ 'database.password': SEALED }, { projection: { _id: 1 } })) return true;
+  return !!(await hosts.findOne({ 'backupCache.jobs.database.password': SEALED }, { projection: { _id: 1 } }));
 }
 
 // Opens every stored secret: throws (MasterKeyError) when one is not readable with this key.
@@ -100,6 +121,14 @@ export async function openAllStored() {
   for (const id of Object.keys(SETTINGS_SECRETS) as SettingsId[]) openSettings(id, (await settings.findOne({ _id: id } as never)) as object | null);
   for (const r of await roles.find({ type: { $in: Object.keys(ROLE_SECRETS) } } as never).toArray()) openRole(r as RoleDoc);
   for (const h of await hosts.find({ 'pbsCredential.tokenSecret': SEALED }, { projection: { pbsCredential: 1 } }).toArray()) openCredential(h.pbsCredential);
+  for (const j of await backupJobs.find({ 'database.password': SEALED }, { projection: { database: 1 } }).toArray()) {
+    open(j.database!.password!, databasePasswordAad(j._id));
+  }
+  for (const h of await hosts.find({ 'backupCache.jobs.database.password': SEALED }, { projection: { backupCache: 1 } }).toArray()) {
+    for (const j of h.backupCache?.jobs ?? []) {
+      if (j.database?.password && isSealed(j.database.password)) open(j.database.password, databasePasswordAad(j._id));
+    }
+  }
 }
 
 let log: FastifyBaseLogger | null = null;

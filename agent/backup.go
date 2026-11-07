@@ -52,11 +52,14 @@ type BackupJob struct {
 }
 
 type DatabaseDump struct {
-	Mode      string   `json:"mode,omitempty"`      // postgres: databases (pg_dump of each) | cluster (pg_basebackup); nextcloud: database | config
-	Databases []string `json:"databases,omitempty"` // postgres databases mode, mongodb
-	Container string   `json:"container,omitempty"` // mongodb: container running mongod
-	WorkDir   string   `json:"workDir"`
-	Keep      int      `json:"keep"` // dumps kept on the host after the backup (0: removed once sent)
+	Mode       string   `json:"mode,omitempty"`       // postgres: databases (pg_dump of each) | cluster (pg_basebackup); nextcloud: database | config
+	Databases  []string `json:"databases,omitempty"`  // postgres databases mode, mongodb
+	Container  string   `json:"container,omitempty"`  // mongodb: container running mongod
+	Username   string   `json:"username,omitempty"`   // mongodb
+	Password   string   `json:"password,omitempty"`   // mongodb
+	AuthSource string   `json:"authSource,omitempty"` // mongodb (default: admin)
+	WorkDir    string   `json:"workDir"`
+	Keep       int      `json:"keep"` // dumps kept on the host after the backup (0: removed once sent)
 }
 
 // DumpInfo: size of a dump of a run and of its database, reported with its result.
