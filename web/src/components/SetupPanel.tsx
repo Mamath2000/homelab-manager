@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { RefreshCw, Save, Wand2 } from 'lucide-react';
+import { RefreshCw, Wand2 } from 'lucide-react';
 import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -124,7 +124,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   const updateHost = useUpdateHostCache();
   const { data: standard } = useQuery({ queryKey: ['setup'], queryFn: api.setupStandard, enabled: open });
   const [draft, setDraft] = useState<SetupOverrides | null>(null);
-  const [busy, setBusy] = useState<'save' | 'apply' | 'check' | null>(null);
+  const [busy, setBusy] = useState<'apply' | 'check' | null>(null);
   const [tab, setTab] = useState<SetupSection>('system');
 
   const close = () => {
@@ -163,14 +163,6 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       return false;
     }
   };
-  const saveOnly = async () => {
-    setBusy('save');
-    if (await save()) {
-      toast.success(`Valeurs de ${host.name} enregistrées`);
-      close();
-    }
-    setBusy(null);
-  };
   const apply = async () => {
     setBusy('apply');
     try {
@@ -205,11 +197,6 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   ) : (
     <>
       <Button onClick={close}>Annuler</Button>
-      {canManage && (
-        <Button icon={Save} disabled={!draft} loading={busy === 'save'} onClick={saveOnly}>
-          Enregistrer
-        </Button>
-      )}
       <Button variant="primary" icon={Wand2} loading={busy === 'apply'} disabled={!host.online || running} onClick={apply}>
         {draft ? 'Enregistrer et appliquer' : 'Appliquer'}
       </Button>

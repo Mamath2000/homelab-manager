@@ -66,8 +66,7 @@ Un hôte créé sur le [réseau d'accès Tailscale](installation.md#réseau-dacc
 
 « Non géré » sert notamment sur les hôtes où une option n'a pas de sens ou ne peut pas s'appliquer, par exemple Starship ou fastfetch sur Debian 12. Une standardisation groupée remet ces choix au standard (voir ci-dessous).
 
-- **Enregistrer** garde les choix de l'hôte et relance la vérification.
-- **Enregistrer et appliquer** (ou **Appliquer**) lance la tâche aussitôt : la fenêtre se ferme et sa console en direct s'affiche sur la fiche, avec son historique. Une option qui échoue n'arrête pas les autres, sauf le compte utilisateur.
+- **Enregistrer et appliquer** enregistre les choix de l'hôte puis lance la tâche aussitôt (le bouton s'appelle **Appliquer** tant que rien n'est modifié) : la fenêtre se ferme et sa console en direct s'affiche sur la fiche, avec son historique. Une option qui échoue n'arrête pas les autres, sauf le compte utilisateur.
 - **Vérifier** mesure à nouveau la conformité. Elle est aussi vérifiée à chaque connexion de l'agent, après chaque application et après chaque modification du standard ou des choix de l'hôte.
 - La liste des hôtes affiche un badge **non standard** pour les hôtes en écart.
 
