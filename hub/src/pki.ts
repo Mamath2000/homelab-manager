@@ -5,6 +5,7 @@
 // hub address can change without reissuing anything.
 import 'reflect-metadata';
 import { createHash, randomBytes, webcrypto } from 'node:crypto';
+import { isIP } from 'node:net';
 import * as x509 from '@peculiar/x509';
 import type { PkiDoc } from './types.js';
 
@@ -126,4 +127,32 @@ export async function signClientCsr(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, csrPe
   });
   const pem = cert.toString('pem');
   return { certPem: pem, fingerprint: certFingerprint(pem) };
+}
+
+// Certificate of the TLS port of the UI (uiTls.ts), distinct from the one of the agent port: the agents pin that one,
+// this one is reissued (names, renewal) without touching them. 397 days: what Apple devices still accept, whoever the issuer.
+export const UI_CERT_DAYS = 397;
+
+export async function issueUiCert(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, sans: string[]) {
+  const ca = new x509.X509Certificate(pki.caCert);
+  const keys = await newKeys();
+  const now = new Date();
+  const cert = await x509.X509CertificateGenerator.create({
+    serialNumber: serial(),
+    subject: 'CN=homelab-manager',
+    issuer: ca.subject,
+    notBefore: new Date(now.getTime() - 5 * 60_000),
+    notAfter: new Date(now.getTime() + UI_CERT_DAYS * 24 * 3600 * 1000),
+    signingAlgorithm: SIGNING,
+    publicKey: keys.publicKey,
+    signingKey: await pemToKey(pki.caKey),
+    extensions: [
+      new x509.BasicConstraintsExtension(false, undefined, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
+      new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.serverAuth], false),
+      new x509.SubjectAlternativeNameExtension(sans.map((value) => ({ type: isIP(value.replace(/^\[|\]$/g, '')) ? ('ip' as const) : ('dns' as const), value: value.replace(/^\[|\]$/g, '') }))),
+      await x509.AuthorityKeyIdentifierExtension.create(ca.publicKey),
+    ],
+  });
+  return { cert: cert.toString('pem'), key: await keyToPem(keys.privateKey), notAfter: cert.notAfter };
 }

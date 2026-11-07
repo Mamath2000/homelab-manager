@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { api, type Me } from '../lib/api';
+import { insecureOrigin, onHttps } from '../lib/transport';
 import { Button } from '../components/ui';
 
 function Shell({ subtitle, children, onSubmit }: { subtitle: string; children: ReactNode; onSubmit: (e: React.FormEvent) => void }) {
@@ -22,10 +23,7 @@ function Shell({ subtitle, children, onSubmit }: { subtitle: string; children: R
   );
 }
 
-// browsers treat localhost as a secure context: Secure cookies work there over http
-const insecureOrigin = () => location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-
-export function Login({ noAccounts, cookieSecure, onDone }: { noAccounts: boolean; cookieSecure: boolean; onDone: (me: Me) => void }) {
+export function Login({ noAccounts, cookieSecure, httpsUrl, onDone }: { noAccounts: boolean; cookieSecure: boolean; httpsUrl: string | null; onDone: (me: Me) => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -38,7 +36,14 @@ export function Login({ noAccounts, cookieSecure, onDone }: { noAccounts: boolea
     try {
       onDone(await api.login(username, password));
     } catch (err) {
-      setError((err as Error).message === 'invalid credentials' ? 'Identifiants invalides' : (err as Error).message);
+      const message = (err as Error).message;
+      setError(
+        message === 'invalid credentials'
+          ? 'Identifiants invalides'
+          : message === 'https_required'
+            ? 'Connexion refusée en HTTP : le hub est aussi servi en HTTPS, utilisez cette adresse.'
+            : message,
+      );
     } finally {
       setBusy(false);
     }
@@ -50,6 +55,17 @@ export function Login({ noAccounts, cookieSecure, onDone }: { noAccounts: boolea
         <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           Le hub est réglé en <code>COOKIE_SECURE=true</code> mais cette page est servie en HTTP : le navigateur refusera la session
           et la connexion échouera. Accédez au hub en HTTPS (reverse proxy), ou retirez <code>COOKIE_SECURE</code> du compose.
+        </p>
+      )}
+      {!cookieSecure && insecureOrigin() && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Cette page est servie en HTTP : le mot de passe et la session circuleront en clair sur le réseau.
+          {httpsUrl && (
+            <>
+              {' '}
+              <a className="font-medium underline" href={onHttps(httpsUrl)}>Passer en HTTPS</a>
+            </>
+          )}
         </p>
       )}
       {noAccounts && (

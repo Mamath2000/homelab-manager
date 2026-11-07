@@ -58,6 +58,7 @@ Prérequis : Node.js 22, Go 1.27 (le `toolchain` de `agent/go.mod` est télécha
 ```sh
 make install            # dépendances hub + web + agent
 make dev                # hub (rechargement auto) + interface sur http://localhost:5173, Ctrl-C arrête tout
+                        # avec HTTPS_PORT figé dans .env.local : aussi https://localhost:<port> (dernier build de web/)
 make agent-run CODE=…   # agent local enrôlé avec le code d'une commande d'installation (en root pour apt-get)
 ```
 

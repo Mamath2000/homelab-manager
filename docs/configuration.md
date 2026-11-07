@@ -44,8 +44,13 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 | `LOG_FILE` | *(vide)* | Chemin d'un fichier où les journaux (JSON) sont aussi écrits, en plus de la sortie standard ; vide : sortie standard seule. Le Makefile le règle sur `logs/hub.log` en local (`make logs` le suit), `compose.yml` ne le définit pas |
 | `TZ` | `Europe/Paris` | fuseau du hub : fuseau proposé par défaut pour les [sauvegardes de répertoires](sauvegardes.md#sauvegardes-de-répertoires) (chaque job garde le sien) |
 | `SESSION_DAYS` | `30` | Durée des sessions de l'interface |
-| `COOKIE_SECURE` | `false` | `true` si le hub est servi en HTTPS |
-| `TRUST_PROXY` | `false` | `true` derrière un reverse proxy (en-têtes `X-Forwarded-*`) |
+| `COOKIE_SECURE` | *(automatique)* | Absente : cookie de session `Secure` quand la requête arrive en HTTPS (port HTTPS, ou proxy de confiance). `true` : toujours `Secure` (aucune session possible en HTTP). `false` : jamais |
+| `TRUST_PROXY` | `false` | Adresses des reverse proxys (`192.168.1.20`, ou liste `10.0.0.5,192.168.1.0/24`) dont les en-têtes `X-Forwarded-*` sont crus. `true` croit **tout** client : sûr seulement si le port n'est joignable que par le proxy |
+| `HTTPS_PORT` | *(vide)* | Port HTTPS de l'interface, en plus du port HTTP (`4443` en Docker) ; vide : désactivé. Voir [HTTPS natif](#https-natif) |
+| `HTTPS_PUBLIC_PORT` | `HTTPS_PORT` | Port publié du HTTPS, s'il diffère (`8443:4443`) : le port HTTP y redirige |
+| `HTTPS_CERT_FILE` / `HTTPS_KEY_FILE` | *(vide)* | Certificat et clé (PEM) à servir, montés en lecture seule ; vides : certificat émis par le hub |
+| `HTTPS_SAN` | *(vide)* | Noms et IP ajoutés au certificat émis (`hub.lan,192.168.1.10`) |
+| `HTTP_MODE` | `redirect` | Port HTTP quand `HTTPS_PORT` est réglé : `redirect` (pages redirigées, connexion et clés d'API refusées en HTTP) ou `local` (HTTP sur `127.0.0.1` seulement) |
 | `FEATURE_BACKUP_NEXTCLOUD_AIO` | `false` | `true` affiche le [plugin Nextcloud AIO](sauvegardes.md#plugin-nextcloud-aio) des sauvegardes |
 | `FEATURE_STANDARDISATION` | `false` | `true` affiche et active la [standardisation](standardisation.md) des hôtes |
 
@@ -54,15 +59,50 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse proxy local (Nginx Proxy Manager, Traefik…) :
 
 - ne pas bufferiser `/api/events` (flux temps réel) ;
-- `TRUST_PROXY=true`, et `COOKIE_SECURE=true` si le proxy sert en HTTPS ;
+- `TRUST_PROXY=<adresse du proxy>` : le cookie de session devient alors `Secure` tout seul quand le proxy sert en HTTPS. `COOKIE_SECURE=true` le force, et interdit en plus toute session en HTTP direct ;
+- ne publier le port de l'interface que vers le proxy : `127.0.0.1:3000:3000` (proxy sur le même hôte), ou `<IP>:3000:3000` et un pare-feu (proxy sur une autre machine). Un proxy dans le même compose n'a pas besoin de `ports:` ;
+- **proxy sur une autre machine** : le trajet proxy → hub passe en clair sur le réseau. Activer le [HTTPS natif](#https-natif) et faire pointer le proxy en `https://` ; les admins voient un bandeau tant que ce trajet est en clair ;
+- HSTS : à activer dans le proxy (le hub ne l'envoie pas : sur un certificat qu'il émet lui-même, il rendrait l'interface inaccessible) ;
 - le port des agents (`3443`) ne passe **pas** par un reverse proxy qui termine le TLS : il casserait l'épinglage et l'authentification des agents par certificat. Le publier directement, ou via un proxy TCP (*passthrough*) ;
 - **URL du hub** : son nom d'hôte doit mener à la machine où le port des agents est publié.
+
+## HTTPS natif
+
+`HTTPS_PORT` ouvre un second port, en HTTPS, à côté du port HTTP (même interface, mêmes sessions). Exemple dans `compose.yml` :
+
+```yaml
+    ports:
+      - "3000:3000"
+      - "3443:3443"
+      - "4443:4443"
+    environment:
+      HTTPS_PORT: 4443
+      # HTTPS_SAN: hub.lan,192.168.1.10
+```
+
+- **Certificat** : sans `HTTPS_CERT_FILE`, le hub en émet un avec sa propre autorité, pour `homelab-manager`, `localhost`, `127.0.0.1`, le nom de l'URL du hub (Paramètres > Agent) et `HTTPS_SAN`. Il est distinct de celui du port des agents (les agents ne sont jamais touchés), vaut 397 jours et se renouvelle seul 30 jours avant la fin, ou quand les noms changent. Son empreinte est dans les journaux du hub (`https: UI listening`).
+- **Navigateur en direct** : il affiche un avertissement ; accepter l'exception **pour ce certificat**, après avoir comparé l'empreinte. **Ne pas importer l'autorité du hub** dans le navigateur ou le système : elle n'a pas de contrainte de nom, un hub compromis pourrait alors intercepter n'importe quel site depuis ce poste.
+- **Reverse proxy** : le faire pointer sur `https://<hub>:4443` en vérifiant le certificat avec l'autorité du hub et le nom `homelab-manager` (l'IP du hub peut changer sans réémettre). L'autorité se télécharge sur `https://<hub>:3443/agent/ca.pem` ; vérifier son empreinte avec celle de Paramètres > Agent.
+  - Nginx / Nginx Proxy Manager (onglet *Advanced*) : `proxy_ssl_trusted_certificate /data/hm-ca.pem; proxy_ssl_verify on; proxy_ssl_name homelab-manager; proxy_ssl_server_name on;`, schéma `https`. Sans ces lignes, NPM chiffre sans vérifier : le trajet est protégé de l'écoute, pas d'une interception active.
+  - Caddy :
+
+    ```
+    reverse_proxy https://hub:4443 {
+      transport http {
+        tls_trusted_ca_certs /etc/caddy/hm-ca.pem
+        tls_server_name homelab-manager
+      }
+    }
+    ```
+  - Traefik : un `serversTransport` avec `rootCAs` (l'autorité) et `serverName: homelab-manager`.
+- **Port HTTP** (`HTTP_MODE`) : `redirect` (défaut) renvoie les pages vers le HTTPS (`308`) et refuse en HTTP la connexion et les clés d'API (`403 https_required`), sauf depuis `127.0.0.1` (sonde de santé Docker), pour `/api/health`, et pour un proxy de confiance (`TRUST_PROXY`) qui a reçu la requête en HTTPS. `local` n'écoute plus en HTTP que sur `127.0.0.1`. Les intégrations qui appellent l'API en HTTP (Homepage…) sont à passer en `https://`.
+- Les sessions ouvertes en HTTP avant l'activation restent valides jusqu'à leur expiration (`SESSION_DAYS`) ; se déconnecter puis se reconnecter en HTTPS pour en ouvrir une protégée.
 
 ## Données
 
 | Collection MongoDB | Contenu |
 |---|---|
-| `settings` | paramètres de l'application (agents, Home Assistant, brokers MQTT des sondes) et autorité de certification du hub (document `pki`, clés privées comprises) |
+| `settings` | paramètres de l'application (agents, Home Assistant, brokers MQTT des sondes) et autorité de certification du hub (document `pki`, clés privées comprises), certificat du port HTTPS de l'interface (document `uiTls`) |
 | `hosts` | hôtes, empreinte du certificat de l'agent, hash du code d'installation en attente, dernier état système et APT |
 | `probes` | sondes de service ([Sondes](sondes.md)) : cible, réglages et état courant, sans historique de mesures ; supprimées avec leur hôte ou leur équipement |
 | `equipments` | [équipements](equipements.md) suivis sans agent : type, site, adresse, amont, source et checks natifs remontés par la source |

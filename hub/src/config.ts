@@ -15,6 +15,24 @@ function num(name: string, fallback: number) {
   return Number.isFinite(v) ? v : fallback;
 }
 
+const list = (name: string) => (env(name) ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+
+// COOKIE_SECURE: true forces the Secure attribute (the session never works over http), false never sets it, unset:
+// set when the request came over https (TLS port of the UI, or a trusted proxy saying so)
+function cookieSecure(): boolean | 'auto' {
+  const v = env('COOKIE_SECURE');
+  return v === 'true' ? true : v === 'false' ? false : 'auto';
+}
+
+// TRUST_PROXY: true trusts any client for the X-Forwarded-* headers (only safe when the port is reachable by the
+// proxy alone), or a list of addresses / ranges of the proxies (10.0.0.5,192.168.1.0/24), the other clients being
+// taken at their word
+export function parseTrustProxy(v: string | undefined): boolean | string[] {
+  if (!v || v === 'false') return false;
+  if (v === 'true') return true;
+  return v.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 export const config = {
   version: (JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf8')) as { version: string }).version,
   port: num('PORT', 3000),
@@ -33,9 +51,20 @@ export const config = {
   agentBinDir: env('AGENT_BIN_DIR') ?? resolve(here, '../../agent/dist'),
   assetsDir: resolve(here, '../assets'),
   sessionDays: num('SESSION_DAYS', 30),
-  cookieSecure: env('COOKIE_SECURE') === 'true',
+  cookieSecure: cookieSecure(),
   // set when the hub sits behind a reverse proxy (X-Forwarded-* headers)
-  trustProxy: env('TRUST_PROXY') === 'true',
+  trustProxy: parseTrustProxy(env('TRUST_PROXY')),
+  // optional TLS port of the UI (uiTls.ts), next to the http one: 0 = off
+  httpsPort: num('HTTPS_PORT', 0),
+  // port the browsers reach it at, when it is published on another one (the http port redirects there)
+  httpsPublicPort: num('HTTPS_PUBLIC_PORT', 0),
+  // certificate and key of the UI, as files (PEM); unset: issued by the CA of the hub
+  httpsCertFile: env('HTTPS_CERT_FILE'),
+  httpsKeyFile: env('HTTPS_KEY_FILE'),
+  // more names / IP of the issued certificate
+  httpsSan: list('HTTPS_SAN'),
+  // the http port while the TLS one is on: redirect (pages to https, logins refused) or local (127.0.0.1 only)
+  httpMode: env('HTTP_MODE') === 'local' ? ('local' as const) : ('redirect' as const),
   // Nextcloud AIO plugin of the backups (homelab#148): particular to one setup, hidden unless set
   featureBackupNextcloudAio: env('FEATURE_BACKUP_NEXTCLOUD_AIO') === 'true',
   // release channel: the dev and prod images are the same one (promoted as is), so only the deployment tells them apart
