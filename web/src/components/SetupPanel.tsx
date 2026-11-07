@@ -241,7 +241,6 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       onClose={close}
       wide="screen-wide"
       fixed
-      tall
       title={
         <span className="flex items-center gap-2">
           Standardisation de {host.name}
@@ -250,7 +249,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       }
       footer={footer}
     >
-      <div className="flex h-full flex-col text-sm md:flex-row md:gap-5">
+      <div className="flex flex-col text-sm md:flex-row md:gap-5">
         <nav role="tablist" className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-visible">
           {setupSections.map((x) => {
             const n = sectionDrift(x);
