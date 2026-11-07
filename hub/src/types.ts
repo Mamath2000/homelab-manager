@@ -1321,6 +1321,7 @@ export interface OmadaVpn {
   localSubnets: string[];
   remoteSubnets: string[];
   established: boolean;
+  missedPolls?: number; // consecutive polls without it established, 0 when it is
 }
 
 export interface OmadaStateDoc {

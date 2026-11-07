@@ -79,7 +79,7 @@ Un tunnel IPsec peut être **établi** selon le contrôleur sans que le trafic p
 
 - Un tunnel **supprimé** dans Omada supprime sa sonde (l'interface le signale). Une sonde VPN ne se supprime pas à la main : elle suit son tunnel. Une lecture des tunnels en échec ne supprime rien.
 - Intervalle 60 s, délai 5 s, 1 nouvelle tentative (un paquet perdu dans un tunnel n'est pas une panne).
-- La passerelle porte aussi un **check natif** par tunnel activé, « Tunnel _nom_ » (domaine Connexion), en alerte quand le contrôleur n'a pas d'associations de sécurité en entrée et en sortie : on lit côte à côte « établi selon Omada » et « le trafic passe ».
+- La passerelle porte aussi un **check natif** par tunnel activé, « Tunnel _nom_ » (domaine Connexion), en alerte quand le contrôleur n'a pas d'associations de sécurité en entrée et en sortie **sur 3 relevés consécutifs** (15 min : un rekey IPsec en retire une quelques secondes, un seul relevé ne suffit pas ; la sonde du tunnel, elle, réagit en quelques minutes) : on lit côte à côte « établi selon Omada » et « le trafic passe ».
 
 ## Brokers MQTT
 

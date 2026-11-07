@@ -59,6 +59,7 @@ le canal `dev`.
 
 ### Corrigé
 
+- **Omada : faux « Tunnel … non établi »** : le check natif d'un tunnel VPN site à site ne passe plus en alerte sur un seul relevé sans associations de sécurité (un rekey IPsec en retire une quelques secondes) mais après 3 relevés consécutifs (15 min). La sonde VPN du tunnel signale toujours une vraie coupure en moins de 2 min. Voir [Sondes VPN](docs/sondes.md#sondes-vpn).
 - Sondes : quand la cible (ou l'hôte d'exécution) d'une sonde change, l'état et la mesure précédents sont écartés, et une mesure en cours sur l'ancienne cible
   est ignorée ; la sonde est remesurée au tick suivant.
 - Sauvegardes : le nom d'une archive invalide (lettres, chiffres, `-` et `_`, 64 caractères max) est signalé dans la fenêtre de sauvegarde (onglet Contenu)
