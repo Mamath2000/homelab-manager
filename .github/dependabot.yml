@@ -1,0 +1,36 @@
+# Weekly dependency updates, grouped per ecosystem so that the minor and patch bumps come in one pull request.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions: { patterns: ['*'] }
+
+  - package-ecosystem: gomod
+    directory: /agent
+    schedule: { interval: weekly }
+    groups:
+      go: { patterns: ['*'], update-types: [minor, patch] }
+
+  - package-ecosystem: npm
+    directory: /hub
+    schedule: { interval: weekly }
+    groups:
+      hub: { patterns: ['*'], update-types: [minor, patch] }
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly }
+    groups:
+      web: { patterns: ['*'], update-types: [minor, patch] }
+
+  # base images of the Dockerfile (Go toolchain of the agents, Node of the hub)
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+
+  # reference compose (MongoDB)
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }

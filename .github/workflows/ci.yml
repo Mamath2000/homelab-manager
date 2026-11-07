@@ -5,17 +5,40 @@ on:
     branches: [main]
   pull_request:
 
-# Les images Docker sont publiées sur Docker Hub par `make docker-release` (voir README).
+# Read-only token: the CI publishes nothing (the Docker images are pushed by `make docker-release`, see README).
+permissions:
+  contents: read
+
+# Actions pinned by commit SHA (a tag can be moved), kept up to date by Dependabot (.github/dependabot.yml).
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: agent/go.mod
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - run: make install
       - run: make check
+
+  # Known vulnerabilities and leaked secrets: blocking on high severity only, so that an unrelated CVE published
+  # in the week does not block every pull request on moderate findings (those are left to Dependabot).
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the secret scan reads the commits of the push / pull request
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: agent/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - run: make audit
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

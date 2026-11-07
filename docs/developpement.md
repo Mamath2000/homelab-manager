@@ -71,6 +71,7 @@ make agent-run CODE=…   # agent local enrôlé avec le code d'une commande d'i
 | `make agent-minor` / `agent-major` | Version de l'agent X.Y+1.0 / X+1.0.0, puis compile |
 | `make build` | Agent (amd64 + arm64), hub et interface |
 | `make check` | lint + test + build : ce que lance la CI |
+| `make audit` | Vulnérabilités connues, bloquant en sévérité élevée : `npm audit` des dépendances livrées (hub, interface), `govulncheck` de l'agent (Linux et Windows) ; la CI le lance avec un scan de secrets (gitleaks) |
 | `make docker-build` | Image locale `homelab-manager:latest` (agents signés si la clé de release est présente) |
 | `make release-key` | Crée la clé de signature des agents (une fois) |
 

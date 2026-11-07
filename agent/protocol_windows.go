@@ -35,6 +35,7 @@ type Outbound struct {
 	// hello: local policy of the host (policy.go)
 	Policy       *PolicyReport  `json:"policy,omitempty"`
 	BinaryHash   string         `json:"binaryHash,omitempty"`
+	MinVersion   string         `json:"minVersion,omitempty"` // hello: version floor of the updates (signature.go)
 	Sessions     *SessionReport `json:"sessions,omitempty"`
 	Ups          *UpsReport     `json:"ups,omitempty"`
 	HealthSystem *HealthSystem  `json:"healthSystem,omitempty"`

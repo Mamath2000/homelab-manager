@@ -58,7 +58,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P1 | Fermer les flux temps réel d'une session révoquée, filtrer selon le profil | correction | à faire |
 | P1 | Journal des actions clés (qui a fait quoi), dans l'application | évolution | ✅ fait ([Comptes](comptes.md#journal-des-actions)) |
 | P1 | En-têtes de sécurité HTTP (CSP, anti-iframe, HSTS) | évolution | à faire |
-| P1 | Chaîne de livraison : images épinglées, CI durcie, protection contre le retour à une version plus ancienne | évolution | à faire |
+| P1 | Chaîne de livraison : images épinglées, CI durcie, protection contre le retour à une version plus ancienne | évolution | ✅ fait ([Version minimum](securite.md#version-minimum-anti-retour-arrière)) ; signature cosign des images non retenue |
 | P2 | Chiffrement des secrets stockés dans MongoDB (clé maître hors base) | évolution | ✅ fait, optionnel ([Sécurité](securite.md#base-de-données-et-secrets)) |
 | P2 | Double authentification (TOTP, WebAuthn), sessions plus courtes, liste des sessions | évolution | à faire |
 | P2 | Chiffrement côté client des sauvegardes PBS | évolution | à faire |

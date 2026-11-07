@@ -1,0 +1,30 @@
+name: Scan des images publiées
+
+# The CI does not build the Docker image (releases are built and pushed by `make docker-release`): the published
+# images are scanned once a week instead, to catch a CVE disclosed after the release. Also runnable by hand.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - mathmath350/homelab-manager:latest
+          - mathmath350/homelab-manager:dev
+          # client image of the backups (the release agents pin the digest of this tag at release time)
+          - mathmath350/pbs-client:latest
+    steps:
+      - uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ matrix.image }}
+          severity-cutoff: high
+          only-fixed: true
+          output-format: table

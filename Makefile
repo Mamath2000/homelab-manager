@@ -1,5 +1,5 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
-.PHONY: help install dev start logs stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
+.PHONY: help install dev start logs stop agent agent-minor agent-major agent-floor agent-run build lint fmt test check audit clean version \
         docker-build docker-prune release-key access-manifest access-publish \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
@@ -87,6 +87,11 @@ agent-minor: ## Version mineure de l'agent +1 (X.Y+1.0), puis compile
 agent-major: ## Version majeure de l'agent +1 (X+1.0.0), puis compile
 	@./agent/build.sh major
 
+agent-floor: ## Plancher des mises à jour de l'agent (anti-rollback) = version courante de l'agent : à commiter dans la release qui corrige une faille de l'agent
+	@old=$$(cat agent/MIN_VERSION); new=$$(cat agent/VERSION); echo "$$new" > agent/MIN_VERSION; \
+		echo "agent/MIN_VERSION : $$old → $$new (les agents de release refuseront toute version plus ancienne)"; \
+		echo "à commiter : git commit -m \"🔒 Plancher agent $$new\" agent/MIN_VERSION"
+
 agent-run: ## Lance l'agent en local (root pour apt-get) : make agent-run [CODE=<code de la commande d'installation>]
 	@mkdir -p $(AGENT_DIR)
 	@# dev only: the CA is taken from install.sh without pinning (local hub)
@@ -118,6 +123,16 @@ build: agent ## Build complet : agent (Linux amd64 + arm64, Windows amd64), hub,
 	cd web && npm run build
 
 check: lint test build ## Tout ce que lance la CI : lint + tests + build
+
+# govulncheck is built with the toolchain of agent/go.mod: an older Go cannot load the sources of a newer standard library
+GOVULNCHECK_VERSION := v1.9.0
+GOVULNCHECK := $(CURDIR)/agent/.dev/bin/govulncheck
+audit: ## Vulnérabilités connues, bloquant en sévérité élevée : npm audit (dépendances livrées du hub et de l'interface), govulncheck (agent Linux et Windows)
+	cd hub && npm audit --omit=dev --audit-level=high
+	cd web && npm audit --omit=dev --audit-level=high
+	cd agent && GOTOOLCHAIN=$$(awk '/^toolchain/ {print $$2}' go.mod) GOBIN=$(dir $(GOVULNCHECK)) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	cd agent && $(GOVULNCHECK) ./...
+	cd agent && GOOS=windows $(GOVULNCHECK) ./...
 
 clean: ## Supprime les artefacts de build
 	rm -rf agent/dist hub/dist web/dist

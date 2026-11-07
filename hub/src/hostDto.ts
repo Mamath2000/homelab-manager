@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { isOnline } from './agents.js';
 import { needsReboot } from './reboot.js';
 import { INSTALLED_TTL_MS } from './installed.js';
-import { agentOutdated, hostBinary, hostOs } from './agentBinaries.js';
+import { agentAhead, agentOutdated, hostBinary, hostOs } from './agentBinaries.js';
 import { dockerSummary, dockerView } from './docker.js';
 import { healthWithSilenced } from './healthSilence.js';
 import { sessionSummary } from './sessions.js';
@@ -59,6 +59,9 @@ export function hostDto(h: HostDoc) {
       // still waiting for the reboot that makes it effective
       .map((p) => ({ ...p, rebootRequired: !!h.apt?.rebootRequired && needsReboot(p.name) })),
     agentOutdated: agentOutdated(h),
+    // newer than the agent of this hub, or refuses it (version floor): no update offered
+    agentAhead: agentAhead(h),
+    agentMinVersion: h.agentMinVersion || null,
     latestAgentVersion: hostBinary(h)?.version ?? null,
     info: h.info ?? null,
     osFamily: hostOs(h),

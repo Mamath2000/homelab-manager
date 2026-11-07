@@ -17,8 +17,8 @@ version=$(cat VERSION)
 [[ $version =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "❌ agent/VERSION invalide : « $version » (attendu X.Y.Z)"; exit 1; }
 major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} build=${BASH_REMATCH[3]}
 
-# only what ends up in the binary: tests excluded
-src=$(sha256sum go.mod go.sum $(ls *.go | grep -v '_test\.go$' | sort) | sha256sum | cut -d' ' -f1)
+# only what ends up in the binary: tests excluded, the version floor included
+src=$(sha256sum go.mod go.sum MIN_VERSION $(ls *.go | grep -v '_test\.go$' | sort) | sha256sum | cut -d' ' -f1)
 last=$(cat .build-hash 2>/dev/null || true)
 
 case $bump in
@@ -41,7 +41,7 @@ fi
 for t in $TARGETS; do
     echo "agent $version $t"
     CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -buildvcs=false \
-        -ldflags "-s -w -X main.version=$version" -o "$(out "$t")" .
+        -ldflags "-s -w -X main.version=$version -X main.minVersion=$(cat MIN_VERSION)" -o "$(out "$t")" .
 done
 echo "$version" > VERSION
 echo "$version" > dist/VERSION

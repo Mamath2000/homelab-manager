@@ -266,6 +266,17 @@ fi
 NEW_VERSION=$(next_version "$VERSION" "$action")
 echo "📦 Version : $VERSION → $NEW_VERSION"
 
+# Plancher des mises à jour de l'agent (agent/MIN_VERSION, anti-rollback) : il ne redescend jamais d'une release à l'autre
+FLOOR=$(cat agent/MIN_VERSION)
+PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+PREV_FLOOR=""
+[ -n "$PREV_TAG" ] && PREV_FLOOR=$(git show "$PREV_TAG:agent/MIN_VERSION" 2>/dev/null || true)
+if [ -n "$PREV_FLOOR" ] && [ "$(printf '%s\n%s\n' "$PREV_FLOOR" "$FLOOR" | sort -V | head -n1)" != "$PREV_FLOOR" ]; then
+    echo "❌ agent/MIN_VERSION $FLOOR est plus bas que celui de $PREV_TAG ($PREV_FLOOR) : le plancher ne peut pas redescendre"
+    exit 1
+fi
+echo "🔒 Agents : $(cat agent/VERSION), plancher des mises à jour $FLOOR${PREV_FLOOR:+ ($PREV_TAG : $PREV_FLOOR)}"
+
 VERSION_FILES="VERSION hub/package.json hub/package-lock.json web/package.json web/package-lock.json"
 trap 'echo "❌ Échec : version restaurée"; git checkout -- $VERSION_FILES' ERR
 echo "$NEW_VERSION" > VERSION
@@ -280,6 +291,8 @@ GIT_REF=$(git rev-parse --short HEAD)
 
 # Un builder docker-container sait produire et pousser une image multi-arch.
 # Le Dockerfile compile tout sur la plateforme de build : pas besoin de QEMU.
+# SBOM et provenance attachés à l'image (docker buildx imagetools inspect <image> --format '{{json .SBOM}}') ;
+# la promotion les recopie avec le manifeste. Les secrets BuildKit (clé de release) n'y figurent pas.
 docker buildx inspect "$BUILDER" >/dev/null 2>&1 || docker buildx create --name "$BUILDER" --driver docker-container >/dev/null
 
 docker buildx build \
@@ -293,6 +306,8 @@ docker buildx build \
     -t "$DOCKER_USER/$APP_NAME:$NEW_VERSION-dev" \
     -t "$DOCKER_USER/$APP_NAME:$GIT_REF" \
     "${SIGNING[@]}" \
+    --sbom=true \
+    --provenance=mode=max \
     --push \
     .
 git tag "v$NEW_VERSION"

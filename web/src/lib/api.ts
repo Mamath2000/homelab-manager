@@ -350,6 +350,10 @@ export interface Host {
   recentlyInstalled: { name: string; from: string; to: string; at: number; rebootRequired: boolean }[];
   // null: unknown (never connected, or no binary for its architecture)
   agentOutdated: boolean | null;
+  // newer than the agent of this hub, or refuses it (below its version floor): no update offered
+  agentAhead: boolean;
+  // version floor of the updates of a release agent (anti-rollback); null: development agent, or older
+  agentMinVersion: string | null;
   latestAgentVersion: string | null;
   info: HostInfo | null;
   apt: AptReport | null;
@@ -736,7 +740,8 @@ export interface AgentSettings {
   agentPort: number; // TLS port given to the agents (published port of the hub)
   tailscaleHub: string; // hub on the tailnet (host or IP); empty: the Tailscale access network is not offered
   // signed: release signature checked by the agents (unsigned: development build)
-  binaries: { os: 'linux' | 'windows'; arch: string; sha256: string; version: string | null; signed: boolean }[];
+  // floor: version floor embedded in the release agents (anti-rollback), null in a development build
+  binaries: { os: 'linux' | 'windows'; arch: string; sha256: string; version: string | null; signed: boolean; floor: string | null }[];
   tls: {
     agentUrl: string | null; // null: invalid hub URL
     serverPin: string;
