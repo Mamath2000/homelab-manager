@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { omadaCheck, omadaProbe, presentedFingerprint } from '../omada.js';
@@ -161,6 +162,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const id = newRoleId(name, (x) => allRoles().some((r) => r._id === x));
     if (!ROLE_ID_RE.test(id)) return reply.code(400).send({ error: 'nom invalide' });
     await roles.insertOne({ _id: id, type, name, carrier: { kind: req.body.carrier.kind, id: host._id }, config: c, createdAt: new Date() } as DeclaredRole);
+    req.auditNote = { target: { kind: 'role', id, name }, details: { type, carrier: host.name, config: settingsDiff({}, c).values } };
     await rolesSaved([host._id]);
     return reply.code(201).send({ id });
   });
@@ -183,6 +185,10 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const why = (moved || !def.same(current.config, c) ? def.carrierError(host, c) : null) ?? roleConflict(allRoles(), current.type, name, host._id, c, current._id);
     if (why) return reply.code(409).send({ error: why });
     await roles.replaceOne({ _id: current._id }, { ...current, name, carrier: { kind: req.body.carrier?.kind ?? current.carrier.kind, id: host._id }, config: c } as DeclaredRole);
+    req.auditNote = {
+      target: { kind: 'role', id: current._id, name },
+      details: { type: current.type, ...(moved ? { carrier: host.name } : {}), ...(name !== current.name ? { renamed: { from: current.name, to: name } } : {}), ...settingsDiff(current.config, c) },
+    };
     await rolesSaved(moved ? [current.carrier.id, host._id] : [host._id]);
     return { id: current._id };
   });
@@ -193,6 +199,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const uses = await defOf(current.type).uses(current._id);
     if (uses.length) return reply.code(409).send({ error: `utilisé par : ${uses.join(', ')}` });
     await roles.deleteOne({ _id: current._id });
+    req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type } };
     await rolesSaved([current.carrier.id]);
     return reply.code(204).send();
   });

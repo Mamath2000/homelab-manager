@@ -7,6 +7,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 ### Sécurité
 
 - **Proxy non déclaré refusé** : une requête portant des en-têtes `X-Forwarded-*` depuis une adresse absente de `TRUST_PROXY` reçoit `400 untrusted_proxy` (avec l'adresse à déclarer, et un avertissement dans les journaux) au lieu d'être traitée comme venant du proxy. **À faire avant la mise à jour d'un hub derrière un reverse proxy : renseigner `TRUST_PROXY` avec l'adresse du proxy** (`true` garde l'ancien comportement). Les requêtes sans ces en-têtes et le port des agents ne sont pas touchés. (homelab#315)
+- **Journal des actions clés** (constat F-06 de l'audit) : onglet **Journal** de la page Comptes, réservé aux admins, filtrable par utilisateur, type d'action et période. Il trace les connexions (échecs regroupés), comptes, clés d'API, hôtes (ajout, enrôlement, révocation), tâches lancées par un compte, une clé ou Home Assistant, et paramètres modifiés (anciennes et nouvelles valeurs, jamais les secrets). Aucune entrée ne peut être modifiée ni supprimée depuis le hub ; MongoDB les efface au bout d'un an. Les tâches indiquent qui les a lancées. Voir [Journal des actions](docs/comptes.md#journal-des-actions). (homelab#290)
 
 ## 1.2.2 - 2026-11-07
 

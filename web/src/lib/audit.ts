@@ -1,0 +1,51 @@
+import type { AuditCategory } from './api';
+
+// Labels of the journal of the key actions (hub/src/audit.ts).
+export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
+  auth: 'Connexions',
+  account: 'Comptes',
+  apiKey: "Clés d'API",
+  host: 'Hôtes',
+  job: 'Actions',
+  settings: 'Paramètres',
+  setup: 'Standardisation',
+};
+
+const ACTIONS: Record<string, string> = {
+  'auth.login': 'Connexion',
+  'auth.logout': 'Déconnexion',
+  'auth.apiKey': "Clé d'API inconnue",
+  'auth.superadminIssued': 'Mot de passe superadmin émis',
+  'account.create': 'Compte créé',
+  'account.update': 'Compte modifié',
+  'account.delete': 'Compte supprimé',
+  'account.resetPassword': 'Mot de passe réinitialisé',
+  'account.password': 'Mot de passe changé',
+  'apiKey.create': "Clé d'API créée",
+  'apiKey.revoke': "Clé d'API révoquée",
+  'host.create': 'Hôte ajouté',
+  'host.delete': 'Hôte supprimé',
+  'host.enrollCode': "Commande d'installation émise",
+  'host.enroll': 'Agent enrôlé',
+  'host.revoke': 'Agent révoqué',
+  'job.start': 'Tâche lancée',
+  'settings.homeassistant': 'Home Assistant',
+  'settings.agents': 'Agents',
+  'settings.pbs': 'PBS principal',
+  'settings.pbs.token': 'Jeton du PBS principal',
+  'settings.pbs.disconnect': 'PBS principal déconnecté',
+  'settings.pbsRemote': 'PBS de secours',
+  'settings.pbsRemote.token': 'Jeton du PBS de secours',
+  'settings.pbsRemote.disconnect': 'PBS de secours déconnecté',
+  'settings.pve.cluster': 'Cluster Proxmox VE',
+  'settings.pve.token': 'Jeton Proxmox VE',
+  'settings.pve.delete': 'Cluster Proxmox VE retiré',
+  'role.create': 'Rôle créé',
+  'role.update': 'Rôle modifié',
+  'role.delete': 'Rôle supprimé',
+  'setup.standard': 'Standard modifié',
+  'setup.overrides': "Valeurs propres d'un hôte",
+  'setup.accessApply': "Manifeste d'accès appliqué",
+};
+
+export const auditActionLabel = (action: string) => ACTIONS[action] ?? action;
