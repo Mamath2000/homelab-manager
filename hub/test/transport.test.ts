@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import Fastify from 'fastify';
 import { config, parseTrustProxy } from '../src/config.js';
 import { createPki, issueUiCert, UI_CERT_DAYS } from '../src/pki.js';
-import { cookieSecure, isLoopback, registerHttpPolicy, transport } from '../src/transport.js';
+import { cookieSecure, isLoopback, registerHttpPolicy, registerProxyGuard, transport, trustList } from '../src/transport.js';
 import { needsIssue, uiSans } from '../src/uiTls.js';
 
 const LAN = '192.168.1.50';
@@ -157,4 +157,43 @@ test('TLS port: the same app answers, over https, streams included', async (t) =
     });
   assert.deepEqual(JSON.parse(await get('/proto')), { https: true, direct: true, hopClear: false, secure: true });
   assert.equal(await get('/stream'), 'data: 1\n\ndata: 2\n\n');
+});
+
+test('trust list: addresses, ranges and the Fastify keywords', () => {
+  const t = trustList(['192.168.1.20', '10.0.0.0/24', 'loopback']);
+  for (const ip of ['192.168.1.20', '::ffff:192.168.1.20', '10.0.0.77', '127.0.0.1', '::1']) assert.ok(t(ip), ip);
+  for (const ip of ['192.168.1.21', '10.0.1.1', '8.8.8.8', '', undefined]) assert.ok(!t(ip), String(ip));
+  assert.ok(trustList(['uniquelocal'])('172.20.1.1'));
+  assert.ok(!trustList(false)('127.0.0.1'));
+});
+
+function guarded(trust: boolean | string[]) {
+  const app = Fastify({ trustProxy: trust });
+  registerProxyGuard(app, trust);
+  app.get('/t', async (req) => ({ ip: req.ip }));
+  return app;
+}
+
+test('proxy guard: forwarded headers from an undeclared address are refused, like Home Assistant', async () => {
+  const headers = { 'x-forwarded-for': '10.9.9.9', 'x-forwarded-proto': 'https' };
+  // nothing declared (TRUST_PROXY unset): the proxy of Mathieu is refused with a message saying what to do
+  const unset = guarded(false);
+  const refused = await unset.inject({ url: '/t', headers, remoteAddress: PROXY });
+  assert.equal(refused.statusCode, 400);
+  assert.equal(refused.json().error, 'untrusted_proxy');
+  assert.match(refused.json().message, /192\.168\.1\.20.*TRUST_PROXY/);
+  // a plain request, with no proxy headers, is served as before
+  assert.equal((await unset.inject({ url: '/t', remoteAddress: LAN })).statusCode, 200);
+  // a list: the declared proxy goes through (and its client IP is read), another address is refused
+  const list = guarded([PROXY]);
+  const ok = await list.inject({ url: '/t', headers, remoteAddress: PROXY });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().ip, '10.9.9.9');
+  assert.equal((await list.inject({ url: '/t', headers, remoteAddress: LAN })).statusCode, 400);
+  // each header alone is enough to be refused
+  for (const h of ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host']) {
+    assert.equal((await list.inject({ url: '/t', headers: { [h]: 'x' }, remoteAddress: LAN })).statusCode, 400, h);
+  }
+  // TRUST_PROXY=true: the owner trusts every sender
+  assert.equal((await guarded(true).inject({ url: '/t', headers, remoteAddress: LAN })).statusCode, 200);
 });
