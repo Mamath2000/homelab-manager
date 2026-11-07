@@ -9,13 +9,13 @@ export const sectionIcons: Record<SetupSection, LucideIcon> = { system: Server, 
 
 // Sections of the standardisation, in display order.
 export const setupSections: { id: SetupSection; title: string; hint: string; options: SetupOption[] }[] = [
-  { id: 'system', title: 'Système', hint: "S'applique à la machine.", options: ['packages', 'ssh_password'] },
+  { id: 'system', title: 'Système', hint: "S'applique à la machine.", options: ['packages', 'ssh_password', 'user'] },
   { id: 'root', title: 'root', hint: 'Compte root : ses clés, son shell.', options: ['root_keys', 'root_aliases', 'root_prompt', 'root_motd'] },
   {
     id: 'user',
     title: 'Utilisateur',
     hint: 'Compte créé en plus de root, avec ses propres valeurs.',
-    options: ['user', 'user_keys', 'user_aliases', 'user_prompt', 'user_motd'],
+    options: ['user_keys', 'user_aliases', 'user_prompt', 'user_motd'],
   },
 ];
 

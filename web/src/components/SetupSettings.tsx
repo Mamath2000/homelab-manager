@@ -82,11 +82,11 @@ export function SetupSettings() {
 
   const tabs: { id: Tab; label: string; icon: LucideIcon; count?: string }[] = [
     { id: 'general', label: 'Général', icon: Settings2 },
-    ...setupSections.map((sec) => ({
+    ...setupSections.filter((sec) => sec.id !== 'user' || opts.user.enabled).map((sec) => ({
       id: sec.id,
       label: sec.title,
       icon: sectionIcons[sec.id],
-      count: sec.id === 'user' && !opts.user.enabled ? 'aucun' : `${sec.options.filter((k) => opts[k].enabled).length}/${sec.options.length}`,
+      count: `${sec.options.filter((k) => opts[k].enabled).length}/${sec.options.length}`,
     })),
     { id: 'access' as const, label: 'Accès', icon: KeyRound },
     ...(starshipUsed ? [{ id: 'starship' as const, label: 'Starship', icon: Terminal }] : []),
@@ -120,14 +120,7 @@ export function SetupSettings() {
             <>
               <h3 className="text-base font-medium text-zinc-100">{section.title}</h3>
               <p className="text-xs text-muted">{section.hint}</p>
-              {section.id === 'user' ? (
-                <>
-                  {row('user')}
-                  {opts.user.enabled ? section.options.filter((k) => k !== 'user').map(row) : <p className="text-xs text-muted">Aucun utilisateur : seul root est configuré.</p>}
-                </>
-              ) : (
-                section.options.map(row)
-              )}
+              {section.options.map(row)}
             </>
           )}
 

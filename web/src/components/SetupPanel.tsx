@@ -155,6 +155,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
     setDraft(next as SetupOverrides);
   };
   const withUser = hostHasUser(standard.options, overrides);
+  const visibleSections = setupSections.filter((x) => x.id !== 'user' || withUser);
 
   // saves the host values when they changed; false on error
   const save = async () => {
@@ -229,7 +230,8 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   // options that differ from the values of the host, per section
   const sectionDrift = (sec: (typeof setupSections)[number]) =>
     sec.options.filter((k) => isManaged(standard.options, overrides, k) && ['drift', 'error'].includes(checks.get(k)?.state ?? '')).length;
-  const sec = setupSections.find((x) => x.id === tab)!;
+  const activeTab = tab === 'user' && !withUser ? 'system' : tab;
+  const sec = setupSections.find((x) => x.id === activeTab)!;
   // conformity of the host: checked options that are compliant, out of the options managed on the host
   const managedKeys = setupSections.flatMap((x) => x.options).filter((k) => isManaged(standard.options, overrides, k));
   const okCount = managedKeys.filter((k) => checks.get(k)?.state === 'ok').length;
@@ -249,9 +251,9 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
       }
       footer={footer}
     >
-      <div className="flex flex-col text-sm md:flex-row md:gap-5">
-        <nav role="tablist" className="flex shrink-0 gap-1 overflow-x-auto md:w-52 md:flex-col md:overflow-visible">
-          {setupSections.map((x) => {
+      <div className="flex flex-col text-sm md:h-full md:min-h-0 md:flex-row md:gap-5">
+        <nav role="tablist" className="flex shrink-0 gap-1 overflow-x-auto md:min-h-0 md:w-52 md:flex-col md:overflow-visible">
+          {visibleSections.map((x) => {
             const n = sectionDrift(x);
             const Icon = sectionIcons[x.id];
             const total = x.options.filter((k) => isManaged(standard.options, overrides, k)).length;
@@ -261,11 +263,11 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
                 key={x.id}
                 type="button"
                 role="tab"
-                aria-selected={x.id === tab}
+                aria-selected={x.id === activeTab}
                 onClick={() => setTab(x.id)}
                 className={clsx(
                   'flex items-center gap-2 rounded-md px-3 py-2.5 text-left whitespace-nowrap',
-                  x.id === tab ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-muted hover:bg-raised hover:text-zinc-200',
+                  x.id === activeTab ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/30' : 'text-muted hover:bg-raised hover:text-zinc-200',
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
@@ -296,14 +298,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
             <p className="text-xs text-muted">{sec.hint}</p>
           </div>
           <ul className="grid items-start gap-3 md:grid-cols-2">
-            {sec.id === 'user' ? (
-              <>
-                {row('user')}
-                {withUser ? sec.options.filter((k) => k !== 'user').map(row) : <li className="text-xs text-muted md:col-span-2">Aucun utilisateur sur cet hôte : seul root est configuré.</li>}
-              </>
-            ) : (
-              sec.options.map(row)
-            )}
+            {sec.options.map(row)}
           </ul>
           <p className="text-xs text-muted">
             {!canManage && canWrite && <>Valeurs de cet hôte réglées par un administrateur : vérification et application seulement. </>}
