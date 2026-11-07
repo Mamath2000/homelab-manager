@@ -1,6 +1,9 @@
 import { MongoClient, ObjectId, type Collection } from 'mongodb';
 import { config } from './config.js';
-import type { AccessSettings, AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+
+// the journal of the key actions is kept one year, then dropped by Mongo itself (no purge from the hub)
+export const AUDIT_RETENTION_DAYS = 365;
+import type { AccessSettings, AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 // an account given apart from the URL (no escaping of the password); none: the URL as it is (with its own account, if any)
 const client = new MongoClient(
@@ -28,6 +31,7 @@ export let equipments: Collection<EquipmentDoc>;
 export let equipmentAlerts: Collection<EquipmentAlertDoc>;
 export let roles: Collection<StoredRoleDoc>;
 export let omada: Collection<OmadaStateDoc>;
+export let audit: Collection<AuditDoc>;
 
 export async function connectDb() {
   await client.connect();
@@ -52,6 +56,7 @@ export async function connectDb() {
   equipmentAlerts = db.collection('equipmentAlerts');
   roles = db.collection('roles');
   omada = db.collection('omada');
+  audit = db.collection('audit');
 
   await Promise.all([
     hosts.createIndex({ name: 1 }),
@@ -62,6 +67,10 @@ export async function connectDb() {
     // keep 90 days of job history
     jobs.createIndex({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 3600, name: 'jobs_ttl' }),
     users.createIndex({ username: 1 }, { unique: true }),
+    // journal of the key actions (audit.ts): newest first, by actor or category, kept one year
+    audit.createIndex({ 'actor.name': 1, _id: -1 }),
+    audit.createIndex({ category: 1, _id: -1 }),
+    audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_DAYS * 24 * 3600, name: 'audit_ttl' }),
     roles.createIndex({ 'carrier.id': 1 }),
     apiKeys.createIndex({ hash: 1 }, { unique: true }),
     apiKeys.createIndex({ userId: 1 }),

@@ -574,12 +574,54 @@ export interface JobDoc {
   // agent_install: the CT and the host it becomes (the enrollment code is never stored)
   installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
+  // who launched it (manual and Home Assistant jobs; none for the planned ones)
+  by?: JobBy;
   status: JobStatus;
   createdAt: Date;
   finishedAt?: Date;
   exitCode?: number;
   error?: string;
   log: string;
+}
+
+// Who did something, copied into the entry: it stays readable once the account or the key is gone.
+//   user           a session of the UI
+//   apiKey         an API key of an account (name: the account, keyName: the key)
+//   homeassistant  a command received over MQTT (the broker does not say who published it; keyName: its topic)
+//   cli            hm-admin, inside the hub container
+//   agent          an agent (enrollment)
+//   anonymous      nobody logged in (failed login: name is the account tried, when it exists)
+export interface AuditActor {
+  kind: 'user' | 'apiKey' | 'homeassistant' | 'cli' | 'agent' | 'anonymous';
+  id?: ObjectId;
+  name: string | null;
+  profile?: string;
+  keyId?: ObjectId;
+  keyName?: string;
+}
+
+export type JobBy = Pick<AuditActor, 'kind' | 'name' | 'keyName'>;
+
+export const AUDIT_CATEGORIES = ['auth', 'account', 'apiKey', 'host', 'job', 'settings', 'setup'] as const;
+export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
+
+// One key action on the hub (audit.ts): only added, never changed nor removed; Mongo drops it after a year.
+export interface AuditDoc {
+  _id: ObjectId;
+  at: Date;
+  category: AuditCategory;
+  // stable name of the action: 'auth.login', 'account.create', 'settings.pbs'…
+  action: string;
+  actor: AuditActor;
+  // client address (behind a trusted proxy: the one it reports)
+  ip?: string;
+  target?: { kind: string; id?: string; name?: string };
+  // what was done, never a secret (audit.ts: safeDetails)
+  details?: Record<string, unknown>;
+  ok: boolean;
+  error?: string;
+  // grouped entries (failed logins of an address in a minute)
+  count?: number;
 }
 
 export const PROFILES = ['admin', 'operator', 'viewer'] as const;

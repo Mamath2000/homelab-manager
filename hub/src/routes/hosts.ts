@@ -140,6 +140,7 @@ export function registerHostRoutes(app: FastifyInstance) {
         createdAt: new Date(),
       };
       await hosts.insertOne(doc);
+      req.auditNote = { target: { kind: 'host', id: doc._id.toHexString(), name: doc.name } };
       const dto = hostDto(doc);
       publish('host', dto);
       reply.code(201);
@@ -224,8 +225,9 @@ export function registerHostRoutes(app: FastifyInstance) {
     if (_id && (await hosts.countDocuments({ _id, pbsMount: { $exists: true } }))) return reply.code(409).send({ error: 'une sauvegarde est montée sur cet hôte : la démonter d’abord' });
     const carried = carrierDeleteError('host', _id ? carriedBy(_id) : []);
     if (carried) return reply.code(409).send({ error: carried });
-    const res = _id && (await hosts.deleteOne({ _id }));
-    if (!res || res.deletedCount === 0) return reply.code(404).send({ error: 'host not found' });
+    const gone = _id && (await hosts.findOneAndDelete({ _id }, { projection: { name: 1 } }));
+    if (!gone) return reply.code(404).send({ error: 'host not found' });
+    req.auditNote = { target: { kind: 'host', id: req.params.id, name: gone.name } };
     disconnectAgent(req.params.id);
     await jobs.deleteMany({ hostId: _id });
     await healthMetrics.deleteMany({ hostId: _id });
@@ -244,6 +246,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     const enroll = newEnrollCode();
     const updated = await hosts.findOneAndUpdate({ _id }, { $set: enroll.fields }, { returnDocument: 'after' });
     if (!updated) return reply.code(404).send({ error: 'host not found' });
+    req.auditNote = { target: { kind: 'host', id: req.params.id, name: updated.name } };
     publish('host', hostDto(updated));
     return installInfo(req, enroll.code, enroll.expiresAt, updated.accessNetwork);
   });
@@ -258,6 +261,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       { returnDocument: 'after' },
     );
     if (!updated) return reply.code(404).send({ error: 'host not found' });
+    req.auditNote = { target: { kind: 'host', id: req.params.id, name: updated.name } };
     disconnectAgent(req.params.id);
     // the socket closes asynchronously
     const dto = { ...hostDto(updated), online: false };

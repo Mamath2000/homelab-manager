@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { settingsDiff } from '../audit.js';
 import { STORE_RE } from '../backupJobs.js';
 import { backups, settings } from '../db.js';
 import { publish } from '../events.js';
@@ -176,9 +177,11 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
   app.get('/api/settings/pbs-remote', async () => remoteDto(await loadRemoteSettings()));
 
   app.put<{ Body: RemoteBody }>('/api/settings/pbs-remote', { schema: { body: remoteBody } }, async (req, reply) => {
+    const before = await loadRemoteSettings();
     const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     await settings.replaceOne({ _id: 'pbs-remote' }, next, { upsert: true });
+    req.auditNote = { details: settingsDiff(before, next) };
     if (remoteReady(next)) pollOffsite(req.log).catch(() => {});
     // not complete: the agent of the secondary has no series to start
     else syncOffsiteAgent().catch((err) => req.log.warn({ err }, 'offsite series definition not sent'));
@@ -227,6 +230,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
       }
       // the remote entry belongs to the token: written again with the next one
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { agent, store, tokenId: t.tokenId, tokenSecret: t.tokenSecret }, $unset: { remoteHash: '' } }, { upsert: true });
+      req.auditNote = { details: { tokenId: t.tokenId, store, agent, created: t.created, rotated: !!t.rotated } };
       publish('backups', {});
       req.log.info({ tokenId: t.tokenId, store, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'secondary PBS token set by the agent');
       pollOffsite(req.log).catch(() => {});
@@ -250,6 +254,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
         throw err;
       }
       await settings.updateOne({ _id: 'pbs-remote' }, { $set: { readerTokenId: t.tokenId, readerTokenSecret: t.tokenSecret } }, { upsert: true });
+      req.auditNote = { details: { readerTokenId: t.tokenId, created: t.created, rotated: !!t.rotated } };
       publish('backups', {});
       req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'reader token of the main PBS set by the agent');
       pollOffsite(req.log).catch(() => {});

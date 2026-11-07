@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, Trash2, TriangleAlert, Users } from 'lucide-react';
+import { KeyRound, Pencil, Plus, ScrollText, Trash2, TriangleAlert, Users } from 'lucide-react';
 import { api, type Account, type AccountSecret, type ApiKey, type Profile } from '../lib/api';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { Badge, Button, ConfirmModal, CopyField, Modal, ResponsiveList, Spinner } from '../components/ui';
+import { AuditLog } from '../components/AuditLog';
+import { Badge, Button, ConfirmModal, CopyField, Modal, ResponsiveList, Spinner, Tabs } from '../components/ui';
+
+const TABS = [
+  { id: 'accounts' as const, label: 'Comptes', icon: Users },
+  { id: 'journal' as const, label: 'Journal', icon: ScrollText },
+];
 
 const PROFILES: { value: Profile; hint: string }[] = [
   { value: 'admin', hint: 'tout : hôtes, paramètres, comptes' },
@@ -280,6 +286,7 @@ export function Accounts() {
   const [issued, setIssued] = useState<Record<string, string>>({});
   // row whose reset waits for confirmation
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [tab, setTab] = useState<'accounts' | 'journal'>('accounts');
 
   const showIssued = (r: AccountSecret) => setIssued((m) => ({ ...m, [r.user.id]: r.temporaryPassword! }));
   const hideIssued = (id: string) =>
@@ -318,6 +325,10 @@ export function Accounts() {
   return (
     <>
       <HeaderTitle icon={Users} title="Comptes" />
+      {/* the journal is for the admins (the superadmin only manages accounts) */}
+      {!me.isSuperAdmin && <Tabs tabs={TABS} value={tab} onChange={setTab} />}
+      {tab === 'journal' && !me.isSuperAdmin ? <AuditLog /> : (
+      <>
       <div className="mb-4 flex justify-end">
         <Button icon={Plus} variant="primary" onClick={() => setEditing(null)}>Nouveau compte</Button>
       </div>
@@ -481,6 +492,8 @@ export function Accounts() {
       >
         Supprimer définitivement le compte <strong>{deleting?.username}</strong>{deleting?.apiKeys.length ? ` et ses ${deleting.apiKeys.length} clé(s) d'API` : ''} ?
       </ConfirmModal>
+      </>
+      )}
     </>
   );
 }

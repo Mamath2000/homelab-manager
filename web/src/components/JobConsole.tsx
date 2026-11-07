@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import clsx from 'clsx';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import type { Job } from '../lib/api';
-import { jobTitle, dateTime, duration } from '../lib/format';
+import { byLabel, jobTitle, dateTime, duration } from '../lib/format';
 import { useJob } from '../lib/queries';
 import { Spinner } from './ui';
 
@@ -36,6 +36,7 @@ export function JobConsole({ jobId, height = 'h-80', className }: { jobId: strin
           {job.packages.length > 0 && <span className="text-muted">· {job.packages.length} paquet(s)</span>}
         </span>
         <span className="text-muted">
+          {job.by && `par ${byLabel(job.by)} · `}
           {dateTime(job.createdAt)} · {duration(job.createdAt, job.finishedAt)}
           {job.exitCode !== null && job.status !== 'running' && ` · code ${job.exitCode}`}
         </span>

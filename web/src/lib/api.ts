@@ -531,12 +531,47 @@ export interface Job {
   backupJobName?: string | null;
   method?: 'apt' | 'docker' | null;
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
+  // who launched it (manual and Home Assistant jobs)
+  by?: JobBy | null;
   status: JobStatus;
   createdAt: string;
   finishedAt: string | null;
   exitCode: number | null;
   error: string | null;
   log?: string;
+}
+
+// Who did something (hub/src/types.ts AuditActor): keyName is the API key, or the MQTT topic of a Home Assistant command
+export type ActorKind = 'user' | 'apiKey' | 'homeassistant' | 'cli' | 'agent' | 'anonymous';
+export interface JobBy {
+  kind: ActorKind;
+  name: string | null;
+  keyName?: string;
+}
+
+export const AUDIT_CATEGORIES = ['auth', 'account', 'apiKey', 'host', 'job', 'settings', 'setup'] as const;
+export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
+
+// One entry of the journal of the key actions (admins only)
+export interface AuditEntry {
+  id: string;
+  at: string;
+  category: AuditCategory;
+  action: string;
+  actor: { kind: ActorKind; name: string | null; profile: string | null; keyName: string | null };
+  ip: string | null;
+  target: { kind: string; id?: string; name?: string } | null;
+  details: Record<string, unknown> | null;
+  ok: boolean;
+  error: string | null;
+  count: number;
+}
+
+export interface AuditQuery {
+  actor?: string;
+  category?: AuditCategory;
+  from?: string;
+  before?: string;
 }
 
 // Alerts of a host for one day (timeline of the host page): latest observed level of the day in each domain and
@@ -1585,6 +1620,11 @@ export const api = {
   resetPassword: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/reset-password`),
   createApiKey: (id: string, name: string) => request<AccountSecret>('POST', `/api/users/${id}/api-keys`, { name }),
   revokeApiKey: (id: string, keyId: string) => request<void>('DELETE', `/api/users/${id}/api-keys/${keyId}`),
+  audit: (q: AuditQuery) => {
+    const p = new URLSearchParams(Object.entries(q).filter((e): e is [string, string] => e[1] !== undefined));
+    return request<{ entries: AuditEntry[]; next: string | null }>('GET', `/api/audit${p.size ? `?${p}` : ''}`);
+  },
+  auditActors: () => request<{ actors: string[] }>('GET', '/api/audit/actors'),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
   createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; critical?: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
