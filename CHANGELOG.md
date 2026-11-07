@@ -4,6 +4,10 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+### Sécurité
+
+- **Journal des actions clés** (constat F-06 de l'audit) : onglet **Journal** de la page Comptes, réservé aux admins, filtrable par utilisateur, type d'action et période. Il trace les connexions (échecs regroupés), comptes, clés d'API, hôtes (ajout, enrôlement, révocation), tâches lancées par un compte, une clé ou Home Assistant, et paramètres modifiés (anciennes et nouvelles valeurs, jamais les secrets). Aucune entrée ne peut être modifiée ni supprimée depuis le hub ; MongoDB les efface au bout d'un an. Les tâches indiquent qui les a lancées. Voir [Journal des actions](docs/comptes.md#journal-des-actions). (homelab#290)
+
 ## 1.2.2 - 2026-11-07
 
 ### Sécurité

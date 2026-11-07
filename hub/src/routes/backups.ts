@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { settingsDiff } from '../audit.js';
 import { backupJobs, backups, guests, hosts, jobs, parseId, settings } from '../db.js';
 import { isOnline, refreshAgent } from '../agents.js';
 import { publish } from '../events.js';
@@ -131,9 +132,11 @@ export function registerBackupRoutes(app: FastifyInstance) {
   });
 
   app.put<{ Body: SettingsBody }>('/api/settings/pbs', { schema: { body: settingsBody } }, async (req, reply) => {
+    const before = await loadPbsSettings();
     const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
     await settings.replaceOne({ _id: 'pbs' }, next, { upsert: true });
+    req.auditNote = { details: settingsDiff(before, next) };
     if (pbsConnected(next)) pollPbs(req.log).catch(() => {});
     else publish('backups', {});
     // server, fingerprint and image are part of the definition the agents run
@@ -208,6 +211,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
         throw err;
       }
       await settings.updateOne({ _id: 'pbs' }, { $set: { agent, tokenId: t.tokenId, tokenSecret: t.tokenSecret } }, { upsert: true });
+      req.auditNote = { details: { tokenId: t.tokenId, agent, created: t.created, rotated: !!t.rotated } };
       req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PBS monitoring token set by the agent');
       pollPbs(req.log).catch(() => {});
       publish('backups', {});
@@ -531,6 +535,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const fresh = await loadPveSettings();
     const next = { ...conn, ...fresh.clusters.find((c) => c.id === conn.id), ...pick(conn), tokenId: t.tokenId, tokenSecret: t.tokenSecret, agent: { hostId: req.body.hostId } };
     await savePveCluster(next);
+    req.auditNote = { target: { kind: 'pve', id: next.id }, details: { tokenId: t.tokenId, created: t.created, rotated: !!t.rotated } };
     req.log.info({ cluster: next.id, tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PVE token set by the agent');
     pollPve(req.log).catch(() => {});
     return { cluster: pveDto(next), created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed };
@@ -546,6 +551,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const followed = (await pveAlreadyFollowed(s.clusters, next.agent.hostId, next.id)) ?? (await pveMoveError(current, next.agent.hostId));
     if (followed) return reply.code(409).send({ error: followed });
     await savePveCluster({ ...next, agent: next.agent });
+    req.auditNote = { target: { kind: 'pve', id: next.id }, details: settingsDiff(current, next) };
     pollPve(req.log).catch(() => {});
     return pveDto(next);
   });
@@ -566,6 +572,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     }
     req.log.info({ cluster: c.id, tokenId: c.tokenId, deleted: revoked?.deleted, userDeleted: revoked?.userDeleted }, 'PVE cluster removed, token revoked');
     await removePveCluster(c.id);
+    req.auditNote = { target: { kind: 'pve', id: c.id }, details: { tokenId: c.tokenId, revoked: !!revoked?.deleted } };
     pollPve(req.log).catch(() => {});
     return { revoked: revoked?.deleted ? c.tokenId : null, userDeleted: !!revoked?.userDeleted };
   });

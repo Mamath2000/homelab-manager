@@ -3,8 +3,19 @@ import { History } from 'lucide-react';
 import { JobStatusIcon } from '../components/JobConsole';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Empty, ResponsiveList, Spinner, Tag } from '../components/ui';
-import { jobTitle, dateTime, duration } from '../lib/format';
+import { byLabel, jobTitle, dateTime, duration } from '../lib/format';
+import type { Job } from '../lib/api';
 import { useJobs } from '../lib/queries';
+
+// How a job started, and who launched it (manual and Home Assistant jobs)
+function Trigger({ j }: { j: Job }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {j.trigger === 'schedule' ? <Badge tone="info">planifiée</Badge> : j.trigger === 'retry' ? <Badge tone="warn">rejeu</Badge> : j.trigger === 'homeassistant' ? <Badge tone="unknown">Home Assistant</Badge> : j.trigger === 'enroll' ? <Badge tone="info">à l'ajout</Badge> : <Badge>manuelle</Badge>}
+      {j.by && j.by.kind !== 'homeassistant' && <span className="text-xs text-muted">par {byLabel(j.by)}</span>}
+    </span>
+  );
+}
 
 export function Activity() {
   const { data: jobs, isLoading } = useJobs();
@@ -31,7 +42,7 @@ export function Activity() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Tag>{j.hostName}</Tag>
-                  {j.trigger === 'schedule' ? <Badge tone="info">planifiée</Badge> : j.trigger === 'retry' ? <Badge tone="warn">rejeu</Badge> : j.trigger === 'homeassistant' ? <Badge tone="unknown">Home Assistant</Badge> : j.trigger === 'enroll' ? <Badge tone="info">à l'ajout</Badge> : <Badge>manuelle</Badge>}
+                  <Trigger j={j} />
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400">
                   <div><span className="text-muted">Date · </span>{dateTime(j.createdAt)}</div>
@@ -62,7 +73,7 @@ export function Activity() {
                     {j.error && <span className="ml-2 text-xs text-red-400">{j.error}</span>}
                   </td>
                   <td className="td"><Tag>{j.hostName}</Tag></td>
-                  <td className="td">{j.trigger === 'schedule' ? <Badge tone="info">planifiée</Badge> : j.trigger === 'retry' ? <Badge tone="warn">rejeu</Badge> : j.trigger === 'homeassistant' ? <Badge tone="unknown">Home Assistant</Badge> : j.trigger === 'enroll' ? <Badge tone="info">à l'ajout</Badge> : <Badge>manuelle</Badge>}</td>
+                  <td className="td"><Trigger j={j} /></td>
                   <td className="td text-xs text-zinc-400">{dateTime(j.createdAt)}</td>
                   <td className="td text-xs text-zinc-400">{duration(j.createdAt, j.finishedAt)}</td>
                 </tr>

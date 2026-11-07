@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { MongoServerError, ObjectId } from 'mongodb';
+import { settingsDiff } from '../audit.js';
 import { newApiKey, revokeSessions } from '../auth.js';
 import { hashPassword, randomToken } from '../crypto.js';
 import { apiKeys, parseId, users } from '../db.js';
@@ -34,6 +35,8 @@ const username = { type: 'string', minLength: 1, maxLength: 64, pattern: '\\S' }
 const displayName = { type: 'string', maxLength: 64 } as const;
 const profile = { type: 'string', enum: PROFILES } as const;
 const keyName = { type: 'string', maxLength: 64 } as const;
+
+const accountTarget = (u: UserDoc) => ({ kind: 'account', id: u._id.toHexString(), name: u.username });
 
 function reserved(name: string) {
   return name.toLowerCase() === SUPERADMIN;
@@ -96,6 +99,7 @@ export function registerUserRoutes(app: FastifyInstance) {
       };
       try {
         const { insertedId } = await users.insertOne(doc as UserDoc);
+        req.auditNote = { target: { kind: 'account', id: insertedId.toHexString(), name: name }, details: { profile: doc.profile, ...(temp ? {} : { noPassword: true }) } };
         const user = dto({ ...doc, _id: insertedId } as UserDoc);
         return temp ? { user, temporaryPassword: temp.password } : { user };
       } catch (err) {
@@ -130,6 +134,8 @@ export function registerUserRoutes(app: FastifyInstance) {
       try {
         const updated = await users.findOneAndUpdate({ _id: user._id }, { $set: set }, { returnDocument: 'after' });
         if (!updated) return reply.code(404).send({ error: 'user not found' });
+        const pick = (u: UserDoc) => ({ username: u.username, displayName: u.displayName ?? '', profile: u.profile });
+        req.auditNote = { target: accountTarget(user), details: settingsDiff(pick(user), pick(updated)).values };
         // sessions carry no profile, but log the user out so the UI reloads with the new rights
         if (profileChanged) await revokeSessions(user);
         return dto(updated, await userKeys(updated));
@@ -143,6 +149,7 @@ export function registerUserRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>('/api/users/:id', async (req, reply) => {
     const user = await target(req.params.id);
     if (!user) return reply.code(404).send({ error: 'user not found' });
+    req.auditNote = { target: accountTarget(user) };
     if (user._id.equals(req.user!._id)) return reply.code(409).send({ error: 'cannot delete your own account' });
     if (await lastAdmin(user)) return reply.code(409).send({ error: 'cannot delete the last admin' });
     await users.deleteOne({ _id: user._id });
@@ -155,6 +162,7 @@ export function registerUserRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>('/api/users/:id/reset-password', async (req, reply) => {
     const user = await target(req.params.id);
     if (!user) return reply.code(404).send({ error: 'user not found' });
+    req.auditNote = { target: accountTarget(user) };
     const temp = await temporaryPassword();
     await users.updateOne({ _id: user._id }, { $set: temp.fields });
     await revokeSessions(user);
@@ -169,7 +177,8 @@ export function registerUserRoutes(app: FastifyInstance) {
       const user = await target(req.params.id);
       if (!user) return reply.code(404).send({ error: 'user not found' });
       const { key, hash } = newApiKey();
-      await insertKey(user._id, req.body?.name, hash);
+      const doc = await insertKey(user._id, req.body?.name, hash);
+      req.auditNote = { target: accountTarget(user), details: { keyName: doc.name } };
       return { user: dto(user, await userKeys(user)), apiKey: key };
     },
   );
@@ -178,7 +187,8 @@ export function registerUserRoutes(app: FastifyInstance) {
     const user = await target(req.params.id);
     const keyId = parseId(req.params.keyId);
     if (!user || !keyId) return reply.code(404).send({ error: 'key not found' });
-    const { deletedCount } = await apiKeys.deleteOne({ _id: keyId, userId: user._id });
-    return deletedCount ? reply.code(204).send() : reply.code(404).send({ error: 'key not found' });
+    const gone = await apiKeys.findOneAndDelete({ _id: keyId, userId: user._id }, { projection: { name: 1 } });
+    req.auditNote = { target: accountTarget(user), ...(gone ? { details: { keyName: gone.name } } : {}) };
+    return gone ? reply.code(204).send() : reply.code(404).send({ error: 'key not found' });
   });
 }

@@ -89,3 +89,29 @@ session `superadmin` en cours.
 Dans l'application HAOS **Homelab Manager**, tu peux aussi activer **Réinitialiser le mot de passe superadmin au
 démarrage**, enregistrer puis redémarrer l'application. Le nouveau mot de passe apparaît dans son journal et est valable
 15 minutes. Désactive ensuite l'option pour éviter de régénérer le mot de passe au prochain redémarrage.
+
+## Journal des actions
+
+L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions clés sur le hub : **qui a fait quoi**, depuis quelle adresse, avec quel résultat.
+
+| Type d'action | Ce qui est tracé |
+|---|---|
+| Connexions | connexions et déconnexions, échecs (regroupés par adresse et par minute), clé d'API inconnue, mot de passe `superadmin` émis par `hm-admin` |
+| Comptes | création, modification (nom, profil : ancienne → nouvelle valeur), suppression, réinitialisation du mot de passe, changement de son propre mot de passe |
+| Clés d'API | création et révocation (nom de la clé) |
+| Hôtes | ajout, suppression, commande d'installation émise, enrôlement de l'agent (adresse, empreinte du certificat), révocation |
+| Actions | toute tâche lancée par un compte, une clé d'API ou Home Assistant (les tâches planifiées restent dans **Activité**) |
+| Paramètres | Home Assistant, agents, PBS principal et de secours, clusters Proxmox VE, rôles : champs modifiés avec leurs anciennes et nouvelles valeurs |
+| Standardisation | standard, valeurs propres d'un hôte, application du manifeste d'accès |
+
+Chaque entrée garde le nom du compte (et de la clé d'API utilisée) : elle reste lisible après la suppression du compte. Les filtres portent sur l'utilisateur, le type d'action et la période.
+
+- **Aucun secret** n'est enregistré : ni mot de passe, ni secret de jeton, ni code d'enrôlement. Un champ secret modifié apparaît par son seul nom, une clé SSH par son empreinte.
+- **Les entrées ne peuvent être ni modifiées ni supprimées** depuis le hub. MongoDB les efface au bout d'**un an**.
+- Le nom saisi lors d'un échec de connexion n'est gardé que s'il correspond à un compte (sinon : « compte inconnu »), pour ne pas conserver un mot de passe tapé dans le mauvais champ.
+- Les commandes reçues par MQTT apparaissent sous **Home Assistant**, avec leur topic : le broker ne dit pas qui les a publiées.
+- Derrière un reverse proxy, l'adresse enregistrée est celle du client quand le proxy la transmet (`X-Forwarded-For`, déclaré dans `TRUST_PROXY`), sinon celle du proxy (voir [Configuration](configuration.md)).
+
+Le journal protège contre l'abus d'un compte ou d'une clé d'API. Il ne protège pas contre une personne qui accède directement à la base MongoDB.
+
+Les tâches indiquent aussi qui les a lancées (**Activité**, détail d'une tâche).

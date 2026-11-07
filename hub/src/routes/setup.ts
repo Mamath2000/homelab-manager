@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { settingsDiff } from '../audit.js';
 import { isOnline } from '../agents.js';
 import { accessView, syncAccessFile } from '../accessFile.js';
 import { config } from '../config.js';
@@ -111,7 +112,12 @@ export function registerSetupRoutes(app: FastifyInstance) {
     };
     const err = profileError(next);
     if (err) return reply.code(400).send({ error: err });
+    const before = await loadSetupProfile();
     await settings.replaceOne({ _id: 'setup' }, next, { upsert: true });
+    // the options with their values (SSH keys as fingerprints), the rest by name
+    const top = settingsDiff(before, next, ['_id', 'options', 'access']);
+    const opts = settingsDiff(before.options, next.options, [], true);
+    req.auditNote = { details: { changed: [...top.changed, ...opts.changed], values: { ...top.values, ...opts.values } } };
     // conformity is measured against the profile: check every host again
     checkAllHosts().catch((e) => req.log.warn({ err: e }, 'standardisation check failed'));
     const { _id, ...p } = next;
@@ -130,7 +136,7 @@ export function registerSetupRoutes(app: FastifyInstance) {
 
   // Pushes the active manifest to the hosts that manage the access options. Offline hosts keep the old keys
   // (their check shows the difference) until the next application.
-  app.post('/api/settings/access/apply', async (_req, reply) => {
+  app.post('/api/settings/access/apply', async (req, reply) => {
     const access = await loadAccess();
     if (!access) return reply.code(409).send({ error: "aucun manifeste d'accès publié" });
     const p = await loadSetupProfile();
@@ -147,6 +153,7 @@ export function registerSetupRoutes(app: FastifyInstance) {
       await applySetup(host, 'manual', [...ACCESS_OPTIONS]);
       started++;
     }
+    req.auditNote = { details: { serial: access.manifest.serial, signer: access.signer, started, offline } };
     reply.code(202);
     return { started, offline };
   });
@@ -165,6 +172,7 @@ export function registerSetupRoutes(app: FastifyInstance) {
     const err = overridesError(await loadSetupProfile(), req.body.overrides);
     if (err) return reply.code(400).send({ error: err });
     const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { setupOverrides: req.body.overrides } }, { returnDocument: 'after' }))!;
+    req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: settingsDiff(host.setupOverrides, req.body.overrides, [], true) };
     if (canSetup(updated) && isOnline(req.params.id)) {
       checkHostSetup(host._id).catch((e) => req.log.warn({ err: e }, 'standardisation check failed'));
     }

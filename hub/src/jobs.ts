@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { hostBinary } from './agentBinaries.js';
 import { awaitAgent, sendToAgent } from './agents.js';
+import { auditContext, jobBy, recordAudit } from './audit.js';
 import { hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import type { HostDoc, JobAction, JobDoc, SetupOption } from './types.js';
@@ -45,6 +46,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     method: j.method ?? null,
     installTarget: j.installTarget ? { cluster: j.installTarget.cluster, vmid: j.installTarget.vmid, node: j.installTarget.node ?? null, hostId: j.installTarget.hostId.toHexString() } : null,
     trigger: j.trigger,
+    by: j.by ?? null,
     status: j.status,
     createdAt: j.createdAt,
     finishedAt: j.finishedAt ?? null,
@@ -76,7 +78,35 @@ export interface JobTarget {
   installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };
 }
 
+// Who launched a job: the account, key or MQTT command being served (audit.ts), for the manual and Home Assistant
+// jobs only (a planned job started by a request, such as the agent updates once turned on, is the hub's own).
+function launchedBy(trigger: JobDoc['trigger']) {
+  const ctx = auditContext();
+  return ctx && ctx.actor.kind !== 'anonymous' && (trigger === 'manual' || trigger === 'homeassistant') ? ctx : null;
+}
+
+function auditJob(job: JobDoc) {
+  void recordAudit({
+    category: 'job',
+    action: 'job.start',
+    target: { kind: 'host', id: job.hostId.toHexString(), name: job.hostName },
+    details: {
+      job: job._id.toHexString(),
+      action: job.action,
+      ...(job.packages.length ? { packages: job.packages } : {}),
+      ...(job.stack ? { stack: job.stack } : {}),
+      ...(job.service ? { service: job.service } : {}),
+      ...(job.modules ? { modules: job.modules } : {}),
+      ...(job.backupJobName ? { backupJob: job.backupJobName } : {}),
+      ...(job.installTarget ? { install: { cluster: job.installTarget.cluster, vmid: job.installTarget.vmid, node: job.installTarget.node } } : {}),
+    },
+    ok: job.status !== 'failed',
+    error: job.status === 'failed' ? job.error : undefined,
+  });
+}
+
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
+  const by = launchedBy(trigger);
   const job: JobDoc = {
     _id: new ObjectId(),
     hostId: host._id,
@@ -91,6 +121,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     ...(target.method ? { method: target.method } : {}),
     ...(target.installTarget ? { installTarget: target.installTarget } : {}),
     trigger,
+    ...(by ? { by: jobBy(by.actor) } : {}),
     status: 'running',
     createdAt: new Date(),
     log: '',
@@ -124,7 +155,9 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
   } else {
     publish('job', jobDto(job));
   }
-  return (await jobs.findOne({ _id: job._id }))!;
+  const created = (await jobs.findOne({ _id: job._id }))!;
+  if (by) auditJob(created);
+  return created;
 }
 
 // Job run by the hub itself, shown like the others (console, Activité); its caller writes the log
@@ -139,6 +172,7 @@ export async function startHubJob(host: Pick<HostDoc, '_id' | 'name'>, action: J
       return cur;
     }
   }
+  const by = launchedBy(trigger);
   const job: JobDoc = {
     _id: new ObjectId(),
     hostId: host._id,
@@ -147,6 +181,7 @@ export async function startHubJob(host: Pick<HostDoc, '_id' | 'name'>, action: J
     packages: [],
     backupJobName: target.backupJobName,
     trigger,
+    ...(by ? { by: jobBy(by.actor) } : {}),
     status: 'running',
     createdAt: target.createdAt ?? new Date(),
     log: '',
@@ -154,6 +189,7 @@ export async function startHubJob(host: Pick<HostDoc, '_id' | 'name'>, action: J
   await jobs.insertOne(job);
   running.set(job._id.toHexString(), { hostId, log: '', dirty: false, hub: true, since: Date.now() });
   publish('job', jobDto(job));
+  if (by) auditJob(job);
   return job;
 }
 
