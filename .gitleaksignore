@@ -1,0 +1,2 @@
+# False positives of the secret scan (gitleaks fingerprints). tools/captures/server.mjs: fake HAOS token of the screenshot mock server.
+5bc05cbc65c72835ad98cdc8b80f54a8e890d7c5:tools/captures/server.mjs:generic-api-key:240

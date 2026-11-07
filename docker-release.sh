@@ -280,6 +280,8 @@ GIT_REF=$(git rev-parse --short HEAD)
 
 # Un builder docker-container sait produire et pousser une image multi-arch.
 # Le Dockerfile compile tout sur la plateforme de build : pas besoin de QEMU.
+# SBOM et provenance attachés à l'image (docker buildx imagetools inspect <image> --format '{{json .SBOM}}') ;
+# la promotion les recopie avec le manifeste. Les secrets BuildKit (clé de release) n'y figurent pas.
 docker buildx inspect "$BUILDER" >/dev/null 2>&1 || docker buildx create --name "$BUILDER" --driver docker-container >/dev/null
 
 docker buildx build \
@@ -293,6 +295,8 @@ docker buildx build \
     -t "$DOCKER_USER/$APP_NAME:$NEW_VERSION-dev" \
     -t "$DOCKER_USER/$APP_NAME:$GIT_REF" \
     "${SIGNING[@]}" \
+    --sbom=true \
+    --provenance=mode=max \
     --push \
     .
 git tag "v$NEW_VERSION"

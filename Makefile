@@ -1,5 +1,5 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
-.PHONY: help install dev start logs stop agent agent-minor agent-major agent-run build lint fmt test check clean version \
+.PHONY: help install dev start logs stop agent agent-minor agent-major agent-run build lint fmt test check audit clean version \
         docker-build docker-prune release-key access-manifest access-publish \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
@@ -118,6 +118,16 @@ build: agent ## Build complet : agent (Linux amd64 + arm64, Windows amd64), hub,
 	cd web && npm run build
 
 check: lint test build ## Tout ce que lance la CI : lint + tests + build
+
+# govulncheck is built with the toolchain of agent/go.mod: an older Go cannot load the sources of a newer standard library
+GOVULNCHECK_VERSION := v1.9.0
+GOVULNCHECK := $(CURDIR)/agent/.dev/bin/govulncheck
+audit: ## Vulnérabilités connues, bloquant en sévérité élevée : npm audit (dépendances livrées du hub et de l'interface), govulncheck (agent Linux et Windows)
+	cd hub && npm audit --omit=dev --audit-level=high
+	cd web && npm audit --omit=dev --audit-level=high
+	cd agent && GOTOOLCHAIN=$$(awk '/^toolchain/ {print $$2}' go.mod) GOBIN=$(dir $(GOVULNCHECK)) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	cd agent && $(GOVULNCHECK) ./...
+	cd agent && GOOS=windows $(GOVULNCHECK) ./...
 
 clean: ## Supprime les artefacts de build
 	rm -rf agent/dist hub/dist web/dist

@@ -4,6 +4,10 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+### Sécurité
+
+- **CI durcie** : actions GitHub épinglées par SHA, jeton de la CI en lecture seule, contrôles de sécurité à chaque push et pull request (`make audit` : `npm audit` des dépendances livrées du hub et de l'interface, `govulncheck` de l'agent Linux et Windows, bloquants en sévérité élevée ; scan de secrets gitleaks). Scan hebdomadaire des images publiées (hub `latest` et `dev`, client de sauvegarde) avec Grype. Dependabot propose chaque semaine les mises à jour groupées (actions, Go, npm, images de base, compose). Les images de release portent un SBOM et une attestation de provenance. (homelab#295)
+
 ## 1.2.2 - 2026-11-07
 
 ### Sécurité
