@@ -66,7 +66,7 @@ services:
 
   mongo:
     # MongoDB 5+ needs a CPU with AVX; use mongo:4.4 on older hardware.
-    image: mongo:7
+    image: mongo:9
     container_name: homelab-manager-mongo
     restart: unless-stopped
     command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
