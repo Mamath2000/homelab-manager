@@ -45,7 +45,7 @@ import { startScheduler } from './scheduler.js';
 import { startAccessSync } from './accessFile.js';
 import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
-import { registerHttpPolicy } from './transport.js';
+import { registerHttpPolicy, registerProxyGuard } from './transport.js';
 import { startUiTlsServer } from './uiTls.js';
 
 // LOG_FILE: the JSON logs go to stdout and to this file (appended, rotation is up to the host).
@@ -96,6 +96,8 @@ await refreshManaged();
 
 await app.register(cookie);
 
+// first of all: headers from a proxy that is not declared in TRUST_PROXY
+registerProxyGuard(app);
 // before the authentication: the http port sends the browsers to the TLS one, when there is one
 registerHttpPolicy(app);
 

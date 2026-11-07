@@ -1,3 +1,4 @@
+import { BlockList, isIP } from 'node:net';
 import type { TLSSocket } from 'node:tls';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { config } from './config.js';
@@ -56,5 +57,51 @@ export function registerHttpPolicy(app: FastifyInstance) {
       return reply.code(403).send({ error: 'https_required', url });
     }
     if (!api && (req.method === 'GET' || req.method === 'HEAD') && url) return reply.redirect(url + req.url, 308);
+  });
+}
+
+// Proxies: TRUST_PROXY names the machines whose X-Forwarded-* headers are believed. A request carrying those headers
+// from any other address is refused (400), as Home Assistant does with trusted_proxies: a proxy missing from the list
+// would otherwise go unnoticed (every client seen as the proxy, the brute-force limit shared by all).
+const RANGES: Record<string, string[]> = {
+  loopback: ['127.0.0.0/8', '::1'],
+  linklocal: ['169.254.0.0/16', 'fe80::/10'],
+  uniquelocal: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'],
+};
+const FORWARDED = ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host'] as const;
+
+const bare = (ip: string) => (ip.startsWith('::ffff:') ? ip.slice(7) : ip);
+
+// Same notation as Fastify: addresses, CIDR ranges, loopback / linklocal / uniquelocal.
+export function trustList(trust: boolean | string[]) {
+  const list = new BlockList();
+  for (const entry of Array.isArray(trust) ? trust : []) {
+    for (const item of RANGES[entry] ?? [entry]) {
+      const [addr, prefix] = item.split('/');
+      const family = isIP(addr) === 6 ? 'ipv6' : 'ipv4';
+      if (!isIP(addr)) continue;
+      if (prefix === undefined) list.addAddress(addr, family);
+      else list.addSubnet(addr, Number(prefix), family);
+    }
+  }
+  return (ip: string | undefined) => !!ip && list.check(bare(ip), isIP(bare(ip)) === 6 ? 'ipv6' : 'ipv4');
+}
+
+export function registerProxyGuard(app: FastifyInstance, trust: boolean | string[] = config.trustProxy) {
+  // true: any sender is believed (the owner chose so)
+  if (trust === true) return;
+  const trusted = trustList(trust);
+  const warned = new Set<string>();
+  app.addHook('onRequest', async (req, reply) => {
+    const from = req.raw.socket?.remoteAddress;
+    if (!FORWARDED.some((h) => req.headers[h] !== undefined) || trusted(from)) return;
+    if (from && !warned.has(from)) {
+      warned.add(from);
+      req.log.warn({ from }, `TRUST_PROXY: ${from} sends X-Forwarded-* headers but is not a declared proxy: add it to TRUST_PROXY`);
+    }
+    return reply.code(400).send({
+      error: 'untrusted_proxy',
+      message: `Requête d'un reverse proxy non déclaré (${from ?? 'adresse inconnue'}) : ajoutez cette adresse à TRUST_PROXY dans le compose du hub.`,
+    });
   });
 }

@@ -45,7 +45,7 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 | `TZ` | `Europe/Paris` | fuseau du hub : fuseau proposé par défaut pour les [sauvegardes de répertoires](sauvegardes.md#sauvegardes-de-répertoires) (chaque job garde le sien) |
 | `SESSION_DAYS` | `30` | Durée des sessions de l'interface |
 | `COOKIE_SECURE` | *(automatique)* | Absente : cookie de session `Secure` quand la requête arrive en HTTPS (port HTTPS, ou proxy de confiance). `true` : toujours `Secure` (aucune session possible en HTTP). `false` : jamais |
-| `TRUST_PROXY` | `false` | Adresses des reverse proxys (`192.168.1.20`, ou liste `10.0.0.5,192.168.1.0/24`) dont les en-têtes `X-Forwarded-*` sont crus. `true` croit **tout** client : sûr seulement si le port n'est joignable que par le proxy |
+| `TRUST_PROXY` | `false` | Adresses des reverse proxys (`192.168.1.20`, ou liste `10.0.0.5,192.168.1.0/24`) dont les en-têtes `X-Forwarded-*` sont crus. Une requête portant ces en-têtes depuis une autre adresse est **refusée** (`400 untrusted_proxy`, comme Home Assistant avec `trusted_proxies`) : un proxy oublié se voit tout de suite. `true` croit **tout** client : sûr seulement si le port n'est joignable que par le proxy |
 | `HTTPS_PORT` | *(vide)* | Port HTTPS de l'interface, en plus du port HTTP (`4443` en Docker) ; vide : désactivé. Voir [HTTPS natif](#https-natif) |
 | `HTTPS_PUBLIC_PORT` | `HTTPS_PORT` | Port publié du HTTPS, s'il diffère (`8443:4443`) : le port HTTP y redirige |
 | `HTTPS_CERT_FILE` / `HTTPS_KEY_FILE` | *(vide)* | Certificat et clé (PEM) à servir, montés en lecture seule ; vides : certificat émis par le hub |
@@ -59,7 +59,7 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse proxy local (Nginx Proxy Manager, Traefik…) :
 
 - ne pas bufferiser `/api/events` (flux temps réel) ;
-- `TRUST_PROXY=<adresse du proxy>` : le cookie de session devient alors `Secure` tout seul quand le proxy sert en HTTPS. `COOKIE_SECURE=true` le force, et interdit en plus toute session en HTTP direct ;
+- `TRUST_PROXY=<adresse du proxy>` : obligatoire dès que le proxy envoie les en-têtes `X-Forwarded-*` (la plupart le font par défaut, NPM compris), sinon le hub répond `400 untrusted_proxy` avec l'adresse à déclarer, et la raison est écrite dans ses journaux. Le cookie de session devient alors `Secure` tout seul quand le proxy sert en HTTPS. `COOKIE_SECURE=true` le force, et interdit en plus toute session en HTTP direct ;
 - ne publier le port de l'interface que vers le proxy : `127.0.0.1:3000:3000` (proxy sur le même hôte), ou `<IP>:3000:3000` et un pare-feu (proxy sur une autre machine). Un proxy dans le même compose n'a pas besoin de `ports:` ;
 - **proxy sur une autre machine** : le trajet proxy → hub passe en clair sur le réseau. Activer le [HTTPS natif](#https-natif) et faire pointer le proxy en `https://` ; les admins voient un bandeau tant que ce trajet est en clair ;
 - HSTS : à activer dans le proxy (le hub ne l'envoie pas : sur un certificat qu'il émet lui-même, il rendrait l'interface inaccessible) ;
