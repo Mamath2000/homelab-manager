@@ -20,6 +20,8 @@ le canal `dev`.
 ### Ajouté
 
 - **Home Assistant : équipements et appareils de site** : un appareil par équipement (alertes, une entité par sonde, adresse IP), catégorie **Équipements** aux niveaux Standard et Complet, comptés (Équipements, Équipements en alerte) et remontés sur Homelab Manager. Nouvelle case **Regrouper les entités par site** : un appareil par site entre Homelab Manager et ses hôtes / équipements. Voir [Appareils créés](docs/home-assistant.md#appareils-créés). (homelab#250)
+- **Documentation : page « Audit de sécurité »** : bilan, précautions et corrections prévues, voir [Audit de sécurité](docs/audit-securite.md).
+- **Tableau des équipements** : colonnes redimensionnables.
 - **Documentation orientée utilisateur** : README refondu, nouvelles pages [Démarrage rapide](docs/demarrage-rapide.md), [Les notions clés](docs/concepts.md), [Créer des éléments](docs/creer-des-elements.md) et [Suivi des sauvegardes](docs/suivi-des-sauvegardes.md) (Proxmox VE, PBS, Home Assistant OS), nouvelles captures d'écran ; architecture, API et release déplacées dans [Développement](docs/developpement.md).
 - **Régénération des jetons PBS des hôtes** : bouton **Régénérer le jeton** dans la section Accès PBS d'un hôte, et actions groupées, depuis la sélection de la liste
   des hôtes ou sur le PBS principal (Paramètres › Rôles), avec aperçu des cibles. Le nouveau secret garde le même identifiant, est transmis à l'agent sans
@@ -57,6 +59,10 @@ le canal `dev`.
 
 ### Corrigé
 
+- Sondes : quand la cible (ou l'hôte d'exécution) d'une sonde change, l'état et la mesure précédents sont écartés, et une mesure en cours sur l'ancienne cible
+  est ignorée ; la sonde est remesurée au tick suivant.
+- Sauvegardes : le nom d'une archive invalide (lettres, chiffres, `-` et `_`, 64 caractères max) est signalé dans la fenêtre de sauvegarde (onglet Contenu)
+  avant l'enregistrement, au lieu d'un refus du hub.
 - Sonde HTTP : une réponse avec à la fois `Content-Length` et `Transfer-Encoding` (interface web des routeurs Omada) n'est plus
   en échec « Parse Error ».
 
