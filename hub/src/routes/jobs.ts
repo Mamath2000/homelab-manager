@@ -24,7 +24,8 @@ export function registerJobRoutes(app: FastifyInstance) {
     const _id = parseId(req.params.id);
     const job = _id && (await jobs.findOne({ _id }));
     if (!job) return reply.code(404).send({ error: 'job not found' });
-    return jobDto(job, true);
+    // the output of a job may hold secrets (commands, restores): not for read-only accounts
+    return jobDto(job, req.user!.profile !== 'viewer');
   });
 
   // Same action on several hosts at once: full upgrades, or the security updates of each host

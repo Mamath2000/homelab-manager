@@ -316,7 +316,7 @@ export function Stack() {
     ...(canWrite
       ? [
           { id: 'logs' as const, label: 'Logs', icon: ScrollText },
-          { id: 'compose' as const, label: 'Compose', icon: FileCode },
+          ...(canManage ? [{ id: 'compose' as const, label: 'Compose', icon: FileCode }] : []),
         ]
       : []),
     { id: 'history', label: 'Historique', icon: History },
@@ -410,7 +410,7 @@ export function Stack() {
       <Tabs tabs={tabs} value={tabs.some((t) => t.id === tab) ? tab : 'services'} onChange={setTab} />
       {tab === 'logs' && canWrite ? (
         <LogsTab host={host} stack={stack} />
-      ) : tab === 'compose' && canWrite ? (
+      ) : tab === 'compose' && canManage ? (
         <ComposeTab host={host} stack={stack} />
       ) : tab === 'history' ? (
         <HistoryTab host={host} stack={stack} jobId={jobId} setJobId={setJobId} />

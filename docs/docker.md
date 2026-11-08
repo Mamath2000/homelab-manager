@@ -77,7 +77,13 @@ L'agent ne prend jamais un chemin venant du hub : il n'agit que sur les stacks q
 - **Logs** : dernières lignes de la stack (tous les services, triées dans l'ordre chronologique) ou d'un service, avec suivi toutes les 5 secondes.
 - **Compose** : les fichiers compose de la stack tels qu'ils sont sur l'hôte, en lecture seule. Les fichiers d'environnement (`.env`) sont affichés avec leurs **valeurs masquées**.
 
-Logs et fichiers compose peuvent contenir des secrets : ils sont réservés aux rôles **admin** et **operator**. Le rôle **viewer** voit les stacks, leurs états et leurs mises à jour.
+Logs et fichiers compose peuvent contenir des secrets (un mot de passe écrit dans un `compose.yml` n'est pas masqué) :
+
+- les **logs** sont réservés aux rôles **admin** et **operator** ;
+- les **fichiers compose** sont réservés au rôle **admin** ;
+- le **journal (sortie) des jobs**, comme celui d'une mise à jour de stack, n'est pas lisible par le rôle **viewer** : il voit le statut du job, pas sa sortie.
+
+Le rôle **viewer** voit les stacks, leurs états et leurs mises à jour.
 
 ## Tableau de bord
 
