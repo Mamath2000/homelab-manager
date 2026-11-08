@@ -1,11 +1,20 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { History } from 'lucide-react';
 import { JobStatusIcon } from '../components/JobConsole';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Empty, ResponsiveList, Spinner, Tag } from '../components/ui';
-import { byLabel, jobTitle, dateTime, duration } from '../lib/format';
+import { actionLabel, byLabel, jobTitle, dateTime, duration } from '../lib/format';
 import type { Job } from '../lib/api';
 import { useJobs } from '../lib/queries';
+
+const TRIGGERS: { value: Job['trigger']; label: string }[] = [
+  { value: 'manual', label: 'Manuelle' },
+  { value: 'schedule', label: 'Planifiée' },
+  { value: 'retry', label: 'Rejeu' },
+  { value: 'homeassistant', label: 'Home Assistant' },
+  { value: 'enroll', label: 'À l’ajout' },
+];
 
 // How a job started, and who launched it (manual and Home Assistant jobs)
 function Trigger({ j }: { j: Job }) {
@@ -20,17 +29,53 @@ function Trigger({ j }: { j: Job }) {
 export function Activity() {
   const { data: jobs, isLoading } = useJobs();
   const navigate = useNavigate();
+  const [action, setAction] = useState('');
+  const [host, setHost] = useState('');
+  const [trigger, setTrigger] = useState('');
   if (isLoading || !jobs) return <div className="flex justify-center p-20"><Spinner /></div>;
+  const actions = [...new Set(jobs.map((j) => j.action))].sort((a, b) => (actionLabel[a] ?? a).localeCompare(actionLabel[b] ?? b, 'fr'));
+  const hosts = [...new Map(jobs.map((j) => [j.hostId, j.hostName])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1], 'fr'));
+  const filteredJobs = jobs.filter((j) =>
+    (!action || j.action === action) &&
+    (!host || j.hostId === host) &&
+    (!trigger || j.trigger === trigger),
+  );
   return (
     <>
       <HeaderTitle icon={History} title="Activité" />
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <label className="min-w-0">
+          <span className="mb-1 block text-xs text-muted">Type d’action</span>
+          <select className="input w-full" value={action} onChange={(e) => setAction(e.target.value)}>
+            <option value="">Tous</option>
+            {actions.map((value) => <option key={value} value={value}>{actionLabel[value] ?? value}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-xs text-muted">Hôte</span>
+          <select className="input w-full" value={host} onChange={(e) => setHost(e.target.value)}>
+            <option value="">Tous</option>
+            {hosts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        <label className="min-w-0">
+          <span className="mb-1 block text-xs text-muted">Type de déclenchement</span>
+          <select className="input w-full" value={trigger} onChange={(e) => setTrigger(e.target.value)}>
+            <option value="">Tous</option>
+            {TRIGGERS.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+      </div>
       <div className="panel min-w-0">
         {jobs.length === 0 ? (
           <Empty icon={History} title="Aucune tâche">Les recherches et installations de mises à jour apparaîtront ici.</Empty>
+        ) : filteredJobs.length === 0 ? (
+          <Empty icon={History} title="Aucune tâche">Rien ne correspond à ces filtres.</Empty>
         ) : (
           <>
           <ResponsiveList mode="mobile">
-            {jobs.map((j) => (
+            {filteredJobs.map((j) => (
               <Link key={j.id} to={`/jobs/${j.id}`} className="block space-y-3 p-4 transition hover:bg-raised/50">
                 <div className="flex min-w-0 items-start gap-3">
                   <JobStatusIcon status={j.status} />
@@ -64,7 +109,7 @@ export function Activity() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {jobs.map((j) => (
+              {filteredJobs.map((j) => (
                 <tr key={j.id} onClick={() => navigate(`/jobs/${j.id}`)} className="cursor-pointer hover:bg-raised/50">
                   <td className="td"><JobStatusIcon status={j.status} /></td>
                   <td className="td">
