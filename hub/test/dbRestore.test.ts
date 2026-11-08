@@ -8,7 +8,7 @@ import type { JobDoc } from '../src/types.js';
 
 test('dbArchive: pg-<base> and mongo-<base> dumps only', () => {
   assert.deepEqual(dbArchive('mongo-canicoif.pxar.didx'), { kind: 'mongodb', database: 'canicoif', supported: true });
-  assert.deepEqual(dbArchive('pg-nextcloud.pxar.didx'), { kind: 'postgres', database: 'nextcloud', supported: false });
+  assert.deepEqual(dbArchive('pg-nextcloud.pxar.didx'), { kind: 'postgres', database: 'nextcloud', supported: true });
   // the roles dump is not a database
   assert.equal(dbArchive('pg-globals.pxar.didx'), null);
   for (const bad of ['root.pxar.didx', 'mongo-.pxar.didx', 'mongo-a b.pxar.didx', 'mongo-../x.pxar.didx', 'mongo-x.pxar.fidx', 'mongo-x.pxar.didx.blob', `mongo-${'a'.repeat(49)}.pxar.didx`]) {

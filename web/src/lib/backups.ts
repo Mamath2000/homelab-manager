@@ -187,6 +187,12 @@ export const backupKinds: Record<BackupKind, { label: string; title: string }> =
 
 export const databaseKindLabel: Record<DatabaseKind, string> = { postgres: 'PostgreSQL', mongodb: 'MongoDB' };
 
+// A database backup whose dumps can go into a new database: a cluster copy (pg_basebackup) cannot.
+export function canRestoreDatabase(g: Pick<BackupGroup, 'managed'>) {
+  const m = g.managed;
+  return m?.kind === 'mongodb' || (m?.kind === 'postgres' && m.database?.mode !== 'cluster');
+}
+
 export function backupKindOf(g: Pick<BackupGroup, 'source' | 'managed'>): BackupKind {
   if (g.source === 'managed') {
     if (g.managed?.plugin?.name === 'nextcloud') return 'nextcloud';

@@ -10,7 +10,7 @@ import { BackupJobEditModal, CachedJobModal, type JobTab } from './ManagedBackup
 import { NextcloudPluginModal } from './NextcloudPlugin';
 import { ApiError, api, type BackupGroup, type BackupJob, type BackupOrphan, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { type DayVerify, type OffsiteDay, backupClient, backupKind, backupStateMeta, formatBytes, groupLabel, guestLabel, offPbs, offsiteLane, timeline } from '../lib/backups';
+import { type DayVerify, type OffsiteDay, backupClient, backupKind, canRestoreDatabase, backupStateMeta, formatBytes, groupLabel, guestLabel, offPbs, offsiteLane, timeline } from '../lib/backups';
 import { DetailPill } from './OffsiteCopy';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useBackups } from '../lib/queries';
@@ -439,7 +439,7 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                         onClick: () => edit(g.managed!.jobId),
                       },
                       ...(canMount(g) ? [{ icon: FolderOpen, title: 'Monter un snapshot de cette sauvegarde en lecture seule', onClick: () => setMounting(g.id) }] : []),
-                      ...(canMount(g) && g.managed?.kind === 'mongodb' ? [{ icon: DatabaseZap, title: 'Restaurer une base dans une nouvelle base', onClick: () => setDbRestoring(g.id) }] : []),
+                      ...(canMount(g) && canRestoreDatabase(g) ? [{ icon: DatabaseZap, title: 'Restaurer une base dans une nouvelle base', onClick: () => setDbRestoring(g.id) }] : []),
                       { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                       {
                         icon: Trash2,

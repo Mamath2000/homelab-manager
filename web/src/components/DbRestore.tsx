@@ -79,6 +79,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   const authOk = !!cont && (!cont.needsAuth || (!!username && !!password));
 
   const input = () => ({
+    kind,
     hostId: hostId!,
     container: container!,
     target,
@@ -174,7 +175,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           </div>
         </Step>
 
-        <Step n={3} title="Cible" state={states[2]} intro="Hôtes pouvant recevoir le dump : agent à jour, montage possible et conteneur MongoDB (mongorestore). Les identifiants du job de sauvegarde de l’hôte sont réutilisés.">
+        <Step n={3} title="Cible" state={states[2]} intro={kind === 'postgres' ? 'Hôtes pouvant recevoir le dump : agent à jour, montage possible et serveur PostgreSQL local (pg_restore).' : 'Hôtes pouvant recevoir le dump : agent à jour, montage possible et conteneur MongoDB (mongorestore). Les identifiants du job de sauvegarde de l’hôte sont réutilisés.'}>
           {archive && <Loading q={targets} />}
           <div className={listCls}>
             {valid.map((h) => (
@@ -182,10 +183,10 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
                 <p className="text-xs font-medium text-zinc-200">{h.name}</p>
                 {h.containers.map((c) => (
                   <Choice key={c.container} selected={h.id === hostId && c.container === container} onClick={() => { setHostId(h.id); setContainer(c.container); setCheck(null); }}>
-                    <span className="font-mono">{c.container}</span>
+                    <span className="font-mono">{kind === 'postgres' ? 'Serveur PostgreSQL local' : c.container}</span>
                     <span className="block text-[11px] text-muted">
                       {c.image}
-                      {c.jobId ? ` · identifiants du job « ${c.jobName} »` : c.needsAuth ? ' · identifiants à saisir' : ' · sans authentification'}
+                      {kind === 'postgres' ? ' · authentification locale (utilisateur postgres)' : c.jobId ? ` · identifiants du job « ${c.jobName} »` : c.needsAuth ? ' · identifiants à saisir' : ' · sans authentification'}
                     </span>
                   </Choice>
                 ))}

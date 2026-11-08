@@ -562,7 +562,7 @@ export type JobStatus = 'running' | 'success' | 'failed';
 
 // What a db_restore job is about, shown in Activité.
 export interface DbRestoreInfo {
-  kind: 'mongodb';
+  kind: 'mongodb' | 'postgres';
   source: string; // database in the dump
   target: string; // new database
   container?: string;

@@ -14,7 +14,7 @@ import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, IconGroup, Modal, ResponsiveList, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { backupKind, backupKindOf, backupKinds, backupStateMeta, type BackupKind, countLabel, formatBytes, groupLabel, hoursLabel, databaseJobText, offPbs, rhythmLabel, scheduleLabel, thresholdSourceLabel, UNLISTED_TITLE } from '../lib/backups';
+import { backupKind, backupKindOf, canRestoreDatabase, backupKinds, backupStateMeta, type BackupKind, countLabel, formatBytes, groupLabel, hoursLabel, databaseJobText, offPbs, rhythmLabel, scheduleLabel, thresholdSourceLabel, UNLISTED_TITLE } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { useBackups, useBackupStats, useHosts } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -329,7 +329,7 @@ export function Backups() {
                                   title: 'Monter un snapshot de cette sauvegarde en lecture seule',
                                   onClick: () => setMounting(g.id),
                                 }] : []),
-                                ...(canMount && g.managed?.kind === 'mongodb' ? [{
+                                ...(canMount && canRestoreDatabase(g) ? [{
                                   icon: DatabaseZap,
                                   title: 'Restaurer une base dans une nouvelle base',
                                   onClick: () => setRestoring(g.id),
@@ -454,7 +454,7 @@ export function Backups() {
                                       title: 'Monter un snapshot de cette sauvegarde en lecture seule',
                                       onClick: () => setMounting(g.id),
                                     }] : []),
-                                    ...(canMount && g.managed?.kind === 'mongodb' ? [{
+                                    ...(canMount && canRestoreDatabase(g) ? [{
                                       icon: DatabaseZap,
                                       title: 'Restaurer une base dans une nouvelle base',
                                       onClick: () => setRestoring(g.id),

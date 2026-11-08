@@ -533,7 +533,7 @@ export interface Job {
   backupJobName?: string | null;
   method?: 'apt' | 'docker' | null;
   // db_restore: what is restored where (hub/src/dbRestore.ts)
-  dbRestore?: { kind: 'mongodb'; source: string; target: string; container?: string } | null;
+  dbRestore?: { kind: 'mongodb' | 'postgres'; source: string; target: string; container?: string } | null;
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
   // who launched it (manual and Home Assistant jobs)
   by?: JobBy | null;
@@ -1012,6 +1012,7 @@ export interface DbRestoreTarget {
   reason: string | null;
 }
 export interface DbRestoreTargetInput {
+  kind?: DbKind;
   hostId: string;
   container: string;
   jobId?: string;

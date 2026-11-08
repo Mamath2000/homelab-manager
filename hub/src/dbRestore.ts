@@ -13,12 +13,12 @@ import type { BackupJobDoc, DatabaseDump, DbRestoreInfo, HostDoc, PbsMountSource
 // overwritten: a target name that already exists is refused here (the check shown to the user) and again by
 // the agent right before it restores. The restore itself is a job of the agent (db_restore, log in Activité);
 // the mount is removed and the token revoked once the job is over (pbsMount.ts, restoreJobId).
-// MongoDB first; PostgreSQL follows with the same flow.
+// MongoDB (a container of the target) and PostgreSQL (the local server of the target): the same flow.
 
 export class DbRestoreError extends Error {}
 
 export type DbKind = 'mongodb' | 'postgres';
-export const SUPPORTED: DbKind[] = ['mongodb'];
+export const SUPPORTED: DbKind[] = ['mongodb', 'postgres'];
 
 export const DB_ARCHIVE_RE = /^(pg|mongo)-([A-Za-z0-9_][A-Za-z0-9_-]{0,47})\.pxar\.didx$/;
 
@@ -36,13 +36,14 @@ export function dbArchive(name: string) {
 export async function restorableGroups(source: PbsMountSource) {
   const list = await mountableGroups(source);
   const docs = await backups.find({ _id: { $in: list.map((g) => g.id) } }, { projection: { managed: 1 } }).toArray();
-  const kinds = new Map(docs.map((d) => [d._id, d.managed?.kind]));
+  const managed = new Map(docs.map((d) => [d._id, d.managed]));
   return list
     .filter((g) => {
-      const k = kinds.get(g.id);
-      return k === 'mongodb' || k === 'postgres';
+      const m = managed.get(g.id);
+      // a physical copy of the cluster (pg-cluster) cannot go into a new database
+      return (m?.kind === 'mongodb' || m?.kind === 'postgres') && !(m.kind === 'postgres' && m.database?.mode === 'cluster');
     })
-    .map((g) => ({ ...g, kind: kinds.get(g.id) as DbKind, supported: SUPPORTED.includes(kinds.get(g.id) as DbKind) }));
+    .map((g) => ({ ...g, kind: managed.get(g.id)!.kind as DbKind, supported: SUPPORTED.includes(managed.get(g.id)!.kind as DbKind) }));
 }
 
 // Snapshots of a group with only their database dumps (one archive per database).
@@ -92,7 +93,7 @@ export function targetReason(h: Pick<HostDoc, 'name' | 'capabilities'>) {
 export async function restoreTargets(kind: DbKind) {
   if (!SUPPORTED.includes(kind)) throw new DbRestoreError(`restauration ${kind} pas encore disponible`);
   const list = await hosts.find({ capabilities: { $in: ['db_restore', 'backup_database', 'pbs_mount'] } }).sort({ name: 1 }).toArray();
-  const jobs = await backupJobs.find({ hostId: { $in: list.map((h) => h._id) }, kind: 'mongodb' }).toArray();
+  const jobs = kind === 'mongodb' ? await backupJobs.find({ hostId: { $in: list.map((h) => h._id) }, kind: 'mongodb' }).toArray() : [];
   return Promise.all(
     list.map(async (h) => {
       const id = h._id.toHexString();
@@ -107,7 +108,7 @@ export async function restoreTargets(kind: DbKind) {
           const j = mine.find((x) => x.database?.container === c.container);
           return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: j ? !!j.database?.username : !!c.needsAuth, needsAuth: !j && !!c.needsAuth };
         });
-        return { ...base, online: true, containers, reason: containers.length ? null : 'aucun conteneur MongoDB avec mongorestore' };
+        return { ...base, online: true, containers, reason: containers.length ? null : kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : 'aucun serveur PostgreSQL local' };
       } catch (err) {
         return { ...base, online: true, containers: [] as RestoreContainer[], reason: (err as Error).message };
       }
@@ -118,8 +119,9 @@ export async function restoreTargets(kind: DbKind) {
 // --- connection to the target server -------------------------------------------------------
 
 export interface TargetInput {
+  kind?: DbKind; // default mongodb
   hostId: string;
-  container: string;
+  container: string; // postgres: the local server, nothing to choose
   // reuse the credentials of a backup job of this host (preferred), or give them (kept in memory for the call only)
   jobId?: string;
   username?: string;
@@ -133,6 +135,11 @@ async function connection(input: TargetInput): Promise<{ host: HostDoc; database
   const host = hostId ? await hosts.findOne({ _id: hostId }) : null;
   if (!host) throw new DbRestoreError('hôte cible introuvable');
   if (!canRestore(host)) throw new DbRestoreError(`l'agent de ${host.name} ne sait pas restaurer une base`);
+  // PostgreSQL: the local server of the host, by peer authentication: no container, no credential
+  if ((input.kind ?? 'mongodb') === 'postgres') {
+    if (input.jobId || input.username || input.password || input.authSource) throw new DbRestoreError('PostgreSQL : serveur local, rien à fournir');
+    return { host, database: { databases: [], workDir: '', keep: 0 } };
+  }
   if (!CONTAINER_RE.test(input.container)) throw new DbRestoreError('conteneur invalide');
   if (input.jobId) {
     const jobId = parseId(input.jobId);
@@ -171,13 +178,13 @@ export async function checkRestore(input: TargetInput & { target: string; size?:
     const r = await agentRequest<{ tools: string; databases: { name: string; size: number }[]; exists: boolean; free: number; freeTmp: number }>(
       host._id.toHexString(),
       'db_restore_check',
-      { backupKind: 'mongodb', database, restoreTarget: input.target },
+      { backupKind: input.kind ?? 'mongodb', database, restoreTarget: input.target },
       75_000,
     );
     // the dump is copied in /tmp of the container, then restored in the data directory: room for both
     const size = input.size ?? 0;
     const short = size && ((r.free >= 0 && r.free < size) || (r.freeTmp >= 0 && r.freeTmp < size)) ? 'place libre insuffisante (données et /tmp du conteneur)' : null;
-    const error = r.exists ? `la base ${input.target} existe déjà sur ${input.container} : rien n'est écrasé` : short;
+    const error = r.exists ? `la base ${input.target} existe déjà sur ${(input.kind ?? 'mongodb') === 'postgres' ? 'le serveur PostgreSQL' : input.container} : rien n'est écrasé` : short;
     return { ok: !error, tools: r.tools, databases: r.databases, exists: r.exists, free: r.free, freeTmp: r.freeTmp ?? -1, error };
   } catch (err) {
     return { ok: false, tools: '', databases: [], exists: false, free: -1, freeTmp: -1, error: (err as Error).message };
@@ -196,16 +203,17 @@ export interface RestoreInput extends TargetInput {
 
 export async function startRestore(input: RestoreInput, log?: FastifyBaseLogger) {
   const arch = dbArchive(input.archive);
-  if (!arch || !arch.supported) throw new DbRestoreError('archive de base non restaurable (pg-<base> ou mongo-<base>, MongoDB pour l’instant)');
+  if (!arch || !arch.supported) throw new DbRestoreError('archive de base non restaurable (pg-<base> ou mongo-<base>)');
   // the group must be a database backup of this kind
   const group = (await restorableGroups(input.source)).find((g) => g.id === input.groupId);
   if (!group || group.kind !== arch.kind) throw new DbRestoreError('sauvegarde de base introuvable');
   // checked again now, whatever the dialog showed, with the size of the dump as the PBS has it
   const snap = (await restorableSnapshots(input.source, input.groupId)).find((s) => s.time === input.time);
   const size = snap?.archives.find((a) => a.name === input.archive)?.size ?? undefined;
-  const check = await checkRestore({ ...input, ...(size ? { size } : {}) });
+  const kinded = { ...input, kind: arch.kind };
+  const check = await checkRestore({ ...kinded, ...(size ? { size } : {}) });
   if (!check.ok) throw new DbRestoreError(check.error ?? 'vérification de la cible en échec');
-  const { host, database } = await connection(input);
+  const { host, database } = await connection(kinded);
   const hostId = host._id.toHexString();
 
   // named by the mount from the start: whatever happens to the hub from here, the mount knows why it exists
@@ -215,13 +223,13 @@ export async function startRestore(input: RestoreInput, log?: FastifyBaseLogger)
   } catch (err) {
     throw err instanceof PbsMountError ? new DbRestoreError(err.message) : err;
   }
-  const info: DbRestoreInfo = { kind: 'mongodb', source: arch.database, target: input.target, container: input.container };
+  const info: DbRestoreInfo = { kind: arch.kind, source: arch.database, target: input.target, ...(arch.kind === 'mongodb' ? { container: input.container } : {}) };
   try {
     const mountRoot = (await loadPbsSettings()).mountRoot ?? '/srv/pbs-restore';
     const job = await createJob(host, 'db_restore', [], 'manual', {
       jobId,
       dbRestoreInfo: info,
-      dbRestore: { kind: 'mongodb', database, source: arch.database, target: input.target, mountRoot },
+      dbRestore: { kind: arch.kind, database, source: arch.database, target: input.target, mountRoot },
     });
     log?.info({ host: host.name, source: arch.database, target: input.target }, 'database restore started');
     // a job that already ended (refused at once, agent gone) before the mount could tell: unmounted now

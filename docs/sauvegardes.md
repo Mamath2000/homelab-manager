@@ -242,15 +242,15 @@ Une sauvegarde de CT non privilégié garde les propriétaires **vus depuis l'h�
 
 ## Restaurer une base dans une nouvelle base
 
-À partir d'un dump de base sauvegardé par Homelab Manager (jobs **Base MongoDB**, voir [Sauvegardes de bases de données](#sauvegardes-de-bases-de-données)), restaure ce dump dans une **nouvelle base** d'un **autre hôte**, en lisant le dump par le [montage en lecture seule](#monter-une-sauvegarde-lecture-seule). La base d'origine n'est jamais touchée, et **rien n'est jamais écrasé** sur la cible.
+À partir d'un dump de base sauvegardé par Homelab Manager (jobs **Base MongoDB** et **Base PostgreSQL par base**, voir [Sauvegardes de bases de données](#sauvegardes-de-bases-de-données)), restaure ce dump dans une **nouvelle base** d'un **autre hôte**, en lisant le dump par le [montage en lecture seule](#monter-une-sauvegarde-lecture-seule). La base d'origine n'est jamais touchée, et **rien n'est jamais écrasé** sur la cible.
 
-- **MongoDB uniquement pour l'instant** ; PostgreSQL suit avec le même déroulement.
+- **MongoDB** (un conteneur de la cible) et **PostgreSQL** (le serveur local de la cible), avec le même déroulement. Un job PostgreSQL en mode **cluster complet** (`pg-cluster`, copie physique) n'est pas restaurable dans une nouvelle base : pas d'icône. Les rôles (`pg-globals`) ne sont pas appliqués.
 - Administrateurs seulement (les pages de lecture de cette fonction aussi : elles font exécuter des commandes aux agents).
 - **Un seul montage ou restauration à la fois** dans tout le hub, comme pour le montage.
 
 ### Restaurer
 
-Page Sauvegardes ou fiche de l'hôte › icône de restauration de base sur la ligne d'une sauvegarde MongoDB : une fenêtre en quatre étapes.
+Page Sauvegardes ou fiche de l'hôte › icône de restauration de base sur la ligne d'une sauvegarde de base (MongoDB, PostgreSQL par base) : une fenêtre en quatre étapes.
 
 1. **Snapshot** : lus à l'instant sur le PBS qui détient la sauvegarde (principal, sinon secours). Seuls ceux qui contiennent un dump de base sont proposés.
 2. **Dump** : une archive `mongo-<base>` par base sauvegardée. Une archive chiffrée n'est pas restaurable sans sa clé.
@@ -265,7 +265,15 @@ Page Sauvegardes ou fiche de l'hôte › icône de restauration de base sur la l
 - L'agent copie le dump dans `/tmp` du conteneur (`docker cp`), **relit la liste des bases juste avant** de restaurer et refuse si le nom est apparu entre-temps, puis lance `mongorestore --nsInclude <base>.* --nsFrom <base>.$coll$ --nsTo <nouvelle>.$coll$`. Les commandes sont figées dans l'agent, les noms validés côté hub et côté agent.
 - Le mot de passe passe dans un fichier temporaire `0600` du conteneur (`/tmp/homelab-agent-restore.yaml`, distinct de celui des sauvegardes) créé par stdin, jamais dans les arguments ni les journaux. Le dump copié et ce fichier sont supprimés en fin de restauration, réussie ou non.
 - Le **montage est démonté et le jeton révoqué** à la fin du job, réussite ou échec (agent déconnecté et redémarrage du hub compris : un montage de restauration dont le job n'apparaît pas au bout de 10 minutes est abandonné). Pendant le job, le bandeau de montage indique la restauration en cours et **n'a plus de bouton Démonter** (le hub le refuse aussi) ; il reprend le bouton **Réessayer** si le démontage automatique n'a pas pu aboutir (agent hors ligne).
-- En cas d'échec en cours de route, la **base partielle est laissée en place** et le journal le dit : à supprimer à la main avant de recommencer.
+- MongoDB : en cas d'échec en cours de route, la **base partielle est laissée en place** et le journal le dit : à supprimer à la main avant de recommencer (PostgreSQL : supprimée automatiquement, voir plus bas).
+
+### PostgreSQL
+
+- **Cible** : le serveur PostgreSQL **local** de l'hôte (outils `pg_restore`, `createdb`, `dropdb`, `psql` et `runuser`), en tant qu'utilisateur `postgres` sur la socket : aucun identifiant à fournir.
+- Le montage du PBS n'est lisible que par root : l'agent **copie d'abord le dump** dans le répertoire de l'utilisateur `postgres` (`hlm-restore-<base>`, supprimé en fin de job), ce qui demande autant de place libre que le dump. L'étape de vérification contrôle la place du volume des données et celle de cette copie.
+- Avant de créer quoi que ce soit, le job refuse si le dump vient d'un serveur PostgreSQL de version majeure **plus récente** que la cible, si une **extension** du dump manque sur la cible (`pg_available_extensions`), ou si le dump utilise **TimescaleDB** (sa restauration demande une procédure dédiée, non prise en charge).
+- `createdb` crée la base (il refuse un nom existant : rien n'est écrasé, la casse compte), puis `pg_restore -Fd -j <n> --no-owner --no-privileges --exit-on-error` (n = nombre de processeurs, 4 au plus). Les objets appartiennent à l'utilisateur `postgres` de la cible : les rôles du dump ne sont pas nécessaires et ne sont pas recréés ; `postgres`, `template0` et `template1` ne sont pas acceptés comme nom de la nouvelle base.
+- **En cas d'échec en cours de route, la base créée pour la restauration est supprimée** (`dropdb`) : l'agent vient de la créer, elle ne contenait rien d'autre. Si elle ne peut pas l'être, le journal le dit.
 
 ## Déconnecter un PBS ou un cluster
 

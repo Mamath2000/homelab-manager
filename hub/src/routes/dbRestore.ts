@@ -22,7 +22,7 @@ const checkBody = {
   type: 'object',
   additionalProperties: false,
   required: ['hostId', 'container', 'target'],
-  properties: { ...targetProps, size: { type: 'integer', minimum: 0 } },
+  properties: { ...targetProps, kind: { type: 'string', enum: ['mongodb', 'postgres'] }, size: { type: 'integer', minimum: 0 } },
 } as const;
 
 const startBody = {

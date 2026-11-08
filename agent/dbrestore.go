@@ -41,21 +41,39 @@ type DbRestoreCheck struct {
 	Candidates []DbRestoreCandidate `json:"candidates,omitempty"` // no container given: the containers that could restore
 }
 
-// validateDbRestoreTarget: the name of the new database and, for MongoDB, the connection settings.
+// validateDbRestoreTarget: the name of the new database and the connection settings of its kind: a MongoDB
+// container, or the local PostgreSQL server (nothing to give).
 func validateDbRestoreTarget(kind string, p *DatabaseDump, target string) error {
-	if kind != "mongodb" {
-		return fmt.Errorf("restore of %q: not supported yet", kind)
-	}
-	if target != "" && (!dbNameRe.MatchString(target) || reservedDatabase(target)) {
+	if target != "" && (!dbNameRe.MatchString(target) || reservedTarget(kind, target)) {
 		return fmt.Errorf("invalid database name %q", target)
 	}
-	// same rules as the dump for the connection settings; no work directory nor database list here
-	q := *p
-	q.WorkDir, q.Keep, q.Databases = "/var/lib/homelab-restore", 0, nil
-	if q.Container == "" {
-		return nil // candidates only
+	switch kind {
+	case "mongodb":
+		// same rules as the dump for the connection settings; no work directory nor database list here
+		q := *p
+		q.WorkDir, q.Keep, q.Databases = "/var/lib/homelab-restore", 0, nil
+		if q.Container == "" {
+			return nil // candidates only
+		}
+		return validateDatabaseSettings(kind, &q, false)
+	case "postgres":
+		if p.Container != "" || p.Username != "" || p.Password != "" || p.AuthSource != "" || len(p.Databases) != 0 {
+			return errors.New("postgres: local server only")
+		}
+		return nil
 	}
-	return validateDatabaseSettings(kind, &q, false)
+	return fmt.Errorf("restore of %q: not supported yet", kind)
+}
+
+// reservedTarget: names a new database may not take (system databases of the kind).
+func reservedTarget(kind, name string) bool {
+	switch strings.ToLower(name) {
+	case "admin", "local", "config":
+		return kind == "mongodb"
+	case "postgres", "template0", "template1":
+		return kind == "postgres"
+	}
+	return false
 }
 
 // mongoCandidates: running containers whose image looks like MongoDB and that have mongorestore.
@@ -81,15 +99,6 @@ func mongoCandidates(ctx context.Context) []DbRestoreCandidate {
 		out = append(out, DbRestoreCandidate{Container: name, Image: image, NeedsAuth: aerr != nil})
 	}
 	return out
-}
-
-// reservedDatabase: the system databases of MongoDB, never a source nor a target (names compared without case).
-func reservedDatabase(name string) bool {
-	switch strings.ToLower(name) {
-	case "admin", "local", "config":
-		return true
-	}
-	return false
 }
 
 // hasDatabase: the name is taken on the server. MongoDB refuses two names that differ by case only.
@@ -126,6 +135,9 @@ func checkDbRestore(ctx context.Context, kind string, p *DatabaseDump, target st
 	}
 	if err := validateDbRestoreTarget(kind, p, target); err != nil {
 		return nil, err
+	}
+	if kind == "postgres" {
+		return checkPostgresRestore(ctx, p, target)
 	}
 	if p.Container == "" {
 		return &DbRestoreCheck{Databases: []DatabaseInfo{}, Free: -1, FreeTmp: -1, Candidates: mongoCandidates(ctx)}, nil
@@ -182,10 +194,11 @@ func validateDbRestore(s *DbRestoreSpec) error {
 	if err := validateDbRestoreTarget(s.Kind, s.Database, s.Target); err != nil {
 		return err
 	}
-	if s.Database.Container == "" {
+	if s.Kind == "mongodb" && s.Database.Container == "" {
 		return errors.New("mongodb: container required")
 	}
-	if !dbNameRe.MatchString(s.Source) || !dbNameRe.MatchString(s.Target) || reservedDatabase(s.Source) || reservedDatabase(s.Target) {
+	// the source is a name inside the dump (a PostgreSQL dump of "postgres" is fine); MongoDB never restores a system database
+	if !dbNameRe.MatchString(s.Source) || !dbNameRe.MatchString(s.Target) || reservedTarget(s.Kind, s.Target) || (s.Kind == "mongodb" && reservedTarget(s.Kind, s.Source)) {
 		return errors.New("invalid database name")
 	}
 	if s.MountRoot != "" && !validPbsMountRoot(s.MountRoot) {
@@ -205,6 +218,9 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 		return errors.New("a restore is already running on this host")
 	}
 	defer dbRestoreMu.Unlock()
+	if s.Kind == "postgres" {
+		return runPostgresRestore(ctx, s, emit)
+	}
 	p := s.Database
 	emit = mongoSafeEmit(emit, p.Password)
 
