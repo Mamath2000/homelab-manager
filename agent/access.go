@@ -626,6 +626,7 @@ func inventoryKeys(account, home string, managed []string) []AuthorizedKey {
 		known[id] = true
 	}
 	out := []AuthorizedKey{}
+	seen := map[string]bool{}
 	for _, l := range strings.Split(cur, "\n") {
 		typ, b64, comment, opts, ok := parseAuthorizedLine(l)
 		if !ok {
@@ -635,7 +636,12 @@ func inventoryKeys(account, home string, managed []string) []AuthorizedKey {
 		if err != nil {
 			continue
 		}
-		out = append(out, AuthorizedKey{Account: account, Type: typ, Fingerprint: blobFingerprint(raw), Comment: comment, Options: opts, Managed: known[typ+" "+b64]})
+		fp := blobFingerprint(raw)
+		if seen[fp] { // a key repeated in the file is one key (the id of the list is account + fingerprint)
+			continue
+		}
+		seen[fp] = true
+		out = append(out, AuthorizedKey{Account: account, Type: typ, Fingerprint: fp, Comment: comment, Options: opts, Managed: known[typ+" "+b64]})
 	}
 	return out
 }

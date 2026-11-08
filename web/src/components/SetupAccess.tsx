@@ -184,7 +184,10 @@ export function HostAccessKeys({ host, account }: { host: Host; account: 'root' 
   const updateHost = useUpdateHostCache();
   const [busy, setBusy] = useState<string | null>(null);
   if (!access) return null;
-  const keys: AccessKey[] = access.keys.filter((k) => (account === 'root' ? k.account === 'root' : k.account !== 'root'));
+  // one entry per account + fingerprint (it is the row key; older agents report a repeated line twice)
+  const keys: AccessKey[] = access.keys
+    .filter((k) => (account === 'root' ? k.account === 'root' : k.account !== 'root'))
+    .filter((k, i, all) => all.findIndex((o) => o.account === k.account && o.fingerprint === k.fingerprint) === i);
   const fresh = keys.filter((k) => !k.managed && !k.acknowledged);
   const canAck = me?.profile === 'admin';
   const ack = async (k: AccessKey, acknowledged: boolean) => {
