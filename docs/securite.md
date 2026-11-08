@@ -183,6 +183,21 @@ Hub en marche et **à jour** (`docker compose pull && docker compose up -d` : un
 
 **Retour arrière** : restaurer le dump de l'étape 1 (`mongorestore --drop`, authentifié si le compte est actif), retirer `HM_MASTER_KEY` du `.env`, puis `docker compose up -d`. Pour retirer aussi l'authentification, vider `MONGO_USERNAME` et `MONGO_PASSWORD`.
 
+## En-têtes de sécurité HTTP
+
+Toutes les réponses du hub (API, fichiers de l'interface, page d'accueil) portent :
+
+| En-tête | Valeur |
+|---|---|
+| `Content-Security-Policy` | `default-src 'self'`, `script-src 'self'`, `style-src 'self'`, `connect-src 'self'`, `img-src 'self' data:`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'` : aucun script ni style inline, l'interface ne parle qu'à son propre hub |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `Strict-Transport-Security` | `max-age=604800`, uniquement en HTTPS (voir ci-dessous) |
+
+L'interface ne peut donc plus être affichée dans une `iframe`, et une injection de script n'est pas exécutée.
+
+HSTS n'est envoyé que si le navigateur est en HTTPS : derrière un proxy déclaré dans `TRUST_PROXY` (`X-Forwarded-Proto: https`), ou sur le port HTTPS natif avec un certificat fourni (`HTTPS_CERT_FILE`). Avec le certificat que le hub émet lui-même, il n'est pas envoyé : le navigateur refuserait toute exception pour un certificat auto-signé. La durée est volontairement courte, sans `includeSubDomains` ni `preload`.
+
 ## Ce qui est protégé, et contre quoi
 
 | Menace | Protection |

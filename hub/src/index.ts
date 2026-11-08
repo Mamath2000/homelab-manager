@@ -11,6 +11,7 @@ import { closeDb, connectDb } from './db.js';
 import { prepareStoredSecrets } from './storedSecrets.js';
 import { migrateGroups } from './catalog.js';
 import { migrateEnabled } from './disconnect.js';
+import { registerSecurityHeaders } from './securityHeaders.js';
 import { registerEvents, subscribe } from './events.js';
 import { flushLogs, recoverJobs } from './jobs.js';
 import { bootstrapSuperadmin } from './superadmin.js';
@@ -98,6 +99,8 @@ await bootstrapSuperadmin();
 await refreshManaged();
 
 await app.register(cookie);
+// security headers of every response, static files and index.html fallback included
+await registerSecurityHeaders(app);
 
 // first of all: headers from a proxy that is not declared in TRUST_PROXY
 registerProxyGuard(app);
