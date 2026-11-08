@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { DatabaseBackup, Lock, Search, ShieldCheck } from 'lucide-react';
-import { api, type DbKind, type DbRestoreCheck, type PbsMountSource } from '../lib/api';
+import { Check, DatabaseBackup, HelpCircle, Lock, Search, ShieldCheck, X } from 'lucide-react';
+import { api, type DbKind, type DbRestoreCheck, type DbRestoreTarget, type PbsMountSource } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { stepStates } from '../lib/steps';
@@ -40,6 +40,36 @@ const listCls = 'min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1';
 function Loading({ q }: { q: { isPending: boolean; error: unknown } }) {
   if (q.error) return <p className="text-xs text-red-400">{(q.error as Error).message}</p>;
   return q.isPending ? <Spinner className="h-4 w-4" /> : null;
+}
+
+// Columns of the table of the hosts left out: one per prerequisite of a target.
+type CheckKey = keyof NonNullable<DbRestoreTarget['checks']>;
+const checkColumns = (kind: DbKind): { key: CheckKey; label: string; title: string }[] => [
+  { key: 'online', label: 'En ligne', title: 'Agent connecté' },
+  { key: 'agent', label: 'Agent', title: 'Agent à jour : il sait restaurer une base' },
+  { key: 'os', label: 'OS', title: 'Système qui peut monter : Linux avec systemd (ni Windows, ni WSL, ni Home Assistant OS)' },
+  { key: 'fuse', label: 'FUSE', title: '/dev/fuse présent (conteneur LXC : fonctionnalité « FUSE » de Proxmox)' },
+  { key: 'pbsClient', label: 'Client PBS', title: 'proxmox-backup-client installé nativement' },
+  { key: 'engine', label: kindLabel[kind], title: kind === 'mongodb' ? 'Conteneur MongoDB avec mongorestore' : 'Serveur PostgreSQL local ou conteneur PostgreSQL' },
+];
+
+// ✓ met, ✗ not met, ? unknown; the note in the tooltip
+function CheckMark({ item }: { item?: { ok: boolean | null; note: string | null } }) {
+  if (!item || item.ok === null)
+    return (
+      <span title={item?.note ?? 'inconnu'} className="inline-flex">
+        <HelpCircle className="h-4 w-4 text-muted" aria-label="inconnu" />
+      </span>
+    );
+  return item.ok ? (
+    <span title={item.note ?? 'OK'} className="inline-flex">
+      <Check className="h-4 w-4 text-emerald-400" aria-label="OK" />
+    </span>
+  ) : (
+    <span title={item.note ?? 'manquant'} className="inline-flex">
+      <X className="h-4 w-4 text-red-400" aria-label="manquant" />
+    </span>
+  );
 }
 
 export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; groupId: string | null; onClose: () => void }) {
@@ -270,22 +300,30 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
               <p className="text-sm text-muted">Aucun hôte pour cette recherche.</p>
             ) : (
               <table className="w-full table-fixed text-left text-sm">
-                <thead className="sticky top-0 bg-panel text-[11px] uppercase tracking-wide text-muted">
+                <thead className="sticky top-0 z-10 bg-panel text-[11px] uppercase tracking-wide text-muted">
                   <tr>
-                    <th className="w-1/4 py-2 pr-4 font-medium">Hôte</th>
-                    <th className="py-2 font-medium">Raison</th>
+                    <th className="w-[34%] py-2 pr-4 font-medium">Hôte</th>
+                    {checkColumns(kind).map((col) => (
+                      <th key={col.key} className="px-1 py-2 text-center font-medium" title={col.title}>
+                        {col.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {excludedShown.map((h) => (
                     <tr key={h.id} className="align-top">
-                      <td className="py-2 pr-4 font-medium text-zinc-200">
-                        <span className="flex flex-wrap items-center gap-2">
+                      <td className="py-2 pr-4">
+                        <span className="block truncate font-medium text-zinc-200" title={h.name}>
                           {h.name}
-                          {!h.online && <Badge tone="bad">hors ligne</Badge>}
                         </span>
+                        {h.reason && <span className="block text-[11px] text-red-400/90">{h.reason}</span>}
                       </td>
-                      <td className="py-2 text-xs text-muted">{h.reason}</td>
+                      {checkColumns(kind).map((col) => (
+                        <td key={col.key} className="px-1 py-2 text-center">
+                          <CheckMark item={h.checks?.[col.key]} />
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>

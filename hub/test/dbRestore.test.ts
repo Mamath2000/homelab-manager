@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { DB_ARCHIVE_RE, RESERVED, dbArchive, targetReason } from '../src/dbRestore.js';
+import { DB_ARCHIVE_RE, RESERVED, dbArchive, mountChecks, targetReason } from '../src/dbRestore.js';
 import { jobDto } from '../src/jobs.js';
 import { authorize } from '../src/profiles.js';
-import type { JobDoc } from '../src/types.js';
+import type { HostDoc, JobDoc } from '../src/types.js';
 
 test('dbArchive: pg-<base> and mongo-<base> dumps only', () => {
   assert.deepEqual(dbArchive('mongo-canicoif.pxar.didx'), { kind: 'mongodb', database: 'canicoif', supported: true });
@@ -50,13 +50,28 @@ test('db restore routes: admins only, reads included', () => {
   }
 });
 
-test('target of a restore: why a host is left out', () => {
-  const h = (capabilities: string[]) => ({ name: 'lxc-mongo', capabilities });
-  assert.equal(targetReason(h(['backup_database', 'db_restore', 'pbs_mount'])), null);
-  assert.match(targetReason(h(['backup_database', 'pbs_mount']))!, /à mettre à jour/);
-  assert.match(targetReason(h(['backup_database', 'db_restore', 'backup', 'backup:docker']))!, /nativement/);
-  assert.match(targetReason(h(['backup_database', 'db_restore', 'backup', 'backup:native']))!, /FUSE/);
-  assert.match(targetReason(h(['backup_database', 'db_restore']))!, /nativement/);
+test('target of a restore: every prerequisite, and why a host is left out', () => {
+  const h = (capabilities: string[], osId = 'debian') => ({ name: 'lxc', capabilities, info: { osId, osName: 'Debian 13' } as HostDoc['info'] });
+  const full = ['backup_database', 'db_restore', 'pbs_mount', 'backup', 'backup:native', 'mount_checks', 'mount_os', 'fuse', 'systemd'];
+  assert.equal(targetReason(h(full)), null);
+  assert.deepEqual(mountChecks(h(full)).os, { ok: true, note: 'Debian 13' });
+  // an LXC without FUSE: the column says it, and the reason too
+  const noFuse = full.filter((c) => c !== 'pbs_mount' && c !== 'fuse');
+  assert.equal(mountChecks(h(noFuse)).fuse.ok, false);
+  assert.match(targetReason(h(noFuse))!, /FUSE/);
+  // no native client
+  const docker = full.filter((c) => c !== 'pbs_mount' && c !== 'backup:native').concat('backup:docker');
+  assert.equal(mountChecks(h(docker)).pbsClient.ok, false);
+  assert.match(targetReason(h(docker))!, /APT/);
+  // WSL / HAOS, systemd absent, Windows
+  assert.match(mountChecks(h(['db_restore', 'mount_checks', 'systemd'])).os.note!, /WSL/);
+  assert.equal(mountChecks(h(['db_restore', 'mount_checks', 'mount_os'])).os.note, 'systemd absent');
+  assert.equal(mountChecks(h(['db_restore'], 'windows')).os.ok, false);
+  // an older agent does not tell: unknown, not refused
+  const old = mountChecks(h(['backup_database', 'db_restore']));
+  assert.equal(old.os.ok, null);
+  assert.equal(old.fuse.ok, null);
+  assert.match(targetReason(h(['backup_database']))!, /à mettre à jour/);
 });
 
 test('system databases are never the name of the new database', () => {

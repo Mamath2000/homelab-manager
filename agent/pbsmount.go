@@ -201,6 +201,24 @@ func pbsMountCapable() bool {
 	return err == nil
 }
 
+// mountPrerequisites: capabilities telling which prerequisites of a mount this host meets (the client is told by
+// backup:native): an OS that can mount (not WSL nor HAOS), FUSE, systemd.
+func mountPrerequisites() []string {
+	caps := []string{"mount_checks"}
+	if !onWSL && !onHAOS {
+		caps = append(caps, "mount_os")
+	}
+	if _, err := os.Stat("/dev/fuse"); err == nil {
+		caps = append(caps, "fuse")
+	}
+	_, e1 := exec.LookPath("systemd-run")
+	_, e2 := exec.LookPath("systemctl")
+	if e1 == nil && e2 == nil {
+		caps = append(caps, "systemd")
+	}
+	return caps
+}
+
 // parseRestoreMounts: mount points under the default root in /proc/self/mountinfo (field 5, octal escapes).
 func parseRestoreMounts(mountinfo string) []string {
 	return parseRestoreMountsAt(mountinfo, defaultPbsMountRoot)

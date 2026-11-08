@@ -85,41 +85,100 @@ interface AgentCandidates {
 
 const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.includes('pbs_mount') && !!h.capabilities?.includes('db_restore');
 
-// Why a host cannot receive a dump (null: it can). The dump is read from a mount made ON the target, so the host needs
-// the mount abilities of #209 as well as the restore of its agent.
-export function targetReason(h: Pick<HostDoc, 'name' | 'capabilities'>) {
-  const caps = h.capabilities ?? [];
-  if (!caps.includes('db_restore')) return 'agent à mettre à jour : il ne sait pas encore restaurer une base';
-  if (caps.includes('pbs_mount')) return null;
-  if (caps.includes('backup:docker') || !caps.includes('backup:native'))
-    return "proxmox-backup-client non installé nativement (l'image Docker du client ne peut pas monter) : l'installer par APT depuis la fiche de l'hôte";
-  return 'montage impossible : /dev/fuse ou systemd absent (conteneur LXC : activer la fonctionnalité « FUSE » dans Proxmox)';
+// One prerequisite of a target: met (true), not met (false) or unknown (null: agent offline or too old to tell).
+export interface TargetCheck {
+  ok: boolean | null;
+  note: string | null;
 }
 
-// Hosts that can receive a dump of this kind, each tested now, with the reason when they cannot. Every host that
-// runs database backups or restores is listed, the ones that cannot with why.
+export interface TargetChecks {
+  agent: TargetCheck; // the agent knows the restore
+  online: TargetCheck;
+  os: TargetCheck; // a system that can mount (Linux with systemd; not Windows, WSL nor Home Assistant OS)
+  fuse: TargetCheck;
+  pbsClient: TargetCheck; // proxmox-backup-client installed natively
+  engine: TargetCheck; // a server of the kind (MongoDB container, PostgreSQL local or container)
+}
+
+const yes = (note: string | null = null): TargetCheck => ({ ok: true, note });
+const no = (note: string): TargetCheck => ({ ok: false, note });
+const unknown = (note: string): TargetCheck => ({ ok: null, note });
+
+// What the hub knows of the mount prerequisites of a host, from its capabilities (agent: mountPrerequisites). The
+// dump is read from a mount made ON the target, so the target needs the mount abilities of #209.
+export function mountChecks(h: Pick<HostDoc, 'capabilities' | 'info'>): Pick<TargetChecks, 'agent' | 'os' | 'fuse' | 'pbsClient'> {
+  const caps = h.capabilities ?? [];
+  const told = caps.includes('mount_checks');
+  const mounts = caps.includes('pbs_mount');
+  const osName = h.info?.osName || null;
+  const agent = caps.includes('db_restore') ? yes() : no('agent à mettre à jour : il ne sait pas encore restaurer une base');
+  const os =
+    h.info?.osId === 'windows'
+      ? no('Windows : pas de montage')
+      : mounts
+        ? yes(osName)
+        : told
+          ? !caps.includes('mount_os')
+            ? no('WSL ou Home Assistant OS : pas de montage')
+            : caps.includes('systemd')
+              ? yes(osName)
+              : no('systemd absent')
+          : unknown('agent à mettre à jour pour le savoir');
+  const fuse = mounts ? yes() : told ? (caps.includes('fuse') ? yes() : no('/dev/fuse absent (conteneur LXC : activer la fonctionnalité « FUSE » dans Proxmox)')) : unknown('agent à mettre à jour pour le savoir');
+  const pbsClient = caps.includes('backup:native')
+    ? yes()
+    : caps.includes('backup:docker')
+      ? no("client en image Docker, qui ne peut pas monter : installer le client par APT depuis la fiche de l'hôte")
+      : no("proxmox-backup-client absent : l'installer par APT depuis la fiche de l'hôte");
+  return { agent, os, fuse, pbsClient };
+}
+
+// Why a host cannot receive a dump (null: it can, as far as the hub knows without asking its agent).
+export function targetReason(h: Pick<HostDoc, 'name' | 'capabilities' | 'info'>) {
+  const c = mountChecks(h);
+  for (const k of ['agent', 'os', 'fuse', 'pbsClient'] as const) if (c[k].ok === false) return c[k].note;
+  return canRestore(h) ? null : 'montage impossible sur cet hôte';
+}
+
+// Hosts that can receive a dump of this kind, each tested now, with every prerequisite and the first one missing.
 export async function restoreTargets(kind: DbKind) {
   if (!SUPPORTED.includes(kind)) throw new DbRestoreError(`restauration ${kind} pas encore disponible`);
   const list = await hosts.find({ capabilities: { $in: ['db_restore', 'backup_database', 'pbs_mount'] } }).sort({ name: 1 }).toArray();
   const jobs = kind === 'mongodb' ? await backupJobs.find({ hostId: { $in: list.map((h) => h._id) }, kind: 'mongodb' }).toArray() : [];
+  const engineName = kind === 'mongodb' ? 'MongoDB' : 'PostgreSQL';
   return Promise.all(
     list.map(async (h) => {
       const id = h._id.toHexString();
-      const base = { id, name: h.name, siteId: h.siteId ?? null };
-      const refused = targetReason(h);
-      if (refused || !canRestore(h)) return { ...base, online: isOnline(id), containers: [] as RestoreContainer[], reason: refused ?? 'restauration impossible sur cet hôte' };
-      if (!isOnline(id)) return { ...base, online: false, containers: [] as RestoreContainer[], reason: 'hôte hors ligne' };
-      try {
-        const r = await agentRequest<AgentCandidates>(id, 'db_restore_check', { backupKind: kind, database: {} }, 60_000);
-        const mine = jobs.filter((j) => j.hostId.equals(h._id) && j.database?.container);
-        const containers: RestoreContainer[] = (r.candidates ?? []).map((c) => {
-          const j = mine.find((x) => x.database?.container === c.container);
-          return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: j ? !!j.database?.username : !!c.needsAuth, needsAuth: !j && !!c.needsAuth };
-        });
-        return { ...base, online: true, containers, reason: containers.length ? null : kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : (r.localReason ?? 'aucun serveur PostgreSQL (local ou conteneur Docker)') };
-      } catch (err) {
-        return { ...base, online: true, containers: [] as RestoreContainer[], reason: (err as Error).message };
+      const online = isOnline(id);
+      const base = { id, name: h.name, siteId: h.siteId ?? null, online };
+      const checks: TargetChecks = { ...mountChecks(h), online: online ? yes() : no('hôte hors ligne'), engine: unknown('agent hors ligne ou à mettre à jour') };
+      let containers: RestoreContainer[] = [];
+      // the server of the kind is asked to every agent that can tell, even one that cannot mount: the table shows all
+      if (online && checks.agent.ok) {
+        try {
+          const r = await agentRequest<AgentCandidates>(id, 'db_restore_check', { backupKind: kind, database: {} }, 60_000);
+          const mine = jobs.filter((j) => j.hostId.equals(h._id) && j.database?.container);
+          containers = (r.candidates ?? []).map((c) => {
+            const j = mine.find((x) => x.database?.container === c.container);
+            return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: j ? !!j.database?.username : !!c.needsAuth, needsAuth: !j && !!c.needsAuth };
+          });
+          checks.engine = containers.length
+            ? yes(containers.map((c) => c.container || 'serveur local').join(', '))
+            : no(kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : (r.localReason ?? 'aucun serveur PostgreSQL (local ou conteneur Docker)'));
+        } catch (err) {
+          checks.engine = no(`${engineName} : ${(err as Error).message}`);
+        }
       }
+      const order = ['agent', 'online', 'os', 'fuse', 'pbsClient', 'engine'] as const;
+      const failed = order.find((k) => checks[k].ok === false);
+      const usable = !failed && canRestore(h) && containers.length > 0;
+      return {
+        ...base,
+        checks,
+        // offered only when every prerequisite is met
+        containers: usable ? containers : [],
+        reason: usable ? null : failed ? checks[failed].note : (order.map((k) => checks[k]).find((c) => c.ok === null)?.note ?? 'restauration impossible sur cet hôte'),
+      };
     }),
   );
 }

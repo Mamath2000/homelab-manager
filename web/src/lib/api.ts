@@ -1003,11 +1003,17 @@ export interface DbRestoreContainer {
   authenticated: boolean;
   needsAuth: boolean; // no job and the server asks for credentials: to be typed
 }
+// one prerequisite of a restore target: met, not met, unknown (agent offline or too old to tell)
+export interface DbRestoreCheckItem {
+  ok: boolean | null;
+  note: string | null;
+}
 export interface DbRestoreTarget {
   id: string;
   name: string;
   siteId: string | null;
   online: boolean;
+  checks?: { agent: DbRestoreCheckItem; online: DbRestoreCheckItem; os: DbRestoreCheckItem; fuse: DbRestoreCheckItem; pbsClient: DbRestoreCheckItem; engine: DbRestoreCheckItem };
   containers: DbRestoreContainer[];
   reason: string | null;
 }

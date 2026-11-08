@@ -144,6 +144,9 @@ func (s *session) hello(ctx context.Context) error {
 	if pbsMountCapable() {
 		caps = append(caps, "pbs_mount")
 	}
+	// the prerequisites of a mount one by one, for the hub to say which one a host lacks (restore targets, #210):
+	// mount_checks tells that they are reported (an older agent says nothing of them)
+	caps = append(caps, mountPrerequisites()...)
 	// backups to the PBS: backup_setup (the hub may send definitions), "backup" and how the client
 	// runs (backup:native, backup:docker), and how it can be installed (backup_install:apt|docker)
 	caps = append(caps, "backup_setup")
