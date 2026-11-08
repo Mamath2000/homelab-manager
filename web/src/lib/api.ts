@@ -951,6 +951,7 @@ export interface PbsMount {
   tokenId: string;
   path?: string;
   slow?: boolean;
+  restoring?: boolean; // read by a database restore: unmounted by the hub when it ends
   startedAt: string;
   mountedAt?: string;
   unmounted?: boolean;

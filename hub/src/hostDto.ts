@@ -94,6 +94,6 @@ export function hostDto(h: HostDoc) {
     pve: h.pve ?? null,
     pveLost: h.pveLost ?? null,
     // snapshot of a PBS mounted here (pbsMount.ts); the agent link stays in the hub
-    pbsMount: h.pbsMount ? (({ link, ...m }) => ({ ...m, pbsHostId: link.hostId }))(h.pbsMount) : null,
+    pbsMount: h.pbsMount ? (({ link, restoreJobId, ...m }) => ({ ...m, pbsHostId: link.hostId, restoring: !!restoreJobId }))(h.pbsMount) : null,
   };
 }

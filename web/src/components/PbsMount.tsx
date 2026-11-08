@@ -247,6 +247,12 @@ function MountText({ m, host }: { m: PbsMount; host: Host }) {
         Démontage de {what} sur <b className="text-zinc-100">{host.name}</b> en attente{m.error ? ` : ${m.error}` : '…'} Il reprend au retour des agents.
       </p>
     );
+  if (m.restoring)
+    return (
+      <p>
+        Restauration d’une base en cours depuis {what} sur <b className="text-zinc-100">{host.name}</b> : le montage est démonté et le jeton révoqué automatiquement à la fin du job (suivi dans Activité).
+      </p>
+    );
   return (
     <p>
       Sauvegarde {what} montée en lecture seule sur <b className="text-zinc-100">{host.name}</b> depuis {timeAgo(m.mountedAt ?? m.startedAt)}.
@@ -285,9 +291,9 @@ export function MountBanner({ hosts }: { hosts: Host[] }) {
       <FolderOpen className="hidden h-5 w-5 shrink-0 text-amber-400 md:block" />
       <div className="min-w-0 flex-1 space-y-2">
         <MountText m={m} host={host} />
-        {m.state === 'mounted' && m.path && <CopyField value={m.path} />}
+        {m.state === 'mounted' && !m.restoring && m.path && <CopyField value={m.path} />}
       </div>
-      {canManage && m.state !== 'mounting' && (
+      {canManage && m.state !== 'mounting' && !(m.restoring && m.state === 'mounted') && (
         <Button icon={m.state === 'unmounting' ? RefreshCw : Unplug} loading={busy} onClick={() => (m.state === 'unmounting' ? unmount() : setConfirm(true))}>
           {m.state === 'unmounting' ? 'Réessayer' : 'Démonter'}
         </Button>

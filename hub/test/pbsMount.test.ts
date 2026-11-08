@@ -100,6 +100,11 @@ test('host DTO: the mount without the agent link', () => {
   const dto = hostDto({ _id: new ObjectId(), name: 'pve1', createdAt: new Date(), pbsMount: r } as HostDoc);
   assert.equal(dto.pbsMount?.pbsHostId, r.link.hostId);
   assert.equal('link' in dto.pbsMount!, false);
+  // read by a database restore: told as a flag, the job id stays in the hub
+  const restoring = hostDto({ _id: new ObjectId(), name: 'pve1', createdAt: new Date(), pbsMount: { ...r, restoreJobId: new ObjectId() } } as HostDoc);
+  assert.equal(restoring.pbsMount?.restoring, true);
+  assert.equal('restoreJobId' in restoring.pbsMount!, false);
+  assert.equal(dto.pbsMount?.restoring, false);
 });
 
 test('profiles: mounting and unmounting are for admins', () => {
