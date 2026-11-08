@@ -57,8 +57,24 @@ func validateDbRestoreTarget(kind string, p *DatabaseDump, target string) error 
 		}
 		return validateDatabaseSettings(kind, &q, false)
 	case "postgres":
-		if p.Container != "" || p.Username != "" || p.Password != "" || p.AuthSource != "" || len(p.Databases) != 0 {
-			return errors.New("postgres: local server only")
+		// the local server (no container, nothing to give), or a container with its superuser and password if needed
+		if p.AuthSource != "" || len(p.Databases) != 0 || p.Mode != "" {
+			return errors.New("postgres: invalid settings")
+		}
+		if p.Container == "" {
+			if p.Username != "" || p.Password != "" {
+				return errors.New("postgres: local server, no credentials")
+			}
+			return nil
+		}
+		if !containerRe.MatchString(p.Container) {
+			return errors.New("postgres: invalid container")
+		}
+		if p.Username != "" && !pgUserRe.MatchString(p.Username) {
+			return errors.New("postgres: invalid user")
+		}
+		if len(p.Password) > 1024 || strings.ContainsAny(p.Password, "\r\n\x00") {
+			return errors.New("postgres: invalid password")
 		}
 		return nil
 	}

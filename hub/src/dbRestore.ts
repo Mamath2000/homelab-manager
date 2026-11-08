@@ -23,6 +23,9 @@ export const SUPPORTED: DbKind[] = ['mongodb', 'postgres'];
 // system databases of each engine: never the name of the new database
 export const RESERVED: Record<DbKind, string[]> = { mongodb: ['admin', 'local', 'config'], postgres: ['postgres', 'template0', 'template1'] };
 
+// role names of PostgreSQL the agent accepts (agent/dbrestore_pg.go pgUserRe)
+export const PG_USER_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,62}$/;
+
 export const DB_ARCHIVE_RE = /^(pg|mongo)-([A-Za-z0-9_][A-Za-z0-9_-]{0,47})\.pxar\.didx$/;
 
 // A dump archive of a database job: pg-<base> or mongo-<base> (pg-globals is the role dump, not a database).
@@ -112,7 +115,7 @@ export async function restoreTargets(kind: DbKind) {
           const j = mine.find((x) => x.database?.container === c.container);
           return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: j ? !!j.database?.username : !!c.needsAuth, needsAuth: !j && !!c.needsAuth };
         });
-        return { ...base, online: true, containers, reason: containers.length ? null : kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : 'aucun serveur PostgreSQL local' };
+        return { ...base, online: true, containers, reason: containers.length ? null : kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : 'aucun serveur PostgreSQL (local ou conteneur Docker)' };
       } catch (err) {
         return { ...base, online: true, containers: [] as RestoreContainer[], reason: (err as Error).message };
       }
@@ -139,10 +142,19 @@ async function connection(input: TargetInput): Promise<{ host: HostDoc; database
   const host = hostId ? await hosts.findOne({ _id: hostId }) : null;
   if (!host) throw new DbRestoreError('hôte cible introuvable');
   if (!canRestore(host)) throw new DbRestoreError(`l'agent de ${host.name} ne sait pas restaurer une base`);
-  // PostgreSQL: the local server of the host, by peer authentication: no container, no credential
+  // PostgreSQL: the local server of the host (no container: peer authentication, nothing to give), or a container
+  // (its superuser over 127.0.0.1, a user and a password only when it asks for them)
   if ((input.kind ?? 'mongodb') === 'postgres') {
-    if (input.jobId || input.username || input.password || input.authSource) throw new DbRestoreError('PostgreSQL : serveur local, rien à fournir');
-    return { host, database: { databases: [], workDir: '', keep: 0 } };
+    if (input.jobId || input.authSource) throw new DbRestoreError('PostgreSQL : ni job ni authSource');
+    if (!input.container) {
+      if (input.username || input.password) throw new DbRestoreError('PostgreSQL local : rien à fournir');
+      return { host, database: { databases: [], workDir: '', keep: 0 } };
+    }
+    if (!CONTAINER_RE.test(input.container)) throw new DbRestoreError('conteneur invalide');
+    const { username = '', password = '' } = input;
+    if (username && !PG_USER_RE.test(username)) throw new DbRestoreError('utilisateur invalide');
+    if (password.length > 1024 || /[\r\n\0]/.test(password)) throw new DbRestoreError('mot de passe invalide');
+    return { host, database: { databases: [], workDir: '', keep: 0, container: input.container, ...(username ? { username } : {}), ...(password ? { password } : {}) } };
   }
   if (!CONTAINER_RE.test(input.container)) throw new DbRestoreError('conteneur invalide');
   if (input.jobId) {
@@ -192,7 +204,7 @@ export async function checkRestore(input: TargetInput & { target: string; size?:
     const size = input.size ?? 0;
     const need = postgres ? size * 2 : size;
     const short = size && ((r.free >= 0 && r.free < need) || (!postgres && r.freeTmp >= 0 && r.freeTmp < size)) ? (postgres ? 'place libre insuffisante pour les données de la base' : 'place libre insuffisante (données et /tmp du conteneur)') : null;
-    const error = r.exists ? `la base ${input.target} existe déjà sur ${(input.kind ?? 'mongodb') === 'postgres' ? 'le serveur PostgreSQL' : input.container} : rien n'est écrasé` : short;
+    const error = r.exists ? `la base ${input.target} existe déjà sur ${input.container || 'le serveur PostgreSQL local'} : rien n'est écrasé` : short;
     return { ok: !error, tools: r.tools, databases: r.databases, exists: r.exists, free: r.free, freeTmp: r.freeTmp ?? -1, error };
   } catch (err) {
     return { ok: false, tools: '', databases: [], exists: false, free: -1, freeTmp: -1, error: (err as Error).message };
@@ -232,7 +244,7 @@ export async function startRestore(input: RestoreInput, log?: FastifyBaseLogger)
   } catch (err) {
     throw err instanceof PbsMountError ? new DbRestoreError(err.message) : err;
   }
-  const info: DbRestoreInfo = { kind: arch.kind, source: arch.database, target: input.target, ...(arch.kind === 'mongodb' ? { container: input.container } : {}) };
+  const info: DbRestoreInfo = { kind: arch.kind, source: arch.database, target: input.target, ...(input.container ? { container: input.container } : {}) };
   try {
     const mountRoot = (await loadPbsSettings()).mountRoot ?? '/srv/pbs-restore';
     const job = await createJob(host, 'db_restore', [], 'manual', {

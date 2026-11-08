@@ -10,50 +10,144 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Restore of a PostgreSQL dump (pg-<base>, pg_dump -Fd) into a NEW database of the local server (#210), the
-// same flow as MongoDB (dbrestore.go): nothing is overwritten (createdb itself refuses an existing name), the
-// objects belong to the postgres user of the target (--no-owner --no-privileges: the roles of the dump are not
-// needed), and a database this agent created and could not fill is dropped again.
+// Restore of a PostgreSQL dump (pg-<base>, pg_dump -Fd) into a NEW database (#210), the same flow as MongoDB
+// (dbrestore.go): nothing is overwritten (createdb itself refuses an existing name), the objects belong to the
+// superuser of the target (--no-owner --no-privileges: the roles of the dump are not needed), the new database
+// is closed to PUBLIC, and a database this agent created and could not fill is dropped again.
 //
-// The mount of the PBS is readable by root only and the postgres user cannot read it: root reads the dump
-// (pg_restore -f -, no connection) and pipes the SQL to psql run as postgres. Nothing is copied nor written to
-// disk, no right is given to postgres on the dump; parallel restore (-j) is given up for that.
+// Two kinds of target server, each with its own pg_restore:
+//   - the local server of the host: root reads the dump (pg_restore -f -, no connection) and pipes the SQL to
+//     psql run as postgres (the mount is readable by root only). Nothing is copied; no parallel restore.
+//   - a PostgreSQL container: a throwaway container of the SAME image (its pg_restore, the version of the server,
+//     nothing to install) gets the mounted dump read-only and the network of the target container, and restores
+//     with -j over 127.0.0.1 (trust in the official images; a password otherwise). Nothing is copied, and a forged
+//     dump stays confined in that container.
 
-// pgDataDir: where the server keeps its data, to know the free space of the restore (-1: unknown).
-func pgDataFree(ctx context.Context, env []string) int64 {
-	out, err := dumpOutput(ctx, env, "runuser", "-u", "postgres", "--", "psql", "-AtX", "--no-password", "-d", "postgres", "-c", "show data_directory")
-	if err != nil {
-		return -1
-	}
-	dir := strings.TrimSpace(string(out))
-	if !filepath.IsAbs(dir) {
-		return -1
-	}
-	return freeSpace(dir)
+// pgTarget: the server a restore talks to, and how its tools are run.
+type pgTarget struct {
+	container string   // empty: the local server
+	user      string   // container: superuser of the server
+	image     string   // container: image id of the target container (sha256:...)
+	password  bool     // container: PGPASSWORD is in env, passed by name only (-e PGPASSWORD)
+	env       []string // of the commands
 }
 
-// pgTools: the tools the restore runs, as the dump does.
+var (
+	pgUserRe    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]{0,62}$`)
+	imageIDRe   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	pgImageRe   = regexp.MustCompile(`(^|/)(postgres|postgis|timescaledb)(:|@|$)`)
+	pgImageSkip = regexp.MustCompile(`(timescaledb-ha|bitnami)`)
+)
+
+// cmd: a PostgreSQL client tool run against the target (createdb, dropdb, psql).
+func (t *pgTarget) cmd(tool string, args ...string) (string, []string) {
+	if t.container == "" {
+		return "runuser", append([]string{"-u", "postgres", "--", tool}, args...)
+	}
+	a := []string{"exec"}
+	if t.password {
+		a = append(a, "-e", "PGPASSWORD")
+	}
+	a = append(a, t.container, tool, "-h", "127.0.0.1", "-U", t.user)
+	return "docker", append(a, args...)
+}
+
+func (t *pgTarget) query(ctx context.Context, sql string) ([]byte, error) {
+	name, args := t.cmd("psql", "-AtX", "--no-password", "-d", "postgres", "-c", sql)
+	return dumpOutput(ctx, t.env, name, args...)
+}
+
+func (t *pgTarget) step(ctx context.Context, emit func(string), tool string, args ...string) error {
+	name, a := t.cmd(tool, args...)
+	return runDumpStep(ctx, t.env, emit, name, a...)
+}
+
+func (t *pgTarget) label() string {
+	if t.container == "" {
+		return "serveur local"
+	}
+	return "conteneur " + t.container
+}
+
+// pgTools: the tools the restore runs on the host for the local server, as the dump does.
 func pgTools() error {
-	for _, t := range []string{"pg_restore", "createdb", "dropdb", "psql", "runuser"} {
-		if _, err := lookPath(t); err != nil {
-			return fmt.Errorf("%s introuvable sur cet hôte", t)
+	for _, tool := range []string{"pg_restore", "createdb", "dropdb", "psql", "runuser"} {
+		if _, err := lookPath(tool); err != nil {
+			return fmt.Errorf("%s introuvable sur cet hôte", tool)
 		}
 	}
 	return nil
 }
 
-// seam for the tests
-var lookPath = exec.LookPath
+// seams for the tests
+var (
+	lookPath  = exec.LookPath
+	pgRunning = postgresRunning
+)
 
-// pgServerMajor: major version of the local server.
-func pgServerMajor(ctx context.Context, env []string) (int, error) {
-	out, err := dumpOutput(ctx, env, "runuser", "-u", "postgres", "--", "psql", "-AtX", "--no-password", "-d", "postgres", "-c", "show server_version_num")
+// newPgTarget: the local server (no container) or a running PostgreSQL container, checked.
+func newPgTarget(ctx context.Context, p *DatabaseDump) (*pgTarget, error) {
+	env := append(os.Environ(), "LC_ALL=C", "PGAPPNAME=homelab-agent")
+	if p.Container == "" {
+		if !pgRunning() {
+			return nil, errors.New("aucun serveur PostgreSQL local")
+		}
+		if err := pgTools(); err != nil {
+			return nil, err
+		}
+		_, _, home, err := lookupPostgres()
+		if err != nil {
+			return nil, err
+		}
+		return &pgTarget{env: append(env, "HOME="+home)}, nil
+	}
+	if !dockerUsable(ctx) {
+		return nil, errors.New("Docker indisponible sur cet hôte")
+	}
+	state, err := dumpOutput(ctx, env, "docker", "inspect", "-f", "{{.State.Running}} {{.Image}}", p.Container)
+	if err != nil {
+		return nil, fmt.Errorf("conteneur %s introuvable", p.Container)
+	}
+	f := strings.Fields(string(state))
+	if len(f) != 2 || f[0] != "true" {
+		return nil, fmt.Errorf("conteneur %s arrêté", p.Container)
+	}
+	if !imageIDRe.MatchString(f[1]) {
+		return nil, fmt.Errorf("image du conteneur %s illisible", p.Container)
+	}
+	user := p.Username
+	if user == "" {
+		user = "postgres"
+		vars, err := dumpOutput(ctx, env, "docker", "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", p.Container)
+		if err == nil {
+			for _, l := range strings.Split(string(vars), "\n") {
+				if v, ok := strings.CutPrefix(strings.TrimSpace(l), "POSTGRES_USER="); ok && v != "" {
+					user = v
+				}
+			}
+		}
+	}
+	if !pgUserRe.MatchString(user) {
+		return nil, fmt.Errorf("utilisateur PostgreSQL du conteneur invalide : %q", user)
+	}
+	t := &pgTarget{container: p.Container, user: user, image: f[1], env: env}
+	if p.Password != "" {
+		t.password = true
+		t.env = append(t.env, "PGPASSWORD="+p.Password)
+	}
+	return t, nil
+}
+
+// pgServerMajor: major version of the target server.
+func pgServerMajor(ctx context.Context, t *pgTarget) (int, error) {
+	out, err := t.query(ctx, "show server_version_num")
 	if err != nil {
 		return 0, err
 	}
@@ -64,10 +158,9 @@ func pgServerMajor(ctx context.Context, env []string) (int, error) {
 	return n / 10000, nil
 }
 
-// pgDatabases: databases of the local server with their size (the query of the dump listing, without its tools).
-func pgDatabases(ctx context.Context, env []string) ([]DatabaseInfo, error) {
-	out, err := dumpOutput(ctx, env, "runuser", "-u", "postgres", "--", "psql", "-AtX", "--no-password", "-d", "postgres", "-c",
-		"select datname, pg_database_size(datname) from pg_database where datallowconn and not datistemplate order by 1")
+// pgDatabases: databases of the target server with their size (the query of the dump listing).
+func pgDatabases(ctx context.Context, t *pgTarget) ([]DatabaseInfo, error) {
+	out, err := t.query(ctx, "select datname, pg_database_size(datname) from pg_database where datallowconn and not datistemplate order by 1")
 	if err != nil {
 		return nil, err
 	}
@@ -83,8 +176,21 @@ func pgDatabases(ctx context.Context, env []string) ([]DatabaseInfo, error) {
 	return dbs, nil
 }
 
-// seam for the tests
-var pgRunning = postgresRunning
+// pgDataFree: free space where the server keeps its data (-1: unknown).
+func pgDataFree(ctx context.Context, t *pgTarget) int64 {
+	out, err := t.query(ctx, "show data_directory")
+	if err != nil {
+		return -1
+	}
+	dir := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(dir) {
+		return -1
+	}
+	if t.container == "" {
+		return freeSpace(dir)
+	}
+	return containerFree(ctx, t.container, dir)
+}
 
 // hasExactDatabase: PostgreSQL names are case sensitive.
 func hasExactDatabase(dbs []DatabaseInfo, name string) bool {
@@ -96,38 +202,70 @@ func hasExactDatabase(dbs []DatabaseInfo, name string) bool {
 	return false
 }
 
+// pgCandidates: the servers a dump can go into: the local one, and the running PostgreSQL containers of an image
+// whose tools and access are known (official postgres, postgis, timescale/timescaledb).
+func pgCandidates(ctx context.Context) []DbRestoreCandidate {
+	out := []DbRestoreCandidate{}
+	if t, err := newPgTarget(ctx, &DatabaseDump{}); err == nil {
+		if major, err := pgServerMajor(ctx, t); err == nil {
+			out = append(out, DbRestoreCandidate{Image: fmt.Sprintf("PostgreSQL %d (serveur local)", major)})
+		}
+	}
+	if !dockerUsable(ctx) {
+		return out
+	}
+	b, err := dumpOutput(ctx, nil, "docker", "ps", "--format", "{{.Names}}\t{{.Image}}")
+	if err != nil {
+		return out
+	}
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		name, image, ok := strings.Cut(l, "\t")
+		if !ok || !containerRe.MatchString(name) || !pgImageRe.MatchString(strings.ToLower(image)) || pgImageSkip.MatchString(strings.ToLower(image)) {
+			continue
+		}
+		t, err := newPgTarget(ctx, &DatabaseDump{Container: name})
+		if err != nil {
+			continue
+		}
+		// without a password: trust over 127.0.0.1, as in the official images; else credentials to give
+		if major, err := pgServerMajor(ctx, t); err == nil {
+			out = append(out, DbRestoreCandidate{Container: name, Image: fmt.Sprintf("PostgreSQL %d · %s", major, image)})
+		} else {
+			out = append(out, DbRestoreCandidate{Container: name, Image: image, NeedsAuth: true})
+		}
+	}
+	return out
+}
+
 func checkPostgresRestore(ctx context.Context, p *DatabaseDump, target string) (*DbRestoreCheck, error) {
-	if !pgRunning() {
-		return nil, errors.New("aucun serveur PostgreSQL local")
+	if target == "" && p.Container == "" {
+		// listing of the targets
+		return &DbRestoreCheck{Databases: []DatabaseInfo{}, Free: -1, FreeTmp: -1, Candidates: pgCandidates(ctx)}, nil
 	}
-	if err := pgTools(); err != nil {
-		return nil, err
-	}
-	_, _, home, err := lookupPostgres()
+	t, err := newPgTarget(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	env := append(os.Environ(), "LC_ALL=C", "HOME="+home, "PGAPPNAME=homelab-agent")
-	major, err := pgServerMajor(ctx, env)
+	major, err := pgServerMajor(ctx, t)
 	if err != nil {
-		return nil, err
+		return nil, mongoCommandError(err, "", p.Password)
 	}
-	tools := fmt.Sprintf("PostgreSQL %d", major)
-	if target == "" {
-		// listing of the targets: the local server is the only one
-		return &DbRestoreCheck{Tools: tools, Databases: []DatabaseInfo{}, Free: -1, FreeTmp: -1, Candidates: []DbRestoreCandidate{{Container: "postgresql", Image: tools + " (serveur local)"}}}, nil
-	}
-	dbs, err := pgDatabases(ctx, env)
+	dbs, err := pgDatabases(ctx, t)
 	if err != nil {
-		return nil, err
+		return nil, mongoCommandError(err, "", p.Password)
 	}
 	return &DbRestoreCheck{
-		Tools:     tools,
+		Tools:     fmt.Sprintf("PostgreSQL %d (%s)", major, t.label()),
 		Databases: dbs,
-		Exists:    hasExactDatabase(dbs, target),
-		Free:      pgDataFree(ctx, env),
+		Exists:    target != "" && hasExactDatabase(dbs, target),
+		Free:      pgDataFree(ctx, t),
 		FreeTmp:   -1, // nothing is copied
 	}, nil
+}
+
+// pgJobs: parallel jobs of pg_restore in a container, as many as the host has processors, four at most.
+func pgJobs() int {
+	return max(1, min(runtime.NumCPU(), 4))
 }
 
 var (
@@ -225,9 +363,7 @@ func (w *lineWriter) flush() {
 // runPostgresRestore: the new database is created by this agent (createdb refuses an existing name), closed to
 // PUBLIC while it is filled, and dropped again if the restore fails.
 func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) error {
-	if err := pgTools(); err != nil {
-		return err
-	}
+	emit = mongoSafeEmit(emit, s.Database.Password)
 	mounts := restoreMountsOf(pbsMountRootFor(&PbsMountSpec{MountRoot: s.MountRoot}))
 	if len(mounts) != 1 {
 		return fmt.Errorf("expected exactly one mounted backup on this host, found %d", len(mounts))
@@ -240,19 +376,22 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 	if _, err := os.Stat(filepath.Join(dir, "toc.dat")); err != nil {
 		return fmt.Errorf("%s does not look like a pg_dump directory (no toc.dat)", dir)
 	}
-	_, _, home, err := lookupPostgres()
+	t, err := newPgTarget(ctx, s.Database)
 	if err != nil {
 		return err
 	}
-	env := append(os.Environ(), "LC_ALL=C", "HOME="+home, "PGAPPNAME=homelab-agent")
-	as := func(args ...string) []string { return append([]string{"-u", "postgres", "--"}, args...) }
+	// container: the dump is given read-only to a throwaway container (--mount: no separator in the path)
+	bind := "type=bind,source=" + dir + ",target=/dump,readonly"
+	if t.container != "" && strings.ContainsAny(dir, ",=\"") {
+		return fmt.Errorf("chemin du montage inutilisable par Docker : %s", dir)
+	}
 
-	major, err := pgServerMajor(ctx, env)
+	major, err := pgServerMajor(ctx, t)
 	if err != nil {
 		return err
 	}
-	emit(fmt.Sprintf("serveur PostgreSQL %d, cible %s\n", major, s.Target))
-	dbs, err := pgDatabases(ctx, env)
+	emit(fmt.Sprintf("serveur PostgreSQL %d (%s), cible %s\n", major, t.label(), s.Target))
+	dbs, err := pgDatabases(ctx, t)
 	if err != nil {
 		return err
 	}
@@ -260,8 +399,13 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 		return fmt.Errorf("la base %q existe deja : rien n'est ecrase", s.Target)
 	}
 
-	// refused before anything is created: version and extensions of the dump (read by root, no connection)
-	toc, err := dumpOutput(ctx, env, "pg_restore", "-l", dir)
+	// refused before anything is created: version and extensions of the dump, read without any connection
+	var toc []byte
+	if t.container == "" {
+		toc, err = dumpOutput(ctx, t.env, "pg_restore", "-l", dir)
+	} else {
+		toc, err = dumpOutput(ctx, t.env, "docker", "run", "--rm", "--network", "none", "--mount", bind, "--entrypoint", "pg_restore", t.image, "-l", "/dump")
+	}
 	if err != nil {
 		return fmt.Errorf("lecture du dump : %w", err)
 	}
@@ -278,7 +422,7 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 		}
 	}
 	if len(exts) > 0 {
-		out, err := dumpOutput(ctx, env, "runuser", as("psql", "-AtX", "--no-password", "-d", "postgres", "-c", "select name from pg_available_extensions")...)
+		out, err := t.query(ctx, "select name from pg_available_extensions")
 		if err != nil {
 			return err
 		}
@@ -299,33 +443,48 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 
 	// createdb refuses an existing name: nothing can be overwritten, even if the name appeared meanwhile.
 	// template0: a clean base, whatever was added to template1.
-	if err := runDumpStep(ctx, env, emit, "runuser", as("createdb", "--no-password", "-T", "template0", s.Target)...); err != nil {
+	if err := t.step(ctx, emit, "createdb", "--no-password", "-T", "template0", s.Target); err != nil {
 		return err
 	}
 	// from here the database is this agent's: dropped again on failure
 	drop := func() {
 		cctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if derr := runDumpStep(cctx, env, emit, "runuser", as("dropdb", "--if-exists", "--no-password", s.Target)...); derr != nil {
+		if derr := t.step(cctx, emit, "dropdb", "--if-exists", "--no-password", s.Target); derr != nil {
 			emit(fmt.Sprintf("echec : la base %q n'a pas pu etre supprimee, a supprimer a la main avant de recommencer\n", s.Target))
 		} else {
 			emit(fmt.Sprintf("echec : la base %q creee pour la restauration a ete supprimee\n", s.Target))
 		}
 	}
-	// the objects belong to postgres here: nobody else may connect while they are restored (the name is validated)
-	if err := runDumpStep(ctx, env, emit, "runuser", as("psql", "-X", "--no-password", "-d", "postgres", "-c", `REVOKE CONNECT, TEMPORARY ON DATABASE "`+s.Target+`" FROM PUBLIC`)...); err != nil {
+	// the objects belong to the superuser here: nobody else may connect while they are restored (the name is validated)
+	if err := t.step(ctx, emit, "psql", "-X", "--no-password", "-d", "postgres", "-c", `REVOKE CONNECT, TEMPORARY ON DATABASE "`+s.Target+`" FROM PUBLIC`); err != nil {
 		drop()
 		return err
 	}
 	emit(fmt.Sprintf("restauration %s -> %s…\n", s.Source, s.Target))
-	first := []string{"pg_restore", "-f", "-", "--no-owner", "--no-privileges", "--no-tablespaces", "--no-subscriptions", dir}
-	second := append([]string{"runuser"}, as("psql", "-X", "-q", "--no-password", "-v", "ON_ERROR_STOP=1", "-d", s.Target)...)
-	emit(strings.Join(first, " ") + " | " + strings.Join(second, " ") + "\n")
-	if err := pipeRun(ctx, env, emit, first, second); err != nil {
+	flags := []string{"--no-owner", "--no-privileges", "--no-tablespaces", "--no-subscriptions"}
+	if t.container == "" {
+		first := append(append([]string{"pg_restore", "-f", "-"}, flags...), dir)
+		second := append([]string{"runuser"}, "-u", "postgres", "--", "psql", "-X", "-q", "--no-password", "-v", "ON_ERROR_STOP=1", "-d", s.Target)
+		emit(strings.Join(first, " ") + " | " + strings.Join(second, " ") + "\n")
+		err = pipeRun(ctx, t.env, emit, first, second)
+	} else {
+		// named: one left behind by an agent stopped mid-restore is removed first
+		name := "hlm-restore-" + s.Target
+		_, _ = dumpOutput(ctx, t.env, "docker", "rm", "-f", name)
+		args := []string{"run", "--rm", "--name", name, "--network", "container:" + t.container, "--mount", bind}
+		if t.password {
+			args = append(args, "-e", "PGPASSWORD")
+		}
+		args = append(args, "--entrypoint", "pg_restore", t.image, "-h", "127.0.0.1", "-U", t.user, "-j", strconv.Itoa(pgJobs()))
+		args = append(append(args, flags...), "--exit-on-error", "--no-password", "-d", s.Target, "/dump")
+		err = runDumpStep(ctx, t.env, emit, "docker", args...)
+	}
+	if err != nil {
 		drop()
 		return err
 	}
-	dbs, err = pgDatabases(ctx, env)
+	dbs, err = pgDatabases(ctx, t)
 	if err != nil {
 		return fmt.Errorf("verification apres restauration : %w", err)
 	}

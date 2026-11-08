@@ -76,14 +76,21 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   const cont = host?.containers.find((c) => c.container === container);
   const target = name ?? (arch ? `${arch.database}_restore` : '');
   const nameOk = NAME_RE.test(target);
-  const authOk = !!cont && (!cont.needsAuth || (!!username && !!password));
+  // PostgreSQL in a container: the password is enough (the superuser of the container by default)
+  const authOk = !!cont && (!cont.needsAuth || (kind === 'postgres' ? !!password : !!username && !!password));
 
   const input = () => ({
     kind,
     hostId: hostId!,
     container: container!,
     target,
-    ...(cont?.jobId ? { jobId: cont.jobId } : username ? { username, password, ...(authSource ? { authSource } : {}) } : {}),
+    ...(cont?.jobId
+      ? { jobId: cont.jobId }
+      : kind === 'postgres'
+        ? { ...(cont?.needsAuth && username ? { username } : {}), ...(cont?.needsAuth && password ? { password } : {}) }
+        : username
+          ? { username, password, ...(authSource ? { authSource } : {}) }
+          : {}),
   });
   // a check holds for the inputs it was made with only
   const key = JSON.stringify([hostId, container, cont?.jobId, username, password, authSource, target, archive, time]);
@@ -175,18 +182,18 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           </div>
         </Step>
 
-        <Step n={3} title="Cible" state={states[2]} intro={kind === 'postgres' ? 'Hôtes pouvant recevoir le dump : agent à jour, montage possible et serveur PostgreSQL local (pg_restore).' : 'Hôtes pouvant recevoir le dump : agent à jour, montage possible et conteneur MongoDB (mongorestore). Les identifiants du job de sauvegarde de l’hôte sont réutilisés.'}>
+        <Step n={3} title="Cible" state={states[2]} intro={kind === 'postgres' ? 'Hôtes pouvant recevoir le dump : agent à jour, montage possible et serveur PostgreSQL local ou conteneur PostgreSQL (image officielle, PostGIS ou TimescaleDB).' : 'Hôtes pouvant recevoir le dump : agent à jour, montage possible et conteneur MongoDB (mongorestore). Les identifiants du job de sauvegarde de l’hôte sont réutilisés.'}>
           {archive && <Loading q={targets} />}
           <div className={listCls}>
             {valid.map((h) => (
               <div key={h.id} className="space-y-1">
                 <p className="text-xs font-medium text-zinc-200">{h.name}</p>
                 {h.containers.map((c) => (
-                  <Choice key={c.container} selected={h.id === hostId && c.container === container} onClick={() => { setHostId(h.id); setContainer(c.container); setCheck(null); }}>
-                    <span className="font-mono">{kind === 'postgres' ? 'Serveur PostgreSQL local' : c.container}</span>
+                  <Choice key={c.container || 'local'} selected={h.id === hostId && c.container === container} onClick={() => { setHostId(h.id); setContainer(c.container); setCheck(null); }}>
+                    <span className="font-mono">{kind === 'postgres' && !c.container ? 'Serveur PostgreSQL local' : c.container}</span>
                     <span className="block text-[11px] text-muted">
                       {c.image}
-                      {kind === 'postgres' ? ' · authentification locale (utilisateur postgres)' : c.jobId ? ` · identifiants du job « ${c.jobName} »` : c.needsAuth ? ' · identifiants à saisir' : ' · sans authentification'}
+                      {kind === 'postgres' && !c.container ? ' · authentification locale (utilisateur postgres)' : kind === 'postgres' ? (c.needsAuth ? ' · mot de passe à saisir' : ' · accès local du conteneur, sans mot de passe') : c.jobId ? ` · identifiants du job « ${c.jobName} »` : c.needsAuth ? ' · identifiants à saisir' : ' · sans authentification'}
                     </span>
                   </Choice>
                 ))}
@@ -201,10 +208,12 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           )}
           {cont && cont.needsAuth && (
             <div className="space-y-1.5 border-t border-line pt-2">
-              <p className="text-[11px] text-muted">Ce MongoDB demande une authentification. Le mot de passe n’est jamais conservé.</p>
-              <input className="input h-8 w-full py-1 text-xs" placeholder="Utilisateur" value={username} onChange={(e) => { setUsername(e.target.value.trim()); setCheck(null); }} autoComplete="off" spellCheck={false} />
+              <p className="text-[11px] text-muted">
+                {kind === 'postgres' ? 'Ce PostgreSQL demande un mot de passe (utilisateur : celui du conteneur si vide).' : 'Ce MongoDB demande une authentification.'} Le mot de passe n’est jamais conservé.
+              </p>
+              <input className="input h-8 w-full py-1 text-xs" placeholder={kind === 'postgres' ? 'Utilisateur (POSTGRES_USER du conteneur)' : 'Utilisateur'} value={username} onChange={(e) => { setUsername(e.target.value.trim()); setCheck(null); }} autoComplete="off" spellCheck={false} />
               <input className="input h-8 w-full py-1 text-xs" type="password" placeholder="Mot de passe" value={password} onChange={(e) => { setPassword(e.target.value); setCheck(null); }} autoComplete="new-password" />
-              <input className="input h-8 w-full py-1 text-xs" placeholder="authSource (admin)" value={authSource} onChange={(e) => { setAuthSource(e.target.value.trim()); setCheck(null); }} spellCheck={false} />
+              {kind === 'mongodb' && <input className="input h-8 w-full py-1 text-xs" placeholder="authSource (admin)" value={authSource} onChange={(e) => { setAuthSource(e.target.value.trim()); setCheck(null); }} spellCheck={false} />}
             </div>
           )}
         </Step>

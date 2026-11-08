@@ -23,7 +23,8 @@ func fakePgUser() {
 // fakePg: the local server answers the queries of the restore. databases is read at each listing.
 func fakePg(t *testing.T, serverNum string, databases func() string, toc string, available string) {
 	t.Helper()
-	oldOut, oldLook, oldRun, oldLookup := dumpOutput, lookPath, pgRunning, lookupPostgres
+	oldOut, oldLook, oldRun, oldLookup, oldDocker := dumpOutput, lookPath, pgRunning, lookupPostgres, dockerUsable
+	dockerUsable = func(context.Context) bool { return false }
 	home := t.TempDir()
 	pgTestHome = home
 	fakePgUser()
@@ -45,7 +46,9 @@ func fakePg(t *testing.T, serverNum string, databases func() string, toc string,
 		}
 		return nil, errors.New("unexpected " + cmd)
 	}
-	t.Cleanup(func() { dumpOutput, lookPath, pgRunning, lookupPostgres = oldOut, oldLook, oldRun, oldLookup })
+	t.Cleanup(func() {
+		dumpOutput, lookPath, pgRunning, lookupPostgres, dockerUsable = oldOut, oldLook, oldRun, oldLookup, oldDocker
+	})
 }
 
 func static(s string) func() string { return func() string { return s } }
@@ -96,7 +99,7 @@ func TestCheckPostgresRestore(t *testing.T) {
 	ctx := context.Background()
 	// listing of the targets: the local server
 	r, err := checkDbRestore(ctx, "postgres", &DatabaseDump{}, "")
-	if err != nil || len(r.Candidates) != 1 || r.Candidates[0].Container != "postgresql" || !strings.Contains(r.Candidates[0].Image, "PostgreSQL 16") {
+	if err != nil || len(r.Candidates) != 1 || r.Candidates[0].Container != "" || !strings.Contains(r.Candidates[0].Image, "PostgreSQL 16") {
 		t.Fatalf("listing: %v %+v", err, r)
 	}
 	r, err = checkDbRestore(ctx, "postgres", &DatabaseDump{}, "nextcloud_copy")
@@ -115,8 +118,8 @@ func TestCheckPostgresRestore(t *testing.T) {
 			t.Errorf("name %q accepted", bad)
 		}
 	}
-	if _, err := checkDbRestore(ctx, "postgres", &DatabaseDump{Container: "x"}, "ok"); err == nil {
-		t.Error("a container for the local server accepted")
+	if _, err := checkDbRestore(ctx, "postgres", &DatabaseDump{Username: "u", Password: "p"}, "ok"); err == nil {
+		t.Error("credentials for the local server accepted")
 	}
 }
 
@@ -293,5 +296,158 @@ func TestRunPipe(t *testing.T) {
 	}
 	if err := runPipe(context.Background(), os.Environ(), func(string) {}, []string{"false"}, []string{"cat"}); err == nil || !strings.Contains(err.Error(), "false a échoué") {
 		t.Fatalf("writer failure: %v", err)
+	}
+}
+
+const testImageID = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// fakePgDocker: Docker answers for a running PostgreSQL container "pg" (superuser admin, from POSTGRES_USER);
+// containers listed in noTrust refuse a connection without a password.
+func fakePgDocker(t *testing.T, databases func() string, toc string, noTrust ...string) {
+	t.Helper()
+	oldOut, oldDocker, oldRun := dumpOutput, dockerUsable, pgRunning
+	dockerUsable = func(context.Context) bool { return true }
+	pgRunning = func() bool { return false }
+	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		for _, c := range noTrust {
+			if strings.Contains(cmd, "exec "+c+" psql") {
+				return nil, errors.New("password authentication failed")
+			}
+		}
+		switch {
+		case strings.HasPrefix(cmd, "docker ps"):
+			return []byte("pg\tpostgres:17-alpine\nha\ttimescale/timescaledb-ha:pg16\nweb\tnginx:1\ngis\tpostgis/postgis:16-3.4\nstopped\tpostgres:16\n"), nil
+		case strings.Contains(cmd, "{{.State.Running}}") && strings.HasSuffix(cmd, " stopped"):
+			return []byte("false " + testImageID + "\n"), nil
+		case strings.Contains(cmd, "{{.State.Running}}"):
+			return []byte("true " + testImageID + "\n"), nil
+		case strings.Contains(cmd, ".Config.Env"):
+			return []byte("PATH=/usr/bin\nPOSTGRES_USER=admin\nPOSTGRES_PASSWORD=never-used\n"), nil
+		case strings.Contains(cmd, "server_version_num"):
+			return []byte("170004\n"), nil
+		case strings.Contains(cmd, "pg_database_size"):
+			return []byte(databases()), nil
+		case strings.Contains(cmd, "data_directory"):
+			return []byte("/var/lib/postgresql/data\n"), nil
+		case strings.Contains(cmd, "df -Pk"):
+			return []byte("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 1000 400 600 40% /var/lib/postgresql/data\n"), nil
+		case strings.Contains(cmd, "pg_restore") && strings.HasSuffix(cmd, "-l /dump"):
+			return []byte(toc), nil
+		case strings.Contains(cmd, "pg_available_extensions"):
+			return []byte("pgcrypto\nplpgsql\n"), nil
+		case strings.HasPrefix(cmd, "docker rm -f hlm-restore-"):
+			return nil, nil
+		}
+		return nil, errors.New("unexpected " + cmd)
+	}
+	t.Cleanup(func() { dumpOutput, dockerUsable, pgRunning = oldOut, oldDocker, oldRun })
+}
+
+func TestPgContainerCandidates(t *testing.T) {
+	fakePgDocker(t, static("postgres|1\n"), "", "gis")
+	r, err := checkDbRestore(context.Background(), "postgres", &DatabaseDump{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// no local server here; timescaledb-ha (other tooling) and the stopped container are left out
+	if len(r.Candidates) != 2 {
+		t.Fatalf("candidates = %+v", r.Candidates)
+	}
+	pg, gis := r.Candidates[0], r.Candidates[1]
+	if pg.Container != "pg" || pg.NeedsAuth || !strings.Contains(pg.Image, "PostgreSQL 17") {
+		t.Errorf("pg = %+v", pg)
+	}
+	if gis.Container != "gis" || !gis.NeedsAuth {
+		t.Errorf("gis = %+v", gis)
+	}
+}
+
+func TestCheckPgContainer(t *testing.T) {
+	fakePgDocker(t, static("postgres|1\nnextcloud|1\n"), "")
+	ctx := context.Background()
+	r, err := checkDbRestore(ctx, "postgres", &DatabaseDump{Container: "pg"}, "nextcloud_copy")
+	if err != nil || r.Exists || r.Free != 600*1024 || !strings.Contains(r.Tools, "conteneur pg") {
+		t.Fatalf("check: %v %+v", err, r)
+	}
+	if r, _ = checkDbRestore(ctx, "postgres", &DatabaseDump{Container: "pg"}, "nextcloud"); !r.Exists {
+		t.Error("existing name not seen")
+	}
+	if _, err := checkDbRestore(ctx, "postgres", &DatabaseDump{Container: "stopped"}, "x"); err == nil || !strings.Contains(err.Error(), "arrêté") {
+		t.Errorf("stopped container: %v", err)
+	}
+	for _, bad := range []*DatabaseDump{{Container: "p;g"}, {Container: "pg", Username: "-U"}, {Container: "pg", Password: "a\nb"}, {Container: "pg", AuthSource: "admin"}} {
+		if _, err := checkDbRestore(ctx, "postgres", bad, "x"); err == nil {
+			t.Errorf("settings %+v accepted", bad)
+		}
+	}
+}
+
+func TestRunPgContainerRestore(t *testing.T) {
+	dump := pgMount(t)
+	var calls *[]dumpCall
+	fakePgDocker(t, func() string {
+		if calls != nil && strings.Contains(calls2s(calls), "createdb") {
+			return "postgres|1\nnextcloud_copy|5000\n"
+		}
+		return "postgres|1\n"
+	}, tocPlain)
+	calls = fakeDump(t, "")
+	pipe := fakePipe(t, false)
+	spec := pgSpec()
+	spec.Database = &DatabaseDump{Container: "pg"}
+	if err := runDbRestore(context.Background(), spec, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	joined := calls2s(calls)
+	for _, want := range []string{
+		// client tools of the container, over 127.0.0.1 as the superuser of the container
+		"docker exec pg createdb -h 127.0.0.1 -U admin --no-password -T template0 nextcloud_copy",
+		`docker exec pg psql -h 127.0.0.1 -U admin -X --no-password -d postgres -c REVOKE CONNECT, TEMPORARY ON DATABASE "nextcloud_copy" FROM PUBLIC`,
+		// pg_restore of a throwaway container of the same image: the dump read-only, the network of the target
+		"docker run --rm --name hlm-restore-nextcloud_copy --network container:pg --mount type=bind,source=" + dump + ",target=/dump,readonly --entrypoint pg_restore " + testImageID + " -h 127.0.0.1 -U admin -j ",
+		"--no-owner --no-privileges --no-tablespaces --no-subscriptions --exit-on-error --no-password -d nextcloud_copy /dump",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if len(*pipe) != 0 || strings.Contains(joined, "dropdb") || strings.Contains(joined, "PGPASSWORD") {
+		t.Errorf("unexpected: pipe %v\n%s", *pipe, joined)
+	}
+}
+
+func TestRunPgContainerPasswordNeverInArguments(t *testing.T) {
+	pgMount(t)
+	fakePgDocker(t, static("postgres|1\n"), tocPlain)
+	calls := fakeDump(t, "docker run --rm --name")
+	spec := pgSpec()
+	spec.Database = &DatabaseDump{Container: "pg", Username: "owner", Password: "s3cr3t-pw"}
+	var log strings.Builder
+	err := runDbRestore(context.Background(), spec, func(s string) { log.WriteString(s) })
+	if err == nil {
+		t.Fatal("failed restore not reported")
+	}
+	joined := calls2s(calls)
+	if strings.Contains(joined, "s3cr3t-pw") || strings.Contains(log.String(), "s3cr3t-pw") {
+		t.Fatalf("password in the arguments or the log:\n%s\n%s", joined, log.String())
+	}
+	if !strings.Contains(joined, "-e PGPASSWORD --entrypoint") || !strings.Contains(joined, "docker exec -e PGPASSWORD pg createdb -h 127.0.0.1 -U owner") {
+		t.Errorf("password not passed by name:\n%s", joined)
+	}
+	found := false
+	for _, c := range *calls {
+		for _, e := range c.env {
+			if e == "PGPASSWORD=s3cr3t-pw" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("password not in the environment of the commands")
+	}
+	// the restore failed after the creation: the database this agent created is dropped
+	if !strings.Contains(joined, "docker exec -e PGPASSWORD pg dropdb -h 127.0.0.1 -U owner --if-exists --no-password nextcloud_copy") {
+		t.Errorf("created database left behind:\n%s", joined)
 	}
 }
