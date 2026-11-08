@@ -71,7 +71,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P3 | Code d'enrôlement hors de la ligne de commande, validité réduite | évolution | à faire |
 | P3 | Renouvellement automatique des certificats et rotation de l'autorité | évolution | à faire |
 | P3 | Vérification de la clé du dépôt Proxmox | correction | à faire |
-| P3 | Version masquée aux visiteurs non connectés, noms de compte insensibles à la casse | correction | à faire |
+| P3 | Version masquée aux visiteurs non connectés, noms de compte insensibles à la casse | correction | noms de compte : ✅ fait ([Comptes](comptes.md#nom-et-identifiant)) ; version masquée : à faire |
 | P3 | Droits par site ou groupe d'hôtes, clés d'API à portée réduite, SSO / OIDC | évolution | à faire |
 
 Cette liste est mise à jour au fil des versions ; le [CHANGELOG](https://github.com/Mamath2000/homelab-manager/blob/main/CHANGELOG.md) indique la version qui apporte chaque correction.

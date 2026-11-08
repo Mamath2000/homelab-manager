@@ -39,6 +39,12 @@ Un redémarrage n'en émet un nouveau que si le précédent a expiré.
 Chaque compte a un **identifiant de connexion** et, en option, un **nom** (« Prénom Nom ») affiché dans la page
 **Comptes** et dans l'en-tête. Les deux se modifient depuis la page **Comptes**.
 
+L'identifiant est **en minuscules** : il est converti à la création, au renommage et à la connexion (`Admin` et `admin`
+désignent le même compte, deux comptes ne peuvent plus ne différer que par la casse). Au démarrage, le hub passe en
+minuscules les identifiants des comptes plus anciens et garde l'ancienne écriture comme nom s'il n'y en avait pas. Si
+deux comptes existants ne diffèrent que par la casse, ils sont laissés tels quels et signalés dans les journaux du hub
+(`differ only by case`) : à renommer à la main.
+
 ## Mots de passe temporaires
 
 Créer un compte ou **réinitialiser son mot de passe** (bouton « Réinitialiser » de la colonne *Mot de passe*, à
