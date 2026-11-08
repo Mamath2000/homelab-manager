@@ -244,7 +244,7 @@ Une sauvegarde de CT non privilégié garde les propriétaires **vus depuis l'h�
 
 À partir d'un dump de base sauvegardé par Homelab Manager (jobs **Base MongoDB** et **Base PostgreSQL par base**, voir [Sauvegardes de bases de données](#sauvegardes-de-bases-de-données)), restaure ce dump dans une **nouvelle base** d'un **autre hôte**, en lisant le dump par le [montage en lecture seule](#monter-une-sauvegarde-lecture-seule). La base d'origine n'est jamais touchée, et **rien n'est jamais écrasé** sur la cible.
 
-- **MongoDB** (un conteneur de la cible) et **PostgreSQL** (le serveur local de la cible), avec le même déroulement. Un job PostgreSQL en mode **cluster complet** (`pg-cluster`, copie physique) n'est pas restaurable dans une nouvelle base : pas d'icône. Les rôles (`pg-globals`) ne sont pas appliqués.
+- **MongoDB** (un conteneur de la cible) et **PostgreSQL** (le serveur local de la cible), avec le même déroulement. Un job PostgreSQL en mode **cluster complet** (`pg-cluster`, copie physique) n'est pas restaurable dans une nouvelle base : pas d'icône, voir [Restaurer un cluster PostgreSQL](#restaurer-un-cluster-postgresql-copie-physique) pour la procédure manuelle. Les rôles (`pg-globals`) ne sont pas appliqués.
 - Administrateurs seulement (les pages de lecture de cette fonction aussi : elles font exécuter des commandes aux agents).
 - **Un seul montage ou restauration à la fois** dans tout le hub, comme pour le montage.
 
@@ -276,6 +276,32 @@ Page Sauvegardes ou fiche de l'hôte › icône de restauration de base sur la l
 - Le SQL est produit avec `--no-owner --no-privileges --no-tablespaces --no-subscriptions` et appliqué avec `ON_ERROR_STOP` : les objets appartiennent à `postgres` sur la cible, les rôles du dump ne sont pas nécessaires ni recréés (`pg-globals` n'est pas appliqué), les tablespaces et les subscriptions ne sont pas restaurés. Les droits `GRANT` et les politiques (`CREATE POLICY … TO <rôle>`) qui nomment un rôle absent de la cible échouent : le job s'arrête alors. `postgres`, `template0` et `template1` ne sont pas acceptés comme nom de la nouvelle base ; une archive `pg-cluster` n'est pas une base.
 - **En cas d'échec en cours de route, la base créée pour la restauration est supprimée** (`dropdb`) : l'agent vient de la créer, elle ne contenait rien d'autre. Si elle ne peut pas l'être (quelqu'un y est connecté), le journal le dit.
 - Le journal du job reprend les messages de `pg_restore` et `psql` : en cas d'erreur sur des données, ils peuvent citer quelques lignes de la base.
+
+### Restaurer un cluster PostgreSQL (copie physique)
+
+Un job en mode **cluster complet** sauvegarde une copie physique du répertoire de données (`pg_basebackup -Fp -Xstream`, archive `pg-cluster`, WAL compris), pas un dump logique : elle ne peut pas être rejouée dans une nouvelle base, et c'est la seule façon de restaurer une base TimescaleDB (LTSS de Home Assistant par exemple) sans la procédure de dump/restore de TimescaleDB. Homelab Manager ne l'automatise pas : le [montage en lecture seule](#monter-une-sauvegarde-lecture-seule) donne accès à la copie, le reste se fait à la main, **dans un répertoire à part, sans toucher au cluster en place**.
+
+Prérequis sur l'hôte qui reçoit la copie (celui qui monte) : **même version majeure de PostgreSQL** que le serveur d'origine, et **la même extension TimescaleDB** si la base l'utilise (paquet installé, même version majeure de l'extension), plus la place libre d'une copie complète du cluster.
+
+1. **Monter** la sauvegarde : page Sauvegardes ou fiche de l'hôte › icône de montage, snapshot, archive `pg-cluster`, hôte de destination. Le montage est lisible par root seulement et en lecture seule.
+2. **Copier** le contenu dans un répertoire propre, au nom de `postgres` et en `0700` (un serveur écrit dans son répertoire de données, ce que le montage interdit) :
+   ```bash
+   mkdir -m 700 /var/lib/postgresql/restore-cluster
+   rsync -a /srv/pbs-restore/<montage>/ /var/lib/postgresql/restore-cluster/
+   chown -R postgres:postgres /var/lib/postgresql/restore-cluster
+   ```
+3. **Configuration** : la copie ne contient que le répertoire de données. Sur Debian la configuration est dans `/etc/postgresql/<version>/main` et n'y est pas : créer dans le répertoire de la copie un `postgresql.conf` vide, un `pg_ident.conf` vide et un `pg_hba.conf` ne laissant que la connexion locale (`local all postgres peer`).
+4. **Démarrer une instance à part** (autre port, aucune écoute réseau, socket dans un répertoire à part), avec les binaires de la bonne version et, pour TimescaleDB, son chargement :
+   ```bash
+   runuser -u postgres -- /usr/lib/postgresql/<version>/bin/pg_ctl -D /var/lib/postgresql/restore-cluster \
+     -o "-p 5433 -c listen_addresses='' -c unix_socket_directories=/tmp -c shared_preload_libraries=timescaledb" start
+   runuser -u postgres -- psql -h /tmp -p 5433 -d <base>
+   ```
+   Le premier démarrage rejoue les WAL de la copie jusqu'à un état cohérent. Le port 5433 est un exemple : en choisir un libre.
+5. **Exploiter les données** : consulter ou exporter ce qui est nécessaire (`pg_dump` depuis cette instance). Pour réinjecter une base TimescaleDB dans un autre serveur, suivre la procédure de TimescaleDB (`timescaledb_pre_restore()` puis `timescaledb_post_restore()` autour de `pg_restore`).
+6. **Nettoyer** : arrêter l'instance (`pg_ctl -D … stop`), supprimer le répertoire de la copie, puis **Démonter** depuis le bandeau (le jeton de lecture est révoqué).
+
+Cette procédure n'est pas testée par Homelab Manager : la valider une première fois sur une copie sans importance. Restaurer **sur place** (remplacer le cluster en service) reste une opération de maintenance hors de l'outil : serveur arrêté, ancien répertoire de données mis de côté, jamais supprimé avant de s'être assuré que le nouveau démarre.
 
 ## Déconnecter un PBS ou un cluster
 
