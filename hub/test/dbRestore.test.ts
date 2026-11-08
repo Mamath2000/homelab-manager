@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { DB_ARCHIVE_RE, dbArchive } from '../src/dbRestore.js';
+import { DB_ARCHIVE_RE, dbArchive, targetReason } from '../src/dbRestore.js';
 import { jobDto } from '../src/jobs.js';
 import { authorize } from '../src/profiles.js';
 import type { JobDoc } from '../src/types.js';
@@ -46,4 +46,13 @@ test('db restore routes: admins only, reads included', () => {
     assert.equal(authorize('operator', method, route), false);
     assert.equal(authorize('viewer', method, route), false);
   }
+});
+
+test('target of a restore: why a host is left out', () => {
+  const h = (capabilities: string[]) => ({ name: 'lxc-mongo', capabilities });
+  assert.equal(targetReason(h(['backup_database', 'db_restore', 'pbs_mount'])), null);
+  assert.match(targetReason(h(['backup_database', 'pbs_mount']))!, /à mettre à jour/);
+  assert.match(targetReason(h(['backup_database', 'db_restore', 'backup', 'backup:docker']))!, /nativement/);
+  assert.match(targetReason(h(['backup_database', 'db_restore', 'backup', 'backup:native']))!, /FUSE/);
+  assert.match(targetReason(h(['backup_database', 'db_restore']))!, /nativement/);
 });
