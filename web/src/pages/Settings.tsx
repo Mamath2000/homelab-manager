@@ -12,6 +12,7 @@ import { SitesSettings } from '../components/SitesSettings';
 import { TagsSettings } from '../components/TagsSettings';
 import { SetupSettings } from '../components/SetupSettings';
 import { HealthSettings } from '../components/HealthSettings';
+import { SecurityHealthPanel } from '../components/SecurityHealth';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Button, Modal, Panel, VerticalTabs } from '../components/ui';
 import { api } from '../lib/api';
@@ -28,6 +29,7 @@ const tabs = [
   { id: 'pve', label: 'Proxmox VE', icon: Boxes },
   { id: 'omada', label: 'Omada', icon: Network },
   { id: 'health', label: 'Santé', icon: Activity },
+  { id: 'security', label: 'Sécurité', icon: Shield },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
   { id: 'about', label: 'À propos', icon: Info, dividerBefore: true },
 ] as const;
@@ -108,6 +110,7 @@ export function Settings() {
       </div>
     ),
     setup: <SetupSettings />,
+    security: <SecurityHealthPanel />,
     pve: <PveInventory />,
     omada: <OmadaInventory />,
     health: <HealthSettings />,

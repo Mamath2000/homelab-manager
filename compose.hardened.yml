@@ -1,0 +1,76 @@
+# Déploiement durci de référence (homelab#310). À utiliser À LA PLACE de compose.yml :
+#   cp compose.hardened.yml compose.yml   (ou : docker compose -f compose.hardened.yml up -d)
+# Différences avec compose.yml : interface en HTTPS, ports liés à l'interface choisie, conteneurs en lecture seule sans
+# capacité Linux, MongoDB et clé maître obligatoires, images identifiées par leur empreinte (digest).
+# Vérification : Paramètres > Sécurité dans l'interface (docs/securite.md#déploiement-durci).
+#
+# Fichier .env à côté de celui-ci (chmod 600), TOUS ces champs sont obligatoires :
+#   HM_UI_BIND      adresse de l'hôte qui publie l'interface HTTPS : 127.0.0.1 (proxy sur le même hôte) ou l'IP LAN de l'hôte
+#   HM_AGENT_BIND   adresse de l'hôte qui publie le port des agents (3443) : l'IP LAN de l'hôte, ou celle du VPN
+#   MONGO_USERNAME / MONGO_PASSWORD   compte MongoDB (openssl rand -hex 24)
+#   HM_MASTER_KEY   clé maître (openssl rand -base64 32), à sauvegarder à part de la base
+# Facultatifs : HM_HTTPS_SAN (noms et IP du certificat, ex. hub.lan,192.168.1.10), TRUST_PROXY (adresse EXACTE du proxy).
+#
+# Le dossier mongo-data doit appartenir à l'uid 999 (mongod ne tourne pas en root ici) : chown 999:999 mongo-data mongo-config
+services:
+  hub:
+    # empreinte de la release (mathmath350/homelab-manager:<version>) : à mettre à jour à chaque montée de version
+    image: mathmath350/homelab-manager@sha256:8043bccc1d69df37e2d41e42041c31c6c2ac1dddc889220fbc1213cfe3b4b5cc
+    container_name: homelab-manager
+    restart: unless-stopped
+    ports:
+      - "${HM_UI_BIND:?HM_UI_BIND: adresse de l'hôte pour l'interface (.env)}:4443:4443"     # interface, HTTPS
+      - "${HM_AGENT_BIND:?HM_AGENT_BIND: adresse de l'hôte pour les agents (.env)}:3443:3443" # agents, TLS mutuel
+    environment:
+      MONGO_URL: mongodb://mongo:27017/homelab
+      MONGO_USERNAME: ${MONGO_USERNAME:?MONGO_USERNAME manquant (.env)}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD manquant (.env)}
+      HM_MASTER_KEY: ${HM_MASTER_KEY:?HM_MASTER_KEY manquante (.env)}
+      HTTPS_PORT: 4443
+      HTTPS_SAN: ${HM_HTTPS_SAN:-}
+      HTTP_MODE: local         # le port 3000 n'écoute que sur la boucle locale du conteneur (sonde de santé), jamais publié
+      COOKIE_SECURE: "true"
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      LOG_LEVEL: info
+      TZ: Europe/Paris
+    volumes:
+      - ./access:/access:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # ping ICMP non privilégié des sondes (aucune capacité ajoutée) ; borne haute 65535 pour les LXC non privilégiés
+    sysctls:
+      net.ipv4.ping_group_range: "0 65535"
+    depends_on:
+      - mongo
+    networks: [default, backend]
+
+  mongo:
+    # mongo:7 — AVX requis par MongoDB 5+ (mongo:4.4 sur un vieux CPU, empreinte à remplacer)
+    image: mongo:7@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+    container_name: homelab-manager-mongo
+    restart: unless-stopped
+    # uid mongodb de l'image : l'entrypoint n'a alors ni chown ni gosu à faire, donc aucune capacité à conserver
+    user: "999:999"
+    command: ["mongod", "--quiet", "--auth"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:?MONGO_USERNAME manquant (.env)}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD manquant (.env)}
+    volumes:
+      - ./mongo-data:/data/db
+      - ./mongo-config:/data/configdb
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend]
+
+networks:
+  # réseau interne : MongoDB n'a aucune route vers l'extérieur et seuls les services qui y sont reliés l'atteignent
+  backend:
+    internal: true

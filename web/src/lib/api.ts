@@ -1488,6 +1488,21 @@ export interface PveInventory {
   }[];
 }
 
+// Posture of the installation (hub/src/securityHealth.ts), admins only
+export type SecurityStatus = 'ok' | 'warn' | 'bad' | 'unknown';
+export interface SecurityCheck {
+  id: string;
+  label: string;
+  status: SecurityStatus;
+  detail: string;
+  items?: { name: string; status: SecurityStatus; detail: string }[];
+}
+export interface SecurityHealth {
+  checkedAt: string;
+  summary: Record<SecurityStatus, number>;
+  groups: { id: string; title: string; checks: SecurityCheck[] }[];
+}
+
 // Plan / result of the installation of the agent in CT (POST /api/settings/pve/install)
 export interface PveInstallTarget {
   kind: 'lxc' | 'node';
@@ -1747,6 +1762,7 @@ export const api = {
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),
   silenceHealthAlerts: (id: string, keys: string[], silenced: boolean) => request<{ healthSilenced: { key: string; level: 'warn' | 'alert' }[] }>('PUT', `/api/hosts/${id}/health/silenced`, { keys, silenced }),
   hostSmartCandidates: (id: string) => request<{ candidates: SmartCandidate[] }>('GET', `/api/hosts/${id}/health/smart/candidates`),
+  securityHealth: () => request<SecurityHealth>('GET', '/api/settings/security'),
   healthSettings: () => request<HealthSettings>('GET', '/api/settings/health'),
   saveHealthSettings: (s: Omit<HealthSettings, 'retentionHours'>) => request<HealthSettings>('PUT', '/api/settings/health', s),
   hostHealthOverrides: (id: string) => request<HealthOverridesResponse>('GET', `/api/hosts/${id}/health/overrides`),

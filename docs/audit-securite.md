@@ -64,7 +64,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P2 | Chiffrement côté client des sauvegardes PBS | évolution | à faire |
 | P2 | Signature par l'administrateur des actions sensibles, vérifiée par l'agent | évolution | à faire |
 | P2 | Politique locale par hôte, qui borne ce que le hub peut demander à l'agent | évolution | ✅ fait ([Sécurité](securite.md#politique-locale-de-lhôte)) |
-| P2 | Déploiement durci de référence et page « Santé sécurité » | évolution | à faire |
+| P2 | Déploiement durci de référence et page « Santé sécurité » | évolution | ✅ fait ([Sécurité](securite.md#déploiement-durci)) ; la double authentification n'est pas encore contrôlée par la page |
 | P3 | Durcissement systemd de l'agent, puis séparation de privilèges | évolution | à faire |
 | P3 | Masquage des secrets dans les fichiers compose affichés, journaux filtrés selon le profil | correction | à faire |
 | P3 | Vérification assistée des empreintes PBS, PVE et Omada | évolution | à faire |

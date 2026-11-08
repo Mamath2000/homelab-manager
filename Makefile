@@ -1,6 +1,6 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start logs stop agent agent-minor agent-major agent-floor agent-run build lint fmt test check audit clean version \
-        docker-build docker-prune release-key access-manifest access-publish \
+        docker-build docker-prune hardened-pin release-key access-manifest access-publish \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
 
@@ -36,6 +36,7 @@ ACCESS_OUT    ?= tools/manifest.sig.json
 PROD_SSH  ?= pve1.lo
 PROD_PCT  ?= 171
 PROD_DIR  ?= /home/mamath/homelab-manager
+PROD_COMPOSE ?= docker-compose.yml
 PROD_RUN   = ssh $(PROD_SSH) "$(if $(PROD_PCT),pct exec $(PROD_PCT) -- )sh -c 'cd $(PROD_DIR) && $(1)'"
 
 help: ## Affiche cette aide
@@ -157,6 +158,12 @@ docker-build: ## Construit l'image locale homelab-manager:latest (sans push ; ag
 docker-prune: ## Libère le disque : dist, anciennes images locales (garde latest, dev + version courante), images orphelines, cache buildx > 7 j
 	bash docker-release.sh prune
 
+hardened-pin: ## Affiche les empreintes (digest) des images de compose.hardened.yml : make hardened-pin TAG=1.2.24 (défaut : latest)
+	@for img in mathmath350/homelab-manager:$(or $(TAG),latest) mongo:7; do \
+		d=$$(docker buildx imagetools inspect $$img 2>/dev/null | awk '/^Digest:/ {print $$2; exit}'); \
+		if [ -n "$$d" ]; then echo "$${img%%:*}@$$d   # $$img"; else echo "empreinte introuvable : $$img" >&2; exit 1; fi; \
+	done
+
 docker-release: check ## Release dev : build +1 (X.Y.Z+1), commit, build et push Docker Hub (dev, X.Y.Z-dev ; amd64 + arm64), tag git, push, synchro HAOS dev (workflow GitHub) et nettoyage disque
 	bash docker-release.sh release
 
@@ -172,7 +179,11 @@ docker-promote: ## Prod : publie l'image X.Y.Z-dev telle quelle sous X.Y.Z et la
 docker-direct: check ## Contournement de Docker Hub : build amd64, image transférée par ssh au hub (CT 171) et service recréé [YES=1] [DIRECT_SSH=… DIRECT_PCT=… DIRECT_DIR=…]
 	YES=$(YES) bash docker-release.sh direct
 
-publish: ## Stack du CT : récupère la dernière image dev du hub (Docker Hub, tag dev) et relance la stack (docker compose up -d), puis supprime les images orphelines (docker image prune) [YES=1]
+publish: ## Stack du CT : épingle l'image dev du hub par son empreinte (image: …:dev@sha256:…, ancien fichier gardé en .bak), la récupère (Docker Hub) et relance la stack (docker compose up -d), puis supprime les images orphelines (docker image prune) [YES=1]
 	@echo "Stack de prod : $(PROD_SSH)$(if $(PROD_PCT), / CT $(PROD_PCT)):$(PROD_DIR)"
 	@[ "$(YES)" = 1 ] || { printf "Mettre à jour le hub et relancer la stack ? [o/N] "; read a; case "$$a" in o|O|oui|y|Y) ;; *) echo "Annulé"; exit 1 ;; esac; }
+	@digest=$$(docker buildx imagetools inspect mathmath350/homelab-manager:dev 2>/dev/null | awk '/^Digest:/ {print $$2; exit}'); \
+		case "$$digest" in sha256:*) ;; *) echo "empreinte de mathmath350/homelab-manager:dev introuvable : publication annulée, rien modifié" >&2; exit 1 ;; esac; \
+		echo "Image : mathmath350/homelab-manager:dev@$$digest"; \
+		$(call PROD_RUN,COMPOSE_FILE=$(PROD_COMPOSE) sh -s -- $$digest) < tools/pin-image.sh
 	$(call PROD_RUN,docker compose pull hub && docker compose up -d && docker compose ps && docker image prune -f)

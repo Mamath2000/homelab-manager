@@ -198,6 +198,33 @@ L'interface ne peut donc plus être affichée dans une `iframe`, et une injectio
 
 HSTS n'est envoyé que si le navigateur est en HTTPS : derrière un proxy déclaré dans `TRUST_PROXY` (`X-Forwarded-Proto: https`), ou sur le port HTTPS natif avec un certificat fourni (`HTTPS_CERT_FILE`). Avec le certificat que le hub émet lui-même, il n'est pas envoyé : le navigateur refuserait toute exception pour un certificat auto-signé. La durée est volontairement courte, sans `includeSubDomains` ni `preload`.
 
+## Déploiement durci
+
+`compose.hardened.yml` est un déploiement de référence à utiliser **à la place** de `compose.yml` (`docker compose -f compose.hardened.yml up -d`). Il rend obligatoire ou actif ce que le compose standard laisse en option :
+
+| Mesure | Détail |
+|---|---|
+| HTTPS | interface sur le [port HTTPS natif](configuration.md#https-natif), cookie `Secure` forcé ; le port HTTP `3000` n'écoute que sur la boucle locale du conteneur (sonde de santé), jamais publié |
+| Ports liés | `HM_UI_BIND` (interface) et `HM_AGENT_BIND` (agents) : adresse de l'hôte à renseigner, sans valeur par défaut ; `127.0.0.1` pour un proxy sur le même hôte |
+| Réseau interne | MongoDB n'est joignable que par le hub, sans route vers l'extérieur |
+| Conteneurs durcis | `read_only`, `cap_drop: [ALL]`, `no-new-privileges` ; MongoDB tourne en uid 999, sans capacité |
+| Authentification | compte MongoDB (`--auth`) et clé maître **obligatoires** : le compose refuse de démarrer sans eux |
+| Images | identifiées par leur empreinte (`image@sha256:…`) |
+
+Mise en route : renseigner le `.env` (champs listés en tête du fichier), `chown 999:999 mongo-data mongo-config`, puis démarrer. À chaque montée de version, remplacer l'empreinte du hub : `make hardened-pin TAG=<version>` affiche les lignes à reporter (mongo comprise). Pour une installation existante, suivre d'abord la [migration de la base](#migrer-une-installation-existante) : ce compose crée une base avec compte.
+
+### Page Sécurité
+
+**Paramètres › Sécurité** (admins) contrôle la posture de l'installation vue depuis le hub :
+
+- HTTP ou HTTPS et cookie `Secure` pour la requête en cours, proxy de confiance ;
+- compte MongoDB et clé maître ;
+- binaires d'agent signés, version minimum, agents en retard sur une protection (version, politique locale) ;
+- brokers MQTT : accès anonyme, TLS ;
+- conteneur du hub : utilisateur non root, système de fichiers en lecture seule, capacités retirées, `no-new-privileges`.
+
+Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les ACL du broker MQTT sur les topics de commande : à contrôler sur le broker ([exemple d’ACL](home-assistant.md#sécurité-des-commandes)). La double authentification des admins n'y figure pas tant qu'elle n'existe pas.
+
 ## Ce qui est protégé, et contre quoi
 
 | Menace | Protection |
