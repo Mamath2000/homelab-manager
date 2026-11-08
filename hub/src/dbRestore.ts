@@ -4,6 +4,7 @@ import { agentRequest, isOnline } from './agents.js';
 import { agentDatabase, CONTAINER_RE, DB_NAME_RE, MONGO_USER_RE } from './backupJobs.js';
 import { backups, backupJobs, hosts, jobs, parseId } from './db.js';
 import { createJob } from './jobs.js';
+import { mountPrerequisites, no, unknown, yes, type TargetCheck } from './mountChecks.js';
 import { groupSnapshots, mount, mountableGroups, PbsMountError, settleMount, unmount } from './pbsMount.js';
 import { loadPbsSettings } from './pbs.js';
 import type { BackupJobDoc, DatabaseDump, DbRestoreInfo, HostDoc, PbsMountSource } from './types.js';
@@ -85,12 +86,7 @@ interface AgentCandidates {
 
 const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.includes('pbs_mount') && !!h.capabilities?.includes('db_restore');
 
-// One prerequisite of a target: met (true), not met (false) or unknown (null: agent offline or too old to tell).
-export interface TargetCheck {
-  ok: boolean | null;
-  note: string | null;
-}
-
+export type { TargetCheck };
 export interface TargetChecks {
   agent: TargetCheck; // the agent knows the restore
   online: TargetCheck;
@@ -100,37 +96,10 @@ export interface TargetChecks {
   engine: TargetCheck; // a server of the kind (MongoDB container, PostgreSQL local or container)
 }
 
-const yes = (note: string | null = null): TargetCheck => ({ ok: true, note });
-const no = (note: string): TargetCheck => ({ ok: false, note });
-const unknown = (note: string): TargetCheck => ({ ok: null, note });
-
-// What the hub knows of the mount prerequisites of a host, from its capabilities (agent: mountPrerequisites). The
-// dump is read from a mount made ON the target, so the target needs the mount abilities of #209.
+// The dump is read from a mount made ON the target, so the target needs the mount abilities of #209.
 export function mountChecks(h: Pick<HostDoc, 'capabilities' | 'info'>): Pick<TargetChecks, 'agent' | 'os' | 'fuse' | 'pbsClient'> {
-  const caps = h.capabilities ?? [];
-  const told = caps.includes('mount_checks');
-  const mounts = caps.includes('pbs_mount');
-  const osName = h.info?.osName || null;
-  const agent = caps.includes('db_restore') ? yes() : no('agent à mettre à jour : il ne sait pas encore restaurer une base');
-  const os =
-    h.info?.osId === 'windows'
-      ? no('Windows : pas de montage')
-      : mounts
-        ? yes(osName)
-        : told
-          ? !caps.includes('mount_os')
-            ? no('WSL ou Home Assistant OS : pas de montage')
-            : caps.includes('systemd')
-              ? yes(osName)
-              : no('systemd absent')
-          : unknown('agent à mettre à jour pour le savoir');
-  const fuse = mounts ? yes() : told ? (caps.includes('fuse') ? yes() : no('/dev/fuse absent (conteneur LXC : activer la fonctionnalité « FUSE » dans Proxmox)')) : unknown('agent à mettre à jour pour le savoir');
-  const pbsClient = caps.includes('backup:native')
-    ? yes()
-    : caps.includes('backup:docker')
-      ? no("client en image Docker, qui ne peut pas monter : installer le client par APT depuis la fiche de l'hôte")
-      : no("proxmox-backup-client absent : l'installer par APT depuis la fiche de l'hôte");
-  return { agent, os, fuse, pbsClient };
+  const agent = h.capabilities?.includes('db_restore') ? yes() : no('agent à mettre à jour : il ne sait pas encore restaurer une base');
+  return { agent, ...mountPrerequisites(h) };
 }
 
 // Why a host cannot receive a dump (null: it can, as far as the hub knows without asking its agent).

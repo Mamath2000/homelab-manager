@@ -8,6 +8,8 @@ import { formatBytes } from '../lib/backups';
 import { dateTime, timeAgo } from '../lib/format';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
+import { MOUNT_COLUMNS } from '../lib/mountColumns';
+import { ExcludedHostsModal } from './ExcludedHostsModal';
 import { Step, Steps } from './PbsDialog';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
 
@@ -49,6 +51,7 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
   const [archive, setArchive] = useState<string | null>(null);
   const [pickedHost, setHostId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showExcluded, setShowExcluded] = useState(false);
 
   const overview = useQuery({ queryKey: ['pbs-mount'], queryFn: api.pbsMount, enabled: open });
   const sources = overview.data?.sources ?? [];
@@ -221,6 +224,11 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
             ))}
             {dests.data && !dests.data.hosts.length && <p className="text-xs text-muted">Aucun hôte ne sait monter : agent à jour, client natif et /dev/fuse requis.</p>}
           </div>
+          {!!dests.data?.excluded.length && (
+            <button type="button" onClick={() => setShowExcluded(true)} className="self-start text-[11px] text-muted underline decoration-dotted hover:text-zinc-300">
+              {dests.data.excluded.length} hôte{dests.data.excluded.length > 1 ? 's' : ''} écarté{dests.data.excluded.length > 1 ? 's' : ''} : voir pourquoi
+            </button>
+          )}
           {dest?.slow && (
             <p className="flex gap-1.5 text-xs text-amber-300">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -230,6 +238,7 @@ export function MountDialog({ open, initialGroupId, onClose }: { open: boolean; 
           {dest && <p className="text-xs text-muted">Sous {overview.data?.mountRoot ?? '/srv/pbs-restore'} sur {dest.name}, lisible par root seulement.</p>}
         </Step>
       </Steps>
+      <ExcludedHostsModal open={showExcluded} onClose={() => setShowExcluded(false)} hosts={dests.data?.excluded ?? []} columns={MOUNT_COLUMNS} />
     </Modal>
   );
 }

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { Check, DatabaseBackup, HelpCircle, Lock, Search, ShieldCheck, X } from 'lucide-react';
-import { api, type DbKind, type DbRestoreCheck, type DbRestoreTarget, type PbsMountSource } from '../lib/api';
+import { DatabaseBackup, Lock, ShieldCheck } from 'lucide-react';
+import { api, type DbKind, type DbRestoreCheck, type PbsMountSource } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
+import { MOUNT_COLUMNS } from '../lib/mountColumns';
+import { ExcludedHostsModal, type CheckColumn } from './ExcludedHostsModal';
 import { Step, Steps } from './PbsDialog';
 import { Badge, Button, Modal, Spinner } from './ui';
 
@@ -43,34 +45,10 @@ function Loading({ q }: { q: { isPending: boolean; error: unknown } }) {
 }
 
 // Columns of the table of the hosts left out: one per prerequisite of a target.
-type CheckKey = keyof NonNullable<DbRestoreTarget['checks']>;
-const checkColumns = (kind: DbKind): { key: CheckKey; label: string; title: string }[] => [
-  { key: 'online', label: 'En ligne', title: 'Agent connecté' },
-  { key: 'agent', label: 'Agent', title: 'Agent à jour : il sait restaurer une base' },
-  { key: 'os', label: 'OS', title: 'Système qui peut monter : Linux avec systemd (ni Windows, ni WSL, ni Home Assistant OS)' },
-  { key: 'fuse', label: 'FUSE', title: '/dev/fuse présent (conteneur LXC : fonctionnalité « FUSE » de Proxmox)' },
-  { key: 'pbsClient', label: 'Client PBS', title: 'proxmox-backup-client installé nativement' },
+const checkColumns = (kind: DbKind): CheckColumn[] => [
+  ...MOUNT_COLUMNS.map((c) => (c.key === 'agent' ? { ...c, title: 'Agent à jour : il sait restaurer une base' } : c)),
   { key: 'engine', label: kindLabel[kind], title: kind === 'mongodb' ? 'Conteneur MongoDB avec mongorestore' : 'Serveur PostgreSQL local ou conteneur PostgreSQL' },
 ];
-
-// ✓ met, ✗ not met, ? unknown; the note in the tooltip
-function CheckMark({ item }: { item?: { ok: boolean | null; note: string | null } }) {
-  if (!item || item.ok === null)
-    return (
-      <span title={item?.note ?? 'inconnu'} className="inline-flex">
-        <HelpCircle className="h-4 w-4 text-muted" aria-label="inconnu" />
-      </span>
-    );
-  return item.ok ? (
-    <span title={item.note ?? 'OK'} className="inline-flex">
-      <Check className="h-4 w-4 text-emerald-400" aria-label="OK" />
-    </span>
-  ) : (
-    <span title={item.note ?? 'manquant'} className="inline-flex">
-      <X className="h-4 w-4 text-red-400" aria-label="manquant" />
-    </span>
-  );
-}
 
 export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; groupId: string | null; onClose: () => void }) {
   const toast = useToast();
@@ -85,7 +63,6 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   const [check, setCheck] = useState<{ key: string; r: DbRestoreCheck } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
-  const [excludedQ, setExcludedQ] = useState('');
 
   // the PBS that holds the backup: the main one first
   const groups = useQueries({ queries: SOURCES.map((s) => ({ queryKey: ['db-restore', s, 'groups'], queryFn: () => api.dbRestoreGroups(s), enabled: open, retry: false })) });
@@ -103,9 +80,6 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   // only the hosts that can receive the dump are offered; the others, with why, are one click away
   const valid = targets.data?.filter((h) => h.containers.length > 0) ?? [];
   const excluded = targets.data?.filter((h) => h.containers.length === 0) ?? [];
-  // search in the window of the hosts left out: name or reason
-  const eq = excludedQ.trim().toLowerCase();
-  const excludedShown = eq ? excluded.filter((h) => h.name.toLowerCase().includes(eq) || (h.reason ?? '').toLowerCase().includes(eq)) : excluded;
   const host = valid.find((h) => h.id === hostId);
   const cont = host?.containers.find((c) => c.container === container);
   const target = name ?? (arch ? `${arch.database}_restore` : '');
@@ -289,49 +263,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           )}
         </Step>
       </Steps>
-      <Modal open={showExcluded} onClose={() => { setShowExcluded(false); setExcludedQ(''); }} wide="screen" fixed title={`Hôtes écartés (${excluded.length})`}>
-        <div className="flex h-full flex-col gap-3">
-          <label className="relative block shrink-0">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" />
-            <input className="input pl-8" placeholder="Hôte ou raison…" value={excludedQ} onChange={(e) => setExcludedQ(e.target.value)} autoFocus />
-          </label>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {excludedShown.length === 0 ? (
-              <p className="text-sm text-muted">Aucun hôte pour cette recherche.</p>
-            ) : (
-              <table className="w-full table-fixed text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-panel text-[11px] uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="w-[34%] py-2 pr-4 font-medium">Hôte</th>
-                    {checkColumns(kind).map((col) => (
-                      <th key={col.key} className="px-1 py-2 text-center font-medium" title={col.title}>
-                        {col.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {excludedShown.map((h) => (
-                    <tr key={h.id} className="align-top">
-                      <td className="py-2 pr-4">
-                        <span className="block truncate font-medium text-zinc-200" title={h.name}>
-                          {h.name}
-                        </span>
-                        {h.reason && <span className="block text-[11px] text-red-400/90">{h.reason}</span>}
-                      </td>
-                      {checkColumns(kind).map((col) => (
-                        <td key={col.key} className="px-1 py-2 text-center">
-                          <CheckMark item={h.checks?.[col.key]} />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </Modal>
+      <ExcludedHostsModal open={showExcluded} onClose={() => setShowExcluded(false)} hosts={excluded} columns={checkColumns(kind)} />
     </Modal>
   );
 }

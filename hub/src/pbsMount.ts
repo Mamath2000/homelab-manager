@@ -5,6 +5,7 @@ import { AgentRequestError, agentRequest, isOnline } from './agents.js';
 import { backups, hosts, jobs, parseId } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
+import { mountPrerequisites, no, yes, type TargetCheck } from './mountChecks.js';
 import { loadRemoteSettings, remoteReady } from './offsite.js';
 import { FINGERPRINT_RE, loadPbsSettings, normalizeFingerprint, offPbs, pbsCall, pbsConnected } from './pbs.js';
 import { PbsAgentError, deletePbsToken, ensurePbsToken } from './pbsAgent.js';
@@ -177,6 +178,7 @@ export async function mountDestinations(source: PbsMountSource) {
   const pbsHost = pbsHostId ? await hosts.findOne({ _id: pbsHostId }) : null;
   const list = await hosts.find({ capabilities: 'pbs_mount' }).sort({ name: 1 }).toArray();
   const t = (h: HostDoc) => target(src, h);
+  const left = await hosts.find({ capabilities: { $ne: 'pbs_mount' }, enrolledAt: { $exists: true } }).sort({ name: 1 }).toArray();
   const out = await Promise.all(
     list.map(async (h) => {
       const id = h._id.toHexString();
@@ -199,7 +201,28 @@ export async function mountDestinations(source: PbsMountSource) {
     pbsHost: { id: src.link.hostId, name: pbsHost?.name ?? null, reason },
     defaultHostId: !reason && out.find((d) => d.isPbsHost)?.reach.ok ? src.link.hostId : null,
     hosts: out,
+    // the hosts that cannot mount at all, with every prerequisite (shown on demand)
+    excluded: left.map(excludedHost),
   };
+}
+
+export interface ExcludedMountHost {
+  id: string;
+  name: string;
+  checks: { online: TargetCheck; agent: TargetCheck; os: TargetCheck; fuse: TargetCheck; pbsClient: TargetCheck };
+  reason: string;
+}
+
+// A host whose agent cannot mount: the prerequisites known from its capabilities and the first one missing.
+export function excludedHost(h: HostDoc): ExcludedMountHost {
+  const id = h._id.toHexString();
+  const caps = h.capabilities ?? [];
+  const online: TargetCheck = isOnline(id) ? yes() : no('hôte hors ligne');
+  const agent: TargetCheck = caps.includes('mount_checks') ? yes() : no('agent à mettre à jour : il ne sait pas encore dire s’il peut monter');
+  const checks = { online, agent, ...mountPrerequisites(h) };
+  const order = ['online', 'agent', 'os', 'fuse', 'pbsClient'] as const;
+  const failed = order.find((k) => checks[k].ok === false);
+  return { id, name: h.name, checks, reason: failed ? (checks[failed].note ?? 'montage impossible') : 'montage impossible sur cet hôte' };
 }
 
 // Reads across sites are slow. A missing site is unknown; keep the secondary warning conservative.

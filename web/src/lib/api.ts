@@ -984,6 +984,8 @@ export interface PbsMountDestinations {
   pbsHost: { id: string; name: string | null; reason: string | null };
   defaultHostId: string | null;
   hosts: { id: string; name: string; siteId: string | null; online: boolean; isPbsHost: boolean; slow: boolean; reach: { ok: boolean; error: string | null } }[];
+  // hosts whose agent cannot mount, with every prerequisite
+  excluded: { id: string; name: string; reason: string; checks: Record<'online' | 'agent' | 'os' | 'fuse' | 'pbsClient', { ok: boolean | null; note: string | null }> }[];
 }
 
 // Restore of a database dump into a new database (hub/src/dbRestore.ts)
