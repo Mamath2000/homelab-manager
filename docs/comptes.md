@@ -109,6 +109,12 @@ Dans l'application HAOS **Homelab Manager**, tu peux aussi activer **Réinitiali
 démarrage**, enregistrer puis redémarrer l'application. Le nouveau mot de passe apparaît dans son journal et est valable
 15 minutes. Désactive ensuite l'option pour éviter de régénérer le mot de passe au prochain redémarrage.
 
+## Flux temps réel
+
+L'interface reçoit les mises à jour en direct (hôtes, tâches, journaux de tâches) par un flux ouvert en continu. Ce flux est fermé dès que son accès disparaît : déconnexion, changement de profil, réinitialisation du mot de passe, suppression du compte, révocation de la clé d'API utilisée. Une session expirée ou un compte supprimé directement en base est aussi détecté, au plus tard au bout d'une minute (revalidation périodique). Le navigateur se reconnecte alors et reçoit un refus.
+
+Les événements ne sont pas filtrés par profil : tous les profils autorisés à lire reçoivent les mêmes que par l'API, y compris les journaux de tâches.
+
 ## Journal des actions
 
 L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions clés sur le hub : **qui a fait quoi**, depuis quelle adresse, avec quel résultat.
@@ -123,7 +129,7 @@ L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions
 | Paramètres | Home Assistant, agents, PBS principal et de secours, clusters Proxmox VE, rôles : champs modifiés avec leurs anciennes et nouvelles valeurs |
 | Standardisation | standard, valeurs propres d'un hôte, application du manifeste d'accès, clé SSH hors manifeste validée ou annulée (empreinte, compte) |
 
-Chaque entrée garde le nom du compte (et de la clé d'API utilisée) : elle reste lisible après la suppression du compte. Les filtres portent sur l'utilisateur, le type d'action et la période.
+Chaque entrée garde le nom de l'acteur : le compte (et la clé d'API utilisée), ou « hôte · agent » quand c'est la machine elle-même (enrôlement). Elle reste lisible après la suppression du compte. Les filtres portent sur l'utilisateur, le type d'action et la période.
 
 - **Aucun secret** n'est enregistré : ni mot de passe, ni secret de jeton, ni code d'enrôlement. Un champ secret modifié apparaît par son seul nom, une clé SSH par son empreinte.
 - **Les entrées ne peuvent être ni modifiées ni supprimées** depuis le hub. MongoDB les efface au bout d'**un an**.
