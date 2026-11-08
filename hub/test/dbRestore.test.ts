@@ -35,7 +35,12 @@ test('db_restore job: shown without credentials', () => {
   assert.equal(JSON.stringify(dto).includes('password'), false);
 });
 
-test('db restore routes: admins only', () => {
+test('db restore routes: admins only, reads included', () => {
+  for (const route of ['/api/db-restore/targets', '/api/db-restore/:source/groups', '/api/db-restore/:source/snapshots']) {
+    assert.equal(authorize('admin', 'GET', route), true);
+    assert.equal(authorize('operator', 'GET', route), false);
+    assert.equal(authorize('viewer', 'GET', route), false);
+  }
   for (const [method, route] of [['POST', '/api/db-restore'], ['POST', '/api/db-restore/check']] as const) {
     assert.equal(authorize('admin', method, route), true);
     assert.equal(authorize('operator', method, route), false);

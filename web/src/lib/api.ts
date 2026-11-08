@@ -1024,6 +1024,7 @@ export interface DbRestoreCheck {
   databases: { name: string; size: number }[];
   exists: boolean;
   free: number;
+  freeTmp: number;
   error: string | null;
 }
 

@@ -523,6 +523,15 @@ func TestCheckDbRestoreMongo(t *testing.T) {
 	if r.Exists || r.Tools != "mongorestore version: 100.10.0" || len(r.Databases) != 2 || r.Free != 600*1024 {
 		t.Fatalf("check = %+v", r)
 	}
+	if r.FreeTmp != 600*1024 {
+		t.Fatalf("tmp free = %d", r.FreeTmp)
+	}
+	if r, err = checkDbRestore(ctx, "mongodb", p, "CANICOIF"); err != nil || !r.Exists {
+		t.Fatalf("case clash: %v %+v", err, r)
+	}
+	if _, err = checkDbRestore(ctx, "mongodb", p, "admin"); err == nil {
+		t.Fatal("reserved name accepted")
+	}
 	// name clash: never offered
 	if r, err = checkDbRestore(ctx, "mongodb", p, "canicoif"); err != nil || !r.Exists {
 		t.Fatalf("clash: %v %+v", err, r)
@@ -557,7 +566,10 @@ func fakeRestoreMounts(t *testing.T, paths ...string) {
 }
 
 func TestRunDbRestoreMongo(t *testing.T) {
-	dump := t.TempDir()
+	dump := filepath.Join(t.TempDir(), "host-vm_2026-10-19_02-30-00_mongo-canicoif")
+	if err := os.MkdirAll(dump, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dump, "c1.bson"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +590,8 @@ func TestRunDbRestoreMongo(t *testing.T) {
 			return []byte("v"), nil
 		case strings.Contains(cmd, "mongosh"):
 			listed++
-			if listed == 1 {
+			// the name is looked at before the copy, again before the restore, then once restored
+			if listed <= 2 {
 				return []byte(`{"version":"7.0.2","databases":[{"name":"canicoif","size":10}]}`), nil
 			}
 			return []byte(`{"version":"7.0.2","databases":[{"name":"canicoif","size":10},{"name":"canicoif_copy","size":5}]}`), nil
@@ -591,11 +604,11 @@ func TestRunDbRestoreMongo(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-mongo.yaml",
+		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml",
 		"exec mongo mkdir -p /tmp/homelab-agent-restore/canicoif",
 		"cp " + dump + "/. mongo:/tmp/homelab-agent-restore/canicoif",
 		"exec mongo mongorestore --nsInclude canicoif.* --nsFrom canicoif.$coll$ --nsTo canicoif_copy.$coll$ /tmp/homelab-agent-restore",
-		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-mongo.yaml",
+		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml",
 	}
 	if len(*calls) != len(want) {
 		t.Fatalf("calls = %+v", *calls)
@@ -618,8 +631,76 @@ func TestRunDbRestoreMongo(t *testing.T) {
 			t.Fatalf("something was run: %+v", *calls)
 		}
 	}
-	// failed restore: cleaned, partial database announced, password not logged
+	// the name differs by case only: MongoDB would refuse it, so it is taken
+	listed = 1
+	calls = fakeDump(t, "")
+	upper := spec()
+	upper.Target = "CANICOIF"
+	if err := runDbRestore(context.Background(), upper, func(string) {}); err == nil || !strings.Contains(err.Error(), "existe deja") {
+		t.Fatalf("name differing by case accepted: %v", err)
+	}
+	// the name appears while the dump is copied: nothing is restored
 	listed = 0
+	appears := spec()
+	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmd, "inspect"):
+			return []byte("true"), nil
+		case strings.Contains(cmd, "mongodump --version"):
+			return []byte("v"), nil
+		case strings.Contains(cmd, "mongosh"):
+			listed++
+			if listed <= 1 {
+				return []byte(`{"version":"7.0.2","databases":[]}`), nil
+			}
+			return []byte(`{"version":"7.0.2","databases":[{"name":"canicoif_copy","size":5}]}`), nil
+		}
+		return nil, errors.New("unexpected " + cmd)
+	}
+	calls = fakeDump(t, "")
+	if err := runDbRestore(context.Background(), appears, func(string) {}); err == nil || !strings.Contains(err.Error(), "apparue") {
+		t.Fatalf("race not caught: %v", err)
+	}
+	for _, c := range *calls {
+		if strings.Contains(c.args, "mongorestore") {
+			t.Fatalf("restored over a database that appeared: %+v", *calls)
+		}
+	}
+	// system databases are never a source nor a target
+	for _, n := range []string{"admin", "Local", "CONFIG"} {
+		bad := spec()
+		bad.Target = n
+		if err := runDbRestore(context.Background(), bad, func(string) {}); err == nil {
+			t.Errorf("target %q accepted", n)
+		}
+		bad = spec()
+		bad.Source = n
+		if err := runDbRestore(context.Background(), bad, func(string) {}); err == nil {
+			t.Errorf("source %q accepted", n)
+		}
+	}
+	// another dump is mounted
+	other := spec()
+	other.Source = "autre"
+	if err := runDbRestore(context.Background(), other, func(string) {}); err == nil || !strings.Contains(err.Error(), "not the dump") {
+		t.Errorf("wrong mount accepted: %v", err)
+	}
+	// failed restore: cleaned, partial database announced, password not logged
+	dumpOutput = oldOut
+	listed = 0
+	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmd, "inspect"):
+			return []byte("true"), nil
+		case strings.Contains(cmd, "mongodump --version"):
+			return []byte("v"), nil
+		case strings.Contains(cmd, "mongosh"):
+			return []byte(`{"version":"7.0.2","databases":[{"name":"canicoif","size":10}]}`), nil
+		}
+		return nil, errors.New("unexpected " + cmd)
+	}
 	calls = fakeDump(t, "mongorestore")
 	log.Reset()
 	if err := runDbRestore(context.Background(), spec(), func(s string) { log.WriteString(s) }); err == nil {
@@ -628,7 +709,7 @@ func TestRunDbRestoreMongo(t *testing.T) {
 	if !strings.Contains(log.String(), "partiellement") {
 		t.Errorf("log = %q", log.String())
 	}
-	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-mongo.yaml" {
+	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml" {
 		t.Fatalf("last call = %s", last.args)
 	}
 	// mounts and inputs
@@ -636,7 +717,11 @@ func TestRunDbRestoreMongo(t *testing.T) {
 	if err := runDbRestore(context.Background(), spec(), func(string) {}); err == nil {
 		t.Error("restore without a mounted backup")
 	}
-	fakeRestoreMounts(t, t.TempDir())
+	empty := filepath.Join(t.TempDir(), "host-vm_2026-10-19_02-30-00_mongo-canicoif")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fakeRestoreMounts(t, empty)
 	if err := runDbRestore(context.Background(), spec(), func(string) {}); err == nil || !strings.Contains(err.Error(), "bson") {
 		t.Errorf("non-dump mount accepted: %v", err)
 	}

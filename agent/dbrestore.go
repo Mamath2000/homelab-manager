@@ -36,6 +36,7 @@ type DbRestoreCheck struct {
 	Databases  []DatabaseInfo       `json:"databases"`            // already on the server
 	Exists     bool                 `json:"exists"`               // the new database name is already taken
 	Free       int64                `json:"free"`                 // free bytes where the server stores its data (-1: unknown)
+	FreeTmp    int64                `json:"freeTmp"`              // free bytes of /tmp in the container, where the dump is copied (-1: unknown)
 	Candidates []DbRestoreCandidate `json:"candidates,omitempty"` // no container given: the containers that could restore
 }
 
@@ -44,7 +45,7 @@ func validateDbRestoreTarget(kind string, p *DatabaseDump, target string) error 
 	if kind != "mongodb" {
 		return fmt.Errorf("restore of %q: not supported yet", kind)
 	}
-	if target != "" && !dbNameRe.MatchString(target) {
+	if target != "" && (!dbNameRe.MatchString(target) || reservedDatabase(target)) {
 		return fmt.Errorf("invalid database name %q", target)
 	}
 	// same rules as the dump for the connection settings; no work directory nor database list here
@@ -79,9 +80,28 @@ func mongoCandidates(ctx context.Context) []DbRestoreCandidate {
 	return out
 }
 
-// containerFree: free bytes of the data directory of the container (-1: unknown).
-func containerFree(ctx context.Context, container string) int64 {
-	b, err := dumpOutput(ctx, nil, "docker", "exec", container, "df", "-Pk", mongoDataDir)
+// reservedDatabase: the system databases of MongoDB, never a source nor a target (names compared without case).
+func reservedDatabase(name string) bool {
+	switch strings.ToLower(name) {
+	case "admin", "local", "config":
+		return true
+	}
+	return false
+}
+
+// hasDatabase: the name is taken on the server. MongoDB refuses two names that differ by case only.
+func hasDatabase(dbs []DatabaseInfo, name string) bool {
+	for _, d := range dbs {
+		if strings.EqualFold(d.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// containerFree: free bytes of a directory of the container (-1: unknown).
+func containerFree(ctx context.Context, container, dir string) int64 {
+	b, err := dumpOutput(ctx, nil, "docker", "exec", container, "df", "-Pk", dir)
 	if err != nil {
 		return -1
 	}
@@ -105,7 +125,7 @@ func checkDbRestore(ctx context.Context, kind string, p *DatabaseDump, target st
 		return nil, err
 	}
 	if p.Container == "" {
-		return &DbRestoreCheck{Databases: []DatabaseInfo{}, Free: -1, Candidates: mongoCandidates(ctx)}, nil
+		return &DbRestoreCheck{Databases: []DatabaseInfo{}, Free: -1, FreeTmp: -1, Candidates: mongoCandidates(ctx)}, nil
 	}
 	// the access is tested by listing the databases (authenticated when asked)
 	_, dbs, err := listDatabases(ctx, kind, p)
@@ -119,13 +139,10 @@ func checkDbRestore(ctx context.Context, kind string, p *DatabaseDump, target st
 	r := &DbRestoreCheck{
 		Tools:     strings.SplitN(strings.TrimSpace(string(v)), "\n", 2)[0],
 		Databases: dbs,
-		Free:      containerFree(ctx, p.Container),
+		Free:      containerFree(ctx, p.Container, mongoDataDir),
+		FreeTmp:   containerFree(ctx, p.Container, "/tmp"),
 	}
-	for _, d := range dbs {
-		if d.Name == target {
-			r.Exists = true
-		}
-	}
+	r.Exists = target != "" && hasDatabase(dbs, target)
 	return r, nil
 }
 
@@ -133,6 +150,16 @@ func checkDbRestore(ctx context.Context, kind string, p *DatabaseDump, target st
 
 // mongoRestoreTmp: where the dump is copied in the container; removed at the end, whatever happens.
 const mongoRestoreTmp = "/tmp/homelab-agent-restore"
+
+// The restore has its own connection file: the dumps (database.go) keep theirs, and neither waits for the other.
+const mongoRestoreConfig = "/tmp/homelab-agent-restore.yaml"
+
+func restoreConfigArgs(p *DatabaseDump) []string {
+	if p.Username == "" {
+		return nil
+	}
+	return []string{"--config", mongoRestoreConfig}
+}
 
 var dbRestoreMu sync.Mutex
 
@@ -155,7 +182,7 @@ func validateDbRestore(s *DbRestoreSpec) error {
 	if s.Database.Container == "" {
 		return errors.New("mongodb: container required")
 	}
-	if !dbNameRe.MatchString(s.Source) || !dbNameRe.MatchString(s.Target) {
+	if !dbNameRe.MatchString(s.Source) || !dbNameRe.MatchString(s.Target) || reservedDatabase(s.Source) || reservedDatabase(s.Target) {
 		return errors.New("invalid database name")
 	}
 	if s.MountRoot != "" && !validPbsMountRoot(s.MountRoot) {
@@ -183,6 +210,10 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 		return fmt.Errorf("expected exactly one mounted backup on this host, found %d", len(mounts))
 	}
 	dir := mounts[0]
+	// the mount is the one of this dump: <type>-<id>_<date>_mongo-<source> (pbsMountPath)
+	if !strings.HasSuffix(filepath.Base(dir), "_mongo-"+s.Source) {
+		return fmt.Errorf("the backup mounted on this host (%s) is not the dump mongo-%s", dir, s.Source)
+	}
 	if !hasBson(dir) {
 		return fmt.Errorf("%s does not look like a MongoDB dump (no .bson file)", dir)
 	}
@@ -194,20 +225,17 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 	if lerr != nil {
 		return lerr
 	}
-	for _, d := range dbs {
-		if d.Name == s.Target {
-			return fmt.Errorf("la base %q existe deja sur %s : rien n'est ecrase", s.Target, p.Container)
-		}
+	if hasDatabase(dbs, s.Target) {
+		return fmt.Errorf("la base %q existe deja sur %s : rien n'est ecrase", s.Target, p.Container)
 	}
 
-	// the config file of the container is shared with the dumps (database.go): one at a time
-	if err := func() error {
-		mongoConfigMu.Lock()
-		defer mongoConfigMu.Unlock()
+	{
 		cleanup := func() {
 			cctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
-			_ = runMongoDumpStep(cctx, env, func(string) {}, p, "docker", "exec", p.Container, "rm", "-rf", mongoRestoreTmp, mongoConfigPath)
+			if err := runMongoDumpStep(cctx, env, func(string) {}, p, "docker", "exec", p.Container, "rm", "-rf", mongoRestoreTmp, mongoRestoreConfig); err != nil {
+				emit(fmt.Sprintf("nettoyage de %s dans le conteneur : %v\n", mongoRestoreTmp, err))
+			}
 		}
 		cleanup()
 		defer cleanup()
@@ -217,7 +245,7 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 			if cerr != nil {
 				return cerr
 			}
-			if err := runMongoDumpStepInput(ctx, env, emit, p, config, "docker", "exec", "-i", p.Container, "sh", "-c", "umask 077; cat > "+mongoConfigPath+" && chmod 600 "+mongoConfigPath); err != nil {
+			if err := runMongoDumpStepInput(ctx, env, emit, p, config, "docker", "exec", "-i", p.Container, "sh", "-c", "umask 077; cat > "+mongoRestoreConfig+" && chmod 600 "+mongoRestoreConfig); err != nil {
 				return err
 			}
 		}
@@ -229,16 +257,21 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 		if err := runMongoDumpStep(ctx, env, emit, p, "docker", "cp", dir+"/.", p.Container+":"+dest); err != nil {
 			return err
 		}
+		// the copy can take long: the name is checked again right before the restore
+		_, dbs, lerr = listDatabases(ctx, s.Kind, p)
+		if lerr != nil {
+			return lerr
+		}
+		if hasDatabase(dbs, s.Target) {
+			return fmt.Errorf("la base %q est apparue sur %s pendant la copie : rien n'est ecrase", s.Target, p.Container)
+		}
 		emit(fmt.Sprintf("restauration %s -> %s…\n", s.Source, s.Target))
-		args := append([]string{"exec", p.Container, "mongorestore"}, mongoConfigArgs(p)...)
+		args := append([]string{"exec", p.Container, "mongorestore"}, restoreConfigArgs(p)...)
 		args = append(args, "--nsInclude", s.Source+".*", "--nsFrom", s.Source+".$coll$", "--nsTo", s.Target+".$coll$", mongoRestoreTmp)
 		if err := runMongoDumpStep(ctx, env, emit, p, "docker", args...); err != nil {
 			emit(fmt.Sprintf("echec : la base %q peut etre partiellement creee, a supprimer a la main avant de recommencer\n", s.Target))
 			return err
 		}
-		return nil
-	}(); err != nil {
-		return err
 	}
 	// the new database exists now
 	_, dbs, lerr = listDatabases(ctx, s.Kind, p)
@@ -246,7 +279,7 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 		return fmt.Errorf("verification apres restauration : %w", lerr)
 	}
 	for _, d := range dbs {
-		if d.Name == s.Target {
+		if strings.EqualFold(d.Name, s.Target) {
 			emit(fmt.Sprintf("base %s restauree (%d octets sur disque)\n", s.Target, d.Size))
 			return nil
 		}

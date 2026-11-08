@@ -15,12 +15,14 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
   // journal of the key actions (who did what, addresses): admins only
   const audit = route === '/api/audit' || route.startsWith('/api/audit/');
   // container logs and compose files may hold secrets: not for read-only accounts
+  // the targets of a database restore are found by running commands in the containers of the hosts: admins only
+  const dbRestoreRead = route.startsWith('/api/db-restore');
   const stackDetails = route === '/api/hosts/:id/stacks/:stack/logs' || route === '/api/hosts/:id/stacks/:stack/compose';
   switch (profile) {
     case 'admin':
       return true;
     case 'operator':
-      if (read) return !accounts && !settings && !audit;
+      if (read) return !accounts && !settings && !audit && !dbRestoreRead;
       return (
         ownPassword ||
         (method === 'POST' &&
@@ -34,7 +36,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
             route === '/api/backups/:id/offsite/run'))
       );
     case 'viewer':
-      if (read) return !accounts && !settings && !stackDetails && !audit;
+      if (read) return !accounts && !settings && !stackDetails && !audit && !dbRestoreRead;
       return ownPassword;
     case 'superadmin':
       return (

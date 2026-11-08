@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { posix as path } from 'node:path';
+import type { ObjectId } from 'mongodb';
 import { AgentRequestError, agentRequest, isOnline } from './agents.js';
 import { backups, hosts, jobs, parseId } from './db.js';
 import { publish } from './events.js';
@@ -17,6 +18,9 @@ import type { BackupDoc, HostDoc, PbsAgentLink, PbsMount, PbsMountSource } from 
 // warning meanwhile (monitoring.ts mountStatus).
 
 export class PbsMountError extends Error {}
+
+// time a restore job has to appear after its mount before the mount is taken for abandoned
+const RESTORE_JOB_GRACE_MS = 10 * 60_000;
 
 export const MOUNT_USER = 'homelab-mount@pbs';
 export const SOURCES: PbsMountSource[] = ['main', 'offsite'];
@@ -233,6 +237,8 @@ export interface MountInput {
   time: number;
   archive: string;
   hostId: string;
+  // database restore (dbRestore.ts): the job that will read this mount, known before it is created
+  restoreJobId?: ObjectId;
 }
 
 export async function mount(input: MountInput, log?: FastifyBaseLogger) {
@@ -280,6 +286,7 @@ export async function mount(input: MountInput, log?: FastifyBaseLogger) {
       archive: input.archive,
       mountRoot,
       tokenId: mountTokenId(),
+      ...(input.restoreJobId ? { restoreJobId: input.restoreJobId } : {}),
       slow: slowLink(input.source, dest, pbsHost),
       startedAt: new Date(),
     };
@@ -318,17 +325,31 @@ export async function mount(input: MountInput, log?: FastifyBaseLogger) {
 export async function unmount(log?: FastifyBaseLogger) {
   const h = await activeMount();
   if (!h) return null;
+  // a database restore reads it: unmounting would make it fail halfway, leaving a partial database
+  if (h.pbsMount!.restoreJobId && (await jobs.findOne({ _id: h.pbsMount!.restoreJobId, status: 'running' }, { projection: { _id: 1 } })))
+    throw new PbsMountError('une restauration de base lit cette sauvegarde : attendre sa fin');
   if (h.pbsMount!.state !== 'unmounting') await hosts.updateOne({ _id: h._id }, { $set: { 'pbsMount.state': 'unmounting' } });
   await settleMount(log);
   return (await activeMount())?.pbsMount ?? null;
 }
 
 let settling: Promise<void> | null = null;
+let settleAgain = false;
 
 // Brings the mount in line with reality: a lost mount (reboot of the host, unit stopped by hand) is
 // unmounted and its token revoked; an unmount waiting for an agent goes on. One at a time.
 export function settleMount(log?: FastifyBaseLogger) {
-  settling ??= doSettle(log).finally(() => (settling = null));
+  // asked while one runs (a job ended meanwhile): it reads again once it is over
+  if (settling) {
+    settleAgain = true;
+    return settling;
+  }
+  settling = (async () => {
+    do {
+      settleAgain = false;
+      await doSettle(log);
+    } while (settleAgain);
+  })().finally(() => (settling = null));
   return settling;
 }
 
@@ -339,10 +360,12 @@ async function doSettle(log?: FastifyBaseLogger) {
   const id = h._id.toHexString();
   // being set up in this process: its own failure path settles it
   if (m.state === 'mounting' && busy) return;
-  // read by a database restore (dbRestore.ts): left alone while its job runs, unmounted once it is over
+  // read by a database restore (dbRestore.ts): left alone while its job runs (or is about to be created), unmounted
+  // once it is over. A job that never appears (hub restarted between the mount and the job) is over too.
   if (m.state === 'mounted' && m.restoreJobId) {
     const job = await jobs.findOne({ _id: m.restoreJobId }, { projection: { status: 1 } });
-    if (job?.status === 'running') return;
+    const waiting = !job && Date.now() - (m.mountedAt ?? m.startedAt).getTime() < RESTORE_JOB_GRACE_MS;
+    if (job?.status === 'running' || waiting) return;
     await hosts.updateOne({ _id: h._id }, { $set: { 'pbsMount.state': 'unmounting' } });
     m.state = 'unmounting';
   }

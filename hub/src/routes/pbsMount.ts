@@ -87,5 +87,12 @@ export function registerPbsMountRoutes(app: FastifyInstance) {
   );
 
   // the record left when something could not be done now (an agent offline), null when all is clean
-  app.post('/api/pbs-mount/unmount', async (req) => ({ pending: await unmount(req.log) }));
+  app.post('/api/pbs-mount/unmount', async (req, reply) => {
+    try {
+      return { pending: await unmount(req.log) };
+    } catch (err) {
+      const f = fail(err);
+      return reply.code(f.code).send({ error: f.error });
+    }
+  });
 }

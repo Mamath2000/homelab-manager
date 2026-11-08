@@ -80,6 +80,8 @@ export interface JobTarget {
   // db_restore: what is shown (info) and what the agent receives (restore: holds the password, only sent, never stored)
   dbRestoreInfo?: DbRestoreInfo;
   dbRestore?: Record<string, unknown>;
+  // a job whose id is known beforehand (db_restore: the mount names it)
+  jobId?: ObjectId;
 }
 
 // Who launched a job: the account, key or MQTT command being served (audit.ts), for the manual and Home Assistant
@@ -113,7 +115,7 @@ function auditJob(job: JobDoc) {
 export async function createJob(host: HostDoc, action: JobAction, packages: string[], trigger: JobDoc['trigger'], target: JobTarget = {}) {
   const by = launchedBy(trigger);
   const job: JobDoc = {
-    _id: new ObjectId(),
+    _id: target.jobId ?? new ObjectId(),
     hostId: host._id,
     hostName: host.name,
     action,

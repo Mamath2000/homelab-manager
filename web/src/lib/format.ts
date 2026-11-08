@@ -64,8 +64,9 @@ export const actionLabel: Record<string, string> = {
 };
 
 // "Mise à jour de stack · web/app": action plus its stack (and service) for docker jobs
-export function jobTitle(j: { action: string; stack?: string | null; service?: string | null; backupJobName?: string | null; method?: string | null }) {
+export function jobTitle(j: { action: string; stack?: string | null; service?: string | null; backupJobName?: string | null; method?: string | null; dbRestore?: { source: string; target: string } | null }) {
   const label = actionLabel[j.action] ?? j.action;
+  if (j.dbRestore) return `${label} · ${j.dbRestore.source} → ${j.dbRestore.target}`;
   if (j.method) return `${label} · ${j.method === 'apt' ? 'APT' : 'Docker'}`;
   if (j.backupJobName) return `${label} · ${j.backupJobName}`;
   if (!j.stack) return label;

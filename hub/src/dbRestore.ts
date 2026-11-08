@@ -1,9 +1,10 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { ObjectId } from 'mongodb';
 import { agentRequest, isOnline } from './agents.js';
 import { agentDatabase, CONTAINER_RE, DB_NAME_RE, MONGO_USER_RE } from './backupJobs.js';
-import { backups, backupJobs, hosts, parseId } from './db.js';
+import { backups, backupJobs, hosts, jobs, parseId } from './db.js';
 import { createJob } from './jobs.js';
-import { groupSnapshots, mount, mountableGroups, PbsMountError, unmount } from './pbsMount.js';
+import { groupSnapshots, mount, mountableGroups, PbsMountError, settleMount, unmount } from './pbsMount.js';
 import { loadPbsSettings } from './pbs.js';
 import type { BackupJobDoc, DatabaseDump, DbRestoreInfo, HostDoc, PbsMountSource } from './types.js';
 
@@ -72,7 +73,7 @@ interface AgentCandidates {
   candidates?: { container: string; image: string }[];
 }
 
-const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.includes('pbs_mount') && !!h.capabilities?.includes('backup_database');
+const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.includes('pbs_mount') && !!h.capabilities?.includes('db_restore');
 
 // Hosts that can receive a dump of this kind, each tested now, with the reason when they cannot.
 export async function restoreTargets(kind: DbKind) {
@@ -143,6 +144,7 @@ export interface RestoreCheck {
   databases: { name: string; size: number }[];
   exists: boolean;
   free: number;
+  freeTmp: number;
   error: string | null;
 }
 
@@ -152,17 +154,19 @@ export async function checkRestore(input: TargetInput & { target: string; size?:
   const { host, database } = await connection(input);
   if (!isOnline(host._id.toHexString())) throw new DbRestoreError(`${host.name} est hors ligne`);
   try {
-    const r = await agentRequest<{ tools: string; databases: { name: string; size: number }[]; exists: boolean; free: number }>(
+    const r = await agentRequest<{ tools: string; databases: { name: string; size: number }[]; exists: boolean; free: number; freeTmp: number }>(
       host._id.toHexString(),
       'db_restore_check',
       { backupKind: 'mongodb', database, restoreTarget: input.target },
       75_000,
     );
-    const short = input.size && r.free >= 0 && r.free < input.size ? 'place libre insuffisante' : null;
+    // the dump is copied in /tmp of the container, then restored in the data directory: room for both
+    const size = input.size ?? 0;
+    const short = size && ((r.free >= 0 && r.free < size) || (r.freeTmp >= 0 && r.freeTmp < size)) ? 'place libre insuffisante (données et /tmp du conteneur)' : null;
     const error = r.exists ? `la base ${input.target} existe déjà sur ${input.container} : rien n'est écrasé` : short;
-    return { ok: !error, tools: r.tools, databases: r.databases, exists: r.exists, free: r.free, error };
+    return { ok: !error, tools: r.tools, databases: r.databases, exists: r.exists, free: r.free, freeTmp: r.freeTmp ?? -1, error };
   } catch (err) {
-    return { ok: false, tools: '', databases: [], exists: false, free: -1, error: (err as Error).message };
+    return { ok: false, tools: '', databases: [], exists: false, free: -1, freeTmp: -1, error: (err as Error).message };
   }
 }
 
@@ -182,14 +186,18 @@ export async function startRestore(input: RestoreInput, log?: FastifyBaseLogger)
   // the group must be a database backup of this kind
   const group = (await restorableGroups(input.source)).find((g) => g.id === input.groupId);
   if (!group || group.kind !== arch.kind) throw new DbRestoreError('sauvegarde de base introuvable');
-  // checked again now, whatever the dialog showed
-  const check = await checkRestore(input);
+  // checked again now, whatever the dialog showed, with the size of the dump as the PBS has it
+  const snap = (await restorableSnapshots(input.source, input.groupId)).find((s) => s.time === input.time);
+  const size = snap?.archives.find((a) => a.name === input.archive)?.size ?? undefined;
+  const check = await checkRestore({ ...input, ...(size ? { size } : {}) });
   if (!check.ok) throw new DbRestoreError(check.error ?? 'vérification de la cible en échec');
   const { host, database } = await connection(input);
   const hostId = host._id.toHexString();
 
+  // named by the mount from the start: whatever happens to the hub from here, the mount knows why it exists
+  const jobId = new ObjectId();
   try {
-    await mount({ source: input.source, groupId: input.groupId, time: input.time, archive: input.archive, hostId }, log);
+    await mount({ source: input.source, groupId: input.groupId, time: input.time, archive: input.archive, hostId, restoreJobId: jobId }, log);
   } catch (err) {
     throw err instanceof PbsMountError ? new DbRestoreError(err.message) : err;
   }
@@ -197,13 +205,14 @@ export async function startRestore(input: RestoreInput, log?: FastifyBaseLogger)
   try {
     const mountRoot = (await loadPbsSettings()).mountRoot ?? '/srv/pbs-restore';
     const job = await createJob(host, 'db_restore', [], 'manual', {
+      jobId,
       dbRestoreInfo: info,
       dbRestore: { kind: 'mongodb', database, source: arch.database, target: input.target, mountRoot },
     });
-    await hosts.updateOne({ _id: host._id }, { $set: { 'pbsMount.restoreJobId': job._id } });
     log?.info({ host: host.name, source: arch.database, target: input.target }, 'database restore started');
-    // the job could not even start (agent gone): nothing will read the mount
-    if (job.status !== 'running') await unmount(log).catch(() => null);
+    // a job that already ended (refused at once, agent gone) before the mount could tell: unmounted now
+    const cur = await jobs.findOne({ _id: job._id }, { projection: { status: 1 } });
+    if (cur?.status !== 'running') settleMount(log).catch(() => null);
     return { jobId: job._id.toHexString(), status: job.status };
   } catch (err) {
     await unmount(log).catch(() => null);
