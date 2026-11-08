@@ -91,6 +91,8 @@ export function groupIps(ips: string[] | null | undefined): { lan: string[]; tai
 export function byLabel(by: { kind: string; name: string | null; keyName?: string | null }) {
   if (by.kind === 'homeassistant') return 'Home Assistant';
   if (by.kind === 'cli') return 'hm-admin';
+  // a machine acting with its own credentials, not an account
+  if (by.kind === 'agent') return `${by.name ?? 'inconnu'} · agent`;
   const name = by.name ?? 'inconnu';
   return by.kind === 'apiKey' && by.keyName ? `${name} · clé ${by.keyName}` : name;
 }
