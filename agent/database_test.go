@@ -736,3 +736,31 @@ func TestRunDbRestoreMongo(t *testing.T) {
 		t.Error("bad source accepted")
 	}
 }
+
+func TestMongoCandidatesTellsWhichNeedCredentials(t *testing.T) {
+	oldUsable := dockerUsable
+	dockerUsable = func(context.Context) bool { return true }
+	t.Cleanup(func() { dockerUsable = oldUsable })
+	oldOut := dumpOutput
+	t.Cleanup(func() { dumpOutput = oldOut })
+	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.HasPrefix(cmd, "docker ps"):
+			return []byte("mongo-auth\tmongo:8\nmongo-noauth\tmongo:8\nweb\tnginx\nmongo-old\tmongo:4\n"), nil
+		case strings.Contains(cmd, "mongo-old mongorestore"):
+			return nil, errors.New("no mongorestore")
+		case strings.Contains(cmd, "mongorestore --version"):
+			return []byte("mongorestore version: 100.10.0"), nil
+		case strings.Contains(cmd, "mongo-auth mongosh"):
+			return nil, errors.New("MongoServerError: Command listDatabases requires authentication")
+		case strings.Contains(cmd, "mongo-noauth mongosh"):
+			return []byte("1\n"), nil
+		}
+		return nil, errors.New("unexpected " + cmd)
+	}
+	got := mongoCandidates(context.Background())
+	if len(got) != 2 || got[0].Container != "mongo-auth" || !got[0].NeedsAuth || got[1].Container != "mongo-noauth" || got[1].NeedsAuth {
+		t.Fatalf("candidates = %+v", got)
+	}
+}

@@ -28,6 +28,7 @@ const mongoDataDir = "/data/db"
 type DbRestoreCandidate struct {
 	Container string `json:"container"`
 	Image     string `json:"image"`
+	NeedsAuth bool   `json:"needsAuth"` // the server refuses a listing without credentials
 }
 
 // DbRestoreCheck: answer of db_restore_check.
@@ -75,7 +76,9 @@ func mongoCandidates(ctx context.Context) []DbRestoreCandidate {
 		if _, err := dumpOutput(ctx, nil, "docker", "exec", name, "mongorestore", "--version"); err != nil {
 			continue
 		}
-		out = append(out, DbRestoreCandidate{Container: name, Image: image})
+		// a listing without credentials: it works only on a server that asks for none
+		_, aerr := dumpOutput(ctx, nil, "docker", "exec", name, "mongosh", "--quiet", "--norc", "--eval", "db.adminCommand({listDatabases: 1}).ok")
+		out = append(out, DbRestoreCandidate{Container: name, Image: image, NeedsAuth: aerr != nil})
 	}
 	return out
 }

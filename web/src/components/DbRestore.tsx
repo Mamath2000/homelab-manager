@@ -76,7 +76,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   const cont = host?.containers.find((c) => c.container === container);
   const target = name ?? (arch ? `${arch.database}_restore` : '');
   const nameOk = NAME_RE.test(target);
-  const authOk = !!cont && (!!cont.jobId || (!!username === !!password));
+  const authOk = !!cont && (!cont.needsAuth || (!!username && !!password));
 
   const input = () => ({
     hostId: hostId!,
@@ -185,7 +185,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
                     <span className="font-mono">{c.container}</span>
                     <span className="block text-[11px] text-muted">
                       {c.image}
-                      {c.jobId ? ` · identifiants du job « ${c.jobName} »` : ' · identifiants à saisir'}
+                      {c.jobId ? ` · identifiants du job « ${c.jobName} »` : c.needsAuth ? ' · identifiants à saisir' : ' · sans authentification'}
                     </span>
                   </Choice>
                 ))}
@@ -198,9 +198,9 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
               {excluded.length} hôte{excluded.length > 1 ? 's' : ''} écarté{excluded.length > 1 ? 's' : ''} : voir pourquoi
             </button>
           )}
-          {cont && !cont.jobId && (
+          {cont && cont.needsAuth && (
             <div className="space-y-1.5 border-t border-line pt-2">
-              <p className="text-[11px] text-muted">Vide : MongoDB sans authentification. Le mot de passe n’est jamais conservé.</p>
+              <p className="text-[11px] text-muted">Ce MongoDB demande une authentification. Le mot de passe n’est jamais conservé.</p>
               <input className="input h-8 w-full py-1 text-xs" placeholder="Utilisateur" value={username} onChange={(e) => { setUsername(e.target.value.trim()); setCheck(null); }} autoComplete="off" spellCheck={false} />
               <input className="input h-8 w-full py-1 text-xs" type="password" placeholder="Mot de passe" value={password} onChange={(e) => { setPassword(e.target.value); setCheck(null); }} autoComplete="new-password" />
               <input className="input h-8 w-full py-1 text-xs" placeholder="authSource (admin)" value={authSource} onChange={(e) => { setAuthSource(e.target.value.trim()); setCheck(null); }} spellCheck={false} />

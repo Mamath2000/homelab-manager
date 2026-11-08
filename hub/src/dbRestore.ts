@@ -66,11 +66,12 @@ export interface RestoreContainer {
   image: string | null;
   jobId: string | null; // backup job of the host whose credentials are reused (null: to be given)
   jobName: string | null;
-  authenticated: boolean;
+  authenticated: boolean; // the credentials of the job, or the server asks for some
+  needsAuth: boolean; // credentials to give (no job, and the server refuses a listing without them)
 }
 
 interface AgentCandidates {
-  candidates?: { container: string; image: string }[];
+  candidates?: { container: string; image: string; needsAuth?: boolean }[];
 }
 
 const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.includes('pbs_mount') && !!h.capabilities?.includes('db_restore');
@@ -104,7 +105,7 @@ export async function restoreTargets(kind: DbKind) {
         const mine = jobs.filter((j) => j.hostId.equals(h._id) && j.database?.container);
         const containers: RestoreContainer[] = (r.candidates ?? []).map((c) => {
           const j = mine.find((x) => x.database?.container === c.container);
-          return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: !!j?.database?.username };
+          return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: j ? !!j.database?.username : !!c.needsAuth, needsAuth: !j && !!c.needsAuth };
         });
         return { ...base, online: true, containers, reason: containers.length ? null : 'aucun conteneur MongoDB avec mongorestore' };
       } catch (err) {

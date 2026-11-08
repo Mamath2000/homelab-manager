@@ -1001,6 +1001,7 @@ export interface DbRestoreContainer {
   jobId: string | null; // backup job of the host whose credentials are reused
   jobName: string | null;
   authenticated: boolean;
+  needsAuth: boolean; // no job and the server asks for credentials: to be typed
 }
 export interface DbRestoreTarget {
   id: string;
