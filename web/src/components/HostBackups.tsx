@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Cloud, Container, DatabaseBackup, History, House, Link2, Package, PackageX, Pencil, Play, Plus, RotateCcw, Search, Trash2, Unlink, X } from 'lucide-react';
+import { AlertTriangle, Check, Cloud, Container, DatabaseBackup, DatabaseZap, FolderOpen, History, House, Link2, Package, PackageX, Pencil, Play, Plus, RotateCcw, Search, Trash2, Unlink, X } from 'lucide-react';
 import { SnapshotsModal } from './BackupSnapshots';
+import { DbRestoreDialog } from './DbRestore';
+import { MountDialog } from './PbsMount';
 import { BackupJobEditModal, CachedJobModal, type JobTab } from './ManagedBackups';
 import { NextcloudPluginModal } from './NextcloudPlugin';
 import { ApiError, api, type BackupGroup, type BackupJob, type BackupOrphan, type Host } from '../lib/api';
@@ -205,6 +207,9 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
   };
   const [running, setRunning] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
+  // read-only mount of a snapshot, restore of a database (same windows as the Sauvegardes page)
+  const [mounting, setMounting] = useState<string | null>(null);
+  const [dbRestoring, setDbRestoring] = useState<string | null>(null);
   const [removing, setRemoving] = useState<BackupGroup | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [cacheBusy, setCacheBusy] = useState<string | null>(null);
@@ -232,6 +237,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
   const mine = data.groups.filter((g) => g.hostId === host.id).sort((a, b) => a.backupId.localeCompare(b.backupId));
   // without PBS: the card only for the backups of Home Assistant of the host
   if (!data.connected && !mine.length) return null;
+  // same rule as the Sauvegardes page: host and ct groups of a PBS (or of the secondary) that can be read
+  const canMount = (g: BackupGroup) => canManage && (g.type === 'host' || g.type === 'ct') && !g.gone && !g.placeholder && !offPbs(g) && (data.connected || !!data.offsite);
 
   // backup job of the hub writing this group, run now
   const run = async (g: BackupGroup) => {
@@ -431,6 +438,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
                         disabled: !canManage || !g.managed || !!g.managed.plugin,
                         onClick: () => edit(g.managed!.jobId),
                       },
+                      ...(canMount(g) ? [{ icon: FolderOpen, title: 'Monter un snapshot de cette sauvegarde en lecture seule', onClick: () => setMounting(g.id) }] : []),
+                      ...(canMount(g) && g.managed?.kind === 'mongodb' ? [{ icon: DatabaseZap, title: 'Restaurer une base dans une nouvelle base', onClick: () => setDbRestoring(g.id) }] : []),
                       { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                       {
                         icon: Trash2,
@@ -470,6 +479,8 @@ export function HostBackups({ host, onStarted }: { host: Host; onStarted?: (jobI
       </p>
       {canManage && <AttachModal host={host} groups={data.groups} orphans={data.orphans} open={attaching} onClose={() => setAttaching(false)} />}
       {canManage && <BackupJobEditModal host={host} jobId={editing} tab={editTab} onClose={() => setEditing(null)} />}
+      {canManage && <MountDialog open={mounting !== null} initialGroupId={mounting} onClose={() => setMounting(null)} />}
+      {canManage && <DbRestoreDialog open={dbRestoring !== null} groupId={dbRestoring} onClose={() => setDbRestoring(null)} />}
       {canManage && restoring && <CachedJobModal host={host} job={restoring} onClose={() => setRestoring(null)} />}
       {canManage && nextcloudShown && <NextcloudPluginModal host={host} open={nextcloud} onClose={() => setNextcloud(false)} />}
       {(() => {

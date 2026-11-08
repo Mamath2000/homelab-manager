@@ -215,7 +215,7 @@ L'interface du PBS ne restaure une sauvegarde qu'en entier, ou fichier par fichi
 
 ### Monter
 
-Page Sauvegardes › icône de montage sur la ligne de la sauvegarde : une fenêtre en quatre étapes, pré-sélectionnée sur cette sauvegarde.
+Page Sauvegardes ou fiche de l'hôte (cadre Sauvegardes) › icône de montage sur la ligne de la sauvegarde : une fenêtre en quatre étapes, pré-sélectionnée sur cette sauvegarde.
 
 1. **Sauvegarde** : le PBS (principal ou de secours), puis la sauvegarde. Depuis le PBS de secours, seules celles qu'il a copiées (sync jobs `hlm-*`) sont proposées.
 2. **Snapshot** : lus à l'instant sur le PBS choisi (celui de secours a ses propres snapshots et sa propre rétention).
@@ -250,7 +250,7 @@ Une sauvegarde de CT non privilégié garde les propriétaires **vus depuis l'h�
 
 ### Restaurer
 
-Page Sauvegardes › icône de restauration de base sur la ligne d'une sauvegarde MongoDB : une fenêtre en quatre étapes.
+Page Sauvegardes ou fiche de l'hôte › icône de restauration de base sur la ligne d'une sauvegarde MongoDB : une fenêtre en quatre étapes.
 
 1. **Snapshot** : lus à l'instant sur le PBS qui détient la sauvegarde (principal, sinon secours). Seuls ceux qui contiennent un dump de base sont proposés.
 2. **Dump** : une archive `mongo-<base>` par base sauvegardée. Une archive chiffrée n'est pas restaurable sans sa clé.
