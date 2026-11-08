@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { RefreshCw, Wand2 } from 'lucide-react';
+import { KeyRound, RefreshCw, Wand2 } from 'lucide-react';
 import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import { describeValue, hostHasUser, isAccessOption, isListOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
+import { describeValue, hasNewSshKey, hostHasUser, isAccessOption, isListOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
 import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
@@ -40,6 +40,7 @@ export function SetupStatus({ host, onOpen }: { host: Host; onOpen: () => void }
     <button onClick={onOpen} className="inline-flex items-center gap-1.5 hover:underline" title="Ouvrir la standardisation">
       {host.setup && drift > 0 && <Wand2 className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />}
       {!host.setup ? <span className="text-muted">non vérifié</span> : drift ? <span className="text-amber-300">{driftLabel(drift)}</span> : <span className="text-emerald-400">conforme</span>}
+      {hasNewSshKey(host) && <span className="inline-flex items-center gap-1 text-amber-300"><KeyRound className="h-3.5 w-3.5" aria-hidden="true" />nouvelle clé SSH</span>}
     </button>
   );
 }

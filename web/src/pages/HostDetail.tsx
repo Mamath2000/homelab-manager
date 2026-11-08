@@ -16,7 +16,7 @@ import { UpsPanel } from '../components/UpsPanel';
 import { HealthPanel } from '../components/HealthPanel';
 import { SessionsPanel } from '../components/SessionsPanel';
 import { SetupModal, SetupStatus } from '../components/SetupPanel';
-import { hasNewSshKey, showSetup } from '../lib/setup';
+import { showSetup } from '../lib/setup';
 import { AgentBadge, ReinstallBadge, UpdateAgentButton } from '../components/Agent';
 import { useToast } from '../lib/toast';
 import { HeaderExtra, HeaderTitle } from '../components/HeaderSlot';
@@ -525,8 +525,6 @@ function HostDetailPage({ id }: { id: string }) {
             {host.roaming && <Tag>Itinérant</Tag>}
             {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
             {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
-        {hasNewSshKey(host) && <Badge tone="warn" className="gap-1"><KeyRound className="h-3 w-3" />nouvelle clé SSH</Badge>}
-            {hasNewSshKey(host) && <Badge tone="warn" className="gap-1"><KeyRound className="h-3 w-3" />nouvelle clé SSH</Badge>}
           </HeaderTitle>
 
       {/* narrow screens: the bar only keeps the name, the status and the host selector move to the content */}

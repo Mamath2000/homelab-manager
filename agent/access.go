@@ -574,6 +574,7 @@ func staleKeys(content string, prev, want []string) []string {
 	var out []string
 	for _, l := range strings.Split(content, "\n") {
 		if id := keyID(strings.TrimSpace(l)); id != "" && old[id] {
+			delete(old, id) // one id per key, however many lines repeat it
 			out = append(out, id)
 		}
 	}

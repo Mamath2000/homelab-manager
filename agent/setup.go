@@ -425,11 +425,34 @@ func missingKeys(content string, want []string) []string {
 	}
 	var out []string
 	for _, k := range want {
-		if !have[keyID(k)] {
+		id := keyID(k)
+		if !have[id] {
+			have[id] = true // a key listed twice in want is added once
 			out = append(out, k)
 		}
 	}
 	return out
+}
+
+// duplicateKeys returns the lines of content repeating an already seen key among the managed ones (ids):
+// the first occurrence is kept, unmanaged keys are never touched.
+func duplicateKeys(content string, managed []string) (dups []int) {
+	want := map[string]bool{}
+	for _, id := range managed {
+		want[id] = true
+	}
+	seen := map[string]bool{}
+	for i, l := range strings.Split(content, "\n") {
+		id := keyID(strings.TrimSpace(l))
+		if id == "" || !want[id] {
+			continue
+		}
+		if seen[id] {
+			dups = append(dups, i)
+		}
+		seen[id] = true
+	}
+	return
 }
 
 func countKeys(content string) int {
@@ -663,23 +686,27 @@ func applySSHKeys(a *account, keys, prev []string, emit func(string)) error {
 	for _, id := range staleKeys(cur, prev, keys) {
 		stale[id] = true
 	}
+	drop := map[int]bool{}
+	for _, i := range duplicateKeys(cur, keyIDs(keys)) {
+		drop[i] = true
+	}
 	var kept []string
-	for _, l := range strings.Split(cur, "\n") {
-		if id := keyID(strings.TrimSpace(l)); id != "" && stale[id] {
+	for i, l := range strings.Split(cur, "\n") {
+		if id := keyID(strings.TrimSpace(l)); drop[i] || (id != "" && stale[id]) {
 			continue
 		}
 		kept = append(kept, l)
 	}
 	next := strings.Join(kept, "\n")
 	add := missingKeys(next, keys)
-	if len(add) == 0 && len(stale) == 0 {
+	if len(add) == 0 && len(stale) == 0 && len(drop) == 0 {
 		emit(p + ": keys already up to date\n")
 		return nil
 	}
 	if next != "" && !strings.HasSuffix(next, "\n") {
 		next += "\n"
 	}
-	emit(fmt.Sprintf("%s: adding %d key(s), removing %d\n", p, len(add), len(stale)))
+	emit(fmt.Sprintf("%s: adding %d key(s), removing %d, %d duplicate(s)\n", p, len(add), len(stale), len(drop)))
 	if len(add) > 0 {
 		next += strings.Join(add, "\n") + "\n"
 	}
@@ -1041,6 +1068,9 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			}
 			if n := len(staleKeys(cur, s.access.prev(prefix), acc.SSHKeys)); n > 0 {
 				set("drift", fmt.Sprintf("%s: %d key(s) to remove", p, n))
+			}
+			if n := len(duplicateKeys(cur, keyIDs(acc.SSHKeys))); n > 0 {
+				set("drift", fmt.Sprintf("%s: %d duplicate key(s)", p, n))
 			}
 			return c
 		case "aliases":

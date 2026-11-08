@@ -97,6 +97,24 @@ func TestMissingKeys(t *testing.T) {
 	}
 }
 
+func TestDuplicateKeys(t *testing.T) {
+	other := "ssh-rsa AAAAB3NzaC1yc2E other"
+	// a key listed twice in want is added once
+	if got := missingKeys("", []string{testKey, strings.Replace(testKey, "mamath@pc", "bis", 1)}); len(got) != 1 {
+		t.Fatalf("missingKeys = %v", got)
+	}
+	content := testKey + "\n" + other + "\n" + other + "\n" + strings.Replace(testKey, "mamath@pc", "bis", 1) + "\n"
+	// only managed keys are deduplicated, the first occurrence stays
+	got := duplicateKeys(content, keyIDs([]string{testKey}))
+	if len(got) != 1 || got[0] != 3 {
+		t.Fatalf("duplicateKeys = %v", got)
+	}
+	// a stale key repeated is counted once
+	if got := staleKeys(other+"\n"+other+"\n", keyIDs([]string{other}), nil); len(got) != 1 {
+		t.Fatalf("staleKeys = %v", got)
+	}
+}
+
 func TestRender(t *testing.T) {
 	if renderStarship(&SetupSpec{}) != "" || renderStarship(&SetupSpec{Starship: "a = 1"}) != managedHead+"a = 1\n" {
 		t.Fatal("starship configuration")
