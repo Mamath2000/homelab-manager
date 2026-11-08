@@ -204,19 +204,25 @@ func hasExactDatabase(dbs []DatabaseInfo, name string) bool {
 
 // pgCandidates: the servers a dump can go into: the local one, and the running PostgreSQL containers of an image
 // whose tools and access are known (official postgres, postgis, timescale/timescaledb).
-func pgCandidates(ctx context.Context) []DbRestoreCandidate {
-	out := []DbRestoreCandidate{}
+// localReason: why the local server is not offered ("" when it is, or when there is no local server at all).
+func pgCandidates(ctx context.Context) (out []DbRestoreCandidate, localReason string) {
+	out = []DbRestoreCandidate{}
 	if t, err := newPgTarget(ctx, &DatabaseDump{}); err == nil {
 		if major, err := pgServerMajor(ctx, t); err == nil {
 			out = append(out, DbRestoreCandidate{Image: fmt.Sprintf("PostgreSQL %d (serveur local)", major)})
+		} else {
+			localReason = "serveur PostgreSQL local injoignable : " + err.Error()
 		}
+	} else if pgRunning() || pgInstalled() {
+		// a server is there but cannot be used: say why rather than leave it out
+		localReason = "serveur PostgreSQL local : " + err.Error()
 	}
 	if !dockerUsable(ctx) {
-		return out
+		return out, localReason
 	}
 	b, err := dumpOutput(ctx, nil, "docker", "ps", "--format", "{{.Names}}\t{{.Image}}")
 	if err != nil {
-		return out
+		return out, localReason
 	}
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		name, image, ok := strings.Cut(l, "\t")
@@ -234,13 +240,20 @@ func pgCandidates(ctx context.Context) []DbRestoreCandidate {
 			out = append(out, DbRestoreCandidate{Container: name, Image: image, NeedsAuth: true})
 		}
 	}
-	return out
+	return out, localReason
+}
+
+// pgInstalled: a PostgreSQL server package is on the host, whether its socket was found or not.
+var pgInstalled = func() bool {
+	m, _ := filepath.Glob("/usr/lib/postgresql/*/bin/postgres")
+	return len(m) > 0
 }
 
 func checkPostgresRestore(ctx context.Context, p *DatabaseDump, target string) (*DbRestoreCheck, error) {
 	if target == "" && p.Container == "" {
 		// listing of the targets
-		return &DbRestoreCheck{Databases: []DatabaseInfo{}, Free: -1, FreeTmp: -1, Candidates: pgCandidates(ctx)}, nil
+		cands, reason := pgCandidates(ctx)
+		return &DbRestoreCheck{Databases: []DatabaseInfo{}, Free: -1, FreeTmp: -1, Candidates: cands, LocalReason: reason}, nil
 	}
 	t, err := newPgTarget(ctx, p)
 	if err != nil {

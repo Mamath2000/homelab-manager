@@ -23,7 +23,8 @@ func fakePgUser() {
 // fakePg: the local server answers the queries of the restore. databases is read at each listing.
 func fakePg(t *testing.T, serverNum string, databases func() string, toc string, available string) {
 	t.Helper()
-	oldOut, oldLook, oldRun, oldLookup, oldDocker := dumpOutput, lookPath, pgRunning, lookupPostgres, dockerUsable
+	oldOut, oldLook, oldRun, oldLookup, oldDocker, oldInst := dumpOutput, lookPath, pgRunning, lookupPostgres, dockerUsable, pgInstalled
+	pgInstalled = func() bool { return true }
 	dockerUsable = func(context.Context) bool { return false }
 	home := t.TempDir()
 	pgTestHome = home
@@ -47,7 +48,7 @@ func fakePg(t *testing.T, serverNum string, databases func() string, toc string,
 		return nil, errors.New("unexpected " + cmd)
 	}
 	t.Cleanup(func() {
-		dumpOutput, lookPath, pgRunning, lookupPostgres, dockerUsable = oldOut, oldLook, oldRun, oldLookup, oldDocker
+		dumpOutput, lookPath, pgRunning, lookupPostgres, dockerUsable, pgInstalled = oldOut, oldLook, oldRun, oldLookup, oldDocker, oldInst
 	})
 }
 
@@ -305,9 +306,10 @@ const testImageID = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123
 // containers listed in noTrust refuse a connection without a password.
 func fakePgDocker(t *testing.T, databases func() string, toc string, noTrust ...string) {
 	t.Helper()
-	oldOut, oldDocker, oldRun := dumpOutput, dockerUsable, pgRunning
+	oldOut, oldDocker, oldRun, oldInst := dumpOutput, dockerUsable, pgRunning, pgInstalled
 	dockerUsable = func(context.Context) bool { return true }
 	pgRunning = func() bool { return false }
+	pgInstalled = func() bool { return false }
 	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
 		cmd := name + " " + strings.Join(args, " ")
 		for _, c := range noTrust {
@@ -341,7 +343,7 @@ func fakePgDocker(t *testing.T, databases func() string, toc string, noTrust ...
 		}
 		return nil, errors.New("unexpected " + cmd)
 	}
-	t.Cleanup(func() { dumpOutput, dockerUsable, pgRunning = oldOut, oldDocker, oldRun })
+	t.Cleanup(func() { dumpOutput, dockerUsable, pgRunning, pgInstalled = oldOut, oldDocker, oldRun, oldInst })
 }
 
 func TestPgContainerCandidates(t *testing.T) {
@@ -449,5 +451,41 @@ func TestRunPgContainerPasswordNeverInArguments(t *testing.T) {
 	// the restore failed after the creation: the database this agent created is dropped
 	if !strings.Contains(joined, "docker exec -e PGPASSWORD pg dropdb -h 127.0.0.1 -U owner --if-exists --no-password nextcloud_copy") {
 		t.Errorf("created database left behind:\n%s", joined)
+	}
+}
+
+func TestPgLocalServerLeftOutSaysWhy(t *testing.T) {
+	ctx := context.Background()
+	// a tool is missing: the local server is not offered, with the tool named
+	fakePg(t, "160004", static("postgres|1\n"), "", "")
+	lookPath = func(name string) (string, error) {
+		if name == "dropdb" {
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/" + name, nil
+	}
+	r, err := checkDbRestore(ctx, "postgres", &DatabaseDump{}, "")
+	if err != nil || len(r.Candidates) != 0 || !strings.Contains(r.LocalReason, "dropdb") {
+		t.Fatalf("missing tool: %v %+v", err, r)
+	}
+	// the server does not answer
+	lookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	fakePg(t, "not-a-number", static(""), "", "")
+	r, _ = checkDbRestore(ctx, "postgres", &DatabaseDump{}, "")
+	if len(r.Candidates) != 0 || !strings.Contains(r.LocalReason, "injoignable") {
+		t.Fatalf("no answer: %+v", r)
+	}
+	// installed but its socket not found
+	fakePg(t, "160004", static(""), "", "")
+	pgRunning = func() bool { return false }
+	r, _ = checkDbRestore(ctx, "postgres", &DatabaseDump{}, "")
+	if !strings.Contains(r.LocalReason, "aucun serveur PostgreSQL local") {
+		t.Fatalf("socket not found: %+v", r)
+	}
+	// nothing installed at all: nothing to say
+	pgInstalled = func() bool { return false }
+	r, _ = checkDbRestore(ctx, "postgres", &DatabaseDump{}, "")
+	if r.LocalReason != "" {
+		t.Fatalf("no server: %+v", r)
 	}
 }

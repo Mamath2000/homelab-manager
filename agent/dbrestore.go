@@ -39,6 +39,8 @@ type DbRestoreCheck struct {
 	Free       int64                `json:"free"`                 // free bytes where the server stores its data (-1: unknown)
 	FreeTmp    int64                `json:"freeTmp"`              // free bytes of /tmp in the container, where the dump is copied (-1: unknown)
 	Candidates []DbRestoreCandidate `json:"candidates,omitempty"` // no container given: the containers that could restore
+	// PostgreSQL listing: why the local server is not offered (empty: it is, or there is none)
+	LocalReason string `json:"localReason,omitempty"`
 }
 
 // validateDbRestoreTarget: the name of the new database and the connection settings of its kind: a MongoDB

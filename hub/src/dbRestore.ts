@@ -80,6 +80,7 @@ export interface RestoreContainer {
 
 interface AgentCandidates {
   candidates?: { container: string; image: string; needsAuth?: boolean }[];
+  localReason?: string; // PostgreSQL: why the local server is not offered
 }
 
 const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.includes('pbs_mount') && !!h.capabilities?.includes('db_restore');
@@ -115,7 +116,7 @@ export async function restoreTargets(kind: DbKind) {
           const j = mine.find((x) => x.database?.container === c.container);
           return { container: c.container, image: c.image, jobId: j ? j._id.toHexString() : null, jobName: j?.name ?? null, authenticated: j ? !!j.database?.username : !!c.needsAuth, needsAuth: !j && !!c.needsAuth };
         });
-        return { ...base, online: true, containers, reason: containers.length ? null : kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : 'aucun serveur PostgreSQL (local ou conteneur Docker)' };
+        return { ...base, online: true, containers, reason: containers.length ? null : kind === 'mongodb' ? 'aucun conteneur MongoDB avec mongorestore' : (r.localReason ?? 'aucun serveur PostgreSQL (local ou conteneur Docker)') };
       } catch (err) {
         return { ...base, online: true, containers: [] as RestoreContainer[], reason: (err as Error).message };
       }

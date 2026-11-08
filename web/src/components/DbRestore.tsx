@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { DatabaseBackup, Lock, ShieldCheck } from 'lucide-react';
+import { DatabaseBackup, Lock, Search, ShieldCheck } from 'lucide-react';
 import { api, type DbKind, type DbRestoreCheck, type PbsMountSource } from '../lib/api';
 import { formatBytes } from '../lib/backups';
 import { dateTime } from '../lib/format';
@@ -55,6 +55,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   const [check, setCheck] = useState<{ key: string; r: DbRestoreCheck } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
+  const [excludedQ, setExcludedQ] = useState('');
 
   // the PBS that holds the backup: the main one first
   const groups = useQueries({ queries: SOURCES.map((s) => ({ queryKey: ['db-restore', s, 'groups'], queryFn: () => api.dbRestoreGroups(s), enabled: open, retry: false })) });
@@ -72,6 +73,9 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   // only the hosts that can receive the dump are offered; the others, with why, are one click away
   const valid = targets.data?.filter((h) => h.containers.length > 0) ?? [];
   const excluded = targets.data?.filter((h) => h.containers.length === 0) ?? [];
+  // search in the window of the hosts left out: name or reason
+  const eq = excludedQ.trim().toLowerCase();
+  const excludedShown = eq ? excluded.filter((h) => h.name.toLowerCase().includes(eq) || (h.reason ?? '').toLowerCase().includes(eq)) : excluded;
   const host = valid.find((h) => h.id === hostId);
   const cont = host?.containers.find((c) => c.container === container);
   const target = name ?? (arch ? `${arch.database}_restore` : '');
@@ -255,28 +259,40 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           )}
         </Step>
       </Steps>
-      <Modal open={showExcluded} onClose={() => setShowExcluded(false)} wide="screen" fixed title={`Hôtes écartés (${excluded.length})`}>
-        <table className="w-full table-fixed text-left text-sm">
-          <thead className="sticky top-0 bg-panel text-[11px] uppercase tracking-wide text-muted">
-            <tr>
-              <th className="w-1/4 py-2 pr-4 font-medium">Hôte</th>
-              <th className="py-2 font-medium">Raison</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {excluded.map((h) => (
-              <tr key={h.id} className="align-top">
-                <td className="py-2 pr-4 font-medium text-zinc-200">
-                  <span className="flex flex-wrap items-center gap-2">
-                    {h.name}
-                    {!h.online && <Badge tone="bad">hors ligne</Badge>}
-                  </span>
-                </td>
-                <td className="py-2 text-xs text-muted">{h.reason}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <Modal open={showExcluded} onClose={() => { setShowExcluded(false); setExcludedQ(''); }} wide="screen" fixed title={`Hôtes écartés (${excluded.length})`}>
+        <div className="flex h-full flex-col gap-3">
+          <label className="relative block shrink-0">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" />
+            <input className="input pl-8" placeholder="Hôte ou raison…" value={excludedQ} onChange={(e) => setExcludedQ(e.target.value)} autoFocus />
+          </label>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {excludedShown.length === 0 ? (
+              <p className="text-sm text-muted">Aucun hôte pour cette recherche.</p>
+            ) : (
+              <table className="w-full table-fixed text-left text-sm">
+                <thead className="sticky top-0 bg-panel text-[11px] uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="w-1/4 py-2 pr-4 font-medium">Hôte</th>
+                    <th className="py-2 font-medium">Raison</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {excludedShown.map((h) => (
+                    <tr key={h.id} className="align-top">
+                      <td className="py-2 pr-4 font-medium text-zinc-200">
+                        <span className="flex flex-wrap items-center gap-2">
+                          {h.name}
+                          {!h.online && <Badge tone="bad">hors ligne</Badge>}
+                        </span>
+                      </td>
+                      <td className="py-2 text-xs text-muted">{h.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       </Modal>
     </Modal>
   );
