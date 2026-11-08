@@ -53,7 +53,7 @@ Cette page s'adresse à celles et ceux qui veulent comprendre le fonctionnement 
 
 ## Développement
 
-Prérequis : Node.js 22, Go 1.27 (le `toolchain` de `agent/go.mod` est téléchargé au besoin), GNU Make, Docker pour l'image, et un MongoDB accessible (défaut `mongodb://localhost:27017/homelab`, `make start MONGO_URL=…` sinon). `make` (ou `make help`) liste toutes les commandes.
+Prérequis : Node.js 24, Go 1.27 (le `toolchain` de `agent/go.mod` est téléchargé au besoin), GNU Make, Docker pour l'image, et un MongoDB accessible (défaut `mongodb://localhost:27017/homelab`, `make start MONGO_URL=…` sinon). `make` (ou `make help`) liste toutes les commandes.
 
 ```sh
 make install            # dépendances hub + web + agent
