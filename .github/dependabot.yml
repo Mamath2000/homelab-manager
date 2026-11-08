@@ -24,13 +24,25 @@ updates:
     schedule: { interval: weekly }
     groups:
       web: { patterns: ['*'], update-types: [minor, patch] }
+    ignore:
+      # typescript-eslint (lint of the interface) refuses TypeScript 7 for now: lift once it supports it
+      - dependency-name: typescript
+        versions: ['>=7']
 
   # base images of the Dockerfile (Go toolchain of the agents, Node of the hub)
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # odd Node majors are never LTS: stay on the LTS lines
+      - dependency-name: node
+        versions: ['>=25 <26', '>=27 <28']
 
   # reference compose (MongoDB)
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # MongoDB upgrades one major at a time (7 -> 8, featureCompatibilityVersion, then 9): no 9 before the step to 8
+      - dependency-name: mongo
+        versions: ['>=9']
