@@ -240,6 +240,33 @@ Un montage perdu (redémarrage de l'hôte, unité arrêtée à la main) est cons
 
 Une sauvegarde de CT non privilégié garde les propriétaires **vus depuis l'hôte Proxmox** : décalés de 100000 (`root` du conteneur = uid 100000, l'utilisateur 1000 = 101000). Copier vers le conteneur d'origine en conservant ces uid donnerait des fichiers inaccessibles : copier sans les propriétaires (`cp -r --no-preserve=ownership`, `rsync -rlt`), puis rétablir le propriétaire dans le conteneur ; ou copier depuis l'hôte Proxmox vers le rootfs du conteneur en gardant les uid décalés (`rsync -a`).
 
+## Restaurer une base dans une nouvelle base
+
+À partir d'un dump de base sauvegardé par Homelab Manager (jobs **Base MongoDB**, voir [Sauvegardes de bases de données](#sauvegardes-de-bases-de-données)), restaure ce dump dans une **nouvelle base** d'un **autre hôte**, en lisant le dump par le [montage en lecture seule](#monter-une-sauvegarde-lecture-seule). La base d'origine n'est jamais touchée, et **rien n'est jamais écrasé** sur la cible.
+
+- **MongoDB uniquement pour l'instant** ; PostgreSQL suit avec le même déroulement.
+- Administrateurs seulement (les pages de lecture de cette fonction aussi : elles font exécuter des commandes aux agents).
+- **Un seul montage ou restauration à la fois** dans tout le hub, comme pour le montage.
+
+### Restaurer
+
+Page Sauvegardes › icône de restauration de base sur la ligne d'une sauvegarde MongoDB : une fenêtre en quatre étapes.
+
+1. **Snapshot** : lus à l'instant sur le PBS qui détient la sauvegarde (principal, sinon secours). Seuls ceux qui contiennent un dump de base sont proposés.
+2. **Dump** : une archive `mongo-<base>` par base sauvegardée. Une archive chiffrée n'est pas restaurable sans sa clé.
+3. **Cible** : les hôtes dont l'agent sait restaurer (capacité `db_restore`, agent à jour, et `pbs_mount` pour lire le dump) et qui ont un conteneur MongoDB avec `mongorestore`, interrogés à l'instant. Un hôte écarté affiche la raison (hors ligne, agent à mettre à jour, aucun conteneur). Les identifiants sont ceux du **job de sauvegarde MongoDB de cet hôte** pour ce conteneur quand il existe ; sinon ils sont à saisir (utilisateur, mot de passe, `authSource`), vides pour un MongoDB sans authentification, et le mot de passe n'est jamais conservé.
+4. **Nouvelle base** : nom proposé `<base>_restore`, puis **Vérifier**, qui contrôle sur la cible l'accès au serveur (authentification comprise), que le **nom est libre** (casse ignorée : MongoDB refuse deux noms qui ne diffèrent que par la casse), et la place libre (données et `/tmp` du conteneur, au moins la taille du dump dans chacun). **Restaurer** n'est actif qu'après une vérification réussie avec les valeurs en cours ; toute modification l'annule.
+
+`admin`, `local` et `config` ne sont acceptés ni comme base du dump ni comme nom de la nouvelle base.
+
+### Ce qui se passe
+
+- Le hub **refait la vérification** au lancement, monte le snapshot sur la cible (jeton volatil, voir [Monter](#monter)) et lance un **job** `Restauration de base` suivi dans **Activité** (`source → cible`, journal en direct).
+- L'agent copie le dump dans `/tmp` du conteneur (`docker cp`), **relit la liste des bases juste avant** de restaurer et refuse si le nom est apparu entre-temps, puis lance `mongorestore --nsInclude <base>.* --nsFrom <base>.$coll$ --nsTo <nouvelle>.$coll$`. Les commandes sont figées dans l'agent, les noms validés côté hub et côté agent.
+- Le mot de passe passe dans un fichier temporaire `0600` du conteneur (`/tmp/homelab-agent-restore.yaml`, distinct de celui des sauvegardes) créé par stdin, jamais dans les arguments ni les journaux. Le dump copié et ce fichier sont supprimés en fin de restauration, réussie ou non.
+- Le **montage est démonté et le jeton révoqué** à la fin du job, réussite ou échec (agent déconnecté et redémarrage du hub compris : un montage de restauration dont le job n'apparaît pas au bout de 10 minutes est abandonné). Pendant le job, **Démonter** est refusé.
+- En cas d'échec en cours de route, la **base partielle est laissée en place** et le journal le dit : à supprimer à la main avant de recommencer.
+
 ## Déconnecter un PBS ou un cluster
 
 Homelab Manager revient à un état **sans** ce serveur : il retire ce qu'il y a créé (ses jetons, l'utilisateur d'un jeton quand il n'en porte plus d'autre, et sur le PBS de secours ses sync jobs `hlm-*` et la remote `hlm-main`) et ses propres données. Il ne supprime **jamais** un snapshot, un groupe, un namespace ou un datastore. Chaque action passe par une confirmation qui liste ce qui part.
@@ -327,7 +354,7 @@ Un job de type **Base PostgreSQL** ou **Base MongoDB** est une sauvegarde de l'a
 - **Identifiant sur le PBS** : proposé à partir de l'hôte, du type et des bases (`<hôte>-mongo-<base>`, `<hôte>-pg-<base1>-<base2>`, `<hôte>-pg-cluster`), tant qu'il n'est pas saisi à la main ; fixé à la création.
 - **Listes** (fiche hôte, page Sauvegardes, fenêtre de l'agent) : badge du type, ce qui est dumpé et où, dumps gardés ou supprimés, et pour la dernière exécution la **taille de chaque base et de son dump**. Le filtre **Type** de la page Sauvegardes a une entrée « base de données ».
 - **Répertoire de travail** : chemin absolu d'au moins deux niveaux, dédié aux dumps (défaut `/var/backups/homelab-agent`), jamais sous `/etc`, `/usr`, `/proc`… PostgreSQL : les dumps sont écrits par l'utilisateur `postgres`, qui doit pouvoir y accéder ; l'agent ajoute le droit de traversée pour « autres » (`x` seul : le contenu ne peut pas être listé) au répertoire de travail **et à chacun de ses parents** qui ne l'ont pas (ex. `/mnt/backup` en 700 → 701), et le note dans le journal du job.
-- Restauration : depuis le PBS, ou depuis `history/` sur l'hôte ; `pg_restore -d <base> pg-<base>/` (après `psql -f pg-globals/globals.sql` sur un cluster neuf) ; cluster : le contenu de `pg-cluster/` devient le répertoire de données (serveur arrêté) ; MongoDB sans authentification : `mongorestore --db <base> mongo-<base>/` ; avec authentification : `mongorestore --username <user> --authenticationDatabase <authSource> --db <base> mongo-<base>/`, puis fournir le mot de passe à l’invite de l’outil (ne pas l’ajouter à la commande).
+- Restauration : dans une nouvelle base depuis l'interface pour MongoDB ([Restaurer une base](#restaurer-une-base-dans-une-nouvelle-base)) ; à la main : depuis le PBS, ou depuis `history/` sur l'hôte ; `pg_restore -d <base> pg-<base>/` (après `psql -f pg-globals/globals.sql` sur un cluster neuf) ; cluster : le contenu de `pg-cluster/` devient le répertoire de données (serveur arrêté) ; MongoDB sans authentification : `mongorestore --db <base> mongo-<base>/` ; avec authentification : `mongorestore --username <user> --authenticationDatabase <authSource> --db <base> mongo-<base>/`, puis fournir le mot de passe à l’invite de l’outil (ne pas l’ajouter à la commande).
 - Il faut un agent **0.2** ou plus récent : pour un agent plus ancien, le job n'est pas envoyé (« pas encore appliquée par l'agent »). Le formulaire signale aussi un type inutilisable sur l'hôte (`pg_dump` introuvable, Docker absent).
 
 ## Plugin Nextcloud AIO
