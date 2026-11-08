@@ -88,7 +88,7 @@ export function registerUserRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const name = req.body.username.trim();
+      const name = req.body.username.trim().toLowerCase();
       if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
       const temp = req.body.noPassword ? null : await temporaryPassword();
       const doc = {
@@ -122,7 +122,7 @@ export function registerUserRoutes(app: FastifyInstance) {
       if (!user) return reply.code(404).send({ error: 'user not found' });
       const set: Partial<UserDoc> = {};
       if (req.body.username !== undefined) {
-        const name = req.body.username.trim();
+        const name = req.body.username.trim().toLowerCase();
         if (reserved(name)) return reply.code(400).send({ error: 'reserved username' });
         set.username = name;
       }

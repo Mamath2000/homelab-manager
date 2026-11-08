@@ -116,6 +116,25 @@ export async function connectDb() {
       { $set: { times: { $map: { input: '$times', in: { $cond: [{ $isNumber: '$$this' }, { t: '$$this', verify: null }, '$$this'] } } } } },
     ]),
   ]);
+  await lowercaseUsernames();
+}
+
+// Logins are lowercase (the display case lives in displayName). Accounts created before that are lowercased, the old
+// case kept as display name; a name that collides with another one once lowercased is left alone and reported.
+export async function lowercaseUsernames() {
+  const all = await users.find({}, { projection: { username: 1, displayName: 1 } }).toArray();
+  const groups = new Map<string, typeof all>();
+  for (const u of all) groups.set(u.username.toLowerCase(), [...(groups.get(u.username.toLowerCase()) ?? []), u]);
+  for (const [lower, list] of groups) {
+    if (list.length > 1) {
+      console.warn(`accounts ${list.map((u) => `"${u.username}"`).join(', ')} differ only by case: left unchanged, rename them by hand`);
+      continue;
+    }
+    const [u] = list;
+    if (u.username === lower) continue;
+    await users.updateOne({ _id: u._id }, { $set: { username: lower, ...(u.displayName ? {} : { displayName: u.username }) } });
+    console.info(`account "${u.username}" renamed "${lower}" (logins are lowercase)`);
+  }
 }
 
 export async function closeDb() {

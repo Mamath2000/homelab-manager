@@ -185,7 +185,7 @@ export function registerAuth(app: FastifyInstance) {
       // refused before any lookup: the answer is the same for an unknown account
       const wait = loginWait(account, ip);
       if (wait) return tooManyAttempts(reply, wait);
-      const user = await users.findOne({ username: req.body.username.trim() });
+      const user = await users.findOne({ username: accountKey(req.body.username) });
       // scrypt first, whether the account exists or not (constant time)
       if (!(await checkPassword(user, req.body.password)) || !user) {
         loginFailed(req, account, ip);
