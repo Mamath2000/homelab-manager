@@ -54,6 +54,7 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
   const [name, setName] = useState<string | null>(null);
   const [check, setCheck] = useState<{ key: string; r: DbRestoreCheck } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showExcluded, setShowExcluded] = useState(false);
 
   // the PBS that holds the backup: the main one first
   const groups = useQueries({ queries: SOURCES.map((s) => ({ queryKey: ['db-restore', s, 'groups'], queryFn: () => api.dbRestoreGroups(s), enabled: open, retry: false })) });
@@ -68,7 +69,10 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
 
   const snap = snaps.data?.find((s) => s.time === time);
   const arch = snap?.archives.find((a) => a.name === archive);
-  const host = targets.data?.find((h) => h.id === hostId);
+  // only the hosts that can receive the dump are offered; the others, with why, are one click away
+  const valid = targets.data?.filter((h) => h.containers.length > 0) ?? [];
+  const excluded = targets.data?.filter((h) => h.containers.length === 0) ?? [];
+  const host = valid.find((h) => h.id === hostId);
   const cont = host?.containers.find((c) => c.container === container);
   const target = name ?? (arch ? `${arch.database}_restore` : '');
   const nameOk = NAME_RE.test(target);
@@ -170,16 +174,12 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           </div>
         </Step>
 
-        <Step n={3} title="Cible" state={states[2]} intro="Hôtes avec l’agent à jour et un conteneur MongoDB (mongorestore). Les identifiants du job de sauvegarde de l’hôte sont réutilisés.">
+        <Step n={3} title="Cible" state={states[2]} intro="Hôtes pouvant recevoir le dump : agent à jour, montage possible et conteneur MongoDB (mongorestore). Les identifiants du job de sauvegarde de l’hôte sont réutilisés.">
           {archive && <Loading q={targets} />}
           <div className={listCls}>
-            {targets.data?.map((h) => (
+            {valid.map((h) => (
               <div key={h.id} className="space-y-1">
-                <p className="flex items-center gap-2 text-xs font-medium text-zinc-200">
-                  {h.name}
-                  {!h.online && <Badge tone="bad">hors ligne</Badge>}
-                </p>
-                {h.reason && <p className="text-[11px] text-red-400">{h.reason}</p>}
+                <p className="text-xs font-medium text-zinc-200">{h.name}</p>
                 {h.containers.map((c) => (
                   <Choice key={c.container} selected={h.id === hostId && c.container === container} onClick={() => { setHostId(h.id); setContainer(c.container); setCheck(null); }}>
                     <span className="font-mono">{c.container}</span>
@@ -191,8 +191,13 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
                 ))}
               </div>
             ))}
-            {targets.data && !targets.data.length && <p className="text-xs text-muted">Aucun hôte ne sait monter une sauvegarde.</p>}
+            {targets.data && !valid.length && <p className="text-xs text-muted">Aucune cible valide.</p>}
           </div>
+          {excluded.length > 0 && (
+            <button type="button" onClick={() => setShowExcluded(true)} className="self-start text-[11px] text-muted underline decoration-dotted hover:text-zinc-300">
+              {excluded.length} hôte{excluded.length > 1 ? 's' : ''} écarté{excluded.length > 1 ? 's' : ''} : voir pourquoi
+            </button>
+          )}
           {cont && !cont.jobId && (
             <div className="space-y-1.5 border-t border-line pt-2">
               <p className="text-[11px] text-muted">Vide : MongoDB sans authentification. Le mot de passe n’est jamais conservé.</p>
@@ -240,6 +245,19 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           )}
         </Step>
       </Steps>
+      <Modal open={showExcluded} onClose={() => setShowExcluded(false)} title="Hôtes écartés">
+        <ul className="space-y-2 text-sm">
+          {excluded.map((h) => (
+            <li key={h.id}>
+              <span className="flex items-center gap-2 font-medium text-zinc-200">
+                {h.name}
+                {!h.online && <Badge tone="bad">hors ligne</Badge>}
+              </span>
+              <span className="block text-xs text-muted">{h.reason}</span>
+            </li>
+          ))}
+        </ul>
+      </Modal>
     </Modal>
   );
 }
