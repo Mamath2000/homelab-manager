@@ -245,18 +245,28 @@ export function DbRestoreDialog({ open, groupId, onClose }: { open: boolean; gro
           )}
         </Step>
       </Steps>
-      <Modal open={showExcluded} onClose={() => setShowExcluded(false)} title="Hôtes écartés">
-        <ul className="space-y-2 text-sm">
-          {excluded.map((h) => (
-            <li key={h.id}>
-              <span className="flex items-center gap-2 font-medium text-zinc-200">
-                {h.name}
-                {!h.online && <Badge tone="bad">hors ligne</Badge>}
-              </span>
-              <span className="block text-xs text-muted">{h.reason}</span>
-            </li>
-          ))}
-        </ul>
+      <Modal open={showExcluded} onClose={() => setShowExcluded(false)} wide="screen" fixed title={`Hôtes écartés (${excluded.length})`}>
+        <table className="w-full table-fixed text-left text-sm">
+          <thead className="sticky top-0 bg-panel text-[11px] uppercase tracking-wide text-muted">
+            <tr>
+              <th className="w-1/4 py-2 pr-4 font-medium">Hôte</th>
+              <th className="py-2 font-medium">Raison</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {excluded.map((h) => (
+              <tr key={h.id} className="align-top">
+                <td className="py-2 pr-4 font-medium text-zinc-200">
+                  <span className="flex flex-wrap items-center gap-2">
+                    {h.name}
+                    {!h.online && <Badge tone="bad">hors ligne</Badge>}
+                  </span>
+                </td>
+                <td className="py-2 text-xs text-muted">{h.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </Modal>
     </Modal>
   );

@@ -79,11 +79,11 @@ const canRestore = (h: Pick<HostDoc, 'capabilities'>) => !!h.capabilities?.inclu
 // the mount abilities of #209 as well as the restore of its agent.
 export function targetReason(h: Pick<HostDoc, 'name' | 'capabilities'>) {
   const caps = h.capabilities ?? [];
-  if (!caps.includes('db_restore')) return `l'agent de ${h.name} ne sait pas restaurer une base : agent à mettre à jour`;
+  if (!caps.includes('db_restore')) return 'agent à mettre à jour : il ne sait pas encore restaurer une base';
   if (caps.includes('pbs_mount')) return null;
   if (caps.includes('backup:docker') || !caps.includes('backup:native'))
-    return `${h.name} n'a pas proxmox-backup-client installé nativement (l'image Docker du client ne peut pas monter pour l'hôte) : l'installer par APT depuis sa fiche`;
-  return `${h.name} ne peut pas monter une sauvegarde : /dev/fuse ou systemd absent (conteneur LXC : activer la fonctionnalité « FUSE » du conteneur dans Proxmox)`;
+    return "proxmox-backup-client non installé nativement (l'image Docker du client ne peut pas monter) : l'installer par APT depuis la fiche de l'hôte";
+  return 'montage impossible : /dev/fuse ou systemd absent (conteneur LXC : activer la fonctionnalité « FUSE » dans Proxmox)';
 }
 
 // Hosts that can receive a dump of this kind, each tested now, with the reason when they cannot. Every host that
@@ -97,7 +97,7 @@ export async function restoreTargets(kind: DbKind) {
       const id = h._id.toHexString();
       const base = { id, name: h.name, siteId: h.siteId ?? null };
       const refused = targetReason(h);
-      if (refused || !canRestore(h)) return { ...base, online: isOnline(id), containers: [] as RestoreContainer[], reason: refused ?? `${h.name} ne peut pas restaurer` };
+      if (refused || !canRestore(h)) return { ...base, online: isOnline(id), containers: [] as RestoreContainer[], reason: refused ?? 'restauration impossible sur cet hôte' };
       if (!isOnline(id)) return { ...base, online: false, containers: [] as RestoreContainer[], reason: 'hôte hors ligne' };
       try {
         const r = await agentRequest<AgentCandidates>(id, 'db_restore_check', { backupKind: kind, database: {} }, 60_000);
