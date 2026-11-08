@@ -102,6 +102,10 @@ export function agentOutdated(h: HostDoc): boolean | null {
   // an agent newer than what this hub distributes (hub rolled back, HAOS app behind), or whose floor is above it,
   // would refuse the binary (anti-rollback): nothing to update
   if (agentAhead(h)) return false;
+  // an agent that announces its actions without agent_update is delivered by its packaging (HAOS app, AGENT_NO_SELFUPDATE):
+  // the hub cannot update it and the packaging only follows the agent version, so only an older version counts, not
+  // another build of the same one (every hub release rebuilds the binary)
+  if (h.capabilities?.length && !h.capabilities.includes('agent_update')) return compareVersions(h.agentVersion, bin.version) === -1;
   // agents older than the self-update feature do not report their hash; same version, other binary (toolchain,
   // client image): an update
   return h.agentHash !== bin.sha256;

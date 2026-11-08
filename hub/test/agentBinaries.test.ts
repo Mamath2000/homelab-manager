@@ -45,6 +45,16 @@ test('binary of a release hub: signed only with both signatures, floor read next
   assert.equal(agentBinary('amd64')!.signed, true);
 });
 
+test('agentOutdated: an agent delivered by its packaging (no agent_update) is late by version only', () => {
+  const haos = ['haos', 'refresh', 'health'];
+  // same version, other build: nothing the hub or the packaging could do
+  assert.equal(agentOutdated(host({ agentVersion: '1.0.13', capabilities: haos })), false);
+  assert.equal(agentOutdated(host({ agentVersion: '1.0.10', capabilities: haos })), true);
+  // self-updating agent, or one that announces nothing (old agent): the hash decides as before
+  assert.equal(agentOutdated(host({ agentVersion: '1.0.13', capabilities: ['agent_update', 'refresh'] })), true);
+  assert.equal(agentOutdated(host({ agentVersion: '1.0.13', capabilities: [] })), true);
+});
+
 test('agentOutdated: older agent or same version with another binary; never an agent ahead of the hub', () => {
   assert.equal(agentOutdated(host({ agentVersion: '1.0.10' })), true);
   // same version, other build (toolchain, client image): an update, accepted by the agent

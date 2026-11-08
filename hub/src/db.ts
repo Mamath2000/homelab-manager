@@ -35,6 +35,7 @@ export let audit: Collection<AuditDoc>;
 
 export async function connectDb() {
   await client.connect();
+  await alignFeatureCompatibility();
   const db = client.db();
   hosts = db.collection('hosts');
   jobs = db.collection('jobs');
@@ -117,6 +118,34 @@ export async function connectDb() {
     ]),
   ]);
   await lowercaseUsernames();
+}
+
+// featureCompatibilityVersion the server should be at: its own version (major.minor), when the stored one lags
+// behind it (a base created by an older mongod). null: nothing to do.
+export function fcvTarget(serverVersion: string, fcv: string): string | null {
+  const parse = (v: string) => /^(\d+)\.(\d+)/.exec(v)?.slice(1).map(Number);
+  const server = parse(serverVersion);
+  const current = parse(fcv);
+  if (!server || !current) return null;
+  const behind = current[0] < server[0] || (current[0] === server[0] && current[1] < server[1]);
+  return behind ? `${server[0]}.${server[1]}` : null;
+}
+
+// A new mongod only starts on the featureCompatibilityVersion of the release before it (8.0 on 7.0, 8.3 on 8.0 or 8.2):
+// the hub raises it to the version of the server at start, so that the next image starts too. Not reversible (going
+// back to the previous mongod takes a restore). Without the rights (account without clusterManager): warning only.
+async function alignFeatureCompatibility() {
+  const admin = client.db('admin');
+  try {
+    const { version } = await admin.command({ buildInfo: 1 });
+    const { featureCompatibilityVersion: fcv } = await admin.command({ getParameter: 1, featureCompatibilityVersion: 1 });
+    const target = fcvTarget(version, fcv.version);
+    if (!target) return;
+    console.warn(`MongoDB ${version}: featureCompatibilityVersion ${fcv.version} -> ${target}`);
+    await admin.command({ setFeatureCompatibilityVersion: target, confirm: true });
+  } catch (err) {
+    console.warn(`MongoDB: featureCompatibilityVersion not checked or not raised (${(err as Error).message}); the next MongoDB image may not start`);
+  }
 }
 
 // Logins are lowercase (the display case lives in displayName). Accounts created before that are lowercased, the old
