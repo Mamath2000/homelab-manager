@@ -42,7 +42,7 @@ services:
     networks: [default, backend]
 
   mongo:
-    image: mongo:7
+    image: mongo:8.0
     container_name: homelab-manager-mongo
     restart: unless-stopped
     command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
@@ -114,6 +114,26 @@ docker compose pull && docker compose up -d
 ```
 
 Les données (hôtes, historique, comptes) sont dans le dossier `mongo-data/`, à côté du `compose.yml` (montage local plutôt qu'un volume Docker : un `docker compose down -v` ou un `docker volume prune` ne les supprime pas). Sauvegarde : voir [Données](configuration.md#données).
+
+### Mise à jour de MongoDB
+
+Un `mongod` ne démarre que sur une base dont la `featureCompatibilityVersion` (FCV) est celle de la version précédente : `mongo:8.0` refuse une base restée en `6.0`, `mongo:8` (8.3 et suivantes) une base en `7.0`. On monte donc **une étape à la fois** : `mongo:7` → `mongo:8.0` → `mongo:8`.
+
+À chaque démarrage, le hub aligne la FCV sur la version du serveur (ligne `MongoDB 8.0.x: featureCompatibilityVersion 7.0 -> 8.0` dans ses logs), si son compte en a le droit : c'est le cas du compte root de `MONGO_USERNAME`. Sans ce droit, il le signale dans ses logs et démarre quand même ; la FCV est alors à monter à la main (`setFeatureCompatibilityVersion`).
+
+1. Mettre le hub à jour **avant** de changer d'image : sur une base créée en MongoDB 6, il monte la FCV de `6.0` à `7.0`.
+2. Faire un dump de la base :
+   ```bash
+   docker exec homelab-manager-mongo sh -c 'mongodump -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --archive' > mongo-$(date +%F).archive
+   ```
+3. Passer à l'image suivante (`image: mongo:8.0` dans `compose.yml`), puis `docker compose pull && docker compose up -d`.
+4. Vérifier la FCV après le redémarrage du hub :
+   ```bash
+   docker exec homelab-manager-mongo sh -c 'mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --quiet --eval "db.adminCommand({getParameter: 1, featureCompatibilityVersion: 1})"'
+   ```
+   Attendu : `version: '8.0'`. L'étape suivante (`mongo:8`) se fait de la même façon.
+
+Sans `MONGO_USERNAME`, retirer `-u … -p …` des deux commandes. Une fois la FCV montée, revenir à l'image précédente ne marche plus : le retour arrière se fait en restaurant le dump sur l'ancienne image (`mongorestore --archive --drop`), avec la même [clé maître](securite.md#base-de-données-et-secrets) si elle est utilisée.
 
 ## Les agents
 
