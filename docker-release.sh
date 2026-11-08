@@ -116,14 +116,11 @@ if [ "$action" = "build" ]; then
     exit 0
 fi
 
-# haos_sync CHANNEL : synchro des applications HAOS (agent et hub) du canal, sans bloquer en cas d'échec
+# haos_sync CHANNEL : synchro de l'application HAOS de l'agent du canal, sans bloquer en cas d'échec
 haos_sync() {
-    local wf
-    for wf in sync.yaml sync-hub.yaml; do
-        gh workflow run "$wf" -R "$HAOS_REPO" -f channel="$1" \
-            && echo "✅ Synchro HAOS $1 lancée ($wf) : gh run list -R $HAOS_REPO" \
-            || echo "⚠️  Synchro HAOS $1 non lancée : make -C ../homelab-manager-haos ${wf%.yaml} CHANNEL=$1 (sinon cron quotidien)"
-    done
+    gh workflow run sync.yaml -R "$HAOS_REPO" -f channel="$1" \
+        && echo "✅ Synchro HAOS $1 lancée (sync.yaml) : gh run list -R $HAOS_REPO" \
+        || echo "⚠️  Synchro HAOS $1 non lancée : make -C ../homelab-manager-haos sync CHANNEL=$1 (sinon cron quotidien)"
 }
 
 # github_release VERSION : release GitHub vX.Y.Z (notes = section « Non publié » du CHANGELOG.md, renommée en

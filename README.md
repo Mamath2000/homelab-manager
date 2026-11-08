@@ -74,7 +74,7 @@ Les variables d'environnement se règlent dans [`compose.yml`](compose.yml) ; la
 | `FEATURE_STANDARDISATION` | `false` | Active la standardisation des hôtes |
 | `FEATURE_BACKUP_NEXTCLOUD_AIO` | `false` | Affiche le plugin Nextcloud AIO |
 
-Reverse proxy, URL du hub, adresse donnée aux agents : [Configuration](docs/configuration.md). Sur Home Assistant OS, un add-on autonome (MongoDB intégrée) est proposé par [Homelab Manager HAOS](https://github.com/Mamath2000/homelab-manager-haos).
+Reverse proxy, URL du hub, adresse donnée aux agents : [Configuration](docs/configuration.md).
 
 ## Sécurité
 
