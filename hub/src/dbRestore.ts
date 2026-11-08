@@ -20,12 +20,16 @@ export class DbRestoreError extends Error {}
 export type DbKind = 'mongodb' | 'postgres';
 export const SUPPORTED: DbKind[] = ['mongodb', 'postgres'];
 
+// system databases of each engine: never the name of the new database
+export const RESERVED: Record<DbKind, string[]> = { mongodb: ['admin', 'local', 'config'], postgres: ['postgres', 'template0', 'template1'] };
+
 export const DB_ARCHIVE_RE = /^(pg|mongo)-([A-Za-z0-9_][A-Za-z0-9_-]{0,47})\.pxar\.didx$/;
 
 // A dump archive of a database job: pg-<base> or mongo-<base> (pg-globals is the role dump, not a database).
 export function dbArchive(name: string) {
   const m = DB_ARCHIVE_RE.exec(name);
-  if (!m || (m[1] === 'pg' && m[2] === 'globals')) return null;
+  // pg-globals is the role dump, pg-cluster a physical copy of the cluster: neither is a database
+  if (!m || (m[1] === 'pg' && (m[2] === 'globals' || m[2] === 'cluster'))) return null;
   const kind: DbKind = m[1] === 'pg' ? 'postgres' : 'mongodb';
   return { kind, database: m[2], supported: SUPPORTED.includes(kind) };
 }
@@ -172,6 +176,7 @@ export interface RestoreCheck {
 // Access to the server, name clash, free space: what the dialog shows before the restore.
 export async function checkRestore(input: TargetInput & { target: string; size?: number }): Promise<RestoreCheck> {
   if (!DB_NAME_RE.test(input.target)) throw new DbRestoreError('nom de base invalide');
+  if (RESERVED[input.kind ?? 'mongodb'].includes(input.target.toLowerCase())) throw new DbRestoreError(`« ${input.target} » est une base système : choisir un autre nom`);
   const { host, database } = await connection(input);
   if (!isOnline(host._id.toHexString())) throw new DbRestoreError(`${host.name} est hors ligne`);
   try {
@@ -181,9 +186,12 @@ export async function checkRestore(input: TargetInput & { target: string; size?:
       { backupKind: input.kind ?? 'mongodb', database, restoreTarget: input.target },
       75_000,
     );
-    // the dump is copied in /tmp of the container, then restored in the data directory: room for both
+    // MongoDB: the dump is copied in /tmp of the container, then restored in the data directory (room for both).
+    // PostgreSQL: nothing is copied, but the indexes are built again and the WAL written: twice the dump in the data directory.
+    const postgres = (input.kind ?? 'mongodb') === 'postgres';
     const size = input.size ?? 0;
-    const short = size && ((r.free >= 0 && r.free < size) || (r.freeTmp >= 0 && r.freeTmp < size)) ? 'place libre insuffisante (données et /tmp du conteneur)' : null;
+    const need = postgres ? size * 2 : size;
+    const short = size && ((r.free >= 0 && r.free < need) || (!postgres && r.freeTmp >= 0 && r.freeTmp < size)) ? (postgres ? 'place libre insuffisante pour les données de la base' : 'place libre insuffisante (données et /tmp du conteneur)') : null;
     const error = r.exists ? `la base ${input.target} existe déjà sur ${(input.kind ?? 'mongodb') === 'postgres' ? 'le serveur PostgreSQL' : input.container} : rien n'est écrasé` : short;
     return { ok: !error, tools: r.tools, databases: r.databases, exists: r.exists, free: r.free, freeTmp: r.freeTmp ?? -1, error };
   } catch (err) {
@@ -210,6 +218,7 @@ export async function startRestore(input: RestoreInput, log?: FastifyBaseLogger)
   // checked again now, whatever the dialog showed, with the size of the dump as the PBS has it
   const snap = (await restorableSnapshots(input.source, input.groupId)).find((s) => s.time === input.time);
   const size = snap?.archives.find((a) => a.name === input.archive)?.size ?? undefined;
+  if (input.kind && input.kind !== arch.kind) throw new DbRestoreError('type de base incohérent avec le dump');
   const kinded = { ...input, kind: arch.kind };
   const check = await checkRestore({ ...kinded, ...(size ? { size } : {}) });
   if (!check.ok) throw new DbRestoreError(check.error ?? 'vérification de la cible en échec');

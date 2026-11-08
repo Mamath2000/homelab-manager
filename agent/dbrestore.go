@@ -208,8 +208,8 @@ func validateDbRestore(s *DbRestoreSpec) error {
 }
 
 // runDbRestore: restores the mounted dump into the new database. Never overwrites: refused when the
-// target database exists (checked just before, mongorestore then only creates). On a failure the partial
-// new database is left in place (the log says so): dropping is left to the admin.
+// target database exists (checked just before). MongoDB: on a failure the partial new database is left in
+// place (the log says so), dropping is left to the admin. PostgreSQL (dbrestore_pg.go): dropped by the agent.
 func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err error) {
 	if err := validateDbRestore(s); err != nil {
 		return err

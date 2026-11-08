@@ -32,6 +32,7 @@ const startBody = {
   properties: {
     ...targetProps,
     source: { type: 'string', enum: SOURCES },
+    kind: { type: 'string', enum: ['mongodb', 'postgres'] },
     groupId: { type: 'string', maxLength: 400 },
     time: { type: 'integer', minimum: 1 },
     archive: { type: 'string', maxLength: 128 },

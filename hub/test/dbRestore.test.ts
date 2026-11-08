@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { DB_ARCHIVE_RE, dbArchive, targetReason } from '../src/dbRestore.js';
+import { DB_ARCHIVE_RE, RESERVED, dbArchive, targetReason } from '../src/dbRestore.js';
 import { jobDto } from '../src/jobs.js';
 import { authorize } from '../src/profiles.js';
 import type { JobDoc } from '../src/types.js';
@@ -11,6 +11,8 @@ test('dbArchive: pg-<base> and mongo-<base> dumps only', () => {
   assert.deepEqual(dbArchive('pg-nextcloud.pxar.didx'), { kind: 'postgres', database: 'nextcloud', supported: true });
   // the roles dump is not a database
   assert.equal(dbArchive('pg-globals.pxar.didx'), null);
+  // a physical copy of the cluster is not a database
+  assert.equal(dbArchive('pg-cluster.pxar.didx'), null);
   for (const bad of ['root.pxar.didx', 'mongo-.pxar.didx', 'mongo-a b.pxar.didx', 'mongo-../x.pxar.didx', 'mongo-x.pxar.fidx', 'mongo-x.pxar.didx.blob', `mongo-${'a'.repeat(49)}.pxar.didx`]) {
     assert.equal(DB_ARCHIVE_RE.test(bad), false, bad);
     assert.equal(dbArchive(bad), null, bad);
@@ -55,4 +57,9 @@ test('target of a restore: why a host is left out', () => {
   assert.match(targetReason(h(['backup_database', 'db_restore', 'backup', 'backup:docker']))!, /nativement/);
   assert.match(targetReason(h(['backup_database', 'db_restore', 'backup', 'backup:native']))!, /FUSE/);
   assert.match(targetReason(h(['backup_database', 'db_restore']))!, /nativement/);
+});
+
+test('system databases are never the name of the new database', () => {
+  assert.deepEqual(RESERVED.postgres, ['postgres', 'template0', 'template1']);
+  assert.deepEqual(RESERVED.mongodb, ['admin', 'local', 'config']);
 });

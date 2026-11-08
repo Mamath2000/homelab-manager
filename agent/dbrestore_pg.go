@@ -10,9 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,8 +21,9 @@ import (
 // objects belong to the postgres user of the target (--no-owner --no-privileges: the roles of the dump are not
 // needed), and a database this agent created and could not fill is dropped again.
 //
-// The mount of the PBS is readable by root only, so the dump is first copied next to the data of the server,
-// where the postgres user can read it: the free space of that volume is checked (a copy of the dump).
+// The mount of the PBS is readable by root only and the postgres user cannot read it: root reads the dump
+// (pg_restore -f -, no connection) and pipes the SQL to psql run as postgres. Nothing is copied nor written to
+// disk, no right is given to postgres on the dump; parallel restore (-j) is given up for that.
 
 // pgDataDir: where the server keeps its data, to know the free space of the restore (-1: unknown).
 func pgDataFree(ctx context.Context, env []string) int64 {
@@ -125,7 +126,7 @@ func checkPostgresRestore(ctx context.Context, p *DatabaseDump, target string) (
 		Databases: dbs,
 		Exists:    hasExactDatabase(dbs, target),
 		Free:      pgDataFree(ctx, env),
-		FreeTmp:   freeSpace(home), // where the dump is copied
+		FreeTmp:   -1, // nothing is copied
 	}, nil
 }
 
@@ -145,18 +146,84 @@ func pgDumpInfo(toc string) (major int, extensions []string) {
 	return major, extensions
 }
 
-// pgJobs: parallel jobs of pg_restore, as many as the host has processors, four at most.
-func pgJobs() int {
-	n := runtime.NumCPU()
-	if n > 4 {
-		n = 4
+// pipeRun runs two commands, the output of the first being the input of the second; their messages go to emit.
+// Seam for the tests.
+var pipeRun = runPipe
+
+func runPipe(ctx context.Context, env []string, emit func(string), first, second []string) error {
+	src := exec.CommandContext(ctx, first[0], first[1:]...)
+	dst := exec.CommandContext(ctx, second[0], second[1:]...)
+	src.Env, dst.Env = env, env
+	w := &lineWriter{emit: emit}
+	src.Stderr, dst.Stderr, dst.Stdout = w, w, w
+	// our own pipe: this process closes both ends once the children have them, so that the writer gets SIGPIPE
+	// when the reader stops (an exec StdoutPipe keeps the read end open here until the writer is waited for)
+	r, pw, err := os.Pipe()
+	if err != nil {
+		return err
 	}
-	if n < 1 {
-		n = 1
+	src.Stdout, dst.Stdin = pw, r
+	if err := dst.Start(); err != nil {
+		_ = r.Close()
+		_ = pw.Close()
+		return fmt.Errorf("%s: %w", second[0], err)
 	}
-	return n
+	_ = r.Close()
+	if err := src.Start(); err != nil {
+		_ = pw.Close()
+		_ = dst.Wait()
+		return fmt.Errorf("%s: %w", first[0], err)
+	}
+	_ = pw.Close()
+	// both are waited for: the first one ending early closes the pipe of the second
+	srcErr := src.Wait()
+	dstErr := dst.Wait()
+	w.flush()
+	// the reader first: when it stops, the writer only dies of the broken pipe
+	if dstErr != nil {
+		return fmt.Errorf("%s a échoué : %w", second[0], dstErr)
+	}
+	if srcErr != nil {
+		return fmt.Errorf("%s a échoué : %w", first[0], srcErr)
+	}
+	return nil
 }
 
+// lineWriter gives the lines written to it to emit.
+type lineWriter struct {
+	emit func(string)
+	mu   sync.Mutex
+	buf  strings.Builder
+}
+
+func (w *lineWriter) Write(b []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf.Write(b)
+	for {
+		s := w.buf.String()
+		i := strings.IndexByte(s, '\n')
+		if i < 0 {
+			break
+		}
+		w.emit(s[:i+1])
+		w.buf.Reset()
+		w.buf.WriteString(s[i+1:])
+	}
+	return len(b), nil
+}
+
+func (w *lineWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.buf.Len() > 0 {
+		w.emit(w.buf.String() + "\n")
+		w.buf.Reset()
+	}
+}
+
+// runPostgresRestore: the new database is created by this agent (createdb refuses an existing name), closed to
+// PUBLIC while it is filled, and dropped again if the restore fails.
 func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) error {
 	if err := pgTools(); err != nil {
 		return err
@@ -173,7 +240,7 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 	if _, err := os.Stat(filepath.Join(dir, "toc.dat")); err != nil {
 		return fmt.Errorf("%s does not look like a pg_dump directory (no toc.dat)", dir)
 	}
-	uid, gid, home, err := lookupPostgres()
+	_, _, home, err := lookupPostgres()
 	if err != nil {
 		return err
 	}
@@ -193,34 +260,15 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 		return fmt.Errorf("la base %q existe deja : rien n'est ecrase", s.Target)
 	}
 
-	// the dump goes where the postgres user can read it, removed at the end whatever happens
-	work := filepath.Join(home, "hlm-restore-"+s.Target)
-	size := dirSize(dir)
-	if free := freeSpace(home); free >= 0 && size > 0 && free < size {
-		return fmt.Errorf("place insuffisante pour copier le dump dans %s (%d octets libres, %d necessaires)", home, free, size)
-	}
-	if err := resetDir(work, uid, gid); err != nil {
-		return err
-	}
-	defer func() {
-		if err := os.RemoveAll(work); err != nil {
-			emit(fmt.Sprintf("nettoyage de %s : %v\n", work, err))
-		}
-	}()
-	emit("copie du dump pour l'utilisateur postgres…\n")
-	if err := runDumpStep(ctx, env, emit, "cp", "-r", dir+"/.", work); err != nil {
-		return err
-	}
-	if err := runDumpStep(ctx, env, emit, "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), work); err != nil {
-		return err
-	}
-
-	// refused before anything is created: version and extensions of the dump
-	toc, err := dumpOutput(ctx, env, "runuser", as("pg_restore", "-l", work)...)
+	// refused before anything is created: version and extensions of the dump (read by root, no connection)
+	toc, err := dumpOutput(ctx, env, "pg_restore", "-l", dir)
 	if err != nil {
 		return fmt.Errorf("lecture du dump : %w", err)
 	}
 	dumpMajor, exts := pgDumpInfo(string(toc))
+	if dumpMajor == 0 {
+		return errors.New("version du serveur d'origine illisible dans le dump : restauration refusee")
+	}
 	if dumpMajor > major {
 		return fmt.Errorf("le dump vient d'un serveur PostgreSQL %d, plus recent que la cible (%d)", dumpMajor, major)
 	}
@@ -249,13 +297,13 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 		}
 	}
 
-	// createdb refuses an existing name: nothing can be overwritten, even if the name appeared meanwhile
-	if err := runDumpStep(ctx, env, emit, "runuser", as("createdb", "--no-password", s.Target)...); err != nil {
+	// createdb refuses an existing name: nothing can be overwritten, even if the name appeared meanwhile.
+	// template0: a clean base, whatever was added to template1.
+	if err := runDumpStep(ctx, env, emit, "runuser", as("createdb", "--no-password", "-T", "template0", s.Target)...); err != nil {
 		return err
 	}
-	emit(fmt.Sprintf("restauration %s -> %s (%d jobs)…\n", s.Source, s.Target, pgJobs()))
-	if err := runDumpStep(ctx, env, emit, "runuser", as("pg_restore", "-Fd", "-j", strconv.Itoa(pgJobs()), "--no-owner", "--no-privileges", "--exit-on-error", "--no-password", "-d", s.Target, work)...); err != nil {
-		// this agent created the database a moment ago: dropping it leaves nothing behind
+	// from here the database is this agent's: dropped again on failure
+	drop := func() {
 		cctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		if derr := runDumpStep(cctx, env, emit, "runuser", as("dropdb", "--if-exists", "--no-password", s.Target)...); derr != nil {
@@ -263,6 +311,18 @@ func runPostgresRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)
 		} else {
 			emit(fmt.Sprintf("echec : la base %q creee pour la restauration a ete supprimee\n", s.Target))
 		}
+	}
+	// the objects belong to postgres here: nobody else may connect while they are restored (the name is validated)
+	if err := runDumpStep(ctx, env, emit, "runuser", as("psql", "-X", "--no-password", "-d", "postgres", "-c", `REVOKE CONNECT, TEMPORARY ON DATABASE "`+s.Target+`" FROM PUBLIC`)...); err != nil {
+		drop()
+		return err
+	}
+	emit(fmt.Sprintf("restauration %s -> %s…\n", s.Source, s.Target))
+	first := []string{"pg_restore", "-f", "-", "--no-owner", "--no-privileges", "--no-tablespaces", "--no-subscriptions", dir}
+	second := append([]string{"runuser"}, as("psql", "-X", "-q", "--no-password", "-v", "ON_ERROR_STOP=1", "-d", s.Target)...)
+	emit(strings.Join(first, " ") + " | " + strings.Join(second, " ") + "\n")
+	if err := pipeRun(ctx, env, emit, first, second); err != nil {
+		drop()
 		return err
 	}
 	dbs, err = pgDatabases(ctx, env)
