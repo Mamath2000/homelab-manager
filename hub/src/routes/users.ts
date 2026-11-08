@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { MongoServerError, ObjectId } from 'mongodb';
 import { settingsDiff } from '../audit.js';
 import { newApiKey, revokeSessions } from '../auth.js';
+import { closeStreams } from '../events.js';
 import { hashPassword, randomToken } from '../crypto.js';
 import { apiKeys, parseId, users } from '../db.js';
 import { PROFILES, SUPERADMIN, type ApiKeyDoc, type Profile, type UserDoc } from '../types.js';
@@ -188,6 +189,7 @@ export function registerUserRoutes(app: FastifyInstance) {
     const keyId = parseId(req.params.keyId);
     if (!user || !keyId) return reply.code(404).send({ error: 'key not found' });
     const gone = await apiKeys.findOneAndDelete({ _id: keyId, userId: user._id }, { projection: { name: 1 } });
+    closeStreams({ apiKeyId: keyId });
     req.auditNote = { target: accountTarget(user), ...(gone ? { details: { keyName: gone.name } } : {}) };
     return gone ? reply.code(204).send() : reply.code(404).send({ error: 'key not found' });
   });

@@ -3,6 +3,7 @@ import { actorOf, recordAudit, recordAuthFailure } from './audit.js';
 import { config } from './config.js';
 import { dummyPasswordHash, hashPassword, randomToken, sha256, verifyPasswordOrDummy } from './crypto.js';
 import { apiKeys, sessions, users } from './db.js';
+import { closeStreams } from './events.js';
 import { accountKey, apiKeyLimit, ipKey, loginLimits, pairKey, tooManyAttempts } from './loginGuard.js';
 import { allowedBeforePasswordChange, authorize } from './profiles.js';
 import { cookieSecure, httpsUrl, transport } from './transport.js';
@@ -13,6 +14,8 @@ const COOKIE = 'hm_session';
 declare module 'fastify' {
   interface FastifyRequest {
     user?: UserDoc;
+    // the session the request came with (not set for an API key)
+    sessionId?: string;
   }
 }
 
@@ -67,10 +70,13 @@ async function userFromRequest(req: FastifyRequest) {
   if (!token) return null;
   const session = await sessions.findOne({ _id: sha256(token), expiresAt: { $gt: new Date() } });
   if (!session) return null;
+  req.sessionId = session._id;
   return users.findOne({ _id: session.userId });
 }
 
+// also closes the live streams of the account, whatever they were opened with
 export function revokeSessions(user: Pick<UserDoc, '_id'>) {
+  closeStreams({ userId: user._id });
   return sessions.deleteMany({ userId: user._id });
 }
 
@@ -203,6 +209,7 @@ export function registerAuth(app: FastifyInstance) {
     const token = req.cookies[COOKIE];
     if (token) {
       const session = await sessions.findOneAndDelete({ _id: sha256(token) });
+      closeStreams({ sessionId: sha256(token) });
       const user = session && (await users.findOne({ _id: session.userId }));
       if (user) void recordAudit({ category: 'auth', action: 'auth.logout', actor: actorOf({ user }), ip: req.ip });
     }

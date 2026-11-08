@@ -1,4 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import type { ObjectId } from 'mongodb';
+import { apiKeys, sessions, users } from './db.js';
+import { authorize } from './profiles.js';
+import type { UserDoc } from './types.js';
 
 type Listener = (event: string, data: unknown) => void;
 const listeners = new Set<Listener>();
@@ -13,9 +17,46 @@ export function subscribe(listener: Listener) {
   return () => listeners.delete(listener);
 }
 
+// An open stream is authenticated once, when it opens: it is closed as soon as what it was opened with goes away.
+interface Stream {
+  end: () => void;
+  userId: ObjectId;
+  profile: UserDoc['profile'];
+  // the credential of the request: a session (its id) or an API key
+  sessionId?: string;
+  apiKeyId?: ObjectId;
+}
+const streams = new Set<Stream>();
+
+// Re-checked while a stream stays open, in case a closing was missed (expired session, key or account removed in the database).
+export const REVALIDATE_MS = 60_000;
+
+// Closes the streams opened by an account, with a session or with a key; the browser reconnects and gets a 401.
+export function closeStreams(match: { userId?: ObjectId; sessionId?: string; apiKeyId?: ObjectId }) {
+  for (const s of [...streams]) {
+    if (
+      (match.userId && s.userId.equals(match.userId)) ||
+      (match.sessionId && s.sessionId === match.sessionId) ||
+      (match.apiKeyId && s.apiKeyId?.equals(match.apiKeyId))
+    ) {
+      s.end();
+    }
+  }
+}
+
+async function stillAllowed(s: Stream) {
+  const credential = s.apiKeyId
+    ? await apiKeys.findOne({ _id: s.apiKeyId })
+    : await sessions.findOne({ _id: s.sessionId!, expiresAt: { $gt: new Date() } });
+  if (!credential) return false;
+  const user = await users.findOne({ _id: s.userId });
+  return !!user && user.profile === s.profile && authorize(user.profile, 'GET', '/api/events');
+}
+
 // Server-Sent Events stream used by the UI for live updates.
 export function registerEvents(app: FastifyInstance) {
   app.get('/api/events', (req, reply) => {
+    const user = req.user!;
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, {
@@ -30,9 +71,25 @@ export function registerEvents(app: FastifyInstance) {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
     const keepalive = setInterval(() => res.write(': ping\n\n'), 25_000);
+    const stream: Stream = {
+      end: () => res.end(),
+      userId: user._id,
+      profile: user.profile,
+      sessionId: req.sessionId,
+      apiKeyId: req.apiKey?.id,
+    };
+    const revalidate = setInterval(() => {
+      stillAllowed(stream).then(
+        (ok) => ok || stream.end(),
+        (err) => req.log.warn({ err }, 'events: revalidation failed'),
+      );
+    }, REVALIDATE_MS);
+    streams.add(stream);
     listeners.add(listener);
     req.raw.on('close', () => {
       clearInterval(keepalive);
+      clearInterval(revalidate);
+      streams.delete(stream);
       listeners.delete(listener);
     });
   });
