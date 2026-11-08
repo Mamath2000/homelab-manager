@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { posix as path } from 'node:path';
 import { AgentRequestError, agentRequest, isOnline } from './agents.js';
-import { backups, hosts, parseId } from './db.js';
+import { backups, hosts, jobs, parseId } from './db.js';
 import { publish } from './events.js';
 import { hostDto } from './hostDto.js';
 import { loadRemoteSettings, remoteReady } from './offsite.js';
@@ -339,6 +339,13 @@ async function doSettle(log?: FastifyBaseLogger) {
   const id = h._id.toHexString();
   // being set up in this process: its own failure path settles it
   if (m.state === 'mounting' && busy) return;
+  // read by a database restore (dbRestore.ts): left alone while its job runs, unmounted once it is over
+  if (m.state === 'mounted' && m.restoreJobId) {
+    const job = await jobs.findOne({ _id: m.restoreJobId }, { projection: { status: 1 } });
+    if (job?.status === 'running') return;
+    await hosts.updateOne({ _id: h._id }, { $set: { 'pbsMount.state': 'unmounting' } });
+    m.state = 'unmounting';
+  }
   if (m.state === 'mounted') {
     if (!isOnline(id)) return;
     const mountRoot = m.mountRoot ?? '/srv/pbs-restore';

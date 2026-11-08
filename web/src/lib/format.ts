@@ -59,6 +59,7 @@ export const actionLabel: Record<string, string> = {
   setup_apply: 'Standardisation',
   backup_run: 'Sauvegarde',
   offsite_run: 'Copie déportée',
+  db_restore: 'Restauration de base',
   backup_install: 'Installation du client PBS',
 };
 

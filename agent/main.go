@@ -261,6 +261,13 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 			out.Result = r
 		}
 		cancel()
+	case "db_restore_check":
+		cctx, cancel := context.WithTimeout(ctx, time.Minute)
+		var r *DbRestoreCheck
+		if r, err = checkDbRestore(cctx, in.BackupKind, in.Database, in.RestoreTarget); err == nil {
+			out.Result = r
+		}
+		cancel()
 	case "nextcloud_discover":
 		// form of the Nextcloud AIO plugin: instance, users, free space of the work directory (optional)
 		workDir := ""
@@ -402,6 +409,18 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 	if in.Action == "backup_run" {
 		code, err := backups.runJob(ctx, in.BackupJob, "manual", in.JobID, emit)
 		done(code, err)
+		return
+	}
+
+	// a restore can take hours as well; its own lock (dbRestoreMu) refuses a second one
+	if in.Action == "db_restore" {
+		rctx, cancel := context.WithTimeout(context.Background(), 6*time.Hour)
+		defer cancel()
+		if err := runDbRestore(rctx, in.DbRestore, emit); err != nil {
+			done(1, err)
+			return
+		}
+		done(0, nil)
 		return
 	}
 

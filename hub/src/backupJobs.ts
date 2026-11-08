@@ -125,7 +125,7 @@ export function rebindDatabasePassword(database: DatabaseDump | null, from: Obje
   return { ...database, password: seal(password, databasePasswordAad(to)) };
 }
 
-function agentDatabase(j: BackupJobDoc, kind: BackupJobKind): DatabaseDump | null {
+export function agentDatabase(j: BackupJobDoc, kind: BackupJobKind): DatabaseDump | null {
   const database = jobDatabase(j);
   if (kind !== 'mongodb' || !database?.password) return database;
   return { ...database, password: open(database.password, databasePasswordAad(j._id)) };

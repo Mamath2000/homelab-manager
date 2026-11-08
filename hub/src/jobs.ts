@@ -4,7 +4,7 @@ import { awaitAgent, sendToAgent } from './agents.js';
 import { auditContext, jobBy, recordAudit } from './audit.js';
 import { hosts, jobs } from './db.js';
 import { publish } from './events.js';
-import type { HostDoc, JobAction, JobDoc, SetupOption } from './types.js';
+import type { DbRestoreInfo, HostDoc, JobAction, JobDoc, SetupOption } from './types.js';
 
 const MAX_LOG = 512 * 1024;
 const PKG_RE = /^[a-z0-9][a-z0-9+.\-:]*$/;
@@ -44,6 +44,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     modules: j.modules ?? null,
     backupJobName: j.backupJobName ?? null,
     method: j.method ?? null,
+    dbRestore: j.dbRestore ?? null,
     installTarget: j.installTarget ? { cluster: j.installTarget.cluster, vmid: j.installTarget.vmid, node: j.installTarget.node ?? null, hostId: j.installTarget.hostId.toHexString() } : null,
     trigger: j.trigger,
     by: j.by ?? null,
@@ -76,6 +77,9 @@ export interface JobTarget {
   // agent_install: what the agent runs (holds the enrollment code: only sent, never stored) and what the job is about
   install?: { kind: 'lxc' | 'node'; vmid?: number; node?: string; code: string; installCurl: boolean };
   installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };
+  // db_restore: what is shown (info) and what the agent receives (restore: holds the password, only sent, never stored)
+  dbRestoreInfo?: DbRestoreInfo;
+  dbRestore?: Record<string, unknown>;
 }
 
 // Who launched a job: the account, key or MQTT command being served (audit.ts), for the manual and Home Assistant
@@ -98,6 +102,7 @@ function auditJob(job: JobDoc) {
       ...(job.service ? { service: job.service } : {}),
       ...(job.modules ? { modules: job.modules } : {}),
       ...(job.backupJobName ? { backupJob: job.backupJobName } : {}),
+      ...(job.dbRestore ? { dbRestore: { source: job.dbRestore.source, target: job.dbRestore.target } } : {}),
       ...(job.installTarget ? { install: { cluster: job.installTarget.cluster, vmid: job.installTarget.vmid, node: job.installTarget.node } } : {}),
     },
     ok: job.status !== 'failed',
@@ -120,6 +125,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     ...(target.backupJob ? { backupJobId: new ObjectId(target.backupJob), backupJobName: target.backupJobName } : {}),
     ...(target.method ? { method: target.method } : {}),
     ...(target.installTarget ? { installTarget: target.installTarget } : {}),
+    ...(target.dbRestoreInfo ? { dbRestore: target.dbRestoreInfo } : {}),
     trigger,
     ...(by ? { by: jobBy(by.actor) } : {}),
     status: 'running',
@@ -148,6 +154,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
       ...(target.backupJob ? { backupJob: target.backupJob } : {}),
       ...(target.method ? { method: target.method } : {}),
       ...(target.install ? { install: target.install } : {}),
+      ...(target.dbRestore ? { dbRestore: target.dbRestore } : {}),
       ...(bin ? { sha256: bin.sha256 } : {}),
     })
   ) {

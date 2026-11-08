@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { DatabaseBackup, FolderOpen, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
+import { DatabaseBackup, DatabaseZap, FolderOpen, History, Pencil, RefreshCw, Search, Trash2, Unlink } from 'lucide-react';
 import { BackupOverview } from '../components/BackupOverview';
 import { LastRun } from '../components/BackupStats';
 import { SnapshotsModal } from '../components/BackupSnapshots';
 import { BackupTimeline } from '../components/HostBackups';
 import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
 import { DetailPill, OffsiteCell } from '../components/OffsiteCopy';
+import { DbRestoreDialog } from '../components/DbRestore';
 import { MountBanner, MountDialog } from '../components/PbsMount';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, IconGroup, Modal, ResponsiveList, Spinner } from '../components/ui';
@@ -134,6 +135,7 @@ export function Backups() {
   const [refreshing, setRefreshing] = useState(false);
   const [orphans, setOrphans] = useState(false);
   const [mounting, setMounting] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   if (isLoading || !data) return <div className="flex justify-center p-20"><Spinner /></div>;
 
@@ -327,6 +329,11 @@ export function Backups() {
                                   title: 'Monter un snapshot de cette sauvegarde en lecture seule',
                                   onClick: () => setMounting(g.id),
                                 }] : []),
+                                ...(canMount && g.managed?.kind === 'mongodb' ? [{
+                                  icon: DatabaseZap,
+                                  title: 'Restaurer une base dans une nouvelle base',
+                                  onClick: () => setRestoring(g.id),
+                                }] : []),
                                 { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                               ]}
                             />
@@ -447,6 +454,11 @@ export function Backups() {
                                       title: 'Monter un snapshot de cette sauvegarde en lecture seule',
                                       onClick: () => setMounting(g.id),
                                     }] : []),
+                                    ...(canMount && g.managed?.kind === 'mongodb' ? [{
+                                      icon: DatabaseZap,
+                                      title: 'Restaurer une base dans une nouvelle base',
+                                      onClick: () => setRestoring(g.id),
+                                    }] : []),
                                     { icon: History, title: 'Historique des snapshots', onClick: () => setHistory(g.id) },
                                   ]}
                                 />
@@ -530,6 +542,7 @@ export function Backups() {
       )}
       {data.connected && <OrphansModal data={data} open={orphans} onClose={() => setOrphans(false)} canManage={canManage} />}
       {canManage && <MountDialog open={mounting !== null} initialGroupId={mounting} onClose={() => setMounting(null)} />}
+      {canManage && <DbRestoreDialog open={restoring !== null} groupId={restoring} onClose={() => setRestoring(null)} />}
       {shownGroup && <SnapshotsModal group={shownGroup} open onClose={() => setHistory(null)} />}
       {canManage && editing && <BackupJobEditModal key={editing.jobId} host={editing.host} jobId={editing.jobId} tab={editing.tab} onClose={() => setEditing(null)} />}
     </>

@@ -555,9 +555,18 @@ export const JOB_ACTIONS = [
 ] as const;
 // backup_run: launched from the backup job only (it names the job), never through the generic job routes
 // offsite_run: copy to the secondary PBS, run by the hub (offsite.ts); backupJobName names the backup
+// db_restore: restore of a mounted dump into a new database (dbRestore.ts), launched from its dialog only
 // agent_install: agent installed in a CT by the agent of its node, from the PVE inventory (pveInstallRun.ts), never through the generic job routes
-export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install';
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install' | 'db_restore';
 export type JobStatus = 'running' | 'success' | 'failed';
+
+// What a db_restore job is about, shown in Activité.
+export interface DbRestoreInfo {
+  kind: 'mongodb';
+  source: string; // database in the dump
+  target: string; // new database
+  container?: string;
+}
 
 export interface JobDoc {
   _id: ObjectId;
@@ -577,6 +586,8 @@ export interface JobDoc {
   backupJobName?: string;
   // backup_install: apt | docker
   method?: 'apt' | 'docker';
+  // db_restore: what is restored where (never the credentials)
+  dbRestore?: DbRestoreInfo;
   // agent_install: the CT and the host it becomes (the enrollment code is never stored)
   installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
@@ -859,6 +870,7 @@ export interface PbsMount {
   archive: string; // root.pxar.didx
   mountRoot: string;
   tokenId: string; // the secret is never stored
+  restoreJobId?: ObjectId; // db_restore job reading this mount: unmounted once it is over (pbsMount.ts)
   path?: string;
   slow?: boolean; // reads across sites
   startedAt: Date;

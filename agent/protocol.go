@@ -127,7 +127,7 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | refresh
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | db_restore_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | refresh
 	Tail  int    `json:"tail,omitempty"`
 	// ping: address to ping and delay of the measure (ping.go)
 	Host       string `json:"host,omitempty"`
@@ -144,6 +144,10 @@ type Inbound struct {
 	// nextcloud_discover: its work directory only
 	BackupKind string        `json:"backupKind,omitempty"`
 	Database   *DatabaseDump `json:"database,omitempty"`
+	// db_restore_check: name of the new database to test on the server of Database (#210)
+	RestoreTarget string `json:"restoreTarget,omitempty"`
+	// db_restore (job): the restore of a mounted dump into a new database
+	DbRestore *DbRestoreSpec `json:"dbRestore,omitempty"`
 	// backup_estimate: the directories and exclusions of the job form
 	EstArchives []BackupArchive `json:"estArchives,omitempty"`
 	EstExcludes []string        `json:"estExcludes,omitempty"`
@@ -166,4 +170,14 @@ type Inbound struct {
 	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read
 	Scopes       []string     `json:"scopes,omitempty"`
 	HealthConfig HealthConfig `json:"healthConfig,omitempty"`
+}
+
+// DbRestoreSpec: what the hub asks to restore. The dump is read from the PBS snapshot mounted on this
+// host (one at a time, pbsmount.go): its path is found here, never given by the hub.
+type DbRestoreSpec struct {
+	Kind      string        `json:"kind"` // mongodb
+	Database  *DatabaseDump `json:"database"`
+	Source    string        `json:"source"` // database name in the dump
+	Target    string        `json:"target"` // new database
+	MountRoot string        `json:"mountRoot,omitempty"`
 }

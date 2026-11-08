@@ -505,3 +505,149 @@ func TestRunningDatabaseKinds(t *testing.T) {
 		t.Fatalf("docker unusable: %v", got)
 	}
 }
+
+func TestCheckDbRestoreMongo(t *testing.T) {
+	fakeOutput(t, map[string]string{
+		"inspect":                "true\n",
+		"mongodump --version":    "mongodump version: 100.10.0\n",
+		"mongorestore --version": "mongorestore version: 100.10.0\ngit version: x\n",
+		"mongosh":                `{"version":"7.0.2","databases":[{"name":"admin","size":40960},{"name":"canicoif","size":1.25e8}]}` + "\n",
+		"df -Pk":                 "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 1000 400 600 40% /data/db\n",
+	})
+	ctx := context.Background()
+	p := &DatabaseDump{Container: "mongo"}
+	r, err := checkDbRestore(ctx, "mongodb", p, "canicoif_copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Exists || r.Tools != "mongorestore version: 100.10.0" || len(r.Databases) != 2 || r.Free != 600*1024 {
+		t.Fatalf("check = %+v", r)
+	}
+	// name clash: never offered
+	if r, err = checkDbRestore(ctx, "mongodb", p, "canicoif"); err != nil || !r.Exists {
+		t.Fatalf("clash: %v %+v", err, r)
+	}
+	// validated inputs
+	for _, bad := range []string{"a b", "../x", "$x", strings.Repeat("a", 60)} {
+		if _, err := checkDbRestore(ctx, "mongodb", p, bad); err == nil {
+			t.Errorf("name %q accepted", bad)
+		}
+	}
+	if _, err := checkDbRestore(ctx, "mongodb", &DatabaseDump{Container: "m;rm"}, "x"); err == nil {
+		t.Error("bad container accepted")
+	}
+	if _, err := checkDbRestore(ctx, "mongodb", &DatabaseDump{Container: "mongo", Username: "u"}, "x"); err == nil {
+		t.Error("user without password accepted")
+	}
+	if _, err := checkDbRestore(ctx, "postgres", p, "x"); err == nil {
+		t.Error("postgres not supported yet")
+	}
+	// mongorestore missing from the container
+	fakeOutput(t, map[string]string{"inspect": "true", "mongodump --version": "v", "mongosh": `{"version":"7.0.2","databases":[]}`, "mongorestore --version": "ERR"})
+	if _, err := checkDbRestore(ctx, "mongodb", p, "x"); err == nil || !strings.Contains(err.Error(), "mongorestore") {
+		t.Fatalf("missing mongorestore: %v", err)
+	}
+}
+
+func fakeRestoreMounts(t *testing.T, paths ...string) {
+	t.Helper()
+	old := restoreMountsOf
+	restoreMountsOf = func(string) []string { return paths }
+	t.Cleanup(func() { restoreMountsOf = old })
+}
+
+func TestRunDbRestoreMongo(t *testing.T) {
+	dump := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dump, "c1.bson"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fakeRestoreMounts(t, dump)
+	spec := func() *DbRestoreSpec {
+		return &DbRestoreSpec{Kind: "mongodb", Database: &DatabaseDump{Container: "mongo"}, Source: "canicoif", Target: "canicoif_copy"}
+	}
+	// success: the new database appears after the restore
+	listed := 0
+	oldOut := dumpOutput
+	t.Cleanup(func() { dumpOutput = oldOut })
+	dumpOutput = func(_ context.Context, _ []string, name string, args ...string) ([]byte, error) {
+		cmd := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.Contains(cmd, "inspect"):
+			return []byte("true"), nil
+		case strings.Contains(cmd, "mongodump --version"):
+			return []byte("v"), nil
+		case strings.Contains(cmd, "mongosh"):
+			listed++
+			if listed == 1 {
+				return []byte(`{"version":"7.0.2","databases":[{"name":"canicoif","size":10}]}`), nil
+			}
+			return []byte(`{"version":"7.0.2","databases":[{"name":"canicoif","size":10},{"name":"canicoif_copy","size":5}]}`), nil
+		}
+		return nil, errors.New("unexpected " + cmd)
+	}
+	calls := fakeDump(t, "")
+	var log strings.Builder
+	if err := runDbRestore(context.Background(), spec(), func(s string) { log.WriteString(s) }); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-mongo.yaml",
+		"exec mongo mkdir -p /tmp/homelab-agent-restore/canicoif",
+		"cp " + dump + "/. mongo:/tmp/homelab-agent-restore/canicoif",
+		"exec mongo mongorestore --nsInclude canicoif.* --nsFrom canicoif.$coll$ --nsTo canicoif_copy.$coll$ /tmp/homelab-agent-restore",
+		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-mongo.yaml",
+	}
+	if len(*calls) != len(want) {
+		t.Fatalf("calls = %+v", *calls)
+	}
+	for i, c := range *calls {
+		if c.name != "docker" || c.args != want[i] {
+			t.Errorf("call %d = %s %s", i, c.name, c.args)
+		}
+	}
+	// never overwrites: the name is taken, nothing is copied nor restored
+	calls = fakeDump(t, "")
+	listed = 1
+	taken := spec()
+	taken.Target = "canicoif"
+	if err := runDbRestore(context.Background(), taken, func(string) {}); err == nil || !strings.Contains(err.Error(), "existe deja") {
+		t.Fatalf("existing database accepted: %v", err)
+	}
+	for _, c := range *calls {
+		if strings.Contains(c.args, "mongorestore") || strings.Contains(c.args, " cp ") || c.name == "docker" && strings.HasPrefix(c.args, "cp ") {
+			t.Fatalf("something was run: %+v", *calls)
+		}
+	}
+	// failed restore: cleaned, partial database announced, password not logged
+	listed = 0
+	calls = fakeDump(t, "mongorestore")
+	log.Reset()
+	if err := runDbRestore(context.Background(), spec(), func(s string) { log.WriteString(s) }); err == nil {
+		t.Fatal("failure not reported")
+	}
+	if !strings.Contains(log.String(), "partiellement") {
+		t.Errorf("log = %q", log.String())
+	}
+	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-mongo.yaml" {
+		t.Fatalf("last call = %s", last.args)
+	}
+	// mounts and inputs
+	fakeRestoreMounts(t)
+	if err := runDbRestore(context.Background(), spec(), func(string) {}); err == nil {
+		t.Error("restore without a mounted backup")
+	}
+	fakeRestoreMounts(t, t.TempDir())
+	if err := runDbRestore(context.Background(), spec(), func(string) {}); err == nil || !strings.Contains(err.Error(), "bson") {
+		t.Errorf("non-dump mount accepted: %v", err)
+	}
+	bad := spec()
+	bad.Target = "x;y"
+	if err := runDbRestore(context.Background(), bad, func(string) {}); err == nil {
+		t.Error("bad target accepted")
+	}
+	bad = spec()
+	bad.Source = "../x"
+	if err := runDbRestore(context.Background(), bad, func(string) {}); err == nil {
+		t.Error("bad source accepted")
+	}
+}

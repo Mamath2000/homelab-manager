@@ -15,7 +15,7 @@ import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
 import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
 import { isHaBackupReport, refreshHaBackups } from './haBackups.js';
 import { isSeriesReport, onOffsiteHello, onOffsiteReport, onOffsiteSynced } from './offsite.js';
-import { onMountHello } from './pbsMount.js';
+import { onMountHello, settleMount } from './pbsMount.js';
 import { isUpsReport } from './ups.js';
 import { isSessionReport } from './sessions.js';
 import { healthConfigForHost, receiveHealthReport } from './health.js';
@@ -386,6 +386,8 @@ export function registerAgentSocket(app: FastifyInstance) {
                 const job = await finishJob(msg.jobId, id, msg.exitCode ?? 0, msg.error);
                 // the agent keeps the result until then (also one already closed here: sent twice)
                 sendToAgent(id, { type: 'job_done_ack', jobId: msg.jobId });
+                // the mount read by a database restore goes with its job
+                if (job?.action === 'db_restore') settleMount(log).catch((err) => log.warn({ err }, 'PBS mount reconciliation failed'));
                 if (job?.action === 'setup_apply') checkHostSetup(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
                 // a report received during the job (docker_update...) may have left a registry check due
                 await dockerRecheck(host._id);

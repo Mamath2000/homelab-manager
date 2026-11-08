@@ -518,7 +518,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run' | 'db_restore';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -532,6 +532,8 @@ export interface Job {
   modules: SetupOption[] | null;
   backupJobName?: string | null;
   method?: 'apt' | 'docker' | null;
+  // db_restore: what is restored where (hub/src/dbRestore.ts)
+  dbRestore?: { kind: 'mongodb'; source: string; target: string; container?: string } | null;
   trigger: 'manual' | 'schedule' | 'retry' | 'homeassistant' | 'enroll';
   // who launched it (manual and Home Assistant jobs)
   by?: JobBy | null;
@@ -981,6 +983,48 @@ export interface PbsMountDestinations {
   pbsHost: { id: string; name: string | null; reason: string | null };
   defaultHostId: string | null;
   hosts: { id: string; name: string; siteId: string | null; online: boolean; isPbsHost: boolean; slow: boolean; reach: { ok: boolean; error: string | null } }[];
+}
+
+// Restore of a database dump into a new database (hub/src/dbRestore.ts)
+export type DbKind = 'mongodb' | 'postgres';
+export interface DbRestoreGroup extends PbsMountGroup {
+  kind: DbKind;
+  supported: boolean;
+}
+export interface DbRestoreSnapshot extends Omit<PbsMountSnapshot, 'archives'> {
+  archives: { name: string; size: number | null; encrypted: boolean; kind: DbKind; database: string; supported: boolean }[];
+}
+export interface DbRestoreContainer {
+  container: string;
+  image: string | null;
+  jobId: string | null; // backup job of the host whose credentials are reused
+  jobName: string | null;
+  authenticated: boolean;
+}
+export interface DbRestoreTarget {
+  id: string;
+  name: string;
+  siteId: string | null;
+  online: boolean;
+  containers: DbRestoreContainer[];
+  reason: string | null;
+}
+export interface DbRestoreTargetInput {
+  hostId: string;
+  container: string;
+  jobId?: string;
+  username?: string;
+  password?: string;
+  authSource?: string;
+  target: string;
+}
+export interface DbRestoreCheck {
+  ok: boolean;
+  tools: string;
+  databases: { name: string; size: number }[];
+  exists: boolean;
+  free: number;
+  error: string | null;
 }
 
 // Agent that administers a PBS (hub/src/pbsAgent.ts): host, PBS installed on it or in a container
@@ -1733,6 +1777,11 @@ export const api = {
   pbsMountSnapshots: (source: PbsMountSource, group: string) => request<PbsMountSnapshot[]>('GET', `/api/pbs-mount/${source}/snapshots?group=${encodeURIComponent(group)}`),
   pbsMountDestinations: (source: PbsMountSource) => request<PbsMountDestinations>('GET', `/api/pbs-mount/${source}/destinations`),
   mountSnapshot: (m: { source: PbsMountSource; groupId: string; time: number; archive: string; hostId: string }) => request<{ path: string; slow: boolean }>('POST', '/api/pbs-mount', m),
+  dbRestoreGroups: (source: PbsMountSource) => request<DbRestoreGroup[]>('GET', `/api/db-restore/${source}/groups`),
+  dbRestoreSnapshots: (source: PbsMountSource, group: string) => request<DbRestoreSnapshot[]>('GET', `/api/db-restore/${source}/snapshots?group=${encodeURIComponent(group)}`),
+  dbRestoreTargets: (kind: DbKind) => request<DbRestoreTarget[]>('GET', `/api/db-restore/targets?kind=${kind}`),
+  dbRestoreCheck: (b: DbRestoreTargetInput & { size?: number }) => request<DbRestoreCheck>('POST', '/api/db-restore/check', b),
+  dbRestoreStart: (b: DbRestoreTargetInput & { source: PbsMountSource; groupId: string; time: number; archive: string }) => request<{ jobId: string; status: string }>('POST', '/api/db-restore', b),
   unmountSnapshot: () => request<{ pending: PbsMount | null }>('POST', '/api/pbs-mount/unmount'),
   setHostBackups: (hostId: string, ids: string[]) => request<BackupGroup[]>('PUT', `/api/hosts/${hostId}/backups`, { ids }),
   updateBackup: (id: string, patch: { hostId?: string | null; staleHours?: number | null }) =>
