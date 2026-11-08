@@ -37,7 +37,7 @@ RUN --mount=type=secret,id=release_key \
     if [ -n "$RELEASE_PUB" ]; then echo "$floor" > /out/MIN_VERSION; fi && \
     if [ -n "$CLIENT_IMAGES" ]; then echo "${CLIENT_IMAGES%%,*}" > /out/CLIENT_IMAGE; fi
 
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web
 WORKDIR /src
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -45,14 +45,14 @@ COPY web/ ./
 RUN npm run build
 
 # The hub only has pure JS dependencies, so it can be built once on the build platform.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS hub
+FROM --platform=$BUILDPLATFORM node:24-alpine AS hub
 WORKDIR /src
 COPY hub/package.json hub/package-lock.json ./
 RUN npm ci
 COPY hub/ ./
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22-alpine
+FROM node:24-alpine
 ENV NODE_ENV=production \
     PORT=3000 \
     AGENT_TLS_PORT=3443 \

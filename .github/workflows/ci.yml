@@ -20,7 +20,7 @@ jobs:
           go-version-file: agent/go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - run: make install
       - run: make check
 
@@ -37,7 +37,7 @@ jobs:
           go-version-file: agent/go.mod
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - run: make audit
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
