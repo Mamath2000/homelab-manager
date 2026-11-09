@@ -15,8 +15,9 @@ import (
 // Installation of the agent in a CT of this node or on another node of the cluster (job agent_install), asked by
 // the hub from the PVE inventory. Nothing that runs there comes from the hub: this agent copies its own binary
 // (already checked, a release one is signed) and runs `homelab-agent install` (selfinstall_unix.go), fed on stdin
-// with the single-use enrollment code and the CA of the hub this node trusts. The code travels on stdin only, never
-// in a command line, a file or the journal of the job. The hub address is the one of this node.
+// with the single-use enrollment code, the CA of the hub this node trusts and the access anchor of this node (no TOFU
+// window on the new agent, homelab#319). The code travels on stdin only, never in a command line, a file or the
+// journal of the job. The hub address is the one of this node.
 
 // AgentInstallSpec is what the hub asks for.
 type AgentInstallSpec struct {
@@ -44,6 +45,7 @@ type streamIn func(ctx context.Context, env []string, stdin io.Reader, emit func
 type installSource struct {
 	hub    string                        // agent address of the hub, the one this node uses
 	ca     func() ([]byte, error)        // CA of the hub, pinned by this node
+	anchor func() ([]byte, error)        // access anchor of this node (signers of the access manifests)
 	binary func() (io.ReadCloser, error) // the binary of this agent
 	policy func() Policy                 // local policy of this node
 }
@@ -81,6 +83,10 @@ func installAgent(ctx context.Context, run streamIn, src installSource, target f
 	}
 	if !pveHubRe.MatchString(src.hub) {
 		return -1, fmt.Errorf("invalid hub address %q", src.hub)
+	}
+	anchor, err := src.anchor()
+	if err != nil {
+		return -1, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, agentInstallTimeout)
 	defer cancel()
@@ -131,7 +137,7 @@ func installAgent(ctx context.Context, run streamIn, src installSource, target f
 		return code, err
 	}
 	safe("installing the agent in " + label + "...\n")
-	in := strings.NewReader(s.Code + "\n" + string(ca))
+	in := strings.NewReader(s.Code + "\n" + string(ca) + "\n" + string(anchor) + "\n")
 	code, err = run(ctx, nil, in, safe, name, shell(pushedBin+" install -hub '"+src.hub+"' -stdin")...)
 	if code != 0 && strings.Contains(out.String(), "exec format error") {
 		return code, fmt.Errorf("%s has another architecture than this node: use the install command of the hub", label)
@@ -144,6 +150,7 @@ func nodeInstallSource(hub, dir string) installSource {
 	return installSource{
 		hub:    hub,
 		ca:     func() ([]byte, error) { return os.ReadFile(dir + "/" + caFile) },
+		anchor: func() ([]byte, error) { return handoverAnchor(dir) },
 		binary: func() (io.ReadCloser, error) { return os.Open("/proc/self/exe") },
 		policy: currentPolicy,
 	}

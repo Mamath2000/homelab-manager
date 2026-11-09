@@ -41,6 +41,7 @@ Depuis l'onglet, l'agent s'installe sur un **CT** sans hôte, ou sur un **autre 
 **Conditions**, affichées sur la ligne quand elles manquent (« agent non installable : … ») :
 
 - un agent récent est en ligne sur le nœud porteur du CT (pour un nœud : sur **un autre** nœud du cluster) ; sinon « mettre à jour l'agent » ;
+- ce nœud a son [ancre d'accès](securite.md#installation-depuis-proxmox-ve) (manifeste d'accès déjà appliqué), qu'il transmet à l'agent installé ; sinon le job échoue avec « no access anchor on this node » ;
 - le CT est **démarré**, sans adresse MAC ambiguë, et n'est pas déjà relié à un hôte avec agent ;
 - dans le CT ou sur le nœud : **systemd**, architecture amd64 ou arm64, et `curl` (ou APT pour l'installer : il l'est alors automatiquement avant l'agent), le hub joignable sur le port des agents. Un OS hors Debian / Ubuntu s'installe, mais sans APT ni standardisation.
 

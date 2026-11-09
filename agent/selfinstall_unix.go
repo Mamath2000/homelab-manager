@@ -6,10 +6,12 @@ package main
 // PVE node copies its own binary into a CT or onto another node and runs this, instead of a script fetched from
 // the hub: nothing that runs as root there comes from the hub, only the enrollment code (agent_install.go).
 //
-//	homelab-agent install -hub https://hub:3443 -stdin   stdin: the code on the first line, then the CA of the hub (PEM)
+//	homelab-agent install -hub https://hub:3443 -stdin   stdin: the code on the first line, the CA of the hub (PEM),
+//	                                                     then the access anchor of the installing node (JSON)
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
@@ -48,26 +50,30 @@ KillMode=process
 WantedBy=multi-user.target
 `
 
-// readInstallInput: the code (first line) and the CA certificate of the hub (the rest, PEM).
-func readInstallInput(r io.Reader) (string, []byte, error) {
+// readInstallInput: the code (first line), the CA certificate of the hub (PEM) and the access anchor (the rest, JSON).
+func readInstallInput(r io.Reader) (string, []byte, accessAnchor, error) {
 	br := bufio.NewReader(io.LimitReader(r, 64<<10))
 	line, err := br.ReadString('\n')
 	if err != nil {
-		return "", nil, errors.New("no enrollment code on stdin")
+		return "", nil, accessAnchor{}, errors.New("no enrollment code on stdin")
 	}
 	code := strings.TrimSpace(line)
 	if !agentCodeRe.MatchString(code) {
-		return "", nil, errors.New("invalid enrollment code")
+		return "", nil, accessAnchor{}, errors.New("invalid enrollment code")
 	}
 	ca, _ := io.ReadAll(br)
-	block, _ := pem.Decode(ca)
+	block, rest := pem.Decode(ca)
 	if block == nil || block.Type != "CERTIFICATE" {
-		return "", nil, errors.New("no CA certificate on stdin")
+		return "", nil, accessAnchor{}, errors.New("no CA certificate on stdin")
 	}
 	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
-		return "", nil, fmt.Errorf("CA certificate: %w", err)
+		return "", nil, accessAnchor{}, fmt.Errorf("CA certificate: %w", err)
 	}
-	return code, pem.EncodeToMemory(block), nil
+	anchor, err := parseHandedAnchor(bytes.TrimSpace(rest))
+	if err != nil {
+		return "", nil, accessAnchor{}, err
+	}
+	return code, pem.EncodeToMemory(block), anchor, nil
 }
 
 // existingDir: the agent directory of the installed service ("" when there is none).
@@ -104,7 +110,7 @@ func selfInstall(ctx context.Context, hub string, stdin bool, in io.Reader) erro
 	if _, err := os.Stat("/run/systemd/system"); err != nil {
 		return errors.New("systemd is required: use the install command of the hub")
 	}
-	code, ca, err := readInstallInput(in)
+	code, ca, anchor, err := readInstallInput(in)
 	if err != nil {
 		return err
 	}
@@ -121,6 +127,12 @@ func selfInstall(ctx context.Context, hub string, stdin bool, in io.Reader) erro
 	}
 	if err := writeFileAtomic(filepath.Join(dir, caFile), ca, 0o644); err != nil {
 		return err
+	}
+	// the anchor of the installing node, before the service starts: no TOFU window (homelab#319)
+	if wrote, err := installAnchor(dir, anchor); err != nil {
+		return fmt.Errorf("access anchor: %w", err)
+	} else if !wrote {
+		fmt.Printf("access anchor kept: %s\n", filepath.Join(dir, accessAnchorFile))
 	}
 	// a new install gets the strict local policy; an existing one keeps its own (or none, see policy.go)
 	if fresh {

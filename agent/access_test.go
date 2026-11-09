@@ -360,3 +360,56 @@ func TestAccessManifestScript(t *testing.T) {
 		t.Fatalf("script must refuse a key outside signers:\n%s", o)
 	}
 }
+
+// homelab#319: an agent installed from a PVE node takes the anchor of the node and opens no window, so a manifest
+// signed by a key outside that anchor (a compromised hub's own key) is refused from its first start.
+func TestHandedAnchor(t *testing.T) {
+	setupAgentDir(t)
+	admin, hub := newTestSigner(t, "admin"), newTestSigner(t, "hub")
+	node := t.TempDir()
+
+	// node without anchor, or still in its own window: nothing to hand over
+	if _, err := handoverAnchor(node); err == nil {
+		t.Fatal("a node without anchor file must refuse")
+	}
+	ensureAccessAnchor(node)
+	if _, err := handoverAnchor(node); err == nil {
+		t.Fatal("a node without signers must refuse")
+	}
+	_ = writeJSONFile(filepath.Join(node, accessAnchorFile), accessAnchor{Signers: []string{admin.pub}, PinnedAt: 1})
+	raw, err := handoverAnchor(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// the new agent: anchor written before its first start, which then keeps it (no window)
+	a, err := parseHandedAnchor(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrote, err := installAnchor(agentDir, a); err != nil || !wrote {
+		t.Fatalf("wrote %v, err %v", wrote, err)
+	}
+	ensureAccessAnchor(agentDir)
+	anchor := loadAnchor()
+	if anchor.TofuUntil != 0 || !sameLines(anchor.Signers, []string{admin.pub}) {
+		t.Fatalf("anchor %+v", anchor)
+	}
+	if _, _, err := verifyAccess(hub.sign(t, accessNamespace, manifest(1, []string{hub.pub}, testKey)), anchor, accessState{}); err == nil {
+		t.Fatal("a manifest signed outside the handed anchor must be refused")
+	}
+	if _, pinning, err := verifyAccess(admin.sign(t, accessNamespace, manifest(1, []string{admin.pub}, testKey)), anchor, accessState{}); err != nil || pinning {
+		t.Fatalf("admin manifest: %v pinning=%v", err, pinning)
+	}
+
+	// a reinstallation keeps signers of its own, but closes an open window
+	other := accessAnchor{Signers: []string{hub.pub}}
+	if wrote, _ := installAnchor(agentDir, other); wrote || !sameLines(loadAnchor().Signers, []string{admin.pub}) {
+		t.Fatal("existing signers must be kept")
+	}
+	fresh := t.TempDir()
+	ensureAccessAnchor(fresh)
+	if wrote, _ := installAnchor(fresh, a); !wrote {
+		t.Fatal("an open window must be replaced")
+	}
+}

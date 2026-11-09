@@ -131,7 +131,12 @@ Un agent de release embarque l'image du client de sauvegarde par son digest (`@s
 
 ### Installation depuis Proxmox VE
 
-Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre nœud, puis lance `homelab-agent install`. Aucun script du hub n'y est exécuté. Le code d'enrôlement et l'autorité du hub passent sur l'entrée standard.
+Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre nœud, puis lance `homelab-agent install`. Aucun script du hub n'y est exécuté. Le code d'enrôlement, l'autorité du hub et l'**ancre d'accès** du nœud passent sur l'entrée standard.
+
+L'ancre d'accès (`access-anchor.json` du dossier de l'agent) liste les clés autorisées à signer le manifeste d'accès (clés SSH de root, utilisateur sudo). Un agent installé à la main démarre sans ancre et retient les signataires du premier manifeste valide reçu dans les 14 jours. Un agent installé depuis un nœud reprend l'ancre du nœud, lue sur le nœud et jamais fournie par le hub, et n'a pas cette fenêtre : un hub compromis ne peut pas y faire accepter un manifeste signé par sa propre clé (homelab#319).
+
+- **Nœud sans ancre** (aucun manifeste d'accès encore retenu) : l'installation est refusée. Publier le manifeste d'accès, attendre qu'il soit appliqué sur le nœud, puis relancer l'installation.
+- **Réinstallation** sur un agent qui a déjà ses signataires : son ancre est conservée. Une ancre vide ou une fenêtre encore ouverte est remplacée par celle du nœud.
 
 ## Base de données et secrets
 
@@ -241,6 +246,7 @@ Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les
 | Mot de passe d'un admin volé ou deviné | [passkey](comptes.md#passkeys) demandée après le mot de passe, obligatoire pour les admins avec `MFA_REQUIRED` |
 | Session d'un admin volée (cookie) | passkey redemandée avant les [actions sensibles](comptes.md#actions-sensibles) |
 | Hub ou compte administrateur compromis | [politique locale](#politique-locale-de-lhôte) de l'hôte, image du client de sauvegarde épinglée |
+| Hub compromis qui installe un agent dans un CT pour y poser ses clés SSH | [ancre d'accès du nœud](#installation-depuis-proxmox-ve) reprise par l'agent installé, sans fenêtre de premier usage |
 | Vol de la base MongoDB ou d'une sauvegarde | mots de passe hachés (scrypt), codes d'enrôlement hachés ; avec la [clé maître](#base-de-données-et-secrets), secrets chiffrés (sinon la clé de l'autorité y figure en clair) |
 | Accès à MongoDB depuis un autre conteneur | réseau interne `backend` ; [compte MongoDB](#base-de-données-et-secrets) |
 

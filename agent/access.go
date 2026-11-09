@@ -351,6 +351,50 @@ func ensureAccessAnchor(dir string) {
 	log.Printf("access: no anchor yet: the first valid signed manifest received before %s pins its signers", time.Unix(a.TofuUntil, 0).Format(time.RFC3339))
 }
 
+// handoverAnchor: the anchor of this node, handed over to the agent it installs in a CT or on another node
+// (homelab#319), so that the new agent opens no window a compromised hub could use to pin its own key. It comes from
+// the file of this node, never from the hub. A node without signers refuses to install.
+func handoverAnchor(dir string) ([]byte, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, accessAnchorFile))
+	if err != nil {
+		return nil, errors.New("no access anchor on this node: publish the signed access manifest to it before installing agents from it")
+	}
+	a, err := parseHandedAnchor(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: publish the signed access manifest to this node before installing agents from it", err)
+	}
+	return json.Marshal(a)
+}
+
+// parseHandedAnchor: an anchor handed over at installation has signers and never a window.
+func parseHandedAnchor(raw []byte) (accessAnchor, error) {
+	var a accessAnchor
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return accessAnchor{}, fmt.Errorf("malformed access anchor: %v", err)
+	}
+	if len(a.Signers) == 0 {
+		return accessAnchor{}, errors.New("access anchor without signers (no signed access manifest pinned yet)")
+	}
+	for _, l := range a.Signers {
+		if _, err := parsePublicKeyLine(l); err != nil {
+			return accessAnchor{}, fmt.Errorf("access anchor: %v", err)
+		}
+	}
+	a.TofuUntil = 0
+	return a, nil
+}
+
+// installAnchor writes the anchor handed over at installation, unless the host already has signers of its own (a
+// reinstallation keeps them). An empty anchor or an open window is replaced: the window closes.
+func installAnchor(dir string, a accessAnchor) (bool, error) {
+	file := filepath.Join(dir, accessAnchorFile)
+	var cur accessAnchor
+	if err := readJSONFile(file, &cur); err == nil && len(cur.Signers) > 0 {
+		return false, nil
+	}
+	return true, writeJSONFile(file, a)
+}
+
 // --- verification ------------------------------------------------------------------------------
 
 func containsBlob(lines []string, blob []byte) bool {

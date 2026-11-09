@@ -32,10 +32,13 @@ func fakeStream(ran *[]ranCmd, exit int, echo string) streamIn {
 
 const installCA = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
 
+var installAnchorJSON = `{"signers":["` + testKey + `"],"pinnedAt":1700000000}`
+
 func testSource(allow bool) installSource {
 	return installSource{
 		hub:    "https://192.168.1.5:3443",
 		ca:     func() ([]byte, error) { return []byte(installCA), nil },
+		anchor: func() ([]byte, error) { return []byte(installAnchorJSON), nil },
 		binary: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("ELF-binary")), nil },
 		policy: func() Policy { p := legacyPolicy(); p.AgentInstall = &allow; return p },
 	}
@@ -66,7 +69,7 @@ func TestInstallAgentInLxc(t *testing.T) {
 	if len(ran) != 2 || ran[0].line != "pct exec 101 -- sh -c "+pushScript || ran[0].stdin != "ELF-binary" {
 		t.Fatalf("copy: %+v", ran)
 	}
-	if ran[1].line != "pct exec 101 -- sh -c "+pushedBin+" install -hub 'https://192.168.1.5:3443' -stdin" || ran[1].stdin != testCode+"\n"+installCA {
+	if ran[1].line != "pct exec 101 -- sh -c "+pushedBin+" install -hub 'https://192.168.1.5:3443' -stdin" || ran[1].stdin != testCode+"\n"+installCA+"\n"+installAnchorJSON+"\n" {
 		t.Fatalf("install: %+v", ran[1])
 	}
 	for _, c := range ran {
@@ -90,6 +93,17 @@ func TestInstallAgentPolicy(t *testing.T) {
 	var ran []ranCmd
 	_, err := installAgent(context.Background(), fakeStream(&ran, 0, ""), testSource(false), fakeTarget, &AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode}, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "agentInstall") || len(ran) != 0 {
+		t.Fatalf("err %v, commands %+v", err, ran)
+	}
+}
+
+// a node without anchor installs nothing: the new agent would open a TOFU window (homelab#319)
+func TestInstallAgentNoAnchor(t *testing.T) {
+	src := testSource(true)
+	src.anchor = func() ([]byte, error) { return handoverAnchor(t.TempDir()) }
+	var ran []ranCmd
+	_, err := installAgent(context.Background(), fakeStream(&ran, 0, ""), src, fakeTarget, &AgentInstallSpec{Kind: "lxc", VMID: 101, Code: testCode}, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "access anchor") || len(ran) != 0 {
 		t.Fatalf("err %v, commands %+v", err, ran)
 	}
 }
