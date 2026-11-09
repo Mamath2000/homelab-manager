@@ -687,6 +687,19 @@ export interface Account {
   // no password: the account only opens with its API key
   hasPassword: boolean;
   apiKeys: ApiKey[];
+  // sessions open in a browser
+  sessions: number;
+}
+
+// A browser session of the account (GET /api/account/sessions)
+export interface AccountSession {
+  id: string;
+  createdAt: string | null; // null: opened before the sessions were described
+  lastSeenAt: string | null;
+  expiresAt: string;
+  ip: string | null;
+  userAgent: string | null;
+  current: boolean;
 }
 
 // Secret shown once: a temporary password or a new API key; none for an account created without password
@@ -780,11 +793,36 @@ export function tooManyAttemptsMessage(err: unknown) {
   return `Trop de tentatives, réessayez dans ${wait}.`;
 }
 
+// Rules of a new password (hub/src/passwordPolicy.ts)
+export const PASSWORD_MIN_LENGTH = 12;
+
+const PASSWORD_ERRORS: Record<string, string> = {
+  'password too short': `Mot de passe trop court : ${PASSWORD_MIN_LENGTH} caractères minimum.`,
+  'password too common': 'Mot de passe trop courant (présent dans les listes de mots de passe divulgués) : choisissez-en un autre.',
+  'password same as username': 'Le mot de passe ne doit pas être le nom du compte.',
+  'current password is wrong': 'Mot de passe actuel incorrect.',
+};
+
+export function passwordErrorMessage(err: unknown) {
+  return tooManyAttemptsMessage(err) ?? PASSWORD_ERRORS[(err as Error).message] ?? (err as Error).message;
+}
+
+// Last input of the user (keyboard, pointer). The requests made after a minute without any are refreshes of the UI:
+// they carry x-hm-background, so that an open tab does not keep the session alive (idle timeout, hub/src/auth.ts).
+const IDLE_AFTER_MS = 60_000;
+let lastInput = Date.now();
+for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+  window.addEventListener(type, () => (lastInput = Date.now()), { capture: true, passive: true });
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (Date.now() - lastInput > IDLE_AFTER_MS) headers['X-HM-Background'] = '1';
   const res = await fetch(url, {
     method,
     credentials: 'same-origin',
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 204) return undefined as T;
@@ -1694,6 +1732,8 @@ export const api = {
   logout: () => request('POST', '/api/auth/logout'),
   changePassword: (currentPassword: string | undefined, newPassword: string) =>
     request('POST', '/api/account/password', { currentPassword, newPassword }),
+  mySessions: () => request<AccountSession[]>('GET', '/api/account/sessions'),
+  revokeMySession: (id: string) => request<void>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
 
   users: () => request<Account[]>('GET', '/api/users'),
   createUser: (username: string, displayName: string, profile: Profile, noPassword = false) =>
@@ -1704,6 +1744,7 @@ export const api = {
   resetPassword: (id: string) => request<AccountSecret>('POST', `/api/users/${id}/reset-password`),
   createApiKey: (id: string, name: string) => request<AccountSecret>('POST', `/api/users/${id}/api-keys`, { name }),
   revokeApiKey: (id: string, keyId: string) => request<void>('DELETE', `/api/users/${id}/api-keys/${keyId}`),
+  revokeSessions: (id: string) => request<void>('DELETE', `/api/users/${id}/sessions`),
   audit: (q: AuditQuery) => {
     const p = new URLSearchParams(Object.entries(q).filter((e): e is [string, string] => e[1] !== undefined));
     return request<{ entries: AuditEntry[]; next: string | null }>('GET', `/api/audit${p.size ? `?${p}` : ''}`);

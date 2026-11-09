@@ -4,14 +4,14 @@ import { settingsDiff } from '../audit.js';
 import { newApiKey, revokeSessions } from '../auth.js';
 import { closeStreams } from '../events.js';
 import { hashPassword, randomToken } from '../crypto.js';
-import { apiKeys, parseId, users } from '../db.js';
+import { apiKeys, parseId, sessions, users } from '../db.js';
 import { PROFILES, SUPERADMIN, type ApiKeyDoc, type Profile, type UserDoc } from '../types.js';
 
 function keyDto(k: ApiKeyDoc) {
   return { id: k._id.toHexString(), name: k.name, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt ?? null };
 }
 
-function dto(u: UserDoc, keys: ApiKeyDoc[] = []) {
+function dto(u: UserDoc, keys: ApiKeyDoc[] = [], openSessions = 0) {
   return {
     id: u._id.toHexString(),
     username: u.username,
@@ -23,6 +23,8 @@ function dto(u: UserDoc, keys: ApiKeyDoc[] = []) {
     // an account without password only opens with its API key
     hasPassword: !!u.passwordHash,
     apiKeys: keys.map(keyDto),
+    // sessions open in a browser (not the API keys)
+    sessions: openSessions,
   };
 }
 
@@ -69,8 +71,21 @@ export function registerUserRoutes(app: FastifyInstance) {
 
   app.get('/api/users', async () => {
     const list = await users.find({ profile: { $ne: SUPERADMIN } }).sort({ username: 1 }).toArray();
-    const keys = await apiKeys.find({ userId: { $in: list.map((u) => u._id) } }).sort({ createdAt: 1 }).toArray();
-    return list.map((u) => dto(u, keys.filter((k) => k.userId.equals(u._id))));
+    const ids = list.map((u) => u._id);
+    const keys = await apiKeys.find({ userId: { $in: ids } }).sort({ createdAt: 1 }).toArray();
+    const open = await sessions
+      .aggregate<{ _id: ObjectId; n: number }>([
+        { $match: { userId: { $in: ids }, expiresAt: { $gt: new Date() } } },
+        { $group: { _id: '$userId', n: { $sum: 1 } } },
+      ])
+      .toArray();
+    return list.map((u) =>
+      dto(
+        u,
+        keys.filter((k) => k.userId.equals(u._id)),
+        open.find((o) => o._id.equals(u._id))?.n ?? 0,
+      ),
+    );
   });
 
   // New accounts get a temporary password, returned once; with `noPassword` they get none and cannot log in
@@ -168,6 +183,15 @@ export function registerUserRoutes(app: FastifyInstance) {
     await users.updateOne({ _id: user._id }, { $set: temp.fields });
     await revokeSessions(user);
     return { user: dto({ ...user, ...temp.fields }, await userKeys(user)), temporaryPassword: temp.password };
+  });
+
+  // Closes every session of the account (lost or shared browser), its API keys stay valid.
+  app.delete<{ Params: { id: string } }>('/api/users/:id/sessions', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    req.auditNote = { target: accountTarget(user) };
+    await revokeSessions(user);
+    return reply.code(204).send();
   });
 
   // New API key, returned once. An account may have several (one per consumer), each revoked on its own.

@@ -112,3 +112,13 @@ test('probes: everyone reads those of a host, only admins write them or the brok
     assert.ok(!authorize('viewer', m, r), `viewer ${m} ${r}`);
   }
 });
+
+test('every profile lists and closes its own sessions, only an admin closes the ones of another account', () => {
+  for (const p of ['admin', 'operator', 'viewer'] as const) {
+    assert.ok(authorize(p, 'GET', '/api/account/sessions'), p);
+    assert.ok(authorize(p, 'DELETE', '/api/account/sessions/:id'), p);
+  }
+  assert.ok(authorize('admin', 'DELETE', '/api/users/:id/sessions'));
+  for (const p of ['operator', 'viewer', 'superadmin'] as const) assert.ok(!authorize(p, 'DELETE', '/api/users/:id/sessions'), p);
+  assert.ok(!allowedBeforePasswordChange('GET', '/api/account/sessions'));
+});

@@ -67,7 +67,7 @@ Les variables d'environnement se règlent dans [`compose.yml`](compose.yml) ; la
 | `PORT` / `AGENT_TLS_PORT` | `3000` / `3443` | Ports de l'interface et des agents (TLS) |
 | `TZ` | `Europe/Paris` | Fuseau du hub (sauvegardes de répertoires) |
 | `LOG_LEVEL` | `info` | Niveau de logs |
-| `SESSION_DAYS` | `30` | Durée des sessions |
+| `SESSION_IDLE_HOURS` / `SESSION_MAX_DAYS` | `12` / `7` | Fin d'une session sans utilisation (heures), durée maximale (jours) |
 | `TRUST_PROXY` | `false` | Adresse du reverse proxy (`192.168.1.20`), ou `true` |
 | `COOKIE_SECURE` | *(automatique)* | Cookie `Secure` en HTTPS ; `true` le force |
 | `HTTPS_PORT` | *(vide)* | Port HTTPS natif de l'interface (`4443`), voir [HTTPS natif](docs/configuration.md#https-natif) |

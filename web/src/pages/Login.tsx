@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { api, tooManyAttemptsMessage, type Me } from '../lib/api';
+import { api, PASSWORD_MIN_LENGTH, passwordErrorMessage, tooManyAttemptsMessage, type Me } from '../lib/api';
 import { insecureOrigin, onHttps } from '../lib/transport';
 import { Button } from '../components/ui';
 
@@ -105,7 +105,7 @@ export function ForcePasswordChange({ me, onDone, onLogout }: { me: Me; onDone: 
       await api.changePassword(undefined, password);
       onDone();
     } catch (err) {
-      setError((err as Error).message);
+      setError(passwordErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -115,12 +115,12 @@ export function ForcePasswordChange({ me, onDone, onLogout }: { me: Me; onDone: 
     <Shell subtitle={`Bonjour ${me.username}, choisissez votre mot de passe`} onSubmit={submit}>
       <p className="text-xs text-muted">Vous êtes connecté avec un mot de passe temporaire : remplacez-le pour accéder au hub.</p>
       <label className="block">
-        <span className="mb-1.5 block text-xs font-medium text-muted">Nouveau mot de passe (8 caractères min.)</span>
-        <input className="input" type="password" autoFocus required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+        <span className="mb-1.5 block text-xs font-medium text-muted">Nouveau mot de passe ({PASSWORD_MIN_LENGTH} caractères min.)</span>
+        <input className="input" type="password" autoFocus required minLength={PASSWORD_MIN_LENGTH} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
       </label>
       <label className="block">
         <span className="mb-1.5 block text-xs font-medium text-muted">Confirmation</span>
-        <input className="input" type="password" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+        <input className="input" type="password" required minLength={PASSWORD_MIN_LENGTH} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
       </label>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <Button type="submit" variant="primary" className="w-full" loading={busy}>Enregistrer</Button>

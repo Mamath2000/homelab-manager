@@ -188,6 +188,8 @@ route('account', 'account.create', 'POST /api/users');
 route('account', 'account.update', 'PATCH /api/users/:id');
 route('account', 'account.delete', 'DELETE /api/users/:id');
 route('account', 'account.resetPassword', 'POST /api/users/:id/reset-password');
+route('account', 'account.revokeSessions', 'DELETE /api/users/:id/sessions');
+route('account', 'account.sessionRevoke', 'DELETE /api/account/sessions/:id');
 route('apiKey', 'apiKey.create', 'POST /api/users/:id/api-keys');
 route('apiKey', 'apiKey.revoke', 'DELETE /api/users/:id/api-keys/:keyId');
 route('host', 'host.create', 'POST /api/hosts');

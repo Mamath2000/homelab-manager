@@ -15,7 +15,7 @@ sidebar_position: 5
 | `viewer` | Lecture seule |
 
 Les droits sont vérifiés par le hub sur chaque requête : l'interface ne fait que masquer ce qui n'est pas autorisé.
-Chacun peut changer son propre mot de passe depuis l'icône clé de l'en-tête.
+Chacun change son mot de passe et voit ses sessions depuis **Mon compte**, en bas du menu.
 
 Les comptes existant avant l'introduction des profils deviennent `admin`.
 
@@ -51,6 +51,19 @@ Créer un compte ou **réinitialiser son mot de passe** (bouton « Réinitialise
 confirmer dans la ligne) génère un mot de passe temporaire, affiché **une seule fois** dans la ligne du compte avec un
 bouton copier ; l'admin le transmet. À la connexion avec ce mot de passe, l'utilisateur doit en choisir un nouveau avant
 d'accéder au hub. Une réinitialisation ferme aussi les sessions ouvertes du compte.
+
+## Choix du mot de passe
+
+Un mot de passe choisi par l'utilisateur (changement, ou remplacement d'un mot de passe temporaire) doit :
+
+- faire au moins **12 caractères** ;
+- ne pas figurer dans la liste des mots de passe divulgués embarquée dans le hub (environ 73 000 mots de passe de 12
+  caractères ou plus, tirés des listes publiques de [SecLists](https://github.com/danielmiessler/SecLists), comparés sans
+  tenir compte de la casse) ;
+- être différent de l'identifiant du compte.
+
+Ces règles ne s'appliquent qu'aux **nouveaux** mots de passe : ceux déjà en place restent valables. Changer son mot de
+passe ferme ses autres sessions.
 
 Garde-fous : on ne peut ni supprimer son propre compte, ni supprimer ou rétrograder le dernier `admin`.
 Changer le profil d'un compte le déconnecte.
@@ -114,6 +127,23 @@ session `superadmin` en cours.
 Dans l'application HAOS **Homelab Manager**, tu peux aussi activer **Réinitialiser le mot de passe superadmin au
 démarrage**, enregistrer puis redémarrer l'application. Le nouveau mot de passe apparaît dans son journal et est valable
 15 minutes. Désactive ensuite l'option pour éviter de régénérer le mot de passe au prochain redémarrage.
+
+## Sessions
+
+Une session de l'interface se ferme :
+
+- après **12 heures sans utilisation** (`SESSION_IDLE_HOURS`) ;
+- dans tous les cas **7 jours après la connexion** (`SESSION_MAX_DAYS`), même utilisée sans interruption.
+
+Seules les actions de l'utilisateur comptent comme une utilisation : les rafraîchissements automatiques d'un onglet resté
+ouvert, sans clavier ni souris depuis une minute, ne prolongent pas la session. La session `superadmin` dure 15 minutes.
+
+**Mon compte › Sessions** liste les navigateurs où le compte est connecté (navigateur, adresse, dernière utilisation,
+expiration) ; **Fermer** en ferme une, après confirmation. Dans la page **Comptes**, la colonne *Sessions* donne le nombre
+de sessions ouvertes de chaque compte, et un admin peut **fermer toutes les sessions** d'un autre compte (navigateur
+perdu ou partagé) ; ses clés d'API restent valides. Les deux actions sont tracées au [journal](#journal-des-actions).
+
+Les sessions ouvertes avant cette version gardent leur échéance, ramenée à 7 jours au plus à leur première utilisation.
 
 ## Flux temps réel
 

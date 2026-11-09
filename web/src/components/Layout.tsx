@@ -3,11 +3,11 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, Container, DatabaseBackup, Globe, History, KeyRound, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, Users, type LucideIcon } from 'lucide-react';
+import { Activity, Container, DatabaseBackup, Globe, History, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
-import { ChangePasswordModal } from './ChangePasswordModal';
+import { MyAccountModal } from './MyAccountModal';
 import { HostQuickSwitch } from './HostQuickSwitch';
 import { TransportBanner } from './TransportBanner';
 import { Spinner, StatusDot } from './ui';
@@ -87,7 +87,7 @@ function SideLink({ item, onClick, collapsed }: { item: NavItem; onClick?: () =>
   );
 }
 
-function Sidebar({ onNavigate, onPassword, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onPassword: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
+function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onAccount: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const me = useMe();
   return (
     <nav className={clsx('flex h-full flex-col gap-1', collapsed ? 'p-2' : 'p-4')}>
@@ -123,8 +123,8 @@ function Sidebar({ onNavigate, onPassword, onLogout, collapsed, onToggle }: { on
         </div>
         <div className={clsx('flex gap-1', collapsed && 'flex-col')}>
           {!me.isSuperAdmin && (
-            <button onClick={() => { onPassword(); onNavigate?.(); }} title="Changer mon mot de passe" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
-              <KeyRound className="h-4 w-4 shrink-0" /> {!collapsed && 'Mot de passe'}
+            <button onClick={() => { onAccount(); onNavigate?.(); }} title="Mon compte : mot de passe, sessions" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
+              <UserCog className="h-4 w-4 shrink-0" /> {!collapsed && 'Mon compte'}
             </button>
           )}
           <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
@@ -156,7 +156,7 @@ function Versions() {
 
 export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void }) {
   const me = useMe();
-  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [addingHost, setAddingHost] = useState(false);
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
   const [extraSlot, setExtraSlot] = useState<HTMLElement | null>(null);
@@ -220,18 +220,18 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       </header>
 
       <aside className={clsx('fixed bottom-0 left-0 top-14 hidden border-r border-line bg-bg lg:block', collapsed ? 'w-16' : 'w-60')}>
-        <Sidebar onPassword={() => setPasswordOpen(true)} onLogout={onLogout} collapsed={collapsed} onToggle={toggleCollapsed} />
+        <Sidebar onAccount={() => setAccountOpen(true)} onLogout={onLogout} collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
       {drawer && (
         <div className="fixed inset-0 top-14 z-20 bg-black/60 lg:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-64 border-r border-line bg-bg" onClick={(e) => e.stopPropagation()}>
-            <Sidebar onNavigate={() => setDrawer(false)} onPassword={() => setPasswordOpen(true)} onLogout={onLogout} />
+            <Sidebar onNavigate={() => setDrawer(false)} onAccount={() => setAccountOpen(true)} onLogout={onLogout} />
           </aside>
         </div>
       )}
 
       <AddHostModal open={addingHost} onClose={() => setAddingHost(false)} />
-      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      <MyAccountModal open={accountOpen} onClose={() => setAccountOpen(false)} />
       {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
       <main className={clsx('px-4 py-6 lg:px-8', collapsed ? 'lg:ml-16' : 'lg:ml-60')}>

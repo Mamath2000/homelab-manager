@@ -21,6 +21,8 @@ const ACTIONS: Record<string, string> = {
   'account.delete': 'Compte supprimé',
   'account.resetPassword': 'Mot de passe réinitialisé',
   'account.password': 'Mot de passe changé',
+  'account.revokeSessions': 'Sessions fermées',
+  'account.sessionRevoke': 'Session fermée',
   'apiKey.create': "Clé d'API créée",
   'apiKey.revoke': "Clé d'API révoquée",
   'host.create': 'Hôte ajouté',

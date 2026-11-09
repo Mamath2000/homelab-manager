@@ -43,7 +43,8 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug` (`LOG=` avec le Makefile) |
 | `LOG_FILE` | *(vide)* | Chemin d'un fichier où les journaux (JSON) sont aussi écrits, en plus de la sortie standard ; vide : sortie standard seule. Le Makefile le règle sur `logs/hub.log` en local (`make logs` le suit), `compose.yml` ne le définit pas |
 | `TZ` | `Europe/Paris` | fuseau du hub : fuseau proposé par défaut pour les [sauvegardes de répertoires](sauvegardes.md#sauvegardes-de-répertoires) (chaque job garde le sien) |
-| `SESSION_DAYS` | `30` | Durée des sessions de l'interface |
+| `SESSION_IDLE_HOURS` | `12` | Une session de l'interface se ferme après ce nombre d'heures sans utilisation ([Sessions](comptes.md#sessions)) |
+| `SESSION_MAX_DAYS` | `7` | Durée maximale d'une session, même utilisée sans interruption. `SESSION_DAYS`, son ancien nom, est encore lu |
 | `COOKIE_SECURE` | *(automatique)* | Absente : cookie de session `Secure` quand la requête arrive en HTTPS (port HTTPS, ou proxy de confiance). `true` : toujours `Secure` (aucune session possible en HTTP). `false` : jamais |
 | `TRUST_PROXY` | `false` | Adresses des reverse proxys (`192.168.1.20`, ou liste `10.0.0.5,192.168.1.21`) dont les en-têtes `X-Forwarded-*` sont crus. Les plages (`192.168.1.0/24`) sont acceptées, mais **tout poste de la plage** peut alors choisir l'IP que le hub lui attribue (limite des [tentatives de connexion](comptes.md#tentatives-de-connexion)) : donnez l'adresse exacte du proxy. Une requête portant ces en-têtes depuis une autre adresse est **refusée** (`400 untrusted_proxy`, comme Home Assistant avec `trusted_proxies`) : un proxy oublié se voit tout de suite. `true` croit **tout** client : sûr seulement si le port n'est joignable que par le proxy |
 | `HTTPS_PORT` | *(vide)* | Port HTTPS de l'interface, en plus du port HTTP (`4443` en Docker) ; vide : désactivé. Voir [HTTPS natif](#https-natif) |
@@ -96,7 +97,7 @@ Le hub n'a pas besoin d'être exposé, mais il peut passer derrière un reverse 
     ```
   - Traefik : un `serversTransport` avec `rootCAs` (l'autorité) et `serverName: homelab-manager`.
 - **Port HTTP** (`HTTP_MODE`) : `redirect` (défaut) renvoie les pages vers le HTTPS (`308`) et refuse en HTTP la connexion et les clés d'API (`403 https_required`), sauf depuis `127.0.0.1` (sonde de santé Docker), pour `/api/health`, et pour un proxy de confiance (`TRUST_PROXY`) qui a reçu la requête en HTTPS. `local` n'écoute plus en HTTP que sur `127.0.0.1`. Les intégrations qui appellent l'API en HTTP (Homepage…) sont à passer en `https://`.
-- Les sessions ouvertes en HTTP avant l'activation restent valides jusqu'à leur expiration (`SESSION_DAYS`) ; se déconnecter puis se reconnecter en HTTPS pour en ouvrir une protégée.
+- Les sessions ouvertes en HTTP avant l'activation restent valides jusqu'à leur expiration ([Sessions](comptes.md#sessions)) ; se déconnecter puis se reconnecter en HTTPS pour en ouvrir une protégée.
 
 ## Données
 

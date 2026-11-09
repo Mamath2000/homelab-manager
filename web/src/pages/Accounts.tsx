@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, ScrollText, Trash2, TriangleAlert, Users } from 'lucide-react';
+import { KeyRound, LogOut, Pencil, Plus, ScrollText, Trash2, TriangleAlert, Users } from 'lucide-react';
 import { api, type Account, type AccountSecret, type ApiKey, type Profile } from '../lib/api';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
@@ -282,6 +282,7 @@ export function Accounts() {
   // undefined: closed, null: creating
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const [deleting, setDeleting] = useState<Account | null>(null);
+  const [closing, setClosing] = useState<Account | null>(null);
   // temporary passwords to hand over, shown in their row until hidden (account id -> password)
   const [issued, setIssued] = useState<Record<string, string>>({});
   // row whose reset waits for confirmation
@@ -309,6 +310,15 @@ export function Accounts() {
       qc.invalidateQueries({ queryKey: ['users'] });
       setConfirming(null);
       showIssued(r);
+    },
+    onError: (err) => toast.error(message(err)),
+  });
+  const closeSessions = useMutation({
+    mutationFn: (a: Account) => api.revokeSessions(a.id),
+    onSuccess: (_, a) => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      toast.success(`Sessions de ${a.username} fermées`);
+      setClosing(null);
     },
     onError: (err) => toast.error(message(err)),
   });
@@ -391,12 +401,16 @@ export function Accounts() {
                   <div className="grid grid-cols-2 gap-2 text-zinc-400">
                     <div><span className="text-muted">Clés d’API · </span>{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</div>
                     <div><span className="text-muted">Dernière connexion · </span>{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</div>
+                    <div><span className="text-muted">Sessions · </span>{a.sessions || '—'}</div>
                     <div><span className="text-muted">Créé le · </span>{dateTime(a.createdAt)}</div>
                   </div>
                 </div>
                 {!me.isSuperAdmin && (
                   <div className="flex flex-wrap gap-2 border-t border-line pt-3">
                     <Button size="sm" variant="ghost" icon={Pencil} className="min-h-10 md:min-h-0" onClick={() => setEditing(a.id)}>Modifier</Button>
+                    {a.username !== me.username && a.sessions > 0 && (
+                      <Button size="sm" variant="ghost" icon={LogOut} className="min-h-10 md:min-h-0" onClick={() => setClosing(a)}>Fermer les sessions</Button>
+                    )}
                     {a.username !== me.username && (
                       <Button size="sm" variant="ghost" icon={Trash2} className="min-h-10 md:min-h-0" onClick={() => setDeleting(a)}>Supprimer</Button>
                     )}
@@ -414,6 +428,7 @@ export function Accounts() {
                 <th className="th">Mot de passe</th>
                 <th className="th">Clés d'API</th>
                 <th className="th">Dernière connexion</th>
+                <th className="th">Sessions</th>
                 <th className="th">Créé le</th>
                 <th className="th text-right">Actions</th>
               </tr>
@@ -450,7 +465,7 @@ export function Accounts() {
                     ) : (
                       <div className="flex flex-wrap items-center gap-3">
                         {a.mustChangePassword ? <span className="text-amber-300">temporaire, à changer à la connexion</span> : <span className="text-zinc-400">défini</span>}
-                        {/* own password: changed from the key icon of the header */}
+                        {/* own password: changed from « Mon compte » in the menu */}
                         {a.username !== me.username && (
                           <Button size="sm" variant="ghost" icon={KeyRound} title="Génère un mot de passe temporaire et ferme les sessions du compte" onClick={() => setConfirming(a.id)}>
                             Réinitialiser
@@ -461,10 +476,14 @@ export function Accounts() {
                   </td>
                   <td className="td text-xs text-zinc-400">{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</td>
                   <td className="td text-xs text-zinc-400">{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</td>
+                  <td className="td text-xs text-zinc-400">{a.sessions || '—'}</td>
                   <td className="td text-xs text-zinc-400">{dateTime(a.createdAt)}</td>
                   <td className="td">
                     <div className="flex justify-end gap-1">
                       {!me.isSuperAdmin && <Button size="sm" variant="ghost" icon={Pencil} title="Modifier" onClick={() => setEditing(a.id)} />}
+                      {!me.isSuperAdmin && a.username !== me.username && a.sessions > 0 && (
+                        <Button size="sm" variant="ghost" icon={LogOut} title="Fermer les sessions" onClick={() => setClosing(a)} />
+                      )}
                       {!me.isSuperAdmin && a.username !== me.username && (
                         <Button size="sm" variant="ghost" icon={Trash2} title="Supprimer" onClick={() => setDeleting(a)} />
                       )}
@@ -481,6 +500,17 @@ export function Accounts() {
       {editing !== undefined && (
         <AccountModal key={editing ?? 'new'} accountId={editing} onClose={() => setEditing(undefined)} onCreated={showIssued} />
       )}
+      <ConfirmModal
+        open={!!closing}
+        onClose={() => setClosing(null)}
+        onConfirm={() => closing && closeSessions.mutate(closing)}
+        title="Fermer les sessions"
+        confirmLabel="Fermer les sessions"
+        danger
+        loading={closeSessions.isPending}
+      >
+        Fermer les {closing?.sessions} session(s) ouverte(s) du compte <strong>{closing?.username}</strong> ? Ses clés d'API restent valides.
+      </ConfirmModal>
       <ConfirmModal
         open={!!deleting}
         onClose={() => setDeleting(null)}

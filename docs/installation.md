@@ -32,7 +32,8 @@ services:
       HM_MASTER_KEY: ${HM_MASTER_KEY:-}
       LOG_LEVEL: info         # fatal | error | warn | info | debug
       TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
-      # SESSION_DAYS: 30
+      # SESSION_IDLE_HOURS: 12  # session fermée après 12 h sans utilisation
+      # SESSION_MAX_DAYS: 7     # et 7 jours après la connexion dans tous les cas
       # TRUST_PROXY: "192.168.1.20"  # OBLIGATOIRE derrière un reverse proxy : son adresse (sinon 400 untrusted_proxy) ; "true" : tout client
       # COOKIE_SECURE: "true" # cookie Secure forcé (absente : automatique, Secure dès que la requête arrive en HTTPS)
       # HTTPS_PORT: 4443      # interface aussi en HTTPS ; le port 3000 redirige alors vers lui (HTTP_MODE)

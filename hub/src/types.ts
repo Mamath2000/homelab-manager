@@ -675,7 +675,16 @@ export interface ApiKeyDoc {
 export interface SessionDoc {
   _id: string; // sha256 of the cookie token
   userId: ObjectId;
+  // effective end, the earliest of endsAt and the idle timeout from lastSeenAt (TTL index)
   expiresAt: Date;
+  // the fields below are missing on the sessions opened before homelab#291
+  // absolute end, fixed at the login
+  endsAt?: Date;
+  createdAt?: Date;
+  lastSeenAt?: Date;
+  // last client address and browser it was used from
+  ip?: string;
+  userAgent?: string;
 }
 
 // Internal PKI of the hub (see pki.ts): its CA signs the TLS certificate of the agent port and

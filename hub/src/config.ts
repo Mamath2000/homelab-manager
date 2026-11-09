@@ -50,7 +50,10 @@ export const config = {
   webDir: env('WEB_DIR') ?? resolve(here, '../../web/dist'),
   agentBinDir: env('AGENT_BIN_DIR') ?? resolve(here, '../../agent/dist'),
   assetsDir: resolve(here, '../assets'),
-  sessionDays: num('SESSION_DAYS', 30),
+  // a session ends after this long without use, and in any case this many days after the login
+  // (SESSION_DAYS: former name of SESSION_MAX_DAYS, still read)
+  sessionIdleHours: num('SESSION_IDLE_HOURS', 12),
+  sessionMaxDays: num('SESSION_MAX_DAYS', num('SESSION_DAYS', 7)),
   cookieSecure: cookieSecure(),
   // set when the hub sits behind a reverse proxy (X-Forwarded-* headers)
   trustProxy: parseTrustProxy(env('TRUST_PROXY')),

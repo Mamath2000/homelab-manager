@@ -12,6 +12,8 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
   // agent settings only expose the distributed agent version (shown in the header)
   const settings = route.startsWith('/api/settings/') && route !== '/api/settings/agents';
   const ownPassword = method === 'POST' && route === '/api/account/password';
+  // one's own sessions: list them, close one
+  const ownSessions = route === '/api/account/sessions' || (method === 'DELETE' && route === '/api/account/sessions/:id');
   // journal of the key actions (who did what, addresses): admins only
   const audit = route === '/api/audit' || route.startsWith('/api/audit/');
   // container logs may hold secrets: not for read-only accounts; compose files: admins only
@@ -26,6 +28,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
       if (read) return !accounts && !settings && !audit && !dbRestoreRead && !stackCompose;
       return (
         ownPassword ||
+        ownSessions ||
         (method === 'POST' &&
           (route === '/api/hosts/:id/jobs' ||
             route === '/api/jobs/bulk' ||
@@ -38,7 +41,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
       );
     case 'viewer':
       if (read) return !accounts && !settings && !stackLogs && !stackCompose && !audit && !dbRestoreRead;
-      return ownPassword;
+      return ownPassword || ownSessions;
     case 'superadmin':
       return (
         (read && route === '/api/users') ||

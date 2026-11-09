@@ -1,13 +1,15 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { ObjectId } from 'mongodb';
 import { actorOf, recordAudit, recordAuthFailure } from './audit.js';
 import { config } from './config.js';
 import { dummyPasswordHash, hashPassword, randomToken, sha256, verifyPasswordOrDummy } from './crypto.js';
 import { apiKeys, sessions, users } from './db.js';
 import { closeStreams } from './events.js';
 import { accountKey, apiKeyLimit, ipKey, loginLimits, pairKey, tooManyAttempts } from './loginGuard.js';
+import { passwordProblem } from './passwordPolicy.js';
 import { allowedBeforePasswordChange, authorize } from './profiles.js';
 import { cookieSecure, httpsUrl, transport } from './transport.js';
-import { SUPERADMIN, type UserDoc } from './types.js';
+import { SUPERADMIN, type SessionDoc, type UserDoc } from './types.js';
 
 const COOKIE = 'hm_session';
 
@@ -32,19 +34,58 @@ function isPublic(req: FastifyRequest) {
 
 // the superadmin only gets a short session out of its one-time password
 const SUPERADMIN_SESSION_MS = 15 * 60_000;
+const DAY_MS = 24 * 3600_000;
+// a use moves the idle timeout at most once a minute: one write, not one per request
+const TOUCH_MS = 60_000;
+// sent by the UI on the requests it makes while nobody uses it (refreshes): they keep the session as it is
+const BACKGROUND_HEADER = 'x-hm-background';
+
+const idleMs = () => config.sessionIdleHours * 3600_000;
+
+// Effective end of a session: its absolute end, or the idle timeout from its last use, whichever comes first.
+export function sessionExpiry(endsAt: Date, lastSeenAt: Date, idle: number) {
+  return new Date(Math.min(endsAt.getTime(), lastSeenAt.getTime() + idle));
+}
+
+function client(req: FastifyRequest) {
+  return { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 256) };
+}
 
 async function startSession(req: FastifyRequest, reply: FastifyReply, user: UserDoc) {
   const token = randomToken();
-  const ttl = user.profile === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionDays * 24 * 3600 * 1000;
-  const expiresAt = new Date(Date.now() + ttl);
-  await sessions.insertOne({ _id: sha256(token), userId: user._id, expiresAt });
+  const now = new Date();
+  const endsAt = new Date(now.getTime() + (user.profile === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionMaxDays * DAY_MS));
+  await sessions.insertOne({
+    _id: sha256(token),
+    userId: user._id,
+    expiresAt: sessionExpiry(endsAt, now, idleMs()),
+    endsAt,
+    createdAt: now,
+    lastSeenAt: now,
+    ...client(req),
+  });
+  // the cookie lives until the absolute end; the idle timeout is decided here
   reply.setCookie(COOKIE, token, {
     path: '/',
     httpOnly: true,
     sameSite: 'strict',
     secure: cookieSecure(req),
-    expires: expiresAt,
+    expires: endsAt,
   });
+}
+
+// A use of the session (not a background refresh of the UI) moves its idle timeout. A session opened before
+// homelab#291 gets an absolute end at its first request, no later than its former expiry.
+async function touchSession(req: FastifyRequest, session: SessionDoc) {
+  const background = req.headers[BACKGROUND_HEADER] === '1';
+  const now = new Date();
+  if (session.endsAt && (background || (session.lastSeenAt && now.getTime() - session.lastSeenAt.getTime() < TOUCH_MS))) return;
+  const endsAt = session.endsAt ?? new Date(Math.min(session.expiresAt.getTime(), now.getTime() + config.sessionMaxDays * DAY_MS));
+  const lastSeenAt = background && session.lastSeenAt ? session.lastSeenAt : now;
+  await sessions.updateOne(
+    { _id: session._id },
+    { $set: { endsAt, lastSeenAt, expiresAt: sessionExpiry(endsAt, lastSeenAt, idleMs()), ...client(req) } },
+  );
 }
 
 export const API_KEY_PREFIX = 'hm_';
@@ -71,7 +112,25 @@ async function userFromRequest(req: FastifyRequest) {
   const session = await sessions.findOne({ _id: sha256(token), expiresAt: { $gt: new Date() } });
   if (!session) return null;
   req.sessionId = session._id;
+  await touchSession(req, session);
   return users.findOne({ _id: session.userId });
+}
+
+export function activeSessions(userId: ObjectId) {
+  return sessions.find({ userId, expiresAt: { $gt: new Date() } }).sort({ lastSeenAt: -1 }).toArray();
+}
+
+// The id is the hash of the cookie token: it cannot be turned back into a session.
+export function sessionDto(s: SessionDoc, current?: string) {
+  return {
+    id: s._id,
+    createdAt: s.createdAt ?? null,
+    lastSeenAt: s.lastSeenAt ?? null,
+    expiresAt: s.expiresAt,
+    ip: s.ip ?? null,
+    userAgent: s.userAgent ?? null,
+    current: s._id === current,
+  };
 }
 
 // also closes the live streams of the account, whatever they were opened with
@@ -226,7 +285,7 @@ export function registerAuth(app: FastifyInstance) {
           required: ['newPassword'],
           properties: {
             currentPassword: { type: 'string', maxLength: 256 },
-            newPassword: { type: 'string', minLength: 8, maxLength: 256 },
+            newPassword: { type: 'string', minLength: 1, maxLength: 256 },
           },
         },
       },
@@ -243,6 +302,8 @@ export function registerAuth(app: FastifyInstance) {
           return reply.code(400).send({ error: 'current password is wrong' });
         }
       }
+      const problem = passwordProblem(req.body.newPassword, user.username);
+      if (problem) return reply.code(400).send({ error: problem });
       await users.updateOne(
         { _id: user._id },
         { $set: { passwordHash: await hashPassword(req.body.newPassword), mustChangePassword: false } },
@@ -255,4 +316,20 @@ export function registerAuth(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  // the sessions of the account, to see where it is open and close the ones it does not know
+  app.get('/api/account/sessions', async (req) => {
+    const list = await activeSessions(req.user!._id);
+    return list.map((s) => sessionDto(s, req.sessionId));
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/account/sessions/:id', async (req, reply) => {
+    const user = req.user!;
+    req.auditNote = { target: { kind: 'account', id: user._id.toHexString(), name: user.username } };
+    const gone = await sessions.findOneAndDelete({ _id: req.params.id, userId: user._id });
+    if (!gone) return reply.code(404).send({ error: 'session not found' });
+    closeStreams({ sessionId: gone._id });
+    if (gone._id === req.sessionId) reply.clearCookie(COOKIE, { path: '/', secure: cookieSecure(req) });
+    return reply.code(204).send();
+  });
 }
