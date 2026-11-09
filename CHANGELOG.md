@@ -26,6 +26,10 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 - **CI durcie** : actions GitHub épinglées par SHA, jeton de la CI en lecture seule, contrôles de sécurité à chaque push et pull request (`make audit` : `npm audit` des dépendances livrées du hub et de l'interface, `govulncheck` de l'agent Linux et Windows, bloquants en sévérité élevée ; scan de secrets gitleaks). Scan hebdomadaire des images publiées (hub `latest` et `dev`, client de sauvegarde) avec Grype. Dependabot propose chaque semaine les mises à jour groupées (actions, Go, npm, images de base, compose). Les images de release portent un SBOM et une attestation de provenance. (homelab#295)
 - **Noms de compte insensibles à la casse** (constat F-21 de l'audit) : les identifiants de connexion sont en minuscules (création, renommage, connexion), `Admin` et `admin` ne peuvent plus coexister. Au démarrage, les comptes existants sont passés en minuscules (ancienne écriture gardée comme nom) ; deux comptes qui ne diffèrent que par la casse sont laissés tels quels et signalés dans les journaux, à renommer à la main. Voir [Nom et identifiant](docs/comptes.md#nom-et-identifiant). (homelab#305)
 
+### Corrigé
+
+- **Sauvegarde et restauration MongoDB avec le déploiement durci** : le dump échouait (`Could not find the file /tmp/homelab-agent-dump/<base>/.`) car `docker cp` ne voit pas le `/tmp` en tmpfs du conteneur `mongo` de `compose.hardened.yml`, et ne peut pas écrire dans une racine en lecture seule à la restauration. L'agent copie désormais le dump par un flux `tar` (`docker exec … tar`), quel que soit le durcissement du conteneur : `tar` doit être présent dans l'image (c'est le cas des images `mongo` officielles). Format du dump inchangé (`<collection>.bson`). Nécessite l'agent à jour.
+
 ## 1.2.2 - 2026-11-07
 
 ### Sécurité

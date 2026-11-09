@@ -111,7 +111,7 @@ type dumpCall struct {
 func fakeDump(t *testing.T, fail string) *[]dumpCall {
 	t.Helper()
 	calls := &[]dumpCall{}
-	oldRun, oldRunInput, oldLookup := dumpRun, dumpRunInput, lookupPostgres
+	oldRun, oldRunInput, oldPipe, oldLookup := dumpRun, dumpRunInput, pipeRun, lookupPostgres
 	dumpRun = func(_ context.Context, env []string, _ func(string), name string, args ...string) (int, error) {
 		*calls = append(*calls, dumpCall{name: name, args: strings.Join(args, " "), env: env})
 		if fail != "" && strings.Contains(name+" "+strings.Join(args, " "), fail) {
@@ -130,8 +130,16 @@ func fakeDump(t *testing.T, fail string) *[]dumpCall {
 		}
 		return 0, nil
 	}
+	// a pipe is one call: "<from> | <to>"
+	pipeRun = func(_ context.Context, env []string, _ func(string), from, to []string) error {
+		*calls = append(*calls, dumpCall{name: from[0], args: strings.Join(from[1:], " ") + " | " + strings.Join(to, " "), env: env})
+		if fail != "" && strings.Contains(strings.Join(from, " ")+" | "+strings.Join(to, " "), fail) {
+			return errors.New("tar a échoué (code 2)")
+		}
+		return nil
+	}
 	lookupPostgres = func() (int, int, string, error) { return os.Getuid(), os.Getgid(), "/var/lib/postgresql", nil }
-	t.Cleanup(func() { dumpRun, dumpRunInput, lookupPostgres = oldRun, oldRunInput, oldLookup })
+	t.Cleanup(func() { dumpRun, dumpRunInput, pipeRun, lookupPostgres = oldRun, oldRunInput, oldPipe, oldLookup })
 	return calls
 }
 
@@ -387,7 +395,7 @@ func TestDumpMongo(t *testing.T) {
 	want := []string{
 		"exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml",
 		"exec mongo mongodump --db canicoif --out /tmp/homelab-agent-dump",
-		"cp mongo:/tmp/homelab-agent-dump/canicoif/. " + work + "/mongo-canicoif",
+		"exec mongo tar -C /tmp/homelab-agent-dump/canicoif -cf - . | tar -xf - --no-same-owner -C " + work + "/mongo-canicoif",
 		"exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml",
 	}
 	if len(*calls) != len(want) {
@@ -398,13 +406,18 @@ func TestDumpMongo(t *testing.T) {
 			t.Errorf("call %d = %s %s", i, c.name, c.args)
 		}
 	}
-	// a failed dump still cleans the container
-	calls = fakeDump(t, "mongodump")
-	if err := dumpDatabases(context.Background(), kind, p, func(string) {}); err == nil {
-		t.Fatal("failure not reported")
+	if fi, err := os.Stat(work + "/mongo-canicoif"); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("dump directory: %v %v", fi, err)
 	}
-	if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml" {
-		t.Fatalf("last call = %s", last.args)
+	// a failed dump or copy still cleans the container
+	for _, fail := range []string{"mongodump", "tar -C"} {
+		calls = fakeDump(t, fail)
+		if err := dumpDatabases(context.Background(), kind, p, func(string) {}); err == nil {
+			t.Fatalf("%s: failure not reported", fail)
+		}
+		if last := (*calls)[len(*calls)-1]; last.args != "exec mongo rm -rf /tmp/homelab-agent-dump /tmp/homelab-agent-mongo.yaml" {
+			t.Fatalf("%s: last call = %s", fail, last.args)
+		}
 	}
 }
 
@@ -604,17 +617,17 @@ func TestRunDbRestoreMongo(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml",
-		"exec mongo mkdir -p /tmp/homelab-agent-restore/canicoif",
-		"cp " + dump + "/. mongo:/tmp/homelab-agent-restore/canicoif",
-		"exec mongo mongorestore --nsInclude canicoif.* --nsFrom canicoif.$coll$ --nsTo canicoif_copy.$coll$ /tmp/homelab-agent-restore",
-		"exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml",
+		"docker exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml",
+		"docker exec mongo mkdir -p /tmp/homelab-agent-restore/canicoif",
+		"tar -C " + dump + " -cf - . | docker exec -i mongo tar -xf - --no-same-owner -C /tmp/homelab-agent-restore/canicoif",
+		"docker exec mongo mongorestore --nsInclude canicoif.* --nsFrom canicoif.$coll$ --nsTo canicoif_copy.$coll$ /tmp/homelab-agent-restore",
+		"docker exec mongo rm -rf /tmp/homelab-agent-restore /tmp/homelab-agent-restore.yaml",
 	}
 	if len(*calls) != len(want) {
 		t.Fatalf("calls = %+v", *calls)
 	}
 	for i, c := range *calls {
-		if c.name != "docker" || c.args != want[i] {
+		if c.name+" "+c.args != want[i] {
 			t.Errorf("call %d = %s %s", i, c.name, c.args)
 		}
 	}
@@ -627,7 +640,7 @@ func TestRunDbRestoreMongo(t *testing.T) {
 		t.Fatalf("existing database accepted: %v", err)
 	}
 	for _, c := range *calls {
-		if strings.Contains(c.args, "mongorestore") || strings.Contains(c.args, " cp ") || c.name == "docker" && strings.HasPrefix(c.args, "cp ") {
+		if strings.Contains(c.args, "mongorestore") || strings.Contains(c.args, " | ") {
 			t.Fatalf("something was run: %+v", *calls)
 		}
 	}

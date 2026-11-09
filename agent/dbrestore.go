@@ -291,7 +291,9 @@ func runDbRestore(ctx context.Context, s *DbRestoreSpec, emit func(string)) (err
 			return err
 		}
 		emit("copie du dump dans le conteneur…\n")
-		if err := runMongoDumpStep(ctx, env, emit, p, "docker", "cp", dir+"/.", p.Container+":"+dest); err != nil {
+		from := []string{"tar", "-C", dir, "-cf", "-", "."}
+		to := []string{"docker", "exec", "-i", p.Container, "tar", "-xf", "-", "--no-same-owner", "-C", dest}
+		if err := runMongoCopy(ctx, env, emit, p, from, to); err != nil {
 			return err
 		}
 		// the copy can take long: the name is checked again right before the restore

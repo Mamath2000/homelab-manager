@@ -361,6 +361,15 @@ func runMongoDumpStepInput(ctx context.Context, env []string, emit func(string),
 	return nil
 }
 
+// runMongoCopy copies a directory between the host and the container with tar ("from | to"): docker cp
+// sees neither a tmpfs of the container (its /tmp when hardened) nor writes to a read-only root.
+func runMongoCopy(ctx context.Context, env []string, emit func(string), p *DatabaseDump, from, to []string) error {
+	var output strings.Builder
+	log := mongoSafeEmit(func(s string) { output.WriteString(s); emit(s) }, p.Password)
+	log(fmt.Sprintf("%s | %s\n", strings.Join(from, " "), strings.Join(to, " ")))
+	return mongoCommandError(pipeRun(ctx, env, log, from, to), output.String(), p.Password)
+}
+
 func mongoConfigArgs(p *DatabaseDump) []string {
 	if p.Username == "" {
 		return nil
@@ -407,8 +416,14 @@ func dumpMongo(ctx context.Context, p *DatabaseDump, emit func(string)) (err err
 		if err := runMongoDumpStep(ctx, env, log, p, "docker", args...); err != nil {
 			return err
 		}
-		// "/." copies the content of the dump of the database into its archive directory
-		if err := runMongoDumpStep(ctx, env, log, p, "docker", "cp", p.Container+":"+mongoTmp+"/"+d+"/.", dir); err != nil {
+		// "." copies the content of the dump of the database into its archive directory
+		from := []string{"docker", "exec", p.Container, "tar", "-C", mongoTmp + "/" + d, "-cf", "-", "."}
+		to := []string{"tar", "-xf", "-", "--no-same-owner", "-C", dir}
+		if err := runMongoCopy(ctx, env, log, p, from, to); err != nil {
+			return err
+		}
+		// the "." entry gave dir the mode of the dump directory of the container
+		if err := os.Chmod(dir, 0o700); err != nil {
 			return err
 		}
 	}
