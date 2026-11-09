@@ -143,7 +143,8 @@ const bridge = new HomeAssistantBridge(app.log);
 registerSettingsRoutes(app, bridge);
 registerAgentSettingsRoutes(app, bridge);
 registerAgentDownloadRoute(app);
-app.get('/api/health', async () => ({ ok: true, version: config.version }));
+// public: no version, an attacker would only use it to pick a known flaw (homelab#304)
+app.get('/api/health', async () => ({ ok: true }));
 // The agents moved to the TLS port: an old install / upgrade command fails with an explanation
 // instead of piping the UI page into sh.
 app.get('/install.sh', (_req, reply) =>
