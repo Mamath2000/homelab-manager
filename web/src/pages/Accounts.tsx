@@ -402,6 +402,7 @@ export function Accounts() {
                     <div><span className="text-muted">Clés d’API · </span>{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</div>
                     <div><span className="text-muted">Dernière connexion · </span>{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</div>
                     <div><span className="text-muted">Sessions · </span>{a.sessions || '—'}</div>
+                    {me.mfa.available && <div><span className="text-muted">Passkeys · </span>{a.passkeys || '—'}</div>}
                     <div><span className="text-muted">Créé le · </span>{dateTime(a.createdAt)}</div>
                   </div>
                 </div>
@@ -429,6 +430,7 @@ export function Accounts() {
                 <th className="th">Clés d'API</th>
                 <th className="th">Dernière connexion</th>
                 <th className="th">Sessions</th>
+                {me.mfa.available && <th className="th">Passkeys</th>}
                 <th className="th">Créé le</th>
                 <th className="th text-right">Actions</th>
               </tr>
@@ -477,6 +479,7 @@ export function Accounts() {
                   <td className="td text-xs text-zinc-400">{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</td>
                   <td className="td text-xs text-zinc-400">{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</td>
                   <td className="td text-xs text-zinc-400">{a.sessions || '—'}</td>
+                  {me.mfa.available && <td className={`td text-xs ${a.profile === 'admin' && !a.passkeys ? 'text-amber-300' : 'text-zinc-400'}`}>{a.passkeys || '—'}</td>}
                   <td className="td text-xs text-zinc-400">{dateTime(a.createdAt)}</td>
                   <td className="td">
                     <div className="flex justify-end gap-1">

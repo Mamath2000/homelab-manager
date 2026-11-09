@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accessChecks, agentItems, containerChecks, dataChecks, mqttChecks, parseProcStatus, rootIsReadOnly } from '../src/securityHealth.js';
+import { accessChecks, agentItems, containerChecks, dataChecks, mfaChecks, mqttChecks, parseProcStatus, rootIsReadOnly } from '../src/securityHealth.js';
 
 const status = (list: { id: string; status: string }[], id: string) => list.find((c) => c.id === id)?.status;
 
@@ -60,4 +60,15 @@ test('container checks follow the facts', () => {
   const open = containerChecks({ uid: 0, noNewPrivs: false, capBounding: '00000000a80425fb', rootReadOnly: false });
   assert.deepEqual(open.map((c) => c.status), ['bad', 'warn', 'warn', 'warn']);
   assert.ok(containerChecks({ uid: null, noNewPrivs: null, capBounding: null, rootReadOnly: null }).every((c) => c.status === 'unknown'));
+});
+
+test('double authentication: off, offered, required with an admin left without passkey, required and in place', () => {
+  const admins = [{ name: 'alice', passkeys: 1 }, { name: 'bob', passkeys: 0 }];
+  assert.equal(mfaChecks({ rpId: undefined, required: false, admins })[0].status, 'warn');
+  assert.equal(mfaChecks({ rpId: undefined, required: true, admins })[0].status, 'bad');
+  const offered = mfaChecks({ rpId: 'hub.lan', required: false, admins })[0];
+  assert.equal(offered.status, 'warn');
+  assert.deepEqual(offered.items?.map((i) => i.name), ['bob']);
+  assert.equal(mfaChecks({ rpId: 'hub.lan', required: true, admins })[0].status, 'warn');
+  assert.equal(mfaChecks({ rpId: 'hub.lan', required: true, admins: [admins[0]] })[0].status, 'ok');
 });

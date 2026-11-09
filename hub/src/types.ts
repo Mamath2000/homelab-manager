@@ -685,6 +685,23 @@ export interface SessionDoc {
   // last client address and browser it was used from
   ip?: string;
   userAgent?: string;
+  // when the session was proven with a passkey: login with one, or one registered in it
+  mfaAt?: Date;
+}
+
+// Passkey (WebAuthn credential) of an account, second factor of its logins (homelab#291).
+export interface PasskeyDoc {
+  _id: ObjectId;
+  userId: ObjectId;
+  credentialId: string; // base64url
+  publicKey: string; // COSE, base64url
+  counter: number;
+  transports?: string[];
+  name: string;
+  // synced by its provider (password manager, cloud account) rather than bound to one device
+  backedUp: boolean;
+  createdAt: Date;
+  lastUsedAt?: Date;
 }
 
 // Internal PKI of the hub (see pki.ts): its CA signs the TLS certificate of the agent port and

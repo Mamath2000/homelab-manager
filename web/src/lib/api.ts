@@ -1,3 +1,4 @@
+import type { AuthenticationResponseJSON, PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON, RegistrationResponseJSON } from '@simplewebauthn/browser';
 export interface Package {
   name: string;
   current: string;
@@ -651,6 +652,8 @@ export interface Me {
   profile: Profile | 'superadmin';
   // temporary password: it must be replaced before using the app
   mustChangePassword: boolean;
+  // passkeys: offered by the hub (WEBAUTHN_RP_ID), required for this account (MFA_REQUIRED, admins), used by this session
+  mfa: { available: boolean; required: boolean; satisfied: boolean };
   // optional features of the hub (environment variables, e.g. FEATURE_STANDARDISATION)
   features: { standardisation: boolean };
   // release channel of the hub (CHANNEL env): the dev channel shows a banner
@@ -689,6 +692,25 @@ export interface Account {
   apiKeys: ApiKey[];
   // sessions open in a browser
   sessions: number;
+  passkeys: number;
+}
+
+// A passkey of the account (GET /api/account/passkeys)
+export interface Passkey {
+  id: string;
+  name: string;
+  // synced by its provider (password manager…) rather than bound to one device
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+  credentialId: string;
+  // public key (SPKI), to hand to the agents (homelab#306); null for a type it cannot be written in
+  publicKeyPem: string | null;
+}
+
+// Answer of a login whose account has a passkey: no session yet, the browser answers the challenge
+export interface PasskeyChallenge {
+  passkey: { ticket: string; options: PublicKeyCredentialRequestOptionsJSON };
 }
 
 // A browser session of the account (GET /api/account/sessions)
@@ -1728,11 +1750,17 @@ export interface HubRoleTest {
 export const api = {
   authStatus: () => request<AuthStatus>('GET', '/api/auth/status'),
   login: (username: string, password: string) =>
-    request<Me>('POST', '/api/auth/login', { username, password }),
+    request<Me | PasskeyChallenge>('POST', '/api/auth/login', { username, password }),
+  loginPasskey: (ticket: string, response: AuthenticationResponseJSON) =>
+    request<Me>('POST', '/api/auth/login/passkey', { ticket, response }),
   logout: () => request('POST', '/api/auth/logout'),
   changePassword: (currentPassword: string | undefined, newPassword: string) =>
     request('POST', '/api/account/password', { currentPassword, newPassword }),
   mySessions: () => request<AccountSession[]>('GET', '/api/account/sessions'),
+  myPasskeys: () => request<Passkey[]>('GET', '/api/account/passkeys'),
+  passkeyOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('POST', '/api/account/passkeys/options'),
+  addPasskey: (name: string, response: RegistrationResponseJSON) => request<Passkey>('POST', '/api/account/passkeys', { name, response }),
+  removePasskey: (id: string) => request<void>('DELETE', `/api/account/passkeys/${id}`),
   revokeMySession: (id: string) => request<void>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
 
   users: () => request<Account[]>('GET', '/api/users'),

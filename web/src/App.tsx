@@ -6,7 +6,7 @@ import { Spinner } from './components/ui';
 import { api, type AuthStatus, type Me } from './lib/api';
 import { MeContext, rights } from './lib/auth';
 import { useLiveEvents } from './lib/live';
-import { ForcePasswordChange, Login } from './pages/Login';
+import { ForcePasskey, ForcePasswordChange, Login } from './pages/Login';
 
 // One chunk per page, fetched on first visit (Login stays in the main bundle: shown before the Layout).
 // Pages use named exports, lazy() wants a default one.
@@ -32,7 +32,9 @@ export default function App() {
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.authStatus, staleTime: Infinity });
   const user = auth.data?.user ?? null;
   // the superadmin may only use the accounts page, not the live feed
-  const live = useLiveEvents(!!user && user.profile !== 'superadmin' && !user.mustChangePassword);
+  // MFA_REQUIRED, admin session not proven with a passkey: one is registered first
+  const passkeyPending = !!user && user.mfa.required && !user.mfa.satisfied;
+  const live = useLiveEvents(!!user && user.profile !== 'superadmin' && !user.mustChangePassword && !passkeyPending);
 
   // Switch user state without detaching the ['auth'] observer (qc.clear() would).
   const setUser = (me: Me | null) => {
@@ -68,6 +70,10 @@ export default function App() {
 
   if (user.mustChangePassword) {
     return <ForcePasswordChange me={user} onLogout={logout} onDone={() => setUser({ ...user, mustChangePassword: false })} />;
+  }
+
+  if (passkeyPending) {
+    return <ForcePasskey me={user} onLogout={logout} onDone={() => setUser({ ...user, mfa: { ...user.mfa, satisfied: true } })} />;
   }
 
   if (!live && user.profile !== 'superadmin') {

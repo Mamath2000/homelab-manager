@@ -12,8 +12,13 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
   // agent settings only expose the distributed agent version (shown in the header)
   const settings = route.startsWith('/api/settings/') && route !== '/api/settings/agents';
   const ownPassword = method === 'POST' && route === '/api/account/password';
-  // one's own sessions: list them, close one
-  const ownSessions = route === '/api/account/sessions' || (method === 'DELETE' && route === '/api/account/sessions/:id');
+  // one's own sessions and passkeys: list them, close a session, register or remove a passkey
+  const ownAccount =
+    route === '/api/account/sessions' ||
+    (method === 'DELETE' && route === '/api/account/sessions/:id') ||
+    route === '/api/account/passkeys' ||
+    route === '/api/account/passkeys/options' ||
+    (method === 'DELETE' && route === '/api/account/passkeys/:id');
   // journal of the key actions (who did what, addresses): admins only
   const audit = route === '/api/audit' || route.startsWith('/api/audit/');
   // container logs may hold secrets: not for read-only accounts; compose files: admins only
@@ -28,7 +33,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
       if (read) return !accounts && !settings && !audit && !dbRestoreRead && !stackCompose;
       return (
         ownPassword ||
-        ownSessions ||
+        ownAccount ||
         (method === 'POST' &&
           (route === '/api/hosts/:id/jobs' ||
             route === '/api/jobs/bulk' ||
@@ -41,7 +46,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
       );
     case 'viewer':
       if (read) return !accounts && !settings && !stackLogs && !stackCompose && !audit && !dbRestoreRead;
-      return ownPassword || ownSessions;
+      return ownPassword || ownAccount;
     case 'superadmin':
       return (
         (read && route === '/api/users') ||
@@ -55,4 +60,13 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
 // While a temporary password is in use, only changing it (and reading who is logged in) is allowed.
 export function allowedBeforePasswordChange(method: string, route: string) {
   return method === 'POST' && route === '/api/account/password';
+}
+
+// MFA_REQUIRED, admin session not proven with a passkey: only registering one is allowed.
+export function allowedBeforePasskey(method: string, route: string) {
+  return (
+    route === '/api/account/passkeys' ||
+    (method === 'POST' && route === '/api/account/passkeys/options') ||
+    (method === 'POST' && route === '/api/account/password')
+  );
 }

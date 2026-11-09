@@ -39,6 +39,7 @@ import { startOffsitePoller } from './offsite.js';
 import { startMountReconciler } from './pbsMount.js';
 import { migratePveClusters, migratePveRoleType, startPvePoller } from './pve.js';
 import { startProbes } from './probes.js';
+import { registerPasskeyRoutes } from './routes/passkeys.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
 import { registerHealthRoutes } from './health.js';
@@ -76,6 +77,11 @@ if (new Set(ports).size !== ports.length) {
 }
 if (config.trustProxy === true) {
   app.log.warn('TRUST_PROXY=true: any client is trusted for X-Forwarded-*; give the address of the proxy instead (TRUST_PROXY=192.168.1.20), or keep the port reachable by the proxy alone');
+}
+
+// MFA_REQUIRED cannot apply without passkeys: said here and on the Security page, the admins are not locked out
+if (config.mfaRequired && !config.webauthnRpId) {
+  app.log.error('MFA_REQUIRED=true without WEBAUTHN_RP_ID: passkeys are disabled, the obligation does not apply; set WEBAUTHN_RP_ID to the domain of the UI');
 }
 
 await connectDb();
@@ -128,6 +134,7 @@ registerPbsMountRoutes(app);
 registerDbRestoreRoutes(app);
 registerNextcloudRoutes(app);
 registerUserRoutes(app);
+registerPasskeyRoutes(app);
 registerSummaryRoutes(app);
 registerHealthRoutes(app);
 registerSecurityHealthRoutes(app);

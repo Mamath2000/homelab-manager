@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { ObjectId } from 'mongodb';
 import { AGENT_TARGETS, agentBinary, agentOutdated } from './agentBinaries.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
 import { config } from './config.js';
-import { hosts } from './db.js';
+import { hosts, passkeys, users } from './db.js';
 import { loadHaBridgeSettings } from './routes/settings.js';
 import { loadMqttBrokers } from './probes.js';
 import { hasMasterKey } from './secrets.js';
@@ -106,6 +107,33 @@ export function accessChecks(i: AccessInput): SecurityCheck[] {
         : { id: 'trust-proxy', label: 'Proxy de confiance', status: 'ok', detail: 'Aucun proxy déclaré (accès direct).' },
   );
   return checks;
+}
+
+export interface MfaInput {
+  rpId: string | undefined;
+  required: boolean;
+  admins: { name: string; passkeys: number }[];
+}
+
+// Passkeys of the admins (homelab#291).
+export function mfaChecks(i: MfaInput): SecurityCheck[] {
+  const label = 'Double authentification des admins';
+  if (!i.rpId) {
+    return [
+      i.required
+        ? { id: 'mfa', label, status: 'bad', detail: 'MFA_REQUIRED=true sans WEBAUTHN_RP_ID : les passkeys sont désactivées, l’obligation ne s’applique pas. Renseigner le nom de domaine de l’interface.' }
+        : { id: 'mfa', label, status: 'warn', detail: 'Passkeys désactivées (WEBAUTHN_RP_ID absent) : chaque compte se connecte avec son seul mot de passe.' },
+    ];
+  }
+  const items = i.admins.filter((a) => !a.passkeys).map((a) => ({ name: a.name, status: 'warn' as SecurityStatus, detail: 'aucune passkey' }));
+  if (!i.required) {
+    return [{ id: 'mfa', label, status: 'warn', detail: `Passkeys proposées (${i.rpId}) mais pas obligatoires : MFA_REQUIRED=true pour les imposer aux admins.`, ...(items.length ? { items } : {}) }];
+  }
+  return [
+    items.length
+      ? { id: 'mfa', label, status: 'warn', detail: 'Obligatoires ; les admins sans passkey en enregistreront une à leur prochaine connexion.', items }
+      : { id: 'mfa', label, status: 'ok', detail: `Obligatoires pour les admins (${i.rpId}), chacun en a une.` },
+  ];
 }
 
 export function dataChecks(i: { mongoAuth: boolean; masterKey: boolean }): SecurityCheck[] {
@@ -228,9 +256,16 @@ export function containerChecks(f: ContainerFacts): SecurityCheck[] {
 export async function securityHealth(req: FastifyRequest) {
   const t = transport(req);
   const [hostList, { brokers }, bridge] = await Promise.all([hosts.find({}).toArray() as Promise<HostDoc[]>, loadMqttBrokers(), loadHaBridgeSettings()]);
+  const admins = await users.find({ profile: 'admin' }, { projection: { username: 1 } }).toArray();
+  const keyCounts = await passkeys.aggregate<{ _id: ObjectId; n: number }>([{ $group: { _id: '$userId', n: { $sum: 1 } } }]).toArray();
+  const mfa = mfaChecks({
+    rpId: config.webauthnRpId,
+    required: config.mfaRequired,
+    admins: admins.map((a) => ({ name: a.username, passkeys: keyCounts.find((k) => k._id.equals(a._id))?.n ?? 0 })),
+  });
   const binaries = AGENT_TARGETS.map((x) => agentBinary(x.arch, x.os)).filter((b) => b !== null);
   const groups: SecurityGroup[] = [
-    { id: 'access', title: 'Accès à l’interface', checks: accessChecks({ https: t.https, hopClear: t.hopClear, cookieSecure: cookieSecure(req), trustProxy: config.trustProxy }) },
+    { id: 'access', title: 'Accès à l’interface', checks: [...accessChecks({ https: t.https, hopClear: t.hopClear, cookieSecure: cookieSecure(req), trustProxy: config.trustProxy }), ...mfa] },
     { id: 'data', title: 'Base et secrets', checks: dataChecks({ mongoAuth: !!(config.mongoUsername && config.mongoPassword), masterKey: hasMasterKey() }) },
     { id: 'agents', title: 'Agents', checks: agentChecks(hostList, binaries, (h) => agentOutdated(h as HostDoc)) },
     {

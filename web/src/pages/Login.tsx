@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { api, PASSWORD_MIN_LENGTH, passwordErrorMessage, tooManyAttemptsMessage, type Me } from '../lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { KeyRound } from 'lucide-react';
+import { api, ApiError, PASSWORD_MIN_LENGTH, passwordErrorMessage, tooManyAttemptsMessage, type Me, type PasskeyChallenge } from '../lib/api';
+import { answerPasskey, passkeyErrorMessage, registerPasskey } from '../lib/passkeys';
 import { insecureOrigin, onHttps } from '../lib/transport';
 import { Button } from '../components/ui';
 
@@ -28,13 +31,37 @@ export function Login({ noAccounts, cookieSecure, httpsUrl, onDone }: { noAccoun
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // password accepted, the account has a passkey: the browser answers this challenge
+  const [challenge, setChallenge] = useState<PasskeyChallenge['passkey'] | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const confirmPasskey = async (c: PasskeyChallenge['passkey']) => {
     setError('');
     setBusy(true);
     try {
-      onDone(await api.login(username, password));
+      onDone(await answerPasskey(c.ticket, c.options));
+    } catch (err) {
+      const message = passkeyErrorMessage(err);
+      // the ticket is single use once the hub has seen it: back to the password
+      if (err instanceof ApiError) setChallenge(null);
+      setError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (challenge) return confirmPasskey(challenge);
+    setError('');
+    setBusy(true);
+    try {
+      const r = await api.login(username, password);
+      if ('passkey' in r) {
+        setChallenge(r.passkey);
+        setBusy(false);
+        return confirmPasskey(r.passkey);
+      }
+      onDone(r);
     } catch (err) {
       const message = (err as Error).message;
       setError(
@@ -49,6 +76,20 @@ export function Login({ noAccounts, cookieSecure, httpsUrl, onDone }: { noAccoun
       setBusy(false);
     }
   };
+
+  if (challenge) {
+    return (
+      <Shell subtitle="Connexion" onSubmit={submit}>
+        <p className="text-sm text-zinc-300">
+          Mot de passe accepté. Confirmez la connexion de <strong className="text-zinc-100">{username}</strong> avec votre passkey
+          (navigateur ou gestionnaire de mots de passe).
+        </p>
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <Button type="submit" variant="primary" icon={KeyRound} className="w-full" loading={busy}>Utiliser ma passkey</Button>
+        <button type="button" onClick={() => { setChallenge(null); setError(''); }} className="w-full text-center text-xs text-muted hover:text-zinc-300">Annuler</button>
+      </Shell>
+    );
+  }
 
   return (
     <Shell subtitle="Connexion" onSubmit={submit}>
@@ -128,3 +169,52 @@ export function ForcePasswordChange({ me, onDone, onLogout }: { me: Me; onDone: 
     </Shell>
   );
 }
+
+// MFA_REQUIRED, admin whose session was not proven with a passkey: one is registered before entering the app.
+export function ForcePasskey({ me, onDone, onLogout }: { me: Me; onDone: () => void; onLogout: () => void }) {
+  const existing = useQuery({ queryKey: ['my-passkeys'], queryFn: api.myPasskeys });
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      await registerPasskey(name.trim());
+      onDone();
+    } catch (err) {
+      setError(passkeyErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // the account has a passkey but this session was opened without it (before the obligation): log in again
+  if (existing.data?.length) {
+    return (
+      <Shell subtitle={`Bonjour ${me.username}`} onSubmit={(e) => { e.preventDefault(); onLogout(); }}>
+        <p className="text-sm text-zinc-300">La connexion par passkey est obligatoire pour les admins. Reconnectez-vous : votre passkey vous sera demandée.</p>
+        <Button type="submit" variant="primary" className="w-full">Se reconnecter</Button>
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell subtitle={`Bonjour ${me.username}, enregistrez une passkey`} onSubmit={submit}>
+      <p className="text-xs text-muted">
+        La connexion des admins demande une passkey en plus du mot de passe. Créez-la avec votre navigateur ou votre gestionnaire de
+        mots de passe (Bitwarden…) ; enregistrez-en une deuxième plus tard depuis <strong>Mon compte</strong>, en secours.
+      </p>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-muted">Nom de la passkey</span>
+        <input className="input" autoFocus required maxLength={64} placeholder="Bitwarden" value={name} onChange={(e) => setName(e.target.value)} />
+      </label>
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      <Button type="submit" variant="primary" icon={KeyRound} className="w-full" loading={busy || existing.isLoading}>Enregistrer une passkey</Button>
+      <button type="button" onClick={onLogout} className="w-full text-center text-xs text-muted hover:text-zinc-300">Se déconnecter</button>
+    </Shell>
+  );
+}
+

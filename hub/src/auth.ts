@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import type { ObjectId } from 'mongodb';
 import { actorOf, recordAudit, recordAuthFailure } from './audit.js';
 import { config } from './config.js';
@@ -7,7 +8,8 @@ import { apiKeys, sessions, users } from './db.js';
 import { closeStreams } from './events.js';
 import { accountKey, apiKeyLimit, ipKey, loginLimits, pairKey, tooManyAttempts } from './loginGuard.js';
 import { passwordProblem } from './passwordPolicy.js';
-import { allowedBeforePasswordChange, authorize } from './profiles.js';
+import { finishLogin, loginChallenge, mfaRequiredFor, passkeysEnabled } from './passkeys.js';
+import { allowedBeforePasskey, allowedBeforePasswordChange, authorize } from './profiles.js';
 import { cookieSecure, httpsUrl, transport } from './transport.js';
 import { SUPERADMIN, type SessionDoc, type UserDoc } from './types.js';
 
@@ -18,6 +20,8 @@ declare module 'fastify' {
     user?: UserDoc;
     // the session the request came with (not set for an API key)
     sessionId?: string;
+    // when that session was proven with a passkey
+    mfaAt?: Date;
   }
 }
 
@@ -51,7 +55,7 @@ function client(req: FastifyRequest) {
   return { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 256) };
 }
 
-async function startSession(req: FastifyRequest, reply: FastifyReply, user: UserDoc) {
+async function startSession(req: FastifyRequest, reply: FastifyReply, user: UserDoc, mfa = false) {
   const token = randomToken();
   const now = new Date();
   const endsAt = new Date(now.getTime() + (user.profile === SUPERADMIN ? SUPERADMIN_SESSION_MS : config.sessionMaxDays * DAY_MS));
@@ -63,6 +67,7 @@ async function startSession(req: FastifyRequest, reply: FastifyReply, user: User
     createdAt: now,
     lastSeenAt: now,
     ...client(req),
+    ...(mfa ? { mfaAt: now } : {}),
   });
   // the cookie lives until the absolute end; the idle timeout is decided here
   reply.setCookie(COOKIE, token, {
@@ -112,6 +117,7 @@ async function userFromRequest(req: FastifyRequest) {
   const session = await sessions.findOne({ _id: sha256(token), expiresAt: { $gt: new Date() } });
   if (!session) return null;
   req.sessionId = session._id;
+  req.mfaAt = session.mfaAt;
   await touchSession(req, session);
   return users.findOne({ _id: session.userId });
 }
@@ -151,12 +157,14 @@ const loginSchema = {
   },
 } as const;
 
-function me(user: UserDoc) {
+function me(user: UserDoc, mfaAt?: Date) {
   return {
     username: user.username,
     displayName: user.displayName ?? '',
     profile: user.profile,
     mustChangePassword: !!user.mustChangePassword,
+    // passkeys: offered by this hub, required for this account (MFA_REQUIRED), used by this session
+    mfa: { available: passkeysEnabled(), required: mfaRequiredFor(user), satisfied: !!mfaAt },
     // optional features of the hub (environment variables)
     features: { standardisation: config.featureStandardisation },
     channel: config.channel,
@@ -184,6 +192,14 @@ function loginFailed(req: FastifyRequest, account: string, ip: string) {
 
 function loginWait(account: string, ip: string) {
   return Math.max(loginLimits.pair.check(pairKey(account, ip)), loginLimits.ip.check(ip), loginLimits.account.check(account));
+}
+
+async function openSession(req: FastifyRequest, reply: FastifyReply, user: UserDoc, mfa: boolean) {
+  const now = new Date();
+  await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: now } });
+  await startSession(req, reply, user, mfa);
+  void recordAudit({ category: 'auth', action: 'auth.login', actor: actorOf({ user }), ip: req.ip, ...(mfa ? { details: { passkey: true } } : {}) });
+  return me(user, mfa ? now : undefined);
 }
 
 async function consumeSuperadminPassword() {
@@ -215,6 +231,10 @@ export function registerAuth(app: FastifyInstance) {
     if (byKey === undefined && user.mustChangePassword && !allowedBeforePasswordChange(req.method, route)) {
       return reply.code(403).send({ error: 'password_change_required' });
     }
+    // MFA_REQUIRED: an admin whose session was not proven with a passkey registers one first (the key is not concerned)
+    if (byKey === undefined && mfaRequiredFor(user) && !req.mfaAt && !allowedBeforePasskey(req.method, route)) {
+      return reply.code(403).send({ error: 'passkey_required' });
+    }
     if (!authorize(user.profile, req.method, route)) return reply.code(403).send({ error: 'forbidden' });
     req.user = user;
   });
@@ -231,7 +251,7 @@ export function registerAuth(app: FastifyInstance) {
       // how this request reached the hub (banners of the UI); the TLS port of the UI, when there is one
       transport: { https, hopClear },
       httpsUrl: https ? null : httpsUrl(req),
-      user: user ? me(user) : null,
+      user: user ? me(user, req.mfaAt) : null,
     };
   });
 
@@ -257,10 +277,36 @@ export function registerAuth(app: FastifyInstance) {
       // Only this account from this client is cleared: a login of one's own account must not reset the counter of the
       // client (tries on other accounts), nor the one of the account from all clients (distributed attack).
       loginLimits.pair.reset(pairKey(account, ip));
-      await users.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
-      await startSession(req, reply, user);
-      void recordAudit({ category: 'auth', action: 'auth.login', actor: actorOf({ user }), ip: req.ip });
-      return me(user);
+      // an account with a passkey: no session yet, the browser answers the challenge (/api/auth/login/passkey)
+      const challenge = await loginChallenge(user);
+      if (challenge) return { passkey: challenge };
+      return openSession(req, reply, user, false);
+    },
+  );
+
+  app.post<{ Body: { ticket: string; response: AuthenticationResponseJSON } }>(
+    '/api/auth/login/passkey',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['ticket', 'response'],
+          additionalProperties: false,
+          properties: { ticket: { type: 'string', minLength: 1, maxLength: 128 }, response: { type: 'object' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const ip = ipKey(req.ip);
+      const result = await finishLogin(req.body.ticket, req.body.response);
+      if (!result) return reply.code(401).send({ error: 'passkey_expired' });
+      const account = accountKey(result.user.username);
+      if (!result.ok) {
+        loginFailed(req, account, ip);
+        recordAuthFailure('auth.login', req.ip, result.user.username, 'passkey refusée');
+        return reply.code(401).send({ error: 'passkey_refused' });
+      }
+      return openSession(req, reply, result.user, true);
     },
   );
 

@@ -3,7 +3,7 @@ import { config } from './config.js';
 
 // the journal of the key actions is kept one year, then dropped by Mongo itself (no purge from the hub)
 export const AUDIT_RETENTION_DAYS = 365;
-import type { AccessSettings, AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AccessSettings, AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, PasskeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 // an account given apart from the URL (no escaping of the password); none: the URL as it is (with its own account, if any)
 const client = new MongoClient(
@@ -16,6 +16,7 @@ export let jobs: Collection<JobDoc>;
 export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
 export let apiKeys: Collection<ApiKeyDoc>;
+export let passkeys: Collection<PasskeyDoc>;
 export let settings: Collection<HomeAssistantSettings | AgentSettings | HealthSettings | PkiDoc | UiTlsDoc | SetupProfile | AccessSettings | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
@@ -42,6 +43,7 @@ export async function connectDb() {
   users = db.collection('users');
   sessions = db.collection('sessions');
   apiKeys = db.collection('apiKeys');
+  passkeys = db.collection('passkeys');
   settings = db.collection('settings');
   backups = db.collection('backups');
   backupStats = db.collection('backupStats');
@@ -77,6 +79,8 @@ export async function connectDb() {
     apiKeys.createIndex({ userId: 1 }),
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     sessions.createIndex({ userId: 1 }),
+    passkeys.createIndex({ credentialId: 1 }, { unique: true }),
+    passkeys.createIndex({ userId: 1 }),
     backups.createIndex({ hostId: 1 }),
     backupJobs.createIndex({ hostId: 1 }),
     // one document per PBS backup task, kept 400 days

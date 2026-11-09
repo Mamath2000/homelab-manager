@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, LogOut, MonitorSmartphone } from 'lucide-react';
-import { api, PASSWORD_MIN_LENGTH, passwordErrorMessage, type AccountSession } from '../lib/api';
+import { Fingerprint, KeyRound, LogOut, MonitorSmartphone, Plus, Trash2 } from 'lucide-react';
+import { api, PASSWORD_MIN_LENGTH, passwordErrorMessage, type AccountSession, type Passkey } from '../lib/api';
+import { useMe } from '../lib/auth';
+import { passkeyErrorMessage, registerPasskey } from '../lib/passkeys';
 import { dateTime, timeAgo } from '../lib/format';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Modal, Spinner, Tabs } from './ui';
+import { Badge, Button, CopyField, Modal, Spinner, Tabs } from './ui';
 
 const TABS = [
   { id: 'password' as const, label: 'Mot de passe', icon: KeyRound },
+  { id: 'passkeys' as const, label: 'Passkeys', icon: Fingerprint },
   { id: 'sessions' as const, label: 'Sessions', icon: MonitorSmartphone },
 ];
+type Tab = (typeof TABS)[number]['id'];
 
 // "Firefox · Linux" out of a user agent, enough to tell one's browsers apart
 function browserLabel(ua: string | null) {
@@ -112,13 +116,110 @@ function SessionList() {
   );
 }
 
-// The account of the logged-in user: password and sessions.
+function PasskeyRow({ p }: { p: Passkey }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.removePasskey(p.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-passkeys'] });
+      toast.success('Passkey supprimée');
+    },
+    onError: (err) => {
+      setConfirming(false);
+      toast.error(passkeyErrorMessage(err));
+    },
+  });
+
+  return (
+    <li className="space-y-2 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 text-sm">
+          <div className="flex items-center gap-2 text-zinc-100">
+            {p.name}
+            {p.backedUp && <Badge tone="info">synchronisée</Badge>}
+          </div>
+          <div className="text-xs text-muted">
+            enregistrée le {dateTime(p.createdAt)} · {p.lastUsedAt ? `utilisée ${timeAgo(p.lastUsedAt)}` : 'jamais utilisée'}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {p.publicKeyPem && (
+            <Button size="sm" variant="ghost" onClick={() => setShowKey(!showKey)}>{showKey ? 'Masquer la clé' : 'Clé publique'}</Button>
+          )}
+          {confirming ? (
+            <>
+              <Button size="sm" variant="danger" icon={Trash2} loading={remove.isPending} onClick={() => remove.mutate()}>Confirmer</Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>Annuler</Button>
+            </>
+          ) : (
+            <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setConfirming(true)}>Supprimer</Button>
+          )}
+        </div>
+      </div>
+      {/* public: what the access manifest hands to the agents, for the signatures of homelab#306 */}
+      {showKey && p.publicKeyPem && <CopyField value={p.publicKeyPem} multiline />}
+    </li>
+  );
+}
+
+function PasskeyList() {
+  const me = useMe();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data, isLoading } = useQuery({ queryKey: ['my-passkeys'], queryFn: api.myPasskeys });
+  const [name, setName] = useState('');
+  const add = useMutation({
+    mutationFn: () => registerPasskey(name.trim()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-passkeys'] });
+      setName('');
+      toast.success('Passkey enregistrée');
+    },
+    onError: (err) => toast.error(passkeyErrorMessage(err)),
+  });
+
+  if (isLoading) return <Spinner />;
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted">
+        Une passkey est demandée après le mot de passe à chaque connexion. Créez-la avec votre navigateur ou votre gestionnaire de
+        mots de passe (Bitwarden…), et gardez-en une deuxième en secours.
+        {me.mfa.required && ' Obligatoire pour les admins sur ce hub : la dernière ne peut pas être supprimée.'}
+      </p>
+      {data?.length ? (
+        <ul className="divide-y divide-line">{data.map((p) => <PasskeyRow key={p.id} p={p} />)}</ul>
+      ) : (
+        <p className="text-sm text-zinc-400">Aucune passkey : la connexion se fait avec le seul mot de passe.</p>
+      )}
+      <form
+        className="flex flex-wrap items-end gap-2 border-t border-line pt-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add.mutate();
+        }}
+      >
+        <label className="min-w-0 flex-1">
+          <span className="mb-1.5 block text-xs font-medium text-muted">Nom de la nouvelle passkey</span>
+          <input className="input" required maxLength={64} placeholder="Bitwarden" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <Button type="submit" icon={Plus} loading={add.isPending}>Ajouter</Button>
+      </form>
+    </div>
+  );
+}
+
+// The account of the logged-in user: password, passkeys (when the hub offers them) and sessions.
 export function MyAccountModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [tab, setTab] = useState<'password' | 'sessions'>('password');
+  const me = useMe();
+  const [tab, setTab] = useState<Tab>('password');
+  const tabs = TABS.filter((t) => t.id !== 'passkeys' || me.mfa.available);
   return (
     <Modal open={open} onClose={onClose} title="Mon compte">
-      <Tabs tabs={TABS} value={tab} onChange={setTab} />
-      {tab === 'password' ? <PasswordForm onDone={onClose} /> : <SessionList />}
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
+      {tab === 'password' ? <PasswordForm onDone={onClose} /> : tab === 'passkeys' ? <PasskeyList /> : <SessionList />}
     </Modal>
   );
 }

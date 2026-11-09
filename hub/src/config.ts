@@ -54,6 +54,13 @@ export const config = {
   // (SESSION_DAYS: former name of SESSION_MAX_DAYS, still read)
   sessionIdleHours: num('SESSION_IDLE_HOURS', 12),
   sessionMaxDays: num('SESSION_MAX_DAYS', num('SESSION_DAYS', 7)),
+  // passkeys, second factor of the logins (homelab#291): the domain they are bound to, the one the browsers reach the
+  // UI at (never an IP address); unset: no passkey. Fixed here, never taken from the request: the agents check it too
+  webauthnRpId: env('WEBAUTHN_RP_ID'),
+  // origins the UI is served at; unset: https://<WEBAUTHN_RP_ID> (with a port: https://hub.lan:8443)
+  webauthnOrigins: list('WEBAUTHN_ORIGIN'),
+  // the admins must log in with a passkey, registered at their next login; needs WEBAUTHN_RP_ID
+  mfaRequired: env('MFA_REQUIRED') === 'true',
   cookieSecure: cookieSecure(),
   // set when the hub sits behind a reverse proxy (X-Forwarded-* headers)
   trustProxy: parseTrustProxy(env('TRUST_PROXY')),

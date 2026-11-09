@@ -96,7 +96,7 @@ export function SecurityHealthPanel() {
         </div>
         <p className="text-xs text-muted">{GROUP_HINT[current.id]}</p>
         {current.checks.map((c) => <Block key={c.id} check={c} />)}
-        <p className="pt-1 text-xs text-muted">Vue depuis le hub. Les points « non vérifiables » sont ceux qu’il ne peut pas voir (ACL du broker, par exemple). La double authentification des admins n’est pas contrôlée tant qu’elle n’existe pas.</p>
+        <p className="pt-1 text-xs text-muted">Vue depuis le hub. Les points « non vérifiables » sont ceux qu’il ne peut pas voir (ACL du broker, par exemple).</p>
       </VerticalTabs>
     </Panel>
   );

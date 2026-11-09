@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowedBeforePasswordChange, authorize } from '../src/profiles.js';
+import { allowedBeforePasskey, allowedBeforePasswordChange, authorize } from '../src/profiles.js';
 
 test('admin may do everything', () => {
   for (const [m, r] of [
@@ -121,4 +121,22 @@ test('every profile lists and closes its own sessions, only an admin closes the 
   assert.ok(authorize('admin', 'DELETE', '/api/users/:id/sessions'));
   for (const p of ['operator', 'viewer', 'superadmin'] as const) assert.ok(!authorize(p, 'DELETE', '/api/users/:id/sessions'), p);
   assert.ok(!allowedBeforePasswordChange('GET', '/api/account/sessions'));
+});
+
+test('an admin who must register a passkey can do that and nothing else', () => {
+  assert.ok(allowedBeforePasskey('GET', '/api/account/passkeys'));
+  assert.ok(allowedBeforePasskey('POST', '/api/account/passkeys/options'));
+  assert.ok(allowedBeforePasskey('POST', '/api/account/passkeys'));
+  for (const [m, r] of [
+    ['GET', '/api/hosts'],
+    ['DELETE', '/api/account/passkeys/:id'],
+    ['GET', '/api/events'],
+    ['POST', '/api/users'],
+  ]) {
+    assert.ok(!allowedBeforePasskey(m, r), `${m} ${r}`);
+  }
+  for (const p of ['operator', 'viewer'] as const) {
+    assert.ok(authorize(p, 'POST', '/api/account/passkeys/options'), p);
+    assert.ok(authorize(p, 'DELETE', '/api/account/passkeys/:id'), p);
+  }
 });

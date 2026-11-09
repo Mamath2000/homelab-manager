@@ -163,6 +163,7 @@ test('every audited route exists', async () => {
   });
   const { registerAuth } = await import('../src/auth.js');
   const { registerUserRoutes } = await import('../src/routes/users.js');
+  const { registerPasskeyRoutes } = await import('../src/routes/passkeys.js');
   const { registerHostRoutes } = await import('../src/routes/hosts.js');
   const { registerSettingsRoutes, registerAgentSettingsRoutes } = await import('../src/routes/settings.js');
   const { registerBackupRoutes } = await import('../src/routes/backups.js');
@@ -171,6 +172,7 @@ test('every audited route exists', async () => {
   const { registerSetupRoutes } = await import('../src/routes/setup.js');
   registerAuth(a);
   registerUserRoutes(a);
+  registerPasskeyRoutes(a);
   registerHostRoutes(a);
   registerSettingsRoutes(a, {} as never);
   registerAgentSettingsRoutes(a, {} as never);

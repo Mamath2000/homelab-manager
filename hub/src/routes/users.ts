@@ -4,14 +4,14 @@ import { settingsDiff } from '../audit.js';
 import { newApiKey, revokeSessions } from '../auth.js';
 import { closeStreams } from '../events.js';
 import { hashPassword, randomToken } from '../crypto.js';
-import { apiKeys, parseId, sessions, users } from '../db.js';
+import { apiKeys, parseId, passkeys, sessions, users } from '../db.js';
 import { PROFILES, SUPERADMIN, type ApiKeyDoc, type Profile, type UserDoc } from '../types.js';
 
 function keyDto(k: ApiKeyDoc) {
   return { id: k._id.toHexString(), name: k.name, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt ?? null };
 }
 
-function dto(u: UserDoc, keys: ApiKeyDoc[] = [], openSessions = 0) {
+function dto(u: UserDoc, keys: ApiKeyDoc[] = [], openSessions = 0, passkeyCount = 0) {
   return {
     id: u._id.toHexString(),
     username: u.username,
@@ -25,6 +25,7 @@ function dto(u: UserDoc, keys: ApiKeyDoc[] = [], openSessions = 0) {
     apiKeys: keys.map(keyDto),
     // sessions open in a browser (not the API keys)
     sessions: openSessions,
+    passkeys: passkeyCount,
   };
 }
 
@@ -79,11 +80,15 @@ export function registerUserRoutes(app: FastifyInstance) {
         { $group: { _id: '$userId', n: { $sum: 1 } } },
       ])
       .toArray();
+    const keyCounts = await passkeys
+      .aggregate<{ _id: ObjectId; n: number }>([{ $match: { userId: { $in: ids } } }, { $group: { _id: '$userId', n: { $sum: 1 } } }])
+      .toArray();
     return list.map((u) =>
       dto(
         u,
         keys.filter((k) => k.userId.equals(u._id)),
         open.find((o) => o._id.equals(u._id))?.n ?? 0,
+        keyCounts.find((o) => o._id.equals(u._id))?.n ?? 0,
       ),
     );
   });
@@ -170,6 +175,7 @@ export function registerUserRoutes(app: FastifyInstance) {
     if (await lastAdmin(user)) return reply.code(409).send({ error: 'cannot delete the last admin' });
     await users.deleteOne({ _id: user._id });
     await apiKeys.deleteMany({ userId: user._id });
+    await passkeys.deleteMany({ userId: user._id });
     await revokeSessions(user);
     return reply.code(204).send();
   });
