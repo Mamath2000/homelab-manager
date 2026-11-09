@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { MongoServerError, ObjectId } from 'mongodb';
 import { settingsDiff } from '../audit.js';
-import { newApiKey, revokeSessions } from '../auth.js';
+import { activeSessions, newApiKey, revokeSessions, sessionDto } from '../auth.js';
 import { closeStreams } from '../events.js';
 import { hashPassword, randomToken } from '../crypto.js';
 import { apiKeys, parseId, passkeys, sessions, users } from '../db.js';
+import { passkeyDto, userPasskeys } from '../passkeys.js';
 import { PROFILES, SUPERADMIN, type ApiKeyDoc, type Profile, type UserDoc } from '../types.js';
 
 function keyDto(k: ApiKeyDoc) {
@@ -196,6 +197,40 @@ export function registerUserRoutes(app: FastifyInstance) {
     const user = await target(req.params.id);
     if (!user) return reply.code(404).send({ error: 'user not found' });
     req.auditNote = { target: accountTarget(user) };
+    await revokeSessions(user);
+    return reply.code(204).send();
+  });
+
+  app.get<{ Params: { id: string } }>('/api/users/:id/sessions', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    return (await activeSessions(user._id)).map((s) => sessionDto(s, req.sessionId));
+  });
+
+  app.delete<{ Params: { id: string; sessionId: string } }>('/api/users/:id/sessions/:sessionId', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    req.auditNote = { target: accountTarget(user) };
+    const gone = await sessions.findOneAndDelete({ _id: req.params.sessionId, userId: user._id });
+    if (!gone) return reply.code(404).send({ error: 'session not found' });
+    closeStreams({ sessionId: gone._id });
+    return reply.code(204).send();
+  });
+
+  // Passkeys of the account: seen by the admins, removed all at once (lost passkey, like `hm-admin reset-passkeys`).
+  // Its sessions are closed; with MFA_REQUIRED, an admin registers a new one at the next login.
+  app.get<{ Params: { id: string } }>('/api/users/:id/passkeys', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    return (await userPasskeys(user._id)).map(passkeyDto);
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/users/:id/passkeys', async (req, reply) => {
+    const user = await target(req.params.id);
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+    if (user._id.equals(req.user!._id)) return reply.code(400).send({ error: 'use your own account' });
+    const { deletedCount } = await passkeys.deleteMany({ userId: user._id });
+    req.auditNote = { target: accountTarget(user), details: { removed: deletedCount } };
     await revokeSessions(user);
     return reply.code(204).send();
   });

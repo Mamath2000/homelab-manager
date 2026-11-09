@@ -31,3 +31,16 @@ export const PROFILE_LABELS: Record<Me['profile'], string> = {
   viewer: 'Lecture',
   superadmin: 'Super admin',
 };
+
+// Double authentication of an account, shown the same way everywhere (components/MfaStatus.tsx):
+//   on       at least one passkey
+//   missing  admin without a passkey while they are required (MFA_REQUIRED): registered at the next login
+//   off      no passkey
+//   none     no password: the account never logs in to the UI (API keys only)
+export type MfaState = 'on' | 'missing' | 'off' | 'none';
+
+export function mfaState(a: { profile: Me['profile']; hasPassword: boolean; passkeys: number }, adminsRequired: boolean): MfaState {
+  if (!a.hasPassword) return 'none';
+  if (a.passkeys > 0) return 'on';
+  return a.profile === 'admin' && adminsRequired ? 'missing' : 'off';
+}

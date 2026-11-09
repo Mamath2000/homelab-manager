@@ -163,8 +163,13 @@ function me(user: UserDoc, mfaAt?: Date) {
     displayName: user.displayName ?? '',
     profile: user.profile,
     mustChangePassword: !!user.mustChangePassword,
-    // passkeys: offered by this hub, required for this account (MFA_REQUIRED), used by this session
-    mfa: { available: passkeysEnabled(), required: mfaRequiredFor(user), satisfied: !!mfaAt },
+    // passkeys: offered by this hub, required for the admins (MFA_REQUIRED) and for this account, used by this session
+    mfa: {
+      available: passkeysEnabled(),
+      adminsRequired: passkeysEnabled() && config.mfaRequired,
+      required: mfaRequiredFor(user),
+      satisfied: !!mfaAt,
+    },
     // optional features of the hub (environment variables)
     features: { standardisation: config.featureStandardisation },
     channel: config.channel,

@@ -652,8 +652,9 @@ export interface Me {
   profile: Profile | 'superadmin';
   // temporary password: it must be replaced before using the app
   mustChangePassword: boolean;
-  // passkeys: offered by the hub (WEBAUTHN_RP_ID), required for this account (MFA_REQUIRED, admins), used by this session
-  mfa: { available: boolean; required: boolean; satisfied: boolean };
+  // passkeys: offered by the hub (WEBAUTHN_RP_ID), required for the admins (MFA_REQUIRED) and for this account, used by
+  // this session
+  mfa: { available: boolean; adminsRequired: boolean; required: boolean; satisfied: boolean };
   // optional features of the hub (environment variables, e.g. FEATURE_STANDARDISATION)
   features: { standardisation: boolean };
   // release channel of the hub (CHANNEL env): the dev channel shows a banner
@@ -814,6 +815,17 @@ export function tooManyAttemptsMessage(err: unknown) {
   const wait = s >= 60 ? `${Math.ceil(s / 60)} min` : `${Math.max(1, s)} s`;
   return `Trop de tentatives, réessayez dans ${wait}.`;
 }
+
+// Errors of the account routes (hub/src/routes/users.ts), in French
+const ACCOUNT_ERRORS: Record<string, string> = {
+  'username already taken': "Ce nom d'utilisateur est déjà pris",
+  'reserved username': "Ce nom d'utilisateur est réservé",
+  'cannot demote the last admin': 'Impossible de rétrograder le dernier admin',
+  'cannot delete the last admin': 'Impossible de supprimer le dernier admin',
+  'cannot delete your own account': 'Impossible de supprimer votre propre compte',
+};
+
+export const accountErrorMessage = (err: unknown) => ACCOUNT_ERRORS[(err as Error).message] ?? (err as Error).message;
 
 // Rules of a new password (hub/src/passwordPolicy.ts)
 export const PASSWORD_MIN_LENGTH = 12;
@@ -1772,6 +1784,7 @@ export const api = {
   passkeyOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('POST', '/api/account/passkeys/options'),
   addPasskey: (name: string, response: RegistrationResponseJSON) => request<Passkey>('POST', '/api/account/passkeys', { name, response }),
   removePasskey: (id: string) => request<void>('DELETE', `/api/account/passkeys/${id}`),
+  disableMyMfa: () => request<void>('DELETE', '/api/account/passkeys'),
   reauthOptions: () => request<PasskeyChallenge['passkey']>('POST', '/api/account/reauth/options'),
   reauth: (ticket: string, response: AuthenticationResponseJSON) => request<void>('POST', '/api/account/reauth', { ticket, response }),
   revokeMySession: (id: string) => request<void>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
@@ -1786,6 +1799,10 @@ export const api = {
   createApiKey: (id: string, name: string) => request<AccountSecret>('POST', `/api/users/${id}/api-keys`, { name }),
   revokeApiKey: (id: string, keyId: string) => request<void>('DELETE', `/api/users/${id}/api-keys/${keyId}`),
   revokeSessions: (id: string) => request<void>('DELETE', `/api/users/${id}/sessions`),
+  userSessions: (id: string) => request<AccountSession[]>('GET', `/api/users/${id}/sessions`),
+  revokeUserSession: (id: string, sessionId: string) => request<void>('DELETE', `/api/users/${id}/sessions/${encodeURIComponent(sessionId)}`),
+  userPasskeys: (id: string) => request<Passkey[]>('GET', `/api/users/${id}/passkeys`),
+  resetUserPasskeys: (id: string) => request<void>('DELETE', `/api/users/${id}/passkeys`),
   audit: (q: AuditQuery) => {
     const p = new URLSearchParams(Object.entries(q).filter((e): e is [string, string] => e[1] !== undefined));
     return request<{ entries: AuditEntry[]; next: string | null }>('GET', `/api/audit${p.size ? `?${p}` : ''}`);

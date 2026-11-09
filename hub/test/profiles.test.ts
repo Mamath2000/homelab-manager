@@ -130,6 +130,7 @@ test('an admin who must register a passkey can do that and nothing else', () => 
   for (const [m, r] of [
     ['GET', '/api/hosts'],
     ['DELETE', '/api/account/passkeys/:id'],
+    ['DELETE', '/api/account/passkeys'],
     ['GET', '/api/events'],
     ['POST', '/api/users'],
   ]) {
@@ -165,4 +166,15 @@ test('sensitive actions: what gives access or credentials, not what only takes i
     assert.ok(authorize(p, 'POST', '/api/account/reauth/options'), p);
     assert.ok(authorize(p, 'POST', '/api/account/reauth'), p);
   }
+});
+
+test('2FA of the accounts: one turns its own off, an admin removes the passkeys of another', () => {
+  for (const p of ['operator', 'viewer'] as const) {
+    assert.ok(authorize(p, 'DELETE', '/api/account/passkeys'), p);
+    assert.ok(!authorize(p, 'DELETE', '/api/users/:id/passkeys'), p);
+    assert.ok(!authorize(p, 'GET', '/api/users/:id/sessions'), p);
+  }
+  assert.ok(sensitiveAction('DELETE', '/api/account/passkeys'));
+  assert.ok(sensitiveAction('DELETE', '/api/users/:id/passkeys'));
+  assert.ok(!sensitiveAction('DELETE', '/api/users/:id/sessions/:sessionId'));
 });

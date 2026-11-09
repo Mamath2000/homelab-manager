@@ -14,6 +14,7 @@ export const AUDIT_CATEGORY_LABELS: Record<AuditCategory, string> = {
 const ACTIONS: Record<string, string> = {
   'auth.login': 'Connexion',
   'auth.logout': 'Déconnexion',
+  'auth.reauth': 'Passkey confirmée (action sensible)',
   'auth.apiKey': "Clé d'API inconnue",
   'auth.superadminIssued': 'Mot de passe superadmin émis',
   'account.create': 'Compte créé',
@@ -25,7 +26,8 @@ const ACTIONS: Record<string, string> = {
   'account.sessionRevoke': 'Session fermée',
   'account.passkeyAdd': 'Passkey enregistrée',
   'account.passkeyRemove': 'Passkey supprimée',
-  'account.passkeysReset': 'Passkeys retirées (hm-admin)',
+  'account.passkeysReset': 'Double authentification désactivée par un admin',
+  'account.mfaOff': 'Double authentification désactivée',
   'apiKey.create': "Clé d'API créée",
   'apiKey.revoke': "Clé d'API révoquée",
   'host.create': 'Hôte ajouté',

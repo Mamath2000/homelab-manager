@@ -66,7 +66,7 @@ export function allowedBeforePasswordChange(method: string, route: string) {
 // MFA_REQUIRED, admin session not proven with a passkey: only registering one is allowed.
 export function allowedBeforePasskey(method: string, route: string) {
   return (
-    route === '/api/account/passkeys' ||
+    ((method === 'GET' || method === 'POST') && route === '/api/account/passkeys') ||
     (method === 'POST' && route === '/api/account/passkeys/options') ||
     (method === 'POST' && route === '/api/account/password')
   );
@@ -85,6 +85,8 @@ export const SENSITIVE_ACTIONS = new Set([
   'POST /api/account/passkeys/options',
   'POST /api/account/passkeys',
   'DELETE /api/account/passkeys/:id',
+  'DELETE /api/account/passkeys',
+  'DELETE /api/users/:id/passkeys',
   // settings: credentials of Home Assistant, PBS, Proxmox VE, roles (Omada…), agent distribution
   'PUT /api/settings/homeassistant',
   'PUT /api/settings/agents',

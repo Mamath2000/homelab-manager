@@ -15,7 +15,20 @@ sidebar_position: 5
 | `viewer` | Lecture seule |
 
 Les droits sont vérifiés par le hub sur chaque requête : l'interface ne fait que masquer ce qui n'est pas autorisé.
-Chacun change son mot de passe et voit ses sessions depuis **Mon compte**, en bas du menu.
+## Fenêtre d'un compte
+
+La même fenêtre sert à chacun pour son propre compte (**Mon compte**, en cliquant sur son nom en bas du menu, à côté de
+**Déconnexion**) et à un admin pour les autres (**Modifier** dans la page **Comptes**). Ses onglets agissent chacun de
+leur côté, avec leur propre bouton ; ce que l'on ne peut pas changer est affiché en lecture seule :
+
+| Onglet | Mon compte | Compte d'un autre (admin) |
+|---|---|---|
+| Compte | nom, identifiant, profil : modifiables par un admin, en lecture seule sinon | nom, identifiant, profil |
+| Mot de passe | changement (mot de passe actuel, nouveau) | état, réinitialisation (mot de passe temporaire affiché une fois) |
+| Double authentification | état, passkeys, ajout, suppression, désactivation | état, passkeys, désactivation (passkey perdue) |
+| Sessions | navigateurs connectés, fermeture d'une session | idem, et fermeture de toutes |
+| Clés d'API | admins seulement | création, révocation |
+
 
 Les comptes existant avant l'introduction des profils deviennent `admin`.
 
@@ -149,8 +162,8 @@ Les passkeys sont proposées dès que `WEBAUTHN_RP_ID` est réglé ([Configurati
 
 ### Enregistrer une passkey
 
-**Mon compte › Passkeys** : donner un nom (« Bitwarden », « YubiKey »), puis **Ajouter** et suivre la fenêtre du
-navigateur. Chaque passkey indique si elle est *synchronisée* (gestionnaire, trousseau du système : utilisable sur
+**Mon compte › Double authentification** : donner un nom (« Bitwarden », « YubiKey »), puis **Activer** (première
+passkey) ou **Ajouter**, et suivre la fenêtre du navigateur. Chaque passkey indique si elle est *synchronisée* (gestionnaire, trousseau du système : utilisable sur
 plusieurs appareils), sa date d'enregistrement et sa dernière utilisation. Gardez-en **une deuxième en secours** : sans
 passkey, seul un accès à l'hôte du hub permet de se reconnecter. **Clé publique** affiche la clé au format PEM,
 destinée aux agents (vérification des actions signées par un admin, homelab#306).
@@ -171,8 +184,25 @@ Avec `MFA_REQUIRED=true`, les comptes `admin` doivent se connecter avec une pass
 Les profils `operator` et `viewer` peuvent en enregistrer une sans y être obligés. Le compte `superadmin` (mot de passe
 à usage unique, comptes seulement) et les [clés d'API](#clés-dapi) ne sont pas concernés. `MFA_REQUIRED` reste sans
 effet tant que `WEBAUTHN_RP_ID` est vide, pour ne pas bloquer les admins : le hub l'écrit dans ses journaux au
-démarrage et la [page Sécurité](securite.md#page-sécurité) le signale. La colonne *Passkeys* de la page **Comptes**
-donne le nombre de passkeys de chaque compte, en orange pour un admin qui n'en a aucune.
+démarrage et la [page Sécurité](securite.md#page-sécurité) le signale.
+
+### État d'un compte
+
+La page **Comptes** rappelle en tête ce que demande le hub (obligatoire pour les admins, facultative, ou non disponible
+sans `WEBAUTHN_RP_ID`), réglé dans le compose et jamais depuis l'interface. Le même badge donne l'état de chaque compte,
+dans la colonne *2FA* et dans sa fenêtre :
+
+| Badge | Signification |
+|---|---|
+| Activée · n | le compte a *n* passkeys |
+| Désactivée | aucune passkey : connexion par le seul mot de passe |
+| À enregistrer | admin sans passkey alors qu'elles sont obligatoires : il l'enregistre à sa prochaine connexion |
+| — | compte sans mot de passe (clés d'API seulement) : pas de connexion à l'interface |
+
+**Désactiver**, dans l'onglet *Double authentification*, supprime toutes les passkeys du compte, après confirmation et
+passkey redemandée. Sur son propre compte, c'est refusé à un admin quand elles sont obligatoires. Un admin peut le faire
+sur un autre compte (passkey perdue, sans passer par l'hôte) : ses sessions sont fermées et, si elles sont
+obligatoires, il en enregistre une nouvelle à sa prochaine connexion. Les deux sont tracés au journal.
 
 ### Actions sensibles
 
@@ -182,7 +212,7 @@ puis envoie l'action ; **Annuler** l'abandonne. Une session volée (cookie copi�
 
 | Domaine | Actions |
 |---|---|
-| Comptes | création, modification, suppression, réinitialisation d'un mot de passe, création d'une clé d'API, ajout ou suppression d'une passkey |
+| Comptes | création, modification, suppression, réinitialisation d'un mot de passe, création d'une clé d'API, ajout ou suppression d'une passkey, désactivation de la double authentification |
 | Paramètres | Home Assistant, agents, PBS principal et de secours (jetons compris), clusters Proxmox VE, rôles (Omada…) |
 | Standardisation | standard, valeurs propres d'un hôte, clé SSH hors manifeste validée, application du manifeste d'accès |
 | Hôtes | commande d'installation d'un agent, révocation de l'agent, suppression de l'hôte |
@@ -195,7 +225,7 @@ puis `POST /api/account/reauth`. Les confirmations, acceptées ou refusées, son
 
 ### Passkey perdue
 
-Depuis l'hôte du hub, supprimer les passkeys du compte (ses sessions sont fermées, l'action est tracée au journal) :
+Un autre admin désactive la double authentification du compte (ci-dessus). Sans autre admin, depuis l'hôte du hub, supprimer les passkeys du compte (ses sessions sont fermées, l'action est tracée au journal) :
 
 ```bash
 docker compose exec hub hm-admin reset-passkeys <identifiant>
@@ -213,10 +243,11 @@ Une session de l'interface se ferme :
 Seules les actions de l'utilisateur comptent comme une utilisation : les rafraîchissements automatiques d'un onglet resté
 ouvert, sans clavier ni souris depuis une minute, ne prolongent pas la session. La session `superadmin` dure 15 minutes.
 
-**Mon compte › Sessions** liste les navigateurs où le compte est connecté (navigateur, adresse, dernière utilisation,
-expiration) ; **Fermer** en ferme une, après confirmation. Dans la page **Comptes**, la colonne *Sessions* donne le nombre
-de sessions ouvertes de chaque compte, et un admin peut **fermer toutes les sessions** d'un autre compte (navigateur
-perdu ou partagé) ; ses clés d'API restent valides. Les deux actions sont tracées au [journal](#journal-des-actions).
+L'onglet *Sessions* de la [fenêtre du compte](#fenêtre-dun-compte) liste les navigateurs où le compte est connecté
+(navigateur, adresse, dernière utilisation, expiration) ; **Fermer** en ferme une, après confirmation. Dans la page
+**Comptes**, la colonne *Sessions* donne le nombre de sessions ouvertes de chaque compte, et un admin peut **fermer toutes
+les sessions** d'un autre compte (navigateur perdu ou partagé), depuis le tableau ou sa fenêtre ; ses clés d'API restent
+valides. Ces actions sont tracées au [journal](#journal-des-actions).
 
 Les sessions ouvertes avant cette version gardent leur échéance, ramenée à 7 jours au plus à leur première utilisation.
 
@@ -233,7 +264,7 @@ L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions
 | Type d'action | Ce qui est tracé |
 |---|---|
 | Connexions | connexions (avec ou sans passkey) et déconnexions, confirmations par passkey avant une action sensible, échecs dont les passkeys refusées (regroupés par adresse et par minute), clé d'API inconnue, mot de passe `superadmin` émis par `hm-admin` |
-| Comptes | création, modification (nom, profil : ancienne → nouvelle valeur), suppression, réinitialisation du mot de passe, changement de son propre mot de passe, sessions fermées, passkey ajoutée ou supprimée, passkeys retirées par `hm-admin reset-passkeys` |
+| Comptes | création, modification (nom, profil : ancienne → nouvelle valeur), suppression, réinitialisation du mot de passe, changement de son propre mot de passe, sessions fermées, passkey ajoutée ou supprimée, double authentification désactivée (par le compte, par un admin ou par `hm-admin reset-passkeys`) |
 | Clés d'API | création et révocation (nom de la clé) |
 | Hôtes | ajout, suppression, commande d'installation émise, enrôlement de l'agent (adresse, empreinte du certificat), révocation |
 | Actions | toute tâche lancée par un compte, une clé d'API ou Home Assistant (les tâches planifiées restent dans **Activité**) |

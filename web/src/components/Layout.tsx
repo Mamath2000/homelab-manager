@@ -1,13 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { Suspense, useCallback, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, Container, DatabaseBackup, Globe, History, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { AddHostModal } from './AddHostModal';
-import { MyAccountModal } from './MyAccountModal';
+import { AccountDialog } from './AccountDialog';
 import { HostQuickSwitch } from './HostQuickSwitch';
 import { TransportBanner } from './TransportBanner';
 import { Spinner, StatusDot } from './ui';
@@ -87,6 +87,66 @@ function SideLink({ item, onClick, collapsed }: { item: NavItem; onClick?: () =>
   );
 }
 
+// The logged-in user, bottom of the menu: a click opens « Mon compte » and « Déconnexion » (the superadmin has no
+// account page: one-time password, accounts only).
+function UserMenu({ collapsed, onAccount, onLogout }: { collapsed?: boolean; onAccount: () => void; onLogout: () => void }) {
+  const me = useMe();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+  const item = 'flex min-h-10 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-zinc-300 hover:bg-raised hover:text-zinc-100 md:min-h-0';
+  const pick = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div ref={ref} className={clsx('relative min-w-0', !collapsed && 'flex-1')}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`${me.displayName || me.username} — ${PROFILE_LABELS[me.profile]}`}
+        className={clsx('flex min-h-10 w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left text-zinc-300 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0', open && 'bg-raised')}
+      >
+        <User className="h-4 w-4 shrink-0 text-muted" />
+        {!collapsed && (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm">{me.displayName || me.username}</span>
+              <span className="block truncate text-xs text-muted">{PROFILE_LABELS[me.profile]}</span>
+            </span>
+            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted" />
+          </>
+        )}
+      </button>
+      {open && (
+        <div role="menu" className={clsx('panel absolute bottom-full z-30 mb-1 min-w-44 bg-panel p-1 shadow-xl shadow-black/50', collapsed ? 'left-0' : 'inset-x-0')}>
+          {!me.isSuperAdmin && (
+            <button type="button" role="menuitem" className={item} onClick={pick(onAccount)}>
+              <UserCog className="h-4 w-4 shrink-0 text-muted" /> Mon compte
+            </button>
+          )}
+          <button type="button" role="menuitem" className={item} onClick={pick(onLogout)}>
+            <LogOut className="h-4 w-4 shrink-0 text-muted" /> Déconnexion
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onAccount: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const me = useMe();
   return (
@@ -111,31 +171,13 @@ function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onN
           <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} collapsed={collapsed} />
         </div>
       )}
-      <div className={clsx('flex flex-col gap-2 border-t border-line pt-3', !me.canAccounts && 'mt-auto')}>
-        <div className={clsx('flex min-w-0 items-start gap-2 px-3 text-zinc-300', collapsed && 'justify-center px-0')} title={collapsed ? `${me.displayName || me.username} — ${PROFILE_LABELS[me.profile]}` : PROFILE_LABELS[me.profile]}>
-          <User className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-          {!collapsed && (
-            <span className="min-w-0">
-              <span className="block truncate text-sm">{me.displayName || me.username}</span>
-              <span className="block truncate text-xs text-muted">{PROFILE_LABELS[me.profile]}</span>
-            </span>
-          )}
-        </div>
-        <div className={clsx('flex gap-1', collapsed && 'flex-col')}>
-          {!me.isSuperAdmin && (
-            <button onClick={() => { onAccount(); onNavigate?.(); }} title="Mon compte : mot de passe, sessions" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
-              <UserCog className="h-4 w-4 shrink-0" /> {!collapsed && 'Mon compte'}
-            </button>
-          )}
-          <button onClick={() => { onLogout(); onNavigate?.(); }} title="Se déconnecter" className={clsx('flex min-h-10 flex-1 items-center gap-2 rounded-md px-3 py-2 text-xs text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', collapsed && 'justify-center px-0')}>
-            <LogOut className="h-4 w-4 shrink-0" /> {!collapsed && 'Déconnexion'}
+      <div className={clsx('flex gap-1 border-t border-line pt-3', collapsed ? 'flex-col' : 'items-center', !me.canAccounts && 'mt-auto')}>
+        <UserMenu collapsed={collapsed} onAccount={() => { onAccount(); onNavigate?.(); }} onLogout={() => { onLogout(); onNavigate?.(); }} />
+        {onToggle && (
+          <button onClick={onToggle} title={collapsed ? 'Déplier le menu' : 'Réduire le menu'} aria-label={collapsed ? 'Déplier le menu' : 'Réduire le menu'} className={clsx('flex min-h-10 items-center justify-center rounded-md px-3 py-2 text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', !collapsed && 'shrink-0')}>
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
-          {onToggle && (
-            <button onClick={onToggle} title={collapsed ? 'Déplier le menu' : 'Réduire le menu'} aria-label={collapsed ? 'Déplier le menu' : 'Réduire le menu'} className={clsx('flex min-h-10 items-center justify-center rounded-md px-3 py-2 text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', !collapsed && 'shrink-0')}>
-              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </button>
-          )}
-        </div>
+        )}
       </div>
     </nav>
   );
@@ -231,7 +273,7 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       )}
 
       <AddHostModal open={addingHost} onClose={() => setAddingHost(false)} />
-      <MyAccountModal open={accountOpen} onClose={() => setAccountOpen(false)} />
+      {accountOpen && <AccountDialog target={{ kind: 'self' }} onClose={() => setAccountOpen(false)} />}
       {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
       <main className={clsx('px-4 py-6 lg:px-8', collapsed ? 'lg:ml-16' : 'lg:ml-60')}>

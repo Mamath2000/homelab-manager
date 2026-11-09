@@ -1,278 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, LogOut, Pencil, Plus, ScrollText, Trash2, TriangleAlert, Users } from 'lucide-react';
-import { api, type Account, type AccountSecret, type ApiKey, type Profile } from '../lib/api';
-import { PROFILE_LABELS, useMe } from '../lib/auth';
+import { KeyRound, LogOut, Pencil, Plus, ScrollText, Trash2, Users } from 'lucide-react';
+import { accountErrorMessage, api, type Account, type AccountSecret } from '../lib/api';
+import { mfaState, PROFILE_LABELS, useMe } from '../lib/auth';
 import { dateTime } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { AuditLog } from '../components/AuditLog';
-import { Badge, Button, ConfirmModal, CopyField, Modal, ResponsiveList, Spinner, Tabs } from '../components/ui';
+import { AccountDialog } from '../components/AccountDialog';
+import { MfaBadge, MfaPolicy } from '../components/MfaStatus';
+import { Badge, Button, ConfirmModal, CopyField, ResponsiveList, Spinner, Tabs } from '../components/ui';
 
 const TABS = [
   { id: 'accounts' as const, label: 'Comptes', icon: Users },
   { id: 'journal' as const, label: 'Journal', icon: ScrollText },
 ];
-
-const PROFILES: { value: Profile; hint: string }[] = [
-  { value: 'admin', hint: 'tout : hôtes, paramètres, comptes' },
-  { value: 'operator', hint: 'lance les vérifications, mises à jour, nettoyages et redémarrages' },
-  { value: 'viewer', hint: 'lecture seule' },
-];
-
-const ERRORS: Record<string, string> = {
-  'username already taken': "Ce nom d'utilisateur est déjà pris",
-  'reserved username': "Ce nom d'utilisateur est réservé",
-  'cannot demote the last admin': 'Impossible de rétrograder le dernier admin',
-  'cannot delete the last admin': 'Impossible de supprimer le dernier admin',
-  'cannot delete your own account': 'Impossible de supprimer votre propre compte',
-};
-const message = (err: unknown) => ERRORS[(err as Error).message] ?? (err as Error).message;
-
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold text-zinc-100">{title}</h3>
-        {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function ProfilePicker({ value, onChange }: { value: Profile; onChange: (p: Profile) => void }) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-3">
-      {PROFILES.map((r) => (
-        <label
-          key={r.value}
-          className={`cursor-pointer rounded-md border p-3 text-sm transition-colors ${value === r.value ? 'border-emerald-500/60 bg-emerald-500/10' : 'border-line hover:border-zinc-600'}`}
-        >
-          <input type="radio" name="profile" className="sr-only" checked={value === r.value} onChange={() => onChange(r.value)} />
-          <div className="font-medium text-zinc-100">{PROFILE_LABELS[r.value]}</div>
-          <div className="mt-0.5 text-xs text-muted">{r.hint}</div>
-        </label>
-      ))}
-    </div>
-  );
-}
-
-// API keys of an account: one per consumer (Homepage, a script…), each revoked on its own.
-// They carry the rights of the account's profile. A new key is shown once, here.
-function ApiKeysSection({ account }: { account: Account }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [name, setName] = useState('');
-  const [issued, setIssued] = useState<{ name: string; value: string } | null>(null);
-  const [revoking, setRevoking] = useState<ApiKey | null>(null);
-
-  const create = useMutation({
-    mutationFn: () => api.createApiKey(account.id, name.trim()),
-    onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ['users'] });
-      setIssued({ name: name.trim(), value: r.apiKey! });
-      setName('');
-    },
-    onError: (err) => toast.error(message(err)),
-  });
-  const revoke = useMutation({
-    mutationFn: (k: ApiKey) => api.revokeApiKey(account.id, k.id),
-    onSuccess: (_, k) => {
-      qc.invalidateQueries({ queryKey: ['users'] });
-      toast.success(`Clé « ${k.name} » révoquée`);
-      setRevoking(null);
-    },
-    onError: (err) => toast.error(message(err)),
-  });
-
-  return (
-    <Section
-      title="Clés d'API"
-      hint="Accès sans mot de passe, en-tête « Authorization: Bearer <clé> », avec les droits du profil. Une clé par service."
-    >
-      {issued && (
-        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-          <div className="text-sm text-zinc-200">Clé « {issued.name} » créée</div>
-          <CopyField value={issued.value} />
-          <p className="text-xs text-amber-300">
-            Affichée une seule fois, copiez-la maintenant.{' '}
-            <button type="button" className="text-muted underline hover:text-zinc-200" onClick={() => setIssued(null)}>Masquer</button>
-          </p>
-        </div>
-      )}
-      {account.apiKeys.length > 0 ? (
-        <div className="overflow-hidden rounded-md border border-line">
-          <ResponsiveList mode="mobile">
-            {account.apiKeys.map((k) => (
-              <article key={k.id} className="space-y-2 p-4">
-                <div className="font-medium text-zinc-100">{k.name}</div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-zinc-400">
-                  <div><span className="text-muted">Créée le · </span>{dateTime(k.createdAt)}</div>
-                  <div><span className="text-muted">Dernière utilisation · </span>{k.lastUsedAt ? dateTime(k.lastUsedAt) : 'jamais'}</div>
-                </div>
-                <Button size="sm" variant="ghost" icon={Trash2} className="min-h-10 md:min-h-0" title="Révoquer cette clé" onClick={() => setRevoking(k)}>Révoquer</Button>
-              </article>
-            ))}
-          </ResponsiveList>
-          <ResponsiveList mode="desktop">
-          <table className="w-full text-sm">
-            <thead className="border-b border-line bg-white/[0.02]">
-              <tr className="text-left">
-                <th className="th">Nom</th>
-                <th className="th">Créée le</th>
-                <th className="th">Dernière utilisation</th>
-                <th className="th" />
-              </tr>
-            </thead>
-            <tbody>
-              {account.apiKeys.map((k) => (
-                <tr key={k.id} className="border-b border-line/60 last:border-0">
-                  <td className="td font-medium text-zinc-100">{k.name}</td>
-                  <td className="td text-xs text-zinc-400">{dateTime(k.createdAt)}</td>
-                  <td className="td text-xs text-zinc-400">{k.lastUsedAt ? dateTime(k.lastUsedAt) : 'jamais'}</td>
-                  <td className="td text-right">
-                    <Button size="sm" variant="ghost" icon={Trash2} title="Révoquer cette clé" onClick={() => setRevoking(k)}>Révoquer</Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </ResponsiveList>
-        </div>
-      ) : (
-        <p className="rounded-md border border-dashed border-line px-3 py-4 text-center text-sm text-muted">Aucune clé d'API.</p>
-      )}
-      <div className="flex items-end gap-2">
-        <label className="block flex-1">
-          <span className="mb-1.5 block text-xs font-medium text-muted">Nouvelle clé</span>
-          <input
-            className="input"
-            maxLength={64}
-            value={name}
-            placeholder="Nom du service (Homepage, script de sauvegarde…)"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                if (name.trim()) create.mutate();
-              }
-            }}
-          />
-        </label>
-        <Button type="button" icon={KeyRound} loading={create.isPending} disabled={!name.trim()} onClick={() => create.mutate()}>Générer</Button>
-      </div>
-      <ConfirmModal
-        open={!!revoking}
-        onClose={() => setRevoking(null)}
-        onConfirm={() => revoking && revoke.mutate(revoking)}
-        title="Révoquer la clé d'API"
-        confirmLabel="Révoquer"
-        danger
-        loading={revoke.isPending}
-      >
-        Révoquer la clé <strong>{revoking?.name}</strong> ? Le service qui l'utilise sera refusé immédiatement.
-      </ConfirmModal>
-    </Section>
-  );
-}
-
-// Create (accountId = null) or edit an account. Keys are managed when editing only.
-function AccountModal({ accountId, onClose, onCreated }: {
-  accountId: string | null;
-  onClose: () => void;
-  onCreated: (r: AccountSecret) => void;
-}) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const { data } = useQuery({ queryKey: ['users'], queryFn: api.users });
-  const account = accountId ? data?.find((a) => a.id === accountId) ?? null : null;
-  const [username, setUsername] = useState(account?.username ?? '');
-  const [displayName, setDisplayName] = useState(account?.displayName ?? '');
-  const [profile, setProfile] = useState<Profile>(account?.profile ?? 'viewer');
-  const [noPassword, setNoPassword] = useState(false);
-  const save = useMutation({
-    mutationFn: async () =>
-      account
-        ? (await api.updateUser(account.id, { username, displayName, profile }), null)
-        : api.createUser(username, displayName, profile, noPassword),
-    onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ['users'] });
-      // own username / name may have changed
-      if (account) qc.invalidateQueries({ queryKey: ['auth'] });
-      toast.success(
-        account ? 'Compte modifié' : noPassword ? `Compte ${username} créé : ajoutez-lui une clé d'API en le modifiant` : `Compte ${username} créé : mot de passe temporaire dans le tableau`,
-      );
-      onClose();
-      if (created?.temporaryPassword) onCreated(created);
-    },
-    onError: (err) => toast.error(message(err)),
-  });
-
-  const editing = !!account;
-  return (
-    <Modal
-      open
-      wide
-      scroll
-      onClose={onClose}
-      title={editing ? `Modifier ${account.displayName || account.username}` : 'Nouveau compte'}
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onClose}>{editing ? 'Fermer' : 'Annuler'}</Button>
-          <Button type="submit" form="account-form" variant="primary" loading={save.isPending}>{editing ? 'Enregistrer' : 'Créer'}</Button>
-        </div>
-      }
-    >
-      <div className="space-y-6">
-        <form id="account-form" onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-6">
-          <Section title="Identité">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-muted">Nom (facultatif)</span>
-                <input className="input" autoFocus maxLength={64} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Prénom Nom" />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-medium text-muted">Identifiant de connexion</span>
-                <input className="input" required maxLength={64} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="off" />
-              </label>
-            </div>
-          </Section>
-          <Section title="Profil">
-            <ProfilePicker value={profile} onChange={setProfile} />
-          </Section>
-          {!editing && (
-            <Section title="Mot de passe">
-              <div className="space-y-2">
-                <label className="flex cursor-pointer items-start gap-2.5 text-sm text-zinc-200">
-                  <input type="radio" name="password" className="mt-1 accent-emerald-500" checked={!noPassword} onChange={() => setNoPassword(false)} />
-                  <span>
-                    Mot de passe temporaire
-                    <span className="block text-xs text-muted">Généré et affiché une fois ; l'utilisateur le remplace à sa première connexion.</span>
-                  </span>
-                </label>
-                <label className="flex cursor-pointer items-start gap-2.5 text-sm text-zinc-200">
-                  <input type="radio" name="password" className="mt-1 accent-emerald-500" checked={noPassword} onChange={() => setNoPassword(true)} />
-                  <span>
-                    Aucun mot de passe
-                    <span className="block text-xs text-muted">Compte réservé aux services : accès par clé d'API, à ajouter ensuite en modifiant le compte.</span>
-                  </span>
-                </label>
-              </div>
-              {noPassword && (
-                <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-300">
-                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  Cet utilisateur ne pourra pas se connecter à l'interface.
-                </p>
-              )}
-            </Section>
-          )}
-        </form>
-        {account && <ApiKeysSection account={account} />}
-      </div>
-    </Modal>
-  );
-}
 
 export function Accounts() {
   const me = useMe();
@@ -311,7 +53,7 @@ export function Accounts() {
       setConfirming(null);
       showIssued(r);
     },
-    onError: (err) => toast.error(message(err)),
+    onError: (err) => toast.error(accountErrorMessage(err)),
   });
   const closeSessions = useMutation({
     mutationFn: (a: Account) => api.revokeSessions(a.id),
@@ -320,7 +62,7 @@ export function Accounts() {
       toast.success(`Sessions de ${a.username} fermées`);
       setClosing(null);
     },
-    onError: (err) => toast.error(message(err)),
+    onError: (err) => toast.error(accountErrorMessage(err)),
   });
   const remove = useMutation({
     mutationFn: (a: Account) => api.deleteUser(a.id),
@@ -329,7 +71,7 @@ export function Accounts() {
       toast.success(`Compte ${a.username} supprimé`);
       setDeleting(null);
     },
-    onError: (err) => toast.error(message(err)),
+    onError: (err) => toast.error(accountErrorMessage(err)),
   });
 
   return (
@@ -339,7 +81,8 @@ export function Accounts() {
       {!me.isSuperAdmin && <Tabs tabs={TABS} value={tab} onChange={setTab} />}
       {tab === 'journal' && !me.isSuperAdmin ? <AuditLog /> : (
       <>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <MfaPolicy />
         <Button icon={Plus} variant="primary" onClick={() => setEditing(null)}>Nouveau compte</Button>
       </div>
       {me.isSuperAdmin && (
@@ -402,7 +145,7 @@ export function Accounts() {
                     <div><span className="text-muted">Clés d’API · </span>{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</div>
                     <div><span className="text-muted">Dernière connexion · </span>{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</div>
                     <div><span className="text-muted">Sessions · </span>{a.sessions || '—'}</div>
-                    {me.mfa.available && <div><span className="text-muted">Passkeys · </span>{a.passkeys || '—'}</div>}
+                    {me.mfa.available && <div><span className="text-muted">2FA · </span><MfaBadge state={mfaState(a, me.mfa.adminsRequired)} count={a.passkeys} /></div>}
                     <div><span className="text-muted">Créé le · </span>{dateTime(a.createdAt)}</div>
                   </div>
                 </div>
@@ -430,7 +173,7 @@ export function Accounts() {
                 <th className="th">Clés d'API</th>
                 <th className="th">Dernière connexion</th>
                 <th className="th">Sessions</th>
-                {me.mfa.available && <th className="th">Passkeys</th>}
+                {me.mfa.available && <th className="th">2FA</th>}
                 <th className="th">Créé le</th>
                 <th className="th text-right">Actions</th>
               </tr>
@@ -479,7 +222,7 @@ export function Accounts() {
                   <td className="td text-xs text-zinc-400">{a.apiKeys.length ? `${a.apiKeys.length} clé${a.apiKeys.length > 1 ? 's' : ''}` : '—'}</td>
                   <td className="td text-xs text-zinc-400">{a.lastLoginAt ? dateTime(a.lastLoginAt) : 'jamais'}</td>
                   <td className="td text-xs text-zinc-400">{a.sessions || '—'}</td>
-                  {me.mfa.available && <td className={`td text-xs ${a.profile === 'admin' && !a.passkeys ? 'text-amber-300' : 'text-zinc-400'}`}>{a.passkeys || '—'}</td>}
+                  {me.mfa.available && <td className="td text-xs"><MfaBadge state={mfaState(a, me.mfa.adminsRequired)} count={a.passkeys} /></td>}
                   <td className="td text-xs text-zinc-400">{dateTime(a.createdAt)}</td>
                   <td className="td">
                     <div className="flex justify-end gap-1">
@@ -501,7 +244,12 @@ export function Accounts() {
       )}
 
       {editing !== undefined && (
-        <AccountModal key={editing ?? 'new'} accountId={editing} onClose={() => setEditing(undefined)} onCreated={showIssued} />
+        <AccountDialog
+          key={editing ?? 'new'}
+          target={editing === null ? { kind: 'new' } : data?.find((a) => a.id === editing)?.username === me.username ? { kind: 'self' } : { kind: 'other', id: editing }}
+          onClose={() => setEditing(undefined)}
+          onSecret={showIssued}
+        />
       )}
       <ConfirmModal
         open={!!closing}

@@ -53,6 +53,15 @@ export function registerPasskeyRoutes(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
+  // Turns the double authentication of the account off: all its passkeys go (not with MFA_REQUIRED, for an admin).
+  app.delete('/api/account/passkeys', async (req, reply) => {
+    const user = req.user!;
+    if (mfaRequiredFor(user)) return reply.code(409).send({ error: 'last passkey' });
+    const { deletedCount } = await passkeys.deleteMany({ userId: user._id });
+    req.auditNote = { target: { kind: 'account', id: user._id.toHexString(), name: user.username }, details: { removed: deletedCount } };
+    return reply.code(204).send();
+  });
+
   // Re-authentication before a sensitive action (403 reauth_required): the passkey of the account signs a new
   // challenge, and the session counts as proven from now on (profiles.ts: sensitiveAction).
   app.post('/api/account/reauth/options', async (req, reply) => {
