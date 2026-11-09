@@ -159,7 +159,7 @@ docker-prune: ## Libère le disque : dist, anciennes images locales (garde lates
 	bash docker-release.sh prune
 
 hardened-pin: ## Affiche les empreintes (digest) des images de compose.hardened.yml : make hardened-pin TAG=1.2.24 (défaut : latest)
-	@for img in mathmath350/homelab-manager:$(or $(TAG),latest) mongo:8; do \
+	@for img in mathmath350/homelab-manager:$(or $(TAG),latest) mongo:8.0; do \
 		d=$$(docker buildx imagetools inspect $$img 2>/dev/null | awk '/^Digest:/ {print $$2; exit}'); \
 		if [ -n "$$d" ]; then echo "$${img%%:*}@$$d   # $$img"; else echo "empreinte introuvable : $$img" >&2; exit 1; fi; \
 	done

@@ -49,8 +49,8 @@ services:
     networks: [default, backend]
 
   mongo:
-    # mongo:8 (8.3) — AVX requis par MongoDB 5+ (mongo:4.4 sur un vieux CPU, empreinte à remplacer)
-    image: mongo:8@sha256:e16e606f792ea89d2b4907b54e5e31eb86a7a23e27231dce3a982cc8f2d73cd2
+    # mongo:8.0 — AVX requis par MongoDB 5+ (mongo:4.4 sur un vieux CPU, empreinte à remplacer)
+    image: mongo:8.0@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142
     container_name: homelab-manager-mongo
     restart: unless-stopped
     # uid mongodb de l'image : l'entrypoint n'a alors ni chown ni gosu à faire, donc aucune capacité à conserver

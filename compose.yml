@@ -67,7 +67,7 @@ services:
   mongo:
     # MongoDB 5+ needs a CPU with AVX; use mongo:4.4 on older hardware.
     # one step at a time: 7 -> 8.0 -> 8, the hub raises featureCompatibilityVersion at start (docs/installation.md)
-    image: mongo:8
+    image: mongo:8.0
     container_name: homelab-manager-mongo
     restart: unless-stopped
     command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
