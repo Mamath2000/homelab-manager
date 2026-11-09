@@ -44,6 +44,6 @@ updates:
     schedule: { interval: weekly }
     ignore:
       # MongoDB upgrades one step at a time (7 -> 8.0 -> 8.x -> 9, featureCompatibilityVersion raised by the hub in between):
-      # mongod 8.1+ does not start on a base still at 7.0, so no 8.x before every instance is at 8.0
+      # no 9 before every instance is on 8.x
       - dependency-name: mongo
-        versions: ['>=8.1']
+        versions: ['>=9']

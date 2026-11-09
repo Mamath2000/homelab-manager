@@ -42,7 +42,7 @@ services:
     networks: [default, backend]
 
   mongo:
-    image: mongo:8.0
+    image: mongo:8
     container_name: homelab-manager-mongo
     restart: unless-stopped
     command: ["mongod", "--quiet"]    # sans les traces de connexions (très verbeuses)
