@@ -127,12 +127,14 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | db_restore_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | refresh
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | db_restore_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | tls_fingerprint | refresh
 	Tail  int    `json:"tail,omitempty"`
 	// ping: address to ping and delay of the measure (ping.go)
 	Host       string `json:"host,omitempty"`
 	From       string `json:"from,omitempty"` // source address (ping -I), capability ping_from
 	TimeoutSec int    `json:"timeoutSec,omitempty"`
+	// tls_fingerprint: port of the service of this host whose certificate is read (Host: address of its URL)
+	Port int `json:"port,omitempty"`
 	// ups_command: NUT instant command (fixed list on the agent side)
 	UpsCmd string `json:"upsCmd,omitempty"`
 	// setup_apply / setup_check: modules of the standardisation and their parameters

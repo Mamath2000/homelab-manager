@@ -37,6 +37,18 @@ Un rôle de type broker n'est jamais saisi à la main : l'agent de l'hôte signa
 
 Sur la fiche d'un hôte ou d'un équipement, les rôles qu'il porte s'affichent (lien vers Paramètres › Rôles) ; sur un hôte, et un broker détecté par son agent se déclare d'un clic (**Déclarer**, assistant prérempli).
 
+### Empreinte du contrôleur Omada
+
+Le certificat d'un contrôleur Omada est auto-signé : le hub n'accepte que celui dont l'empreinte SHA-256 est épinglée. **Lire l'empreinte du contrôleur** (étape **Contrôleur**), ou un test refusé pour cause de certificat, propose l'empreinte que présente le contrôleur ; elle n'est épinglée qu'au clic sur **Épingler l'empreinte**. Elle est vérifiée selon le porteur :
+
+| Porteur | Vérification | Affichage |
+|---|---|---|
+| Hôte dont l'agent est à jour (agent 1.2.0 ou plus, capacité `tls_fingerprint`) et connecté | l'agent lit le certificat **sur l'hôte** (adresse de l'URL si c'est une adresse de l'hôte, sinon `127.0.0.1`, même port) et le hub le compare à celui vu par le réseau | vert : identiques, épinglable |
+| idem, certificats différents | interception entre le hub et le contrôleur, ou l'adresse n'est pas celle de cet hôte (proxy, autre machine) | rouge : les deux empreintes, **pas d'épinglage** ; l'API refuse aussi d'enregistrer (409) une empreinte que l'agent ne lit pas |
+| Équipement (OC200…), agent ancien ou hors ligne, lecture de l'agent en échec | rien à comparer | orange : à comparer **avant** d'épingler, avec le cadenas du navigateur sur l'interface du contrôleur, ou sur sa machine : `openssl s_client -connect 127.0.0.1:8043 </dev/null 2>/dev/null \| openssl x509 -noout -fingerprint -sha256` |
+
+L'agent ne lit jamais que l'hôte lui-même, il ne contacte pas une autre machine. Une empreinte déjà épinglée et inchangée reste modifiable sans nouvelle vérification (renommage, application) ; changer d'empreinte ou de porteur la revérifie.
+
 ## Réaffecter, supprimer
 
 - **Réaffecter** : modifier le rôle et choisir un autre hôte porteur, paramètres conservés (pour un cluster Proxmox VE, un autre nœud **du même cluster**). Un hôte porteur hors ligne ne déplace rien tout seul : le relevé passe en erreur, comme avant, et la réaffectation reste manuelle.

@@ -4,7 +4,7 @@ import { Plug, Save } from 'lucide-react';
 import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
 import { useToast } from '../lib/toast';
 import { field } from './ProxmoxServer';
-import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
+import { CheckLine, DetectedRows, FingerprintHint, Step, Steps, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
@@ -139,7 +139,7 @@ export function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; 
               rows={[
                 { label: 'Adresse', value: form.url, empty: 'non détectée' },
                 { label: 'Adresse Tailscale', value: form.tailscaleUrl, empty: 'non détectée' },
-                { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)' },
+                { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)', hint: <FingerprintHint command="proxmox-backup-manager cert info" /> },
               ]}
             />
             <p className="text-xs text-muted">Pour un montage, l’adresse Tailscale est choisie automatiquement sur les hôtes configurés pour accéder au réseau Tailscale ; sinon l’adresse normale est utilisée.</p>

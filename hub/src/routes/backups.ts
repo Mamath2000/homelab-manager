@@ -8,7 +8,6 @@ import {
   PBS_URL_RE,
   backupDto,
   orphanDto,
-  fetchFingerprint,
   MAX_RETRY_HOURS,
   loadPbsSettings,
   normalizeFingerprint,
@@ -163,20 +162,6 @@ export function registerBackupRoutes(app: FastifyInstance) {
     // the Tailscale address is not tried: the hub only receives on the tailnet (the web UI says so)
     return probe(next.url);
   });
-
-  app.post<{ Body: { url: string } }>(
-    '/api/settings/pbs/fingerprint',
-    { schema: { body: { type: 'object', required: ['url'], additionalProperties: false, properties: { url: { type: 'string', maxLength: 256 } } } } },
-    async (req, reply) => {
-      const url = req.body.url.trim().replace(/\/+$/, '');
-      if (!PBS_URL_RE.test(url)) return reply.code(400).send({ error: 'URL invalide (https://pbs:8007)' });
-      try {
-        return { fingerprint: await fetchFingerprint(url) };
-      } catch (err) {
-        return reply.code(502).send({ error: (err as Error).message });
-      }
-    },
-  );
 
   // PBS of a host, found by its agent: mode (native / container), version, datastores, address, fingerprint.
   app.post<{ Body: { hostId: string } }>(

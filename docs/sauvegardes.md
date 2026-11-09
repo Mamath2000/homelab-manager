@@ -90,7 +90,7 @@ Jeton déjà existant, rollback en cas d'échec et retrait des droits en trop **
 | Champ | Exemple |
 |---|---|
 | Adresse | `https://192.168.100.8:8007` |
-| Empreinte du certificat | **Récupérer** lit celle que présente le PBS ; à comparer avec **Tableau de bord › Afficher l'empreinte** |
+| Empreinte du certificat | lue sur l'hôte par l'agent du PBS (**Détecter**) ; à comparer avec `proxmox-backup-manager cert info` ou **Tableau de bord › Afficher l'empreinte** |
 | Hôte du PBS | l'hôte dont l'agent administre le PBS (**Détecter** : PBS installé ou conteneur) |
 | Jeton | `homelab@pbs!monitor` (créé par l'agent du PBS) |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
@@ -102,7 +102,7 @@ Le fuseau proposé pour les sauvegardes de répertoires est celui du hub : varia
 **Tester la connexion** (étape 4) liste les datastores visibles (avertissement si aucun : revoir les droits). Le test porte sur l'adresse du LAN seulement : l'adresse Tailscale n'est pas essayée, le hub ne recevant que sur le tailnet (conteneur `tailscale` en entrée seulement), et le test l'indique sur une ligne à part (« non testable depuis le hub »), pas comme une erreur. Les agents des hôtes Tailscale joignent le PBS par leur propre Tailscale. Le hub relève le PBS toutes les 15 minutes, et aussitôt après une sauvegarde de répertoires réussie ; **Relever** sur la page Sauvegardes le fait tout de suite, et relit aussi le PBS de secours et, par leur agent, les sauvegardes des hôtes Home Assistant OS.
 
 :::info Certificat épinglé
-Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que celui dont l'empreinte est enregistrée, et la vérifie avant d'envoyer le jeton. Après un renouvellement du certificat, relancer **Détecter** pour relire l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système.
+Les certificats du PBS et de Proxmox VE sont auto-signés : le hub n'accepte que celui dont l'empreinte est enregistrée, et la vérifie avant d'envoyer le jeton. L'empreinte est lue **sur l'hôte par son agent** (`proxmox-backup-manager cert info`, `pvenode cert info`), jamais par le réseau : une interception entre le hub et le serveur au moment du réglage ne peut pas faire épingler un autre certificat. L'étape **Détection** invite à la comparer avec la même commande sur le serveur, ou avec son interface, avant d'enregistrer. Après un renouvellement du certificat, relancer **Détecter** pour relire l'empreinte. Sans empreinte, le certificat doit être valide pour les autorités du système.
 :::
 
 ### Clusters Proxmox VE

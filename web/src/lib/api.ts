@@ -1727,18 +1727,28 @@ export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 // a broker or an Omada controller (a Proxmox VE cluster has its own routes, see createPveToken); the secret
 // (password, clientSecret): absent keeps the stored one, "" clears it (a controller needs one); carrier on an edit:
 // moves the role
-export type HubRoleInput = { carrier?: { kind: 'host' | 'equipment'; id: string }; name: string } & (
+export type HubRoleCarrier = { kind: 'host' | 'equipment'; id: string };
+export type HubRoleInput = { carrier?: HubRoleCarrier; name: string } & (
   | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string } }
   | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string } }
 );
+// The fingerprint a controller presents, checked against the one the agent of its carrier reads on the host (homelab#300).
+// agent: the same, nobody in between swapped it; mismatch: another one (agentFingerprint), never pinned; network: nothing
+// to compare it to (equipment, agent too old or offline, or its read failed: agentError), the admin compares it.
+export interface PresentedFingerprint {
+  fingerprint: string;
+  source: 'agent' | 'network' | 'mismatch';
+  agentFingerprint?: string;
+  agentError?: string;
+}
+
 // what a test answers: detail, what the service said; fingerprint (Omada), the one its certificate presents when it was
-// refused (to pin it)
-export interface HubRoleTest {
+// refused, with its source (to pin it or not)
+export interface HubRoleTest extends Partial<PresentedFingerprint> {
   ok: boolean;
   error?: string;
   detail?: string;
   anonymous?: boolean; // broker: also accepts connections without an account
-  fingerprint?: string;
 }
 
 export const api = {
@@ -1819,8 +1829,9 @@ export const api = {
   createRole: (r: HubRoleInput) => request<{ id: string }>('POST', '/api/roles', r),
   updateRole: (id: string, r: Pick<HubRoleInput, 'carrier' | 'name' | 'config'>) => request<{ id: string }>('PUT', `/api/roles/${id}`, r),
   deleteRole: (id: string) => request<void>('DELETE', `/api/roles/${id}`),
-  roleFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/roles/fingerprint', { url }),
-  roleProbe: (url: string, fingerprint: string) => request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint }),
+  roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
+  roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
+    request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
@@ -1891,7 +1902,6 @@ export const api = {
   pbsDisconnectPreview: () => request<PbsDisconnectPreview>('GET', '/api/settings/pbs/disconnect'),
   disconnectPbs: () => request<DisconnectReport>('POST', '/api/settings/pbs/disconnect'),
   disconnectPbsRemote: () => request<DisconnectReport>('POST', '/api/settings/pbs-remote/disconnect'),
-  pbsFingerprint: (url: string) => request<{ fingerprint: string }>('POST', '/api/settings/pbs/fingerprint', { url }),
   pbsRemoteSettings: () => request<PbsRemoteSettings>('GET', '/api/settings/pbs-remote'),
   savePbsRemoteSettings: (s: PbsRemoteInput) => request<PbsRemoteSettings>('PUT', '/api/settings/pbs-remote', s),
   testPbsRemoteSettings: (s: PbsRemoteInput) => request<PbsTestResult & { namespaces?: string[] }>('POST', '/api/settings/pbs-remote/test', s),

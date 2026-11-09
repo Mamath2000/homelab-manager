@@ -46,6 +46,8 @@ func platformCapabilities() []string {
 	caps = append(caps, "health")
 	// ping measured from this host for the probes of the hub (ping.go)
 	caps = append(caps, "ping", "ping_from")
+	// certificate of a service of this host read locally, to pin it (tlsfingerprint.go)
+	caps = append(caps, "tls_fingerprint")
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
@@ -367,6 +369,8 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		cancel()
 	case "ping":
 		out.Result, err = pingHost(ctx, in.Host, in.From, in.TimeoutSec, execPing)
+	case "tls_fingerprint":
+		out.Result, err = readTlsFingerprint(ctx, in.Host, in.Port, localIPs)
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
 		out.Result = map[string][]string{"scopes": s.refresh(ctx, in.Scopes)}

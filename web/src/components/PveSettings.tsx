@@ -6,7 +6,7 @@ import { useHosts } from '../lib/queries';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { AgentPicker, TokenButton } from './AgentPicker';
-import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
+import { CheckLine, DetectedRows, FingerprintHint, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
 import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Modal } from './ui';
@@ -154,7 +154,7 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
             <DetectedRows
               rows={[
                 { label: 'Cluster', value: detected ? (detected.cluster ? `${detected.cluster} · ${detected.nodes?.join(', ')}` : `nœud seul (${detected.node})`) : undefined, empty: 'relancer Détecter' },
-                { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)' },
+                { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)', hint: <FingerprintHint command="pvenode cert info" /> },
               ]}
             />
             {detected ? (

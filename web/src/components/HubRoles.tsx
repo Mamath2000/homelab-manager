@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus } from '../lib/roles';
 import { roleIcon, roleTint } from '../lib/hostSkills';
@@ -310,6 +310,52 @@ function CarrierRow({ on, onPick, title, children }: { on: boolean; onPick: () =
 
 const listHead = 'px-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted';
 
+const presentedOf = (r: HubRoleTest): PresentedFingerprint | null =>
+  !r.ok && r.fingerprint && r.source ? { fingerprint: r.fingerprint, source: r.source, agentFingerprint: r.agentFingerprint, agentError: r.agentError } : null;
+
+// The fingerprint the controller presents, before it is pinned (homelab#300). agent: read the same on the host by the
+// agent of the carrier; network: nothing to compare it to, the admin compares it first; mismatch: never pinned.
+function FingerprintOffer({ presented, port, carrierName, onPin, onBack }: { presented: PresentedFingerprint; port: string; carrierName?: string; onPin: () => void; onBack: () => void }) {
+  const { source } = presented;
+  return (
+    <div
+      className={clsx(
+        'space-y-2 rounded-md border px-3 py-2 text-xs',
+        source === 'agent' ? 'border-emerald-500/40 bg-emerald-500/5' : source === 'mismatch' ? 'border-red-500/40 bg-red-500/5' : 'border-amber-500/40 bg-amber-500/5',
+      )}
+    >
+      {source === 'agent' && <p className="text-emerald-300">Certificat présenté par le contrôleur, identique à celui que l'agent de {carrierName ?? 'son porteur'} lit sur l'hôte.</p>}
+      {source === 'mismatch' && (
+        <p className="text-red-300">
+          L'agent de {carrierName ?? 'son porteur'} lit un autre certificat sur l'hôte : interception entre le hub et le contrôleur, ou l'adresse n'est pas celle de cet hôte. Il n'est pas épinglé.
+        </p>
+      )}
+      {source === 'network' && (
+        <>
+          <p className="text-amber-300">Certificat présenté par le contrôleur, lu par le réseau sans vérification : le comparer avant de l'épingler.</p>
+          <ul className="list-disc space-y-1 pl-4 text-zinc-300">
+            <li>cadenas du navigateur sur l'interface du contrôleur (empreinte SHA-256 du certificat) ;</li>
+            <li>
+              ou, sur sa machine : <code className="break-all">openssl s_client -connect 127.0.0.1:{port} &lt;/dev/null 2&gt;/dev/null | openssl x509 -noout -fingerprint -sha256</code>
+            </li>
+          </ul>
+          {presented.agentError && <p className="text-muted">Lecture par l'agent impossible : {presented.agentError}</p>}
+        </>
+      )}
+      <p className="font-mono break-all text-zinc-200">{source === 'mismatch' ? `réseau : ${presented.fingerprint}` : presented.fingerprint}</p>
+      {source === 'mismatch' && <p className="font-mono break-all text-zinc-200">hôte : {presented.agentFingerprint}</p>}
+      <div className="flex gap-2">
+        {source !== 'mismatch' && (
+          <Button size="sm" variant="primary" onClick={onPin}>
+            Épingler l'empreinte
+          </Button>
+        )}
+        <Button size="sm" onClick={onBack}>Retour</Button>
+      </div>
+    </div>
+  );
+}
+
 // Declares an Omada controller role, or edits one (choosing another carrier moves it, its settings kept). Four steps like
 // the broker: carrier, controller, application, test. The carrier is a host (the ones whose agent found a controller
 // first, the others still chosen by hand; the agent tells a controller by its fixed service ports) or an equipment with an IP. Its
@@ -332,7 +378,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   // what the controller answers without an account (end of step 2)
   const [probe, setProbe] = useState<CheckState>(null);
   // fingerprint the controller presents, offered when its certificate was refused
-  const [presented, setPresented] = useState<string | null>(null);
+  const [presented, setPresented] = useState<PresentedFingerprint | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // any change makes the last checks void
@@ -380,9 +426,9 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
     setProbe(null);
     setPresented(null);
     try {
-      const r = await api.roleProbe(url, form.fingerprint.trim());
+      const r = await api.roleProbe(url, form.fingerprint.trim(), carrier);
       setProbe(r.ok ? { level: 'ok', title: 'Le contrôleur répond', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
-      setPresented(r.ok ? null : r.fingerprint ?? null);
+      setPresented(presentedOf(r));
     } catch (err) {
       setProbe({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
@@ -395,7 +441,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
     setPresented(null);
     setReadError(null);
     try {
-      setPresented((await api.roleFingerprint(url)).fingerprint);
+      setPresented(await api.roleFingerprint(url, carrier));
     } catch (err) {
       setReadError((err as Error).message);
     } finally {
@@ -409,7 +455,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
     try {
       const r = await api.testRole({ type, carrier: carrier!, config: config(), ...(role ? { roleId: role.id } : {}) });
       setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
-      setPresented(r.ok ? null : r.fingerprint ?? null);
+      setPresented(presentedOf(r));
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
@@ -520,14 +566,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
             {carrier && !addressOk && <span className="block text-xs text-amber-300">Le porteur n'a pas d'adresse connue</span>}
             {!portOk && <span className="block text-xs text-amber-300">Port invalide (1 à 65535)</span>}
             {presented ? (
-              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
-                <p className="text-amber-300">Certificat présenté par le contrôleur : à comparer à celui qu'il affiche.</p>
-                <p className="font-mono break-all text-zinc-200">{presented}</p>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="primary" onClick={() => set({ fingerprint: presented })}>Épingler l'empreinte</Button>
-                  <Button size="sm" onClick={() => setPresented(null)}>Retour</Button>
-                </div>
-              </div>
+              <FingerprintOffer presented={presented} port={form.port} carrierName={carrierName} onPin={() => set({ fingerprint: presented.fingerprint })} onBack={() => setPresented(null)} />
             ) : (
               <>
                 {form.fingerprint ? (

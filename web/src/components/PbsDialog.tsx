@@ -52,17 +52,28 @@ export function Step({ n, title, state, intro, children, footer }: {
   );
 }
 
-// Values given by the agent of the PBS (Détecter): read, not typed.
-export function DetectedRows({ rows }: { rows: { label: string; value?: string; empty?: string }[] }) {
+// Values given by the agent of the PBS (Détecter): read, not typed. hint: shown under a value given.
+export function DetectedRows({ rows }: { rows: { label: string; value?: string; empty?: string; hint?: ReactNode }[] }) {
   return (
     <dl className="space-y-2.5">
-      {rows.map(({ label, value, empty }) => (
+      {rows.map(({ label, value, empty, hint }) => (
         <div key={label}>
           <dt className="text-xs text-muted">{label}</dt>
           <dd className="mt-0.5 font-mono text-xs break-all text-zinc-200">{value || <span className="font-sans text-zinc-500">{empty ?? '—'}</span>}</dd>
+          {value && hint && <dd className="mt-0.5 text-xs text-muted">{hint}</dd>}
         </div>
       ))}
     </dl>
+  );
+}
+
+// The fingerprint of a PBS or a Proxmox VE node is read on the host by its agent, not across the network (homelab#300):
+// what the admin compares it to before saving.
+export function FingerprintHint({ command }: { command: string }) {
+  return (
+    <>
+      Lue sur l’hôte par son agent, pas par le réseau. À comparer avec <code className="break-all">{command}</code> sur le serveur ou avec son interface avant d’enregistrer.
+    </>
   );
 }
 

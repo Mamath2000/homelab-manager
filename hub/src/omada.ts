@@ -1,4 +1,4 @@
-import { ApiError, fetchFingerprint, FingerprintError, tlsRequest, type TlsServer } from './tlsApi.js';
+import { ApiError, fetchFingerprint, FingerprintError, normalizeFingerprint, tlsRequest, type TlsServer } from './tlsApi.js';
 import { networkOf } from './subnet.js';
 import type { EquipmentType, OmadaControllerConfig, OmadaDevice, OmadaVpn } from './types.js';
 
@@ -193,15 +193,44 @@ export async function omadaProbe(c: Conn): Promise<{ omadacId: string; version: 
   return { omadacId: info.omadacId, version: info.controllerVer ?? '' };
 }
 
+// Reads the fingerprint of the certificate a service of the carrier presents, on the carrier itself (its agent,
+// tls_fingerprint): host and port of the URL the hub reaches it at.
+export type LocalFingerprint = (host: string, port: number) => Promise<string>;
+
+// What is offered to pin (homelab#300). agent: the agent of the carrier reads the same certificate on the host, nobody
+// in between swapped it; mismatch: it reads another one, never offered to pin (an interception, or the URL is not the
+// one of this host); network: nothing to compare it to (equipment, agent too old or offline, or its read failed:
+// agentError), the admin compares it to the one the controller shows before pinning it.
+export interface PresentedFingerprint {
+  fingerprint: string;
+  source: 'agent' | 'network' | 'mismatch';
+  agentFingerprint?: string;
+  agentError?: string;
+}
+
+export async function checkedFingerprint(url: string, presented: string, local: LocalFingerprint | null): Promise<PresentedFingerprint> {
+  const fingerprint = normalizeFingerprint(presented);
+  if (!local) return { fingerprint, source: 'network' };
+  const u = new URL(url);
+  try {
+    const onHost = normalizeFingerprint(await local(u.hostname, Number(u.port) || 443));
+    return onHost === fingerprint ? { fingerprint, source: 'agent' } : { fingerprint, source: 'mismatch', agentFingerprint: onHost };
+  } catch (err) {
+    return { fingerprint, source: 'network', agentError: (err as Error).message };
+  }
+}
+
 // The certificate was refused (not the one pinned, or not vouched for by the system CAs without a fingerprint): the
 // fingerprint it presents, shown to the admin who pins it or not (null: another failure, or no certificate read).
-export async function presentedFingerprint(c: Conn, err: unknown) {
+export async function presentedFingerprint(c: Conn, err: unknown, local: LocalFingerprint | null = null): Promise<PresentedFingerprint | null> {
   const code = ((err as Error).cause as NodeJS.ErrnoException | undefined)?.code;
   const refused = c.fingerprint ? err instanceof FingerprintError : !!code && CERT_ERRORS.has(code);
   if (!refused) return null;
+  let presented: string;
   try {
-    return await fetchFingerprint(c.url, 443);
+    presented = await fetchFingerprint(c.url, 443);
   } catch {
     return null;
   }
+  return checkedFingerprint(c.url, presented, local);
 }

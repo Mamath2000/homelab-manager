@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { omadaCheck, omadaProbe, omadaSnapshot, presentedFingerprint } from '../src/omada.js';
+import { checkedFingerprint, omadaCheck, omadaProbe, omadaSnapshot, presentedFingerprint } from '../src/omada.js';
 import { certFingerprint, createPki } from '../src/pki.js';
 import { normalizeFingerprint } from '../src/tlsApi.js';
 
@@ -67,7 +67,7 @@ test('omada: a certificate refused gives the fingerprint it presents, never send
       () => assert.fail('accepted'),
       (e: unknown) => e,
     );
-    assert.equal(await presentedFingerprint(c, err), fingerprint);
+    assert.deepEqual(await presentedFingerprint(c, err), { fingerprint, source: 'network' });
   }
   assert.equal(seen.length, before);
   // another failure: no fingerprint offered
@@ -81,7 +81,23 @@ test('omada: the probe asks /api/info only, without any account', async () => {
   assert.deepEqual(seen.slice(before).map((s) => [s.url, s.authorization]), [['/api/info', undefined]]);
   // not pinned: the certificate is refused, and the one it presents is offered
   const err = await omadaProbe({ url, fingerprint: '' }).catch((e: unknown) => e);
-  assert.equal(await presentedFingerprint({ url, fingerprint: '' }, err), fingerprint);
+  assert.deepEqual(await presentedFingerprint({ url, fingerprint: '' }, err), { fingerprint, source: 'network' });
+});
+
+test('omada: the fingerprint offered is checked against the one the agent of the carrier reads on the host', async () => {
+  const other = fingerprint.replace(/^../, fingerprint.startsWith('00') ? '11' : '00');
+  const asked: [string, number][] = [];
+  const reads = (fp: string) => async (h: string, p: number) => (asked.push([h, p]), fp.replaceAll(':', '').toLowerCase());
+  assert.deepEqual(await checkedFingerprint('https://192.168.0.8:8043', fingerprint, reads(fingerprint)), { fingerprint, source: 'agent' });
+  assert.deepEqual(asked, [['192.168.0.8', 8043]]);
+  assert.deepEqual(await checkedFingerprint('https://omada.lan', fingerprint, reads(other)), { fingerprint, source: 'mismatch', agentFingerprint: other });
+  assert.deepEqual(asked[1], ['omada.lan', 443]);
+  // the read failed: nothing to compare it to, the admin compares
+  const failed = await checkedFingerprint(url, fingerprint, () => Promise.reject(new Error('127.0.0.1:8043 injoignable')));
+  assert.deepEqual(failed, { fingerprint, source: 'network', agentError: '127.0.0.1:8043 injoignable' });
+  // a refused certificate goes through the same check
+  const err = await omadaProbe({ url, fingerprint: '' }).catch((e: unknown) => e);
+  assert.equal((await presentedFingerprint({ url, fingerprint: '' }, err, reads(other)))?.source, 'mismatch');
 });
 
 test('omada: snapshot of the sites and devices, MAC normalised, status 1 = connected', async () => {

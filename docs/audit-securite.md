@@ -67,7 +67,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P2 | Déploiement durci de référence et page « Santé sécurité » | évolution | ✅ fait ([Sécurité](securite.md#déploiement-durci)), double authentification des admins comprise |
 | P3 | Durcissement systemd de l'agent, puis séparation de privilèges | évolution | non retenu : l'agent garde l'accès à Docker et à systemd, donc le confinement se contourne, pour un risque de régression réel (apt, LXC) |
 | P3 | Masquage des secrets dans les fichiers compose affichés, journaux filtrés selon le profil | correction | ✅ fait : fichiers compose réservés aux admins, sortie des jobs non lisible par le lecteur ([Docker](docker.md#logs-et-fichiers-compose)) |
-| P3 | Vérification assistée des empreintes PBS, PVE et Omada | évolution | à faire |
+| P3 | Vérification assistée des empreintes PBS, PVE et Omada | évolution | ✅ fait : empreinte lue par l'agent sur l'hôte et invite à la comparer ([Sauvegardes](sauvegardes.md#proxmox-backup-server), [Empreinte du contrôleur Omada](roles.md#empreinte-du-contrôleur-omada)) |
 | P3 | Code d'enrôlement hors de la ligne de commande, validité réduite | évolution | ✅ fait ([Enrôlement](securite.md#enrôlement)) |
 | P3 | Renouvellement automatique des certificats et rotation de l'autorité | évolution | renouvellement et durées réduites : à faire ; rotation de l'autorité : non retenue |
 | P3 | Vérification de la clé du dépôt Proxmox | correction | ✅ fait ([Sauvegardes](sauvegardes.md)) |
