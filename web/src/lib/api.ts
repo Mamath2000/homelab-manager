@@ -677,7 +677,6 @@ export interface Passkey {
   lastUsedAt: string | null;
   credentialId: string;
   // public key (SPKI), to hand to the agents (homelab#306); null for a type it cannot be written in
-  publicKeyPem: string | null;
 }
 
 // Answer of a login whose account has a passkey: no session yet, the browser answers the challenge

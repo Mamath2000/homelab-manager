@@ -1,4 +1,3 @@
-import { createPublicKey, type JsonWebKey } from 'node:crypto';
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -7,7 +6,6 @@ import {
   type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
-import { decodeCredentialPublicKey } from '@simplewebauthn/server/helpers';
 import { ObjectId } from 'mongodb';
 import { config } from './config.js';
 import { randomToken } from './crypto.js';
@@ -15,8 +13,7 @@ import { passkeys, users } from './db.js';
 import type { PasskeyDoc, UserDoc } from './types.js';
 
 // Passkeys (WebAuthn), second factor of the logins (homelab#291). The password stays the first factor: the passkey
-// is asked once it is right, for the accounts that have one. Their public key can be exported for the agents
-// (homelab#306), which will check what an admin signs with it.
+// is asked once it is right, for the accounts that have one.
 
 const RP_NAME = 'Homelab Manager';
 // a challenge waits this long for the browser (the user picks the passkey in a dialog)
@@ -155,26 +152,6 @@ export async function finishLogin(ticket: string, response: AuthenticationRespon
   }
 }
 
-// --- public key -------------------------------------------------------------------------------------------------
-
-// The public key as PEM (SPKI), the form the agents read; null for a key type it cannot be put in (post-quantum…).
-export function publicKeyPem(p: Pick<PasskeyDoc, 'publicKey'>) {
-  const cose = decodeCredentialPublicKey(bytes(p.publicKey)) as unknown as Map<number, unknown>;
-  const kty = cose.get(1);
-  const b = (k: number) => b64(cose.get(k) as Uint8Array);
-  const crvs: Record<number, string> = { 1: 'P-256', 2: 'P-384', 3: 'P-521', 6: 'Ed25519' };
-  let jwk: JsonWebKey;
-  if (kty === 2) jwk = { kty: 'EC', crv: crvs[cose.get(-1) as number], x: b(-2), y: b(-3) };
-  else if (kty === 1) jwk = { kty: 'OKP', crv: crvs[cose.get(-1) as number], x: b(-2) };
-  else if (kty === 3) jwk = { kty: 'RSA', n: b(-1), e: b(-2) };
-  else return null;
-  try {
-    return createPublicKey({ key: jwk, format: 'jwk' }).export({ type: 'spki', format: 'pem' }).toString();
-  } catch {
-    return null;
-  }
-}
-
 export function passkeyDto(p: PasskeyDoc) {
   return {
     id: p._id.toHexString(),
@@ -183,6 +160,5 @@ export function passkeyDto(p: PasskeyDoc) {
     createdAt: p.createdAt,
     lastUsedAt: p.lastUsedAt ?? null,
     credentialId: p.credentialId,
-    publicKeyPem: publicKeyPem(p),
   };
 }

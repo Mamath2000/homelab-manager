@@ -165,8 +165,7 @@ Les passkeys sont proposées dès que `WEBAUTHN_RP_ID` est réglé ([Configurati
 **Mon compte › Double authentification** : donner un nom (« Bitwarden », « YubiKey »), puis **Activer** (première
 passkey) ou **Ajouter**, et suivre la fenêtre du navigateur. Chaque passkey indique si elle est *synchronisée* (gestionnaire, trousseau du système : utilisable sur
 plusieurs appareils), sa date d'enregistrement et sa dernière utilisation. Gardez-en **une deuxième en secours** : sans
-passkey, seul un accès à l'hôte du hub permet de se reconnecter. **Clé publique** affiche la clé au format PEM,
-destinée aux agents (vérification des actions signées par un admin, homelab#306).
+passkey, seul un accès à l'hôte du hub permet de se reconnecter.
 
 À la connexion, après le mot de passe, **Utiliser ma passkey** ouvre la fenêtre du navigateur. Un échec compte comme une
 [tentative de connexion](#tentatives-de-connexion) refusée et apparaît au [journal](#journal-des-actions). Le mot de

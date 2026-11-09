@@ -266,7 +266,6 @@ function PasswordTab({ account, onIssued }: { account: Account; onIssued: (r: Ac
 
 function PasskeyRow({ p, onRemove, removing }: { p: Passkey; onRemove?: () => void; removing?: boolean }) {
   const [confirming, setConfirming] = useState(false);
-  const [showKey, setShowKey] = useState(false);
   return (
     <li className="space-y-2 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -280,9 +279,6 @@ function PasskeyRow({ p, onRemove, removing }: { p: Passkey; onRemove?: () => vo
           </div>
         </div>
         <div className="flex gap-2">
-          {p.publicKeyPem && (
-            <Button size="sm" variant="ghost" onClick={() => setShowKey(!showKey)}>{showKey ? 'Masquer la clé' : 'Clé publique'}</Button>
-          )}
           {onRemove &&
             (confirming ? (
               <>
@@ -294,8 +290,6 @@ function PasskeyRow({ p, onRemove, removing }: { p: Passkey; onRemove?: () => vo
             ))}
         </div>
       </div>
-      {/* public: what the access manifest hands to the agents, for the signatures of homelab#306 */}
-      {showKey && p.publicKeyPem && <CopyField value={p.publicKeyPem} multiline />}
     </li>
   );
 }
