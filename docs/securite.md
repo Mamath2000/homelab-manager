@@ -131,12 +131,7 @@ Un agent de release embarque l'image du client de sauvegarde par son digest (`@s
 
 ### Installation depuis Proxmox VE
 
-Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre nœud, puis lance `homelab-agent install`. Aucun script du hub n'y est exécuté. Le code d'enrôlement, l'autorité du hub et l'**ancre d'accès** du nœud passent sur l'entrée standard.
-
-L'ancre d'accès (`access-anchor.json` du dossier de l'agent) liste les clés autorisées à signer le manifeste d'accès (clés SSH de root, utilisateur sudo). Un agent installé à la main démarre sans ancre et retient les signataires du premier manifeste valide reçu dans les 14 jours. Un agent installé depuis un nœud reprend l'ancre du nœud, lue sur le nœud et jamais fournie par le hub, et n'a pas cette fenêtre : un hub compromis ne peut pas y faire accepter un manifeste signé par sa propre clé (homelab#319).
-
-- **Nœud sans ancre** (aucun manifeste d'accès encore retenu) : l'installation est refusée. Publier le manifeste d'accès, attendre qu'il soit appliqué sur le nœud, puis relancer l'installation.
-- **Réinstallation** sur un agent qui a déjà ses signataires : son ancre est conservée. Une ancre vide ou une fenêtre encore ouverte est remplacée par celle du nœud.
+Le nœud copie son propre binaire, déjà vérifié, dans le CT ou sur l'autre nœud, puis lance `homelab-agent install`. Aucun script du hub n'y est exécuté. Le code d'enrôlement et l'autorité du hub passent sur l'entrée standard.
 
 ## Base de données et secrets
 
@@ -231,6 +226,12 @@ Mise en route : renseigner le `.env` (champs listés en tête du fichier), `chow
 
 Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les ACL du broker MQTT sur les topics de commande : à contrôler sur le broker ([exemple d’ACL](home-assistant.md#sécurité-des-commandes)).
 
+## Accès SSH des hôtes
+
+Les clés SSH de root, l'utilisateur sudo et ses clés sont des options de la [standardisation](standardisation.md) comme les autres : valeur standard, valeur propre d'un hôte, appliquées par l'agent. Seuls les admins les modifient, avec la passkey redemandée ([actions sensibles](comptes.md#actions-sensibles)), et chaque modification est tracée au [journal](comptes.md#journal-des-actions) avec les empreintes des clés. L'agent retire une clé qu'il a posée quand elle sort de la configuration (il en garde la liste dans `access-state.json`, dossier de l'agent) et ne touche jamais aux autres ; une clé que personne n'a configurée lève le badge **nouvelle clé SSH** ([Clés SSH hors configuration](standardisation.md#clés-ssh-hors-configuration)).
+
+Il n'y a pas de signature hors du hub (le manifeste d'accès signé de homelab#312 a été retiré, homelab#320) : un hub compromis peut déjà agir en root par la standardisation (alias sourcés par `~/.bashrc`, modules `custom` de Starship, modules `command` de fastfetch), une signature des seules clés SSH ne le bornerait pas. C'est le hub qui est protégé (voir [Limites](#limites)).
+
 ## Ce qui est protégé, et contre quoi
 
 | Menace | Protection |
@@ -246,7 +247,6 @@ Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les
 | Mot de passe d'un admin volé ou deviné | [passkey](comptes.md#passkeys) demandée après le mot de passe, obligatoire pour les admins avec `MFA_REQUIRED` |
 | Session d'un admin volée (cookie) | passkey redemandée avant les [actions sensibles](comptes.md#actions-sensibles) |
 | Hub ou compte administrateur compromis | [politique locale](#politique-locale-de-lhôte) de l'hôte, image du client de sauvegarde épinglée |
-| Hub compromis qui installe un agent dans un CT pour y poser ses clés SSH | [ancre d'accès du nœud](#installation-depuis-proxmox-ve) reprise par l'agent installé, sans fenêtre de premier usage |
 | Vol de la base MongoDB ou d'une sauvegarde | mots de passe hachés (scrypt), codes d'enrôlement hachés ; avec la [clé maître](#base-de-données-et-secrets), secrets chiffrés (sinon la clé de l'autorité y figure en clair) |
 | Accès à MongoDB depuis un autre conteneur | réseau interne `backend` ; [compte MongoDB](#base-de-données-et-secrets) |
 
@@ -256,7 +256,7 @@ Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même
 
 ## Limites
 
-- **Le hub est l'équivalent d'un accès root sur le parc.** Un hub, une base MongoDB ou un compte administrateur compromis ne peut pas installer un agent non signé, mais des fonctions légitimes (image du client de sauvegarde, répertoires sauvegardés, standardisation, installation d'agents depuis Proxmox VE) lui permettent d'agir en root sur les hôtes ou d'en lire les fichiers. La [politique locale](#politique-locale-de-lhôte) en borne une partie, sur les hôtes qui en ont une. Le hub et ses comptes administrateurs sont à protéger en conséquence : voir l'[audit de sécurité](audit-securite.md).
+- **Le hub est l'équivalent d'un accès root sur le parc**, et c'est assumé (homelab#320). Un hub, une base MongoDB ou un compte administrateur compromis ne peut pas installer un agent non signé, mais des fonctions légitimes (clés SSH et alias de la standardisation, image du client de sauvegarde, répertoires sauvegardés, installation d'agents depuis Proxmox VE) lui permettent d'agir en root sur les hôtes ou d'en lire les fichiers. La [politique locale](#politique-locale-de-lhôte) en borne une partie, sur les hôtes qui en ont une. Le hub et ses comptes administrateurs sont donc protégés en conséquence : passkey obligatoire pour les admins (`MFA_REQUIRED`), passkey redemandée avant les actions sensibles, sessions courtes, [déploiement durci](#déploiement-durci), MongoDB isolée et chiffrée. Voir aussi l'[audit de sécurité](audit-securite.md).
 - À l'installation initiale, tout vient du hub. La sécurité repose sur la commande copiée depuis l'interface, et donc sur l'accès à cette interface.
 - Il n'y a pas de protection contre le retour à une version plus ancienne : un hub compromis peut redistribuer un ancien agent signé.
 - L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, ou sa clé maître perdue, tous les agents sont à réinstaller.

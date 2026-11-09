@@ -38,8 +38,6 @@ services:
       MFA_REQUIRED: ${MFA_REQUIRED:-}
       LOG_LEVEL: info
       TZ: Europe/Paris
-    volumes:
-      - ./access:/access:ro
     read_only: true
     tmpfs:
       - /tmp

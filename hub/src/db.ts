@@ -3,7 +3,7 @@ import { config } from './config.js';
 
 // the journal of the key actions is kept one year, then dropped by Mongo itself (no purge from the hub)
 export const AUDIT_RETENTION_DAYS = 365;
-import type { AccessSettings, AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, PasskeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, PasskeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 // an account given apart from the URL (no escaping of the password); none: the URL as it is (with its own account, if any)
 const client = new MongoClient(
@@ -17,7 +17,7 @@ export let users: Collection<UserDoc>;
 export let sessions: Collection<SessionDoc>;
 export let apiKeys: Collection<ApiKeyDoc>;
 export let passkeys: Collection<PasskeyDoc>;
-export let settings: Collection<HomeAssistantSettings | AgentSettings | HealthSettings | PkiDoc | UiTlsDoc | SetupProfile | AccessSettings | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
+export let settings: Collection<HomeAssistantSettings | AgentSettings | HealthSettings | PkiDoc | UiTlsDoc | SetupProfile | PbsSettings | PbsRemoteSettings | PveSettings | SitesSettings | TagsSettings>;
 export let guests: Collection<GuestDoc>;
 export let backupJobs: Collection<BackupJobDoc>;
 export let backups: Collection<BackupDoc>;

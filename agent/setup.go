@@ -55,8 +55,7 @@ type SetupSpec struct {
 	User          *UserSpec   `json:"user,omitempty"`
 	Fastfetch     string      `json:"fastfetch,omitempty"` // JSON configuration (welcome screen fastfetch)
 	Starship      string      `json:"starship,omitempty"`  // TOML configuration (prompt starship)
-	// signed access manifest (access.go): the only source of the root keys, the user and its keys
-	Access *AccessBundle `json:"access,omitempty"`
+	// keys added earlier by this agent (access.go)
 	access *accessCtx
 }
 
@@ -674,7 +673,7 @@ func applyUser(ctx context.Context, s *SetupSpec, emit func(string)) error {
 }
 
 // applySSHKeys adds the missing keys to ~/.ssh/authorized_keys of the account and removes the ones this agent added
-// earlier (prev) that the manifest no longer lists; the other keys are never touched.
+// earlier (prev) that the configuration no longer lists; the other keys are never touched.
 func applySSHKeys(a *account, keys, prev []string, emit func(string)) error {
 	d, err := sshDir(a)
 	if err != nil {
@@ -919,11 +918,7 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 		return -1, err
 	}
 	var failed []string
-	blocked, _ := resolveAccess(s, true)
-	for _, b := range blocked {
-		emit("\n== " + b.Module + "\nerror: " + b.Detail + "\n")
-		failed = append(failed, b.Module)
-	}
+	resolveAccess(s)
 	for _, m := range setupModules {
 		if !s.has(m) {
 			continue
@@ -1095,19 +1090,14 @@ func checkSetup(ctx context.Context, s *SetupSpec) (*SetupReport, error) {
 	if err := validateSetup(s); err != nil {
 		return nil, err
 	}
-	blocked, reason := resolveAccess(s, false)
+	resolveAccess(s)
 	r := &SetupReport{CheckedAt: time.Now().UnixMilli(), User: s.userName(), Modules: []SetupCheck{}}
 	for _, m := range setupModules {
 		if s.has(m) {
 			r.Modules = append(r.Modules, checkModule(ctx, s, m))
 		}
-		for _, b := range blocked {
-			if b.Module == m {
-				r.Modules = append(r.Modules, b)
-			}
-		}
 	}
-	r.Access = accessReport(s, reason)
+	r.Access = accessReport(s)
 	return r, nil
 }
 

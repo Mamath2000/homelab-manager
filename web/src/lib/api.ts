@@ -455,7 +455,7 @@ export type SetupOptions = { [K in SetupOption]: { enabled: boolean; value: Setu
 export type SetupOverride<K extends SetupOption> = { mode: 'off' } | { mode: 'custom'; value: SetupValues[K] } | { mode: 'extra'; add: string[] };
 export type SetupOverrides = { [K in SetupOption]?: SetupOverride<K> };
 
-// authorized_keys of root and of the user as the agent found them; managed: listed by the signed manifest
+// authorized_keys of root and of the user as the agent found them; managed: in the configuration or added by the agent
 export interface AccessKey {
   account: string;
   type: string;
@@ -463,17 +463,13 @@ export interface AccessKey {
   comment?: string;
   options?: boolean;
   managed: boolean;
-  // outside the manifest and validated by an admin: no badge
+  // outside the configuration and validated by an admin: no badge
   acknowledged?: boolean;
 }
 export interface AccessReport {
+  // error: agent of the signed manifest era that could not read it (keys not checked)
   status: 'ok' | 'error';
   detail?: string;
-  serial?: number;
-  applied: number;
-  signers: string[];
-  // ms: no anchor yet, the first valid manifest pins its signers until then
-  tofuUntil?: number;
   keys: AccessKey[];
 }
 
@@ -484,31 +480,6 @@ export interface SetupState {
   // options that differ from the values of the host
   drift: number;
   access?: AccessReport;
-}
-
-// Options whose content is the signed access manifest, never a value of the profile or of a host
-export const ACCESS_OPTIONS: readonly SetupOption[] = ['root_keys', 'user', 'user_keys'];
-
-export interface AccessKeyInfo {
-  type: string;
-  fingerprint: string;
-  comment: string;
-}
-export interface AccessSummary {
-  serial: number;
-  issuedAt: number;
-  expiresAt: number | null;
-  signer: string;
-  signers: AccessKeyInfo[];
-  root: AccessKeyInfo[];
-  user: { name: string; sudoNoPassword: boolean; keys: AccessKeyInfo[] } | null;
-  uploadedAt: string;
-}
-// state of the last read of the access folder (hub side)
-export interface AccessSync {
-  state: 'none' | 'ok' | 'error';
-  detail?: string;
-  at: number;
 }
 
 export interface SetupProfile {
@@ -1981,8 +1952,6 @@ export const api = {
 
   setupProfile: () => request<SetupProfile>('GET', '/api/settings/setup'),
   saveSetupProfile: (p: SetupProfile) => request<SetupProfile>('PUT', '/api/settings/setup', p),
-  accessSettings: () => request<{ access: AccessSummary | null; sync: AccessSync }>('GET', '/api/settings/access'),
-  reloadAccess: () => request<{ access: AccessSummary | null; sync: AccessSync }>('POST', '/api/settings/access/reload'),
   applyAccess: () => request<{ started: number; offline: string[] }>('POST', '/api/settings/access/apply'),
   setupStandard: () => request<{ autoApply: boolean; options: SetupOptions }>('GET', '/api/setup'),
   saveHostSetup: (hostId: string, overrides: SetupOverrides) => request<Host>('PUT', `/api/hosts/${hostId}/setup`, { overrides }),

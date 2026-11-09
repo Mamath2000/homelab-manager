@@ -662,7 +662,7 @@ func main() {
 		log.Fatal(err)
 	}
 	ensurePolicy(cfg.Dir)
-	ensureAccessAnchor(cfg.Dir)
+	removeLegacyAnchor(cfg.Dir)
 	client := httpClient(tlsConfig(roots, cert))
 
 	jobResults.recover()

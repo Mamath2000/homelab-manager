@@ -12,10 +12,7 @@ import {
   ACCESS_OPTIONS,
   LIST_OPTIONS,
   SETUP_OPTIONS,
-  isAccessOption,
-  type AccessManifest,
   type AccessReport,
-  type AccessSettings,
   type AckedKey,
   type HostDoc,
   type JobDoc,
@@ -78,10 +75,6 @@ export const DEFAULT_SETUP: SetupProfile = {
 export const isListOption = (k: SetupOption): k is ListOption => (LIST_OPTIONS as readonly string[]).includes(k);
 export const isUserOption = (k: SetupOption) => k.startsWith('user_');
 
-export async function loadAccess(): Promise<AccessSettings | null> {
-  return (await settings.findOne({ _id: 'access' })) as AccessSettings | null;
-}
-
 export async function loadSetupProfile(): Promise<SetupProfile> {
   const saved = (await settings.findOne({ _id: 'setup' })) as Partial<SetupProfile> | null;
   const options = { ...DEFAULT_SETUP.options };
@@ -96,8 +89,41 @@ export async function loadSetupProfile(): Promise<SetupProfile> {
     options,
     fastfetch: saved?.fastfetch ?? DEFAULT_SETUP.fastfetch,
     starship: saved?.starship ?? DEFAULT_SETUP.starship,
-    access: await loadAccess(),
   };
+}
+
+// What the signed access manifest of homelab#312 held, as the hub stored it.
+interface LegacyAccess {
+  manifest?: { root?: { sshKeys?: string[] }; user?: { name: string; sudoNoPassword?: boolean; sshKeys?: string[] } };
+}
+
+// homelab#320: the signed access manifest is retired. Once, at start: its content (what the hosts got) becomes the
+// standard values of the access options, and the host values of these options from before it, ignored while it was
+// in place, are dropped (only « Non géré » stays). Then the stored manifest is deleted.
+export async function migrateAccessManifest(log: { info: (o: object, m: string) => void }) {
+  const legacy = (await settings.findOne({ _id: 'access' as never })) as LegacyAccess | null;
+  if (!legacy) return;
+  const m = legacy.manifest;
+  if (m) {
+    const p = await loadSetupProfile();
+    const o = p.options;
+    o.root_keys.value = m.root?.sshKeys ?? [];
+    if (m.user) {
+      o.user.value = { name: m.user.name, sudoNoPassword: m.user.sudoNoPassword === true };
+      o.user_keys.value = m.user.sshKeys ?? [];
+    } else {
+      // no user in the manifest: the agents applied none
+      o.user.enabled = false;
+    }
+    await settings.replaceOne({ _id: 'setup' }, p, { upsert: true });
+  }
+  let dropped = 0;
+  for (const k of ACCESS_OPTIONS) {
+    const r = await hosts.updateMany({ [`setupOverrides.${k}.mode`]: { $in: ['custom', 'extra'] } }, { $unset: { [`setupOverrides.${k}`]: '' } });
+    dropped += r.modifiedCount;
+  }
+  await settings.deleteOne({ _id: 'access' as never });
+  log.info({ fromManifest: !!m, hostValuesDropped: dropped }, 'access: signed manifest retired, its content is now the standard (homelab#320)');
 }
 
 // Error message for an invalid option value, null when it is fine.
@@ -140,25 +166,12 @@ function lockoutError(v: Partial<SetupValues>) {
   return keys ? null : "interdire le mot de passe SSH demande des clés SSH pour root ou l'utilisateur, sinon l'hôte devient injoignable";
 }
 
-// Content of the access options: always the signed manifest's (issue #312). Without manifest the keys are empty and
-// the user has no name: the agent reports it instead of applying anything.
-function accessValue(m: AccessManifest | undefined, k: (typeof ACCESS_OPTIONS)[number]) {
-  if (k === 'root_keys') return m?.root.sshKeys ?? [];
-  if (k === 'user_keys') return m?.user?.sshKeys ?? [];
-  return { name: m?.user?.name ?? '', sudoNoPassword: m?.user?.sudoNoPassword ?? false };
-}
-
 // Values applied to a host: the standard ones, changed by its overrides; options absent are not managed.
-// Access options: managed when the standard enables them and the host does not switch them off ("Non géré").
 export function effectiveValues(p: SetupProfile, overrides: SetupOverrides = {}): Partial<SetupValues> {
   const out: Partial<Record<SetupOption, unknown>> = {};
   for (const k of SETUP_OPTIONS) {
     const std = p.options[k];
     const o = overrides[k];
-    if (isAccessOption(k)) {
-      if (std.enabled && o?.mode !== 'off') out[k] = accessValue(p.access?.manifest, k);
-      continue;
-    }
     if (!o) {
       if (std.enabled) out[k] = std.value;
     } else if (o.mode === 'custom') {
@@ -175,9 +188,9 @@ export function effectiveValues(p: SetupProfile, overrides: SetupOverrides = {})
 // Error message for an invalid profile, null when it is fine.
 export function profileError(p: SetupProfile): string | null {
   for (const k of SETUP_OPTIONS) {
-    // the content of the access options is the manifest's, not the profile's
-    if (isAccessOption(k)) continue;
     const o = p.options[k];
+    // an unused user name may stay empty
+    if (k === 'user' && !o.enabled) continue;
     const err = valueError(k, o.value as SetupValues[typeof k]);
     if (err) return err;
   }
@@ -191,8 +204,6 @@ export function profileError(p: SetupProfile): string | null {
 export function overridesError(p: SetupProfile, overrides: SetupOverrides): string | null {
   for (const k of SETUP_OPTIONS) {
     const o = overrides[k];
-    // the keys and the user come from the signed manifest: a host can only stop managing them
-    if (isAccessOption(k) && o && o.mode !== 'off') return `${k} : le contenu vient du manifeste d'accès signé, seul « Non géré » est possible sur un hôte`;
     if (o?.mode === 'custom') {
       if (o.value === undefined) return `valeur manquante pour ${k}`;
       const err = valueError(k, o.value as SetupValues[typeof k]);
@@ -225,8 +236,6 @@ export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: Se
     ...(v.ssh_password !== undefined ? { allowPassword: v.ssh_password } : {}),
     root: accountSpec(v, 'root'),
     ...(v.user ? { user: { ...v.user, ...accountSpec(v, 'user') } } : {}),
-    // the access options are served from the signed manifest, relayed as it was signed
-    ...(modules.some(isAccessOption) && p.access ? { access: p.access.bundle } : {}),
     ...(v.root_motd === 'fastfetch' || v.user_motd === 'fastfetch' ? { fastfetch: p.fastfetch } : {}),
     ...(v.root_prompt === 'starship' || v.user_prompt === 'starship' ? { starship: p.starship } : {}),
   };
@@ -235,7 +244,7 @@ export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: Se
 // FEATURE_STANDARDISATION off: no host can be standardised (no application, no check)
 export const canSetup = (h: { capabilities?: string[] }) => config.featureStandardisation && !!h.capabilities?.includes('setup');
 
-// A validation lasts as long as its key stays on the host outside the manifest: gone, or listed by the manifest since,
+// A validation lasts as long as its key stays on the host outside the configuration: gone, or configured since,
 // it is dropped (a key coming back is flagged again). An unreadable report (error, option off) changes nothing.
 function prunedAckedKeys(acked: AckedKey[] | undefined, access: AccessReport | undefined) {
   if (!acked?.length || access?.status !== 'ok') return {};

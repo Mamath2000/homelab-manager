@@ -12,6 +12,6 @@ tailscale.env
 tailscale/
 logs/
 
-# Manifeste d'accès (clés publiques de l'installation, voir tools/access-manifest.sh)
+# Anciens fichiers du manifeste d'accès signé (retiré, homelab#320) : gardés hors dépôt tant qu'ils existent en local
 tools/access.json
 tools/manifest.sig.json

@@ -25,6 +25,7 @@ import { registerOmadaRoutes } from './routes/omada.js';
 import { startOmadaPoller } from './omadaSync.js';
 import { watchSettingsRoles } from './roleEvents.js';
 import { loadRoles, migrateHostRoles } from './roles.js';
+import { migrateAccessManifest } from './setup.js';
 import { registerEquipmentRoutes } from './routes/equipments.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerBackupRoutes } from './routes/backups.js';
@@ -48,7 +49,6 @@ import { loadHaBridgeSettings, migrateHaBroker, registerAgentSettingsRoutes, reg
 import { registerAgentDownloadRoute } from './routes/install.js';
 import { HomeAssistantBridge } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
-import { startAccessSync } from './accessFile.js';
 import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
 import { registerHttpPolicy, registerProxyGuard } from './transport.js';
@@ -88,6 +88,7 @@ await connectDb();
 await migrateGroups();
 await migrateEnabled();
 await migrateHostRoles();
+await migrateAccessManifest(app.log);
 await migratePveRoleType();
 await migratePveClusters(app.log);
 // before anything reads a secret: a hub without its master key does not run on sealed secrets
@@ -165,7 +166,6 @@ app.setNotFoundHandler((req, reply) => {
 
 const flushTimer = setInterval(() => flushLogs().catch((err) => app.log.error({ err }, 'log flush failed')), 2000);
 const stopScheduler = startScheduler(app.log);
-const stopAccessSync = config.featureStandardisation ? startAccessSync(app.log) : () => {};
 const stopAlerts = startAlerts(app.log);
 const stopPbsPoller = startPbsPoller(app.log);
 const stopOffsitePoller = startOffsitePoller(app.log);
@@ -191,7 +191,6 @@ async function shutdown() {
   shuttingDown = true;
   clearInterval(flushTimer);
   stopScheduler();
-  stopAccessSync();
   stopAlerts();
   stopPbsPoller();
   stopOffsitePoller();

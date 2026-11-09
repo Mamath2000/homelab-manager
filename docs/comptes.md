@@ -214,7 +214,7 @@ puis envoie l'action ; **Annuler** l'abandonne. Une session volée (cookie copi�
 |---|---|
 | Comptes | création, modification, suppression, réinitialisation d'un mot de passe, création d'une clé d'API, ajout ou suppression d'une passkey, désactivation de la double authentification |
 | Paramètres | Home Assistant, agents, PBS principal et de secours (jetons compris), clusters Proxmox VE, rôles (Omada…) |
-| Standardisation | standard, valeurs propres d'un hôte, clé SSH hors manifeste validée, application du manifeste d'accès |
+| Standardisation | standard, valeurs propres d'un hôte, clé SSH hors configuration validée, application des accès aux hôtes |
 | Hôtes | commande d'installation d'un agent, révocation de l'agent, suppression de l'hôte |
 | Bases de données | restauration d'une base |
 
@@ -269,7 +269,7 @@ L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions
 | Hôtes | ajout, suppression, commande d'installation émise, enrôlement de l'agent (adresse, empreinte du certificat), révocation |
 | Actions | toute tâche lancée par un compte, une clé d'API ou Home Assistant (les tâches planifiées restent dans **Activité**) |
 | Paramètres | Home Assistant, agents, PBS principal et de secours, clusters Proxmox VE, rôles : champs modifiés avec leurs anciennes et nouvelles valeurs |
-| Standardisation | standard, valeurs propres d'un hôte, application du manifeste d'accès, clé SSH hors manifeste validée ou annulée (empreinte, compte) |
+| Standardisation | standard, valeurs propres d'un hôte, application des accès aux hôtes, clé SSH hors configuration validée ou annulée (empreinte, compte) |
 
 Chaque entrée garde le nom de l'acteur : le compte (et la clé d'API utilisée), ou « hôte · agent » quand c'est la machine elle-même (enrôlement). Elle reste lisible après la suppression du compte. Les filtres portent sur l'utilisateur, le type d'action et la période.
 

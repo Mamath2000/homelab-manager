@@ -19,7 +19,7 @@ export const setupSections: { id: SetupSection; title: string; hint: string; opt
   },
 ];
 
-const keysHint = "Ajoute les clés du manifeste à ~/.ssh/authorized_keys et retire celles qu'il ne liste plus (posées par Homelab Manager) ; les autres clés sont gardées.";
+const keysHint = "Ajoute les clés à ~/.ssh/authorized_keys et retire celles qui ne sont plus configurées (posées par Homelab Manager) ; les autres clés sont gardées.";
 const aliasesHint = '~/.host_aliases, chargé par ~/.bashrc ; ~/.bash_aliases reste libre.';
 const promptHint = 'Invite de commande : classique colorée (rouge pour root, branche git) ou Starship.';
 const motdHint = 'Affiché à la connexion : résumé homelab (instantané) ou fastfetch (configuration commune, /etc/homelab/fastfetch.jsonc).';
@@ -31,7 +31,7 @@ export const setupOptionInfo: Record<SetupOption, { label: string; hint: string 
   root_aliases: { label: 'Alias bash', hint: aliasesHint },
   root_prompt: { label: 'Prompt', hint: promptHint },
   root_motd: { label: "Écran d'accueil", hint: motdHint },
-  user: { label: 'Compte', hint: "Créé s'il n'existe pas (shell bash, sans mot de passe), ajouté aux groupes sudo, docker et adm. Nom et sudo : manifeste d'accès signé." },
+  user: { label: 'Compte', hint: "Créé s'il n'existe pas (shell bash, sans mot de passe), ajouté aux groupes sudo, docker et adm." },
   user_keys: { label: 'Clés SSH', hint: keysHint },
   user_aliases: { label: 'Alias bash', hint: aliasesHint },
   user_prompt: { label: 'Prompt', hint: promptHint },
@@ -40,9 +40,6 @@ export const setupOptionInfo: Record<SetupOption, { label: string; hint: string 
 
 export const promptLabels = { classic: 'Classique coloré', starship: 'Starship', none: 'Aucun' } as const;
 export const motdLabels = { homelab: 'Résumé homelab', fastfetch: 'fastfetch', none: 'Aucun' } as const;
-
-// root keys, user and its keys: the content is the signed access manifest (Paramètres > Standardisation > Accès)
-export const isAccessOption = (k: SetupOption): boolean => k === 'root_keys' || k === 'user' || k === 'user_keys';
 
 export const isListOption = (k: SetupOption) => k === 'packages' || k === 'root_keys' || k === 'user_keys';
 
@@ -81,6 +78,6 @@ export function hostHasUser(options: SetupOptions, overrides: SetupOverrides) {
   return o ? o.mode === 'custom' : options.user.enabled;
 }
 
-// a key on the host that neither the manifest lists nor an admin validated
+// a key on the host that neither the configuration lists nor an admin validated
 export const hasNewSshKey = (h: { setup?: { access?: { keys: { managed: boolean; acknowledged?: boolean }[] } } | null }) =>
   !!h.setup?.access?.keys.some((k) => !k.managed && !k.acknowledged);

@@ -1,12 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { settingsDiff } from '../audit.js';
 import { isOnline } from '../agents.js';
-import { accessView, syncAccessFile } from '../accessFile.js';
 import { config } from '../config.js';
 import { hosts, parseId, settings } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
-import { MAX_TEXT, applySetup, canSetup, checkAllHosts, checkHostSetup, effectiveValues, isListOption, loadAccess, loadSetupProfile, overridesError, profileError } from '../setup.js';
+import { MAX_TEXT, applySetup, canSetup, checkAllHosts, checkHostSetup, effectiveValues, isListOption, loadSetupProfile, overridesError, profileError } from '../setup.js';
 import { ACCESS_OPTIONS, MOTD_STYLES, PROMPT_STYLES, SETUP_OPTIONS, type SetupOption, type SetupOverrides, type SetupProfile } from '../types.js';
 
 const packages = { type: 'array', maxItems: 300, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 128 } };
@@ -116,7 +115,7 @@ export function registerSetupRoutes(app: FastifyInstance) {
     const before = await loadSetupProfile();
     await settings.replaceOne({ _id: 'setup' }, next, { upsert: true });
     // the options with their values (SSH keys as fingerprints), the rest by name
-    const top = settingsDiff(before, next, ['_id', 'options', 'access']);
+    const top = settingsDiff(before, next, ['_id', 'options']);
     const opts = settingsDiff(before.options, next.options, [], true);
     req.auditNote = { details: { changed: [...top.changed, ...opts.changed], values: { ...top.values, ...opts.values } } };
     // conformity is measured against the profile: check every host again
@@ -125,21 +124,9 @@ export function registerSetupRoutes(app: FastifyInstance) {
     return p;
   });
 
-  // Signed access manifest (admin: /api/settings/*): root keys, sudo user and its keys. It is made and signed on the
-  // admin workstation (make access-publish) and dropped in the access folder the hub reads (accessFile.ts).
-  app.get('/api/settings/access', async () => accessView());
-
-  // reads the folder now instead of waiting for the next pass
-  app.post('/api/settings/access/reload', async () => {
-    await syncAccessFile(app.log);
-    return accessView();
-  });
-
-  // Pushes the active manifest to the hosts that manage the access options. Offline hosts keep the old keys
-  // (their check shows the difference) until the next application.
+  // Pushes the access options (root keys, sudo user and its keys) to the hosts that manage them, after a change of the
+  // standard. Offline hosts keep the old keys (their check shows the difference) until the next application.
   app.post('/api/settings/access/apply', async (req, reply) => {
-    const access = await loadAccess();
-    if (!access) return reply.code(409).send({ error: "aucun manifeste d'accès publié" });
     const p = await loadSetupProfile();
     let started = 0;
     const offline: string[] = [];
@@ -154,7 +141,7 @@ export function registerSetupRoutes(app: FastifyInstance) {
       await applySetup(host, 'manual', [...ACCESS_OPTIONS]);
       started++;
     }
-    req.auditNote = { details: { serial: access.manifest.serial, signer: access.signer, started, offline } };
+    req.auditNote = { details: { started, offline } };
     reply.code(202);
     return { started, offline };
   });
