@@ -192,6 +192,7 @@ route('account', 'account.revokeSessions', 'DELETE /api/users/:id/sessions');
 route('account', 'account.sessionRevoke', 'DELETE /api/account/sessions/:id');
 route('account', 'account.passkeyAdd', 'POST /api/account/passkeys');
 route('account', 'account.passkeyRemove', 'DELETE /api/account/passkeys/:id');
+route('auth', 'auth.reauth', 'POST /api/account/reauth');
 route('apiKey', 'apiKey.create', 'POST /api/users/:id/api-keys');
 route('apiKey', 'apiKey.revoke', 'DELETE /api/users/:id/api-keys/:keyId');
 route('host', 'host.create', 'POST /api/hosts');
@@ -220,7 +221,8 @@ route('setup', 'setup.accessApply', 'POST /api/settings/access/apply');
 const routeKey = (req: FastifyRequest) => `${req.method} ${req.routeOptions.url ?? ''}`;
 
 // Before the routes: every handler runs with who is acting (jobs.ts reads it), and the audited routes get their entry
-// once answered. Not recorded: requests refused before anyone is known (401) or for too many attempts (429).
+// once answered. Not recorded: requests refused before anyone is known (401), for too many attempts (429), or until
+// the passkey is proven again (reauth_required).
 export function registerAudit(app: FastifyInstance) {
   setAuditLogger(app.log);
   app.addHook('onRoute', (opts) => {
@@ -243,6 +245,8 @@ export function registerAudit(app: FastifyInstance) {
   app.addHook('onResponse', async (req, reply) => {
     const def = AUDITED_ROUTES[routeKey(req)];
     if (!def || reply.statusCode === 401 || reply.statusCode === 429) return;
+    // asked for the passkey first (auth.ts): recorded once sent again
+    if (req.auditError === 'reauth_required') return;
     const params = (req.params ?? {}) as Record<string, string>;
     const ok = reply.statusCode < 400;
     void recordAudit({

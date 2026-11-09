@@ -837,7 +837,14 @@ for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
   window.addEventListener(type, () => (lastInput = Date.now()), { capture: true, passive: true });
 }
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+// Sensitive actions (homelab#291): the hub asks for the passkey again (403 reauth_required); the prompt of the UI
+// (components/ReauthPrompt.tsx) gets it, then the request is sent once more. It rejects when the user cancels.
+let reauthPrompt: (() => Promise<void>) | null = null;
+export function setReauthPrompt(prompt: (() => Promise<void>) | null) {
+  reauthPrompt = prompt;
+}
+
+async function request<T>(method: string, url: string, body?: unknown, retried = false): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (Date.now() - lastInput > IDLE_AFTER_MS) headers['X-HM-Background'] = '1';
@@ -851,6 +858,10 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new Event('hm:unauthorized'));
+    if (res.status === 403 && data.error === 'reauth_required' && reauthPrompt && !retried) {
+      await reauthPrompt();
+      return request<T>(method, url, body, true);
+    }
     throw new ApiError(res.status, data.error ?? data.message ?? `HTTP ${res.status}`, data);
   }
   return data as T;
@@ -1761,6 +1772,8 @@ export const api = {
   passkeyOptions: () => request<PublicKeyCredentialCreationOptionsJSON>('POST', '/api/account/passkeys/options'),
   addPasskey: (name: string, response: RegistrationResponseJSON) => request<Passkey>('POST', '/api/account/passkeys', { name, response }),
   removePasskey: (id: string) => request<void>('DELETE', `/api/account/passkeys/${id}`),
+  reauthOptions: () => request<PasskeyChallenge['passkey']>('POST', '/api/account/reauth/options'),
+  reauth: (ticket: string, response: AuthenticationResponseJSON) => request<void>('POST', '/api/account/reauth', { ticket, response }),
   revokeMySession: (id: string) => request<void>('DELETE', `/api/account/sessions/${encodeURIComponent(id)}`),
 
   users: () => request<Account[]>('GET', '/api/users'),

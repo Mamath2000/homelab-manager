@@ -12,13 +12,14 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
   // agent settings only expose the distributed agent version (shown in the header)
   const settings = route.startsWith('/api/settings/') && route !== '/api/settings/agents';
   const ownPassword = method === 'POST' && route === '/api/account/password';
-  // one's own sessions and passkeys: list them, close a session, register or remove a passkey
+  // one's own sessions and passkeys: list them, close a session, register or remove a passkey, prove it again
   const ownAccount =
     route === '/api/account/sessions' ||
     (method === 'DELETE' && route === '/api/account/sessions/:id') ||
     route === '/api/account/passkeys' ||
     route === '/api/account/passkeys/options' ||
-    (method === 'DELETE' && route === '/api/account/passkeys/:id');
+    (method === 'DELETE' && route === '/api/account/passkeys/:id') ||
+    (method === 'POST' && (route === '/api/account/reauth' || route === '/api/account/reauth/options'));
   // journal of the key actions (who did what, addresses): admins only
   const audit = route === '/api/audit' || route.startsWith('/api/audit/');
   // container logs may hold secrets: not for read-only accounts; compose files: admins only
@@ -70,3 +71,44 @@ export function allowedBeforePasskey(method: string, route: string) {
     (method === 'POST' && route === '/api/account/password')
   );
 }
+
+// Sensitive actions (homelab#291): an account with a passkey proves it again before them, when its last proof is too
+// old (passkeys.ts). What gives access or a credential, changes what the hub may do on the hosts, or overwrites data;
+// not what only takes access away (revocation of a key, a session, a disconnection).
+export const SENSITIVE_ACTIONS = new Set([
+  // accounts and API keys
+  'POST /api/users',
+  'PATCH /api/users/:id',
+  'DELETE /api/users/:id',
+  'POST /api/users/:id/reset-password',
+  'POST /api/users/:id/api-keys',
+  'POST /api/account/passkeys/options',
+  'POST /api/account/passkeys',
+  'DELETE /api/account/passkeys/:id',
+  // settings: credentials of Home Assistant, PBS, Proxmox VE, roles (Omada…), agent distribution
+  'PUT /api/settings/homeassistant',
+  'PUT /api/settings/agents',
+  'PUT /api/settings/pbs',
+  'POST /api/settings/pbs/token',
+  'PUT /api/settings/pbs-remote',
+  'POST /api/settings/pbs-remote/token',
+  'PUT /api/settings/pve/clusters/:id',
+  'POST /api/settings/pve/clusters/:id/token',
+  'DELETE /api/settings/pve/clusters/:id',
+  'POST /api/roles',
+  'PUT /api/roles/:id',
+  'DELETE /api/roles/:id',
+  // standardisation and access manifest
+  'PUT /api/settings/setup',
+  'PUT /api/hosts/:id/setup',
+  'PUT /api/hosts/:id/access-keys/ack',
+  'POST /api/settings/access/apply',
+  // agents: install command (enrollment code), revocation, removal of the host
+  'POST /api/hosts/:id/enroll',
+  'POST /api/hosts/:id/revoke',
+  'DELETE /api/hosts/:id',
+  // restore of a database
+  'POST /api/db-restore',
+]);
+
+export const sensitiveAction = (method: string, route: string) => SENSITIVE_ACTIONS.has(`${method} ${route}`);

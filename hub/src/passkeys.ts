@@ -32,6 +32,15 @@ export function mfaRequiredFor(user: Pick<UserDoc, 'profile'>) {
   return config.mfaRequired && passkeysEnabled() && user.profile === 'admin';
 }
 
+// A sensitive action needs a passkey proof of the session at most this old (profiles.ts: sensitiveAction)
+export const REAUTH_MS = 5 * 60_000;
+
+// Only for the accounts that have a passkey: the others have nothing to prove it with.
+export async function reauthNeeded(user: Pick<UserDoc, '_id'>, mfaAt: Date | undefined, now = Date.now()) {
+  if (!passkeysEnabled() || (mfaAt && now - mfaAt.getTime() <= REAUTH_MS)) return false;
+  return (await passkeys.countDocuments({ userId: user._id }, { limit: 1 })) > 0;
+}
+
 // Challenges waiting for the browser, in memory: a restart only makes the user try again.
 class Pending<T> {
   private items = new Map<string, T & { expires: number }>();

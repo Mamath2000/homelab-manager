@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowedBeforePasskey, allowedBeforePasswordChange, authorize } from '../src/profiles.js';
+import { allowedBeforePasskey, allowedBeforePasswordChange, authorize, sensitiveAction } from '../src/profiles.js';
 
 test('admin may do everything', () => {
   for (const [m, r] of [
@@ -138,5 +138,31 @@ test('an admin who must register a passkey can do that and nothing else', () => 
   for (const p of ['operator', 'viewer'] as const) {
     assert.ok(authorize(p, 'POST', '/api/account/passkeys/options'), p);
     assert.ok(authorize(p, 'DELETE', '/api/account/passkeys/:id'), p);
+  }
+});
+
+test('sensitive actions: what gives access or credentials, not what only takes it away', () => {
+  for (const [m, r] of [
+    ['POST', '/api/users/:id/api-keys'],
+    ['POST', '/api/account/passkeys/options'],
+    ['PUT', '/api/settings/pbs'],
+    ['POST', '/api/settings/access/apply'],
+    ['POST', '/api/hosts/:id/enroll'],
+    ['POST', '/api/db-restore'],
+  ]) {
+    assert.ok(sensitiveAction(m, r), `${m} ${r}`);
+  }
+  for (const [m, r] of [
+    ['GET', '/api/users'],
+    ['DELETE', '/api/users/:id/api-keys/:keyId'],
+    ['DELETE', '/api/users/:id/sessions'],
+    ['POST', '/api/settings/pbs/disconnect'],
+    ['POST', '/api/hosts/:id/jobs'],
+  ]) {
+    assert.ok(!sensitiveAction(m, r), `${m} ${r}`);
+  }
+  for (const p of ['operator', 'viewer'] as const) {
+    assert.ok(authorize(p, 'POST', '/api/account/reauth/options'), p);
+    assert.ok(authorize(p, 'POST', '/api/account/reauth'), p);
   }
 });

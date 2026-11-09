@@ -152,7 +152,7 @@ test('the journal is read by the admins only', () => {
   }
 });
 
-test('every audited route exists', async () => {
+test('every audited route and every sensitive action exists', async () => {
   // the setup routes exist only with the standardisation on
   const { config } = await import('../src/config.js');
   config.featureStandardisation = true;
@@ -170,6 +170,8 @@ test('every audited route exists', async () => {
   const { registerOffsiteRoutes } = await import('../src/routes/offsite.js');
   const { registerRoleRoutes } = await import('../src/routes/roles.js');
   const { registerSetupRoutes } = await import('../src/routes/setup.js');
+  const { registerDbRestoreRoutes } = await import('../src/routes/dbRestore.js');
+  const { SENSITIVE_ACTIONS } = await import('../src/profiles.js');
   registerAuth(a);
   registerUserRoutes(a);
   registerPasskeyRoutes(a);
@@ -180,8 +182,10 @@ test('every audited route exists', async () => {
   registerOffsiteRoutes(a);
   registerRoleRoutes(a);
   registerSetupRoutes(a);
+  registerDbRestoreRoutes(a);
   await a.ready();
   for (const key of Object.keys(AUDITED_ROUTES)) assert.ok(seen.has(key), `${key} is not a route`);
+  for (const key of SENSITIVE_ACTIONS) assert.ok(seen.has(key), `${key} (sensitive) is not a route`);
 });
 
 test('entries are only added: nothing but audit.ts touches the collection, and it never changes one', () => {

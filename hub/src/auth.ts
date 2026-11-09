@@ -8,8 +8,8 @@ import { apiKeys, sessions, users } from './db.js';
 import { closeStreams } from './events.js';
 import { accountKey, apiKeyLimit, ipKey, loginLimits, pairKey, tooManyAttempts } from './loginGuard.js';
 import { passwordProblem } from './passwordPolicy.js';
-import { finishLogin, loginChallenge, mfaRequiredFor, passkeysEnabled } from './passkeys.js';
-import { allowedBeforePasskey, allowedBeforePasswordChange, authorize } from './profiles.js';
+import { finishLogin, loginChallenge, mfaRequiredFor, passkeysEnabled, reauthNeeded } from './passkeys.js';
+import { allowedBeforePasskey, allowedBeforePasswordChange, authorize, sensitiveAction } from './profiles.js';
 import { cookieSecure, httpsUrl, transport } from './transport.js';
 import { SUPERADMIN, type SessionDoc, type UserDoc } from './types.js';
 
@@ -236,6 +236,10 @@ export function registerAuth(app: FastifyInstance) {
       return reply.code(403).send({ error: 'passkey_required' });
     }
     if (!authorize(user.profile, req.method, route)) return reply.code(403).send({ error: 'forbidden' });
+    // sensitive action: an account with a passkey proves it again (POST /api/account/reauth), the key is not concerned
+    if (byKey === undefined && sensitiveAction(req.method, route) && (await reauthNeeded(user, req.mfaAt))) {
+      return reply.code(403).send({ error: 'reauth_required' });
+    }
     req.user = user;
   });
 

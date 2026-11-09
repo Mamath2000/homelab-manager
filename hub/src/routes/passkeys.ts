@@ -1,7 +1,7 @@
-import type { RegistrationResponseJSON } from '@simplewebauthn/server';
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import type { FastifyInstance } from 'fastify';
 import { parseId, passkeys, sessions } from '../db.js';
-import { finishRegistration, mfaRequiredFor, passkeyDto, passkeysEnabled, registrationOptions, userPasskeys } from '../passkeys.js';
+import { finishLogin, finishRegistration, loginChallenge, mfaRequiredFor, passkeyDto, passkeysEnabled, registrationOptions, userPasskeys } from '../passkeys.js';
 
 // The passkeys of the logged-in account (homelab#291). Registering one needs a session of the account (the challenge
 // is bound to it), not an API key.
@@ -52,4 +52,36 @@ export function registerPasskeyRoutes(app: FastifyInstance) {
     await passkeys.deleteOne({ _id: key._id });
     return reply.code(204).send();
   });
+
+  // Re-authentication before a sensitive action (403 reauth_required): the passkey of the account signs a new
+  // challenge, and the session counts as proven from now on (profiles.ts: sensitiveAction).
+  app.post('/api/account/reauth/options', async (req, reply) => {
+    if (!req.sessionId) return reply.code(400).send({ error: 'session_required' });
+    const challenge = await loginChallenge(req.user!);
+    if (!challenge) return reply.code(409).send({ error: 'no passkey' });
+    return challenge;
+  });
+
+  app.post<{ Body: { ticket: string; response: AuthenticationResponseJSON } }>(
+    '/api/account/reauth',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['ticket', 'response'],
+          additionalProperties: false,
+          properties: { ticket: { type: 'string', minLength: 1, maxLength: 128 }, response: { type: 'object' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!req.sessionId) return reply.code(400).send({ error: 'session_required' });
+      const result = await finishLogin(req.body.ticket, req.body.response);
+      // 400, not 401: the session stays valid, only the proof failed
+      if (!result) return reply.code(400).send({ error: 'passkey_expired' });
+      if (!result.ok || !result.user._id.equals(req.user!._id)) return reply.code(400).send({ error: 'passkey_refused' });
+      await sessions.updateOne({ _id: req.sessionId }, { $set: { mfaAt: new Date() } });
+      return reply.code(204).send();
+    },
+  );
 }

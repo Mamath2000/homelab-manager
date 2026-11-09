@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { test } from 'node:test';
 import { config } from '../src/config.js';
-import { mfaRequiredFor, passkeysEnabled, publicKeyPem } from '../src/passkeys.js';
+import { ObjectId } from 'mongodb';
+import { mfaRequiredFor, passkeysEnabled, publicKeyPem, REAUTH_MS, reauthNeeded } from '../src/passkeys.js';
 import { createPki } from '../src/pki.js';
 
 // COSE_Key of an ES256 key (RFC 9053): {1: 2 (EC2), 3: -7 (ES256), -1: 1 (P-256), -2: x, -3: y}
@@ -41,5 +42,19 @@ test('MFA_REQUIRED applies to the admins only, and only when passkeys can be reg
   } finally {
     config.webauthnRpId = saved.rpId;
     config.mfaRequired = saved.required;
+  }
+});
+
+test('a proof of the session younger than REAUTH_MS covers the sensitive actions', async () => {
+  const saved = config.webauthnRpId;
+  try {
+    const user = { _id: new ObjectId() };
+    const now = Date.now();
+    config.webauthnRpId = undefined;
+    assert.equal(await reauthNeeded(user, undefined, now), false, 'no passkey on this hub: nothing to prove');
+    config.webauthnRpId = 'hub.example.org';
+    assert.equal(await reauthNeeded(user, new Date(now - REAUTH_MS), now), false);
+  } finally {
+    config.webauthnRpId = saved;
   }
 });

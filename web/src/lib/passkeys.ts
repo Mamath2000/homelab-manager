@@ -13,9 +13,16 @@ export async function answerPasskey(ticket: string, options: PublicKeyCredential
   return api.loginPasskey(ticket, await startAuthentication({ optionsJSON: options }));
 }
 
+// Before a sensitive action: the passkey proves the session again (hub/src/routes/passkeys.ts)
+export async function proveSession() {
+  const { ticket, options } = await api.reauthOptions();
+  await api.reauth(ticket, await startAuthentication({ optionsJSON: options }));
+}
+
 const API_ERRORS: Record<string, string> = {
   passkey_refused: 'Passkey refusée.',
-  passkey_expired: 'Délai dépassé : reconnectez-vous.',
+  passkey_expired: 'Délai dépassé : réessayez.',
+  'no passkey': 'Aucune passkey enregistrée pour ce compte.',
   passkeys_disabled: 'Les passkeys ne sont pas activées sur ce hub (WEBAUTHN_RP_ID).',
   'last passkey': 'Les passkeys sont obligatoires pour les admins : la dernière ne peut pas être supprimée.',
 };

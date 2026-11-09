@@ -2,6 +2,7 @@ import { lazy, useEffect, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
+import { ReauthPrompt } from './components/ReauthPrompt';
 import { Spinner } from './components/ui';
 import { api, type AuthStatus, type Me } from './lib/api';
 import { MeContext, rights } from './lib/auth';
@@ -123,6 +124,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <ReauthPrompt />
     </MeContext.Provider>
   );
 }
