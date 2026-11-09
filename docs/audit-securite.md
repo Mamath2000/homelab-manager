@@ -61,18 +61,18 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P1 | Chaîne de livraison : images épinglées, CI durcie, protection contre le retour à une version plus ancienne | évolution | ✅ fait ([Version minimum](securite.md#version-minimum-anti-retour-arrière)) ; signature cosign des images non retenue |
 | P2 | Chiffrement des secrets stockés dans MongoDB (clé maître hors base) | évolution | ✅ fait, optionnel ([Sécurité](securite.md#base-de-données-et-secrets)) |
 | P2 | Double authentification (TOTP, WebAuthn), sessions plus courtes, liste des sessions | évolution | sessions et mots de passe : ✅ fait ([Sessions](comptes.md#sessions), [Choix du mot de passe](comptes.md#choix-du-mot-de-passe)) ; double authentification par passkey et réauthentification avant les actions sensibles : ✅ fait ([Passkeys](comptes.md#passkeys)) |
-| P2 | Chiffrement côté client des sauvegardes PBS | évolution | à faire |
-| P2 | Signature par l'administrateur des actions sensibles, vérifiée par l'agent | évolution | à faire |
+| P2 | Chiffrement côté client des sauvegardes PBS | évolution | non retenu : les deux PBS sont à nous, sur deux sites, et le chiffrement compliquerait fortement le montage et la restauration |
+| P2 | Signature par l'administrateur des actions sensibles, vérifiée par l'agent | évolution | sans objet : le hub est assumé équivalent root ([Limites](securite.md#limites)) ; les chemins sensibles restent bloqués par la [politique locale](securite.md#politique-locale-de-lhôte) |
 | P2 | Politique locale par hôte, qui borne ce que le hub peut demander à l'agent | évolution | ✅ fait ([Sécurité](securite.md#politique-locale-de-lhôte)) |
 | P2 | Déploiement durci de référence et page « Santé sécurité » | évolution | ✅ fait ([Sécurité](securite.md#déploiement-durci)), double authentification des admins comprise |
-| P3 | Durcissement systemd de l'agent, puis séparation de privilèges | évolution | à faire |
-| P3 | Masquage des secrets dans les fichiers compose affichés, journaux filtrés selon le profil | correction | à faire |
+| P3 | Durcissement systemd de l'agent, puis séparation de privilèges | évolution | non retenu : l'agent garde l'accès à Docker et à systemd, donc le confinement se contourne, pour un risque de régression réel (apt, LXC) |
+| P3 | Masquage des secrets dans les fichiers compose affichés, journaux filtrés selon le profil | correction | ✅ fait : fichiers compose réservés aux admins, sortie des jobs non lisible par le lecteur ([Docker](docker.md#logs-et-fichiers-compose)) |
 | P3 | Vérification assistée des empreintes PBS, PVE et Omada | évolution | à faire |
 | P3 | Code d'enrôlement hors de la ligne de commande, validité réduite | évolution | à faire |
 | P3 | Renouvellement automatique des certificats et rotation de l'autorité | évolution | à faire |
 | P3 | Vérification de la clé du dépôt Proxmox | correction | à faire |
-| P3 | Version masquée aux visiteurs non connectés, noms de compte insensibles à la casse | correction | noms de compte : ✅ fait ([Comptes](comptes.md#nom-et-identifiant)) ; version masquée : à faire |
-| P3 | Droits par site ou groupe d'hôtes, clés d'API à portée réduite, SSO / OIDC | évolution | à faire |
+| P3 | Version masquée aux visiteurs non connectés, noms de compte insensibles à la casse | correction | ✅ fait ([Comptes](comptes.md#nom-et-identifiant)) ; `/api/health` ne renvoie plus la version |
+| P3 | Droits par site ou groupe d'hôtes, clés d'API à portée réduite, SSO / OIDC | évolution | droits par site et clés d'API restreintes : non retenus, les profils globaux suffisent ; SSO / OIDC : à faire |
 
 Cette liste est mise à jour au fil des versions ; le [CHANGELOG](https://github.com/Mamath2000/homelab-manager/blob/main/CHANGELOG.md) indique la version qui apporte chaque correction.
 
