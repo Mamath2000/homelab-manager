@@ -174,6 +174,25 @@ effet tant que `WEBAUTHN_RP_ID` est vide, pour ne pas bloquer les admins : le hu
 démarrage et la [page Sécurité](securite.md#page-sécurité) le signale. La colonne *Passkeys* de la page **Comptes**
 donne le nombre de passkeys de chaque compte, en orange pour un admin qui n'en a aucune.
 
+### Actions sensibles
+
+Un compte qui a une passkey la confirme de nouveau avant une action sensible, quand sa dernière confirmation (connexion
+ou action précédente) date de plus de **5 minutes**. L'interface ouvre une fenêtre **Confirmer avec votre passkey**,
+puis envoie l'action ; **Annuler** l'abandonne. Une session volée (cookie copié) ne suffit donc pas à ces actions :
+
+| Domaine | Actions |
+|---|---|
+| Comptes | création, modification, suppression, réinitialisation d'un mot de passe, création d'une clé d'API, ajout ou suppression d'une passkey |
+| Paramètres | Home Assistant, agents, PBS principal et de secours (jetons compris), clusters Proxmox VE, rôles (Omada…) |
+| Standardisation | standard, valeurs propres d'un hôte, clé SSH hors manifeste validée, application du manifeste d'accès |
+| Hôtes | commande d'installation d'un agent, révocation de l'agent, suppression de l'hôte |
+| Bases de données | restauration d'une base |
+
+Ce qui ne fait que retirer un accès (révoquer une clé d'API, fermer des sessions, déconnecter un PBS) n'est pas
+concerné, pas plus que les comptes sans passkey, le `superadmin` et les [clés d'API](#clés-dapi). L'API répond
+`403 reauth_required` tant que la confirmation manque ; la confirmation passe par `POST /api/account/reauth/options`
+puis `POST /api/account/reauth`. Les confirmations, acceptées ou refusées, sont tracées au [journal](#journal-des-actions).
+
 ### Passkey perdue
 
 Depuis l'hôte du hub, supprimer les passkeys du compte (ses sessions sont fermées, l'action est tracée au journal) :
@@ -213,7 +232,7 @@ L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions
 
 | Type d'action | Ce qui est tracé |
 |---|---|
-| Connexions | connexions (avec ou sans passkey) et déconnexions, échecs dont les passkeys refusées (regroupés par adresse et par minute), clé d'API inconnue, mot de passe `superadmin` émis par `hm-admin` |
+| Connexions | connexions (avec ou sans passkey) et déconnexions, confirmations par passkey avant une action sensible, échecs dont les passkeys refusées (regroupés par adresse et par minute), clé d'API inconnue, mot de passe `superadmin` émis par `hm-admin` |
 | Comptes | création, modification (nom, profil : ancienne → nouvelle valeur), suppression, réinitialisation du mot de passe, changement de son propre mot de passe, sessions fermées, passkey ajoutée ou supprimée, passkeys retirées par `hm-admin reset-passkeys` |
 | Clés d'API | création et révocation (nom de la clé) |
 | Hôtes | ajout, suppression, commande d'installation émise, enrôlement de l'agent (adresse, empreinte du certificat), révocation |

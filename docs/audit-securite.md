@@ -60,7 +60,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P1 | En-têtes de sécurité HTTP (CSP, anti-iframe, HSTS) | évolution | ✅ fait ([Sécurité](securite.md#en-têtes-de-sécurité-http)) |
 | P1 | Chaîne de livraison : images épinglées, CI durcie, protection contre le retour à une version plus ancienne | évolution | ✅ fait ([Version minimum](securite.md#version-minimum-anti-retour-arrière)) ; signature cosign des images non retenue |
 | P2 | Chiffrement des secrets stockés dans MongoDB (clé maître hors base) | évolution | ✅ fait, optionnel ([Sécurité](securite.md#base-de-données-et-secrets)) |
-| P2 | Double authentification (TOTP, WebAuthn), sessions plus courtes, liste des sessions | évolution | sessions et mots de passe : ✅ fait ([Sessions](comptes.md#sessions), [Choix du mot de passe](comptes.md#choix-du-mot-de-passe)) ; double authentification par passkey : ✅ fait ([Passkeys](comptes.md#passkeys)) ; réauthentification avant les actions sensibles : à faire |
+| P2 | Double authentification (TOTP, WebAuthn), sessions plus courtes, liste des sessions | évolution | sessions et mots de passe : ✅ fait ([Sessions](comptes.md#sessions), [Choix du mot de passe](comptes.md#choix-du-mot-de-passe)) ; double authentification par passkey et réauthentification avant les actions sensibles : ✅ fait ([Passkeys](comptes.md#passkeys)) |
 | P2 | Chiffrement côté client des sauvegardes PBS | évolution | à faire |
 | P2 | Signature par l'administrateur des actions sensibles, vérifiée par l'agent | évolution | à faire |
 | P2 | Politique locale par hôte, qui borne ce que le hub peut demander à l'agent | évolution | ✅ fait ([Sécurité](securite.md#politique-locale-de-lhôte)) |

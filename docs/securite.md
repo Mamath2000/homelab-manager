@@ -239,6 +239,7 @@ Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les
 | Hôte compromis ou retiré du parc | « Révoquer l'agent » ou suppression de l'hôte |
 | Binaire modifié pendant une mise à jour, hub compromis | signature de release vérifiée par l'agent |
 | Mot de passe d'un admin volé ou deviné | [passkey](comptes.md#passkeys) demandée après le mot de passe, obligatoire pour les admins avec `MFA_REQUIRED` |
+| Session d'un admin volée (cookie) | passkey redemandée avant les [actions sensibles](comptes.md#actions-sensibles) |
 | Hub ou compte administrateur compromis | [politique locale](#politique-locale-de-lhôte) de l'hôte, image du client de sauvegarde épinglée |
 | Vol de la base MongoDB ou d'une sauvegarde | mots de passe hachés (scrypt), codes d'enrôlement hachés ; avec la [clé maître](#base-de-données-et-secrets), secrets chiffrés (sinon la clé de l'autorité y figure en clair) |
 | Accès à MongoDB depuis un autre conteneur | réseau interne `backend` ; [compte MongoDB](#base-de-données-et-secrets) |
