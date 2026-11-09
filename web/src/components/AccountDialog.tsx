@@ -684,7 +684,7 @@ export function AccountDialog({ target, onClose, onSecret = () => {} }: {
   else body = account && <ApiKeysTab account={account} />;
 
   return (
-    <Modal open wide scroll onClose={onClose} title={title} footer={<Button variant="ghost" onClick={onClose}>Fermer</Button>}>
+    <Modal open wide="xl" scroll onClose={onClose} title={title} footer={<Button variant="ghost" onClick={onClose}>Fermer</Button>}>
       {tabs.length > 1 && <Tabs tabs={tabs} value={tab} onChange={setTab} />}
       {body}
     </Modal>
