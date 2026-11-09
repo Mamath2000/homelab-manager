@@ -345,6 +345,7 @@ export interface Host {
   // none: not enrolled yet, or revoked
   agentAuth: 'cert' | 'legacy' | 'none';
   certIssuedAt: string | null;
+  enrollIp: string | null;
   // pending install command (single-use code), null once used or expired
   enrollExpiresAt: string | null;
   capabilities: string[];

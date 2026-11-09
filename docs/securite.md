@@ -26,7 +26,7 @@ Les empreintes sont affichées dans **Paramètres > Agent** : adresse des agents
 La commande d'installation contient l'empreinte de la clé publique du serveur :
 
 ```bash
-curl -fsSLk --pinnedpubkey sha256//CLÉ https://IP_DU_HUB:3443/install.sh | sh -s -- CODE
+curl -fsSLk --pinnedpubkey sha256//CLÉ https://IP_DU_HUB:3443/install.sh | HLM_ENROLL_CODE=CODE sh -s --
 ```
 
 - `--pinnedpubkey` : curl refuse la connexion si le serveur ne présente pas exactement cette clé, ce qui écarte un faux hub (usurpation d'IP, de DNS ou d'ARP). `-k` ne désactive que la vérification par une autorité publique et le contrôle du nom ; l'épinglage les remplace.
@@ -45,7 +45,8 @@ Le résultat doit être identique à la clé épinglée affichée dans les param
 
 ## Enrôlement
 
-- La commande d'installation contient un **code à usage unique, valable 24 h**. Le hub n'en garde que le hash. Une nouvelle commande annule la précédente.
+- La commande d'installation contient un **code à usage unique, valable 1 h** (`ENROLL_CODE_HOURS`). Il est passé par la variable `HLM_ENROLL_CODE`, pas en argument : il n'apparaît pas dans la liste des processus. Le hub n'en garde que le hash. Une nouvelle commande annule la précédente.
+- La fiche de l'hôte indique quand et depuis quelle adresse le code a été utilisé (ligne **Certificat**).
 - L'agent génère **sa clé privée sur l'hôte** (`/etc/homelab-agent/agent.key`, droits 600). Elle ne quitte jamais l'hôte : l'agent envoie au hub une demande de certificat (CSR) accompagnée du code.
 - Le hub consomme le code, puis signe un **certificat client** : nom = identifiant de l'hôte, usage « authentification client » uniquement, valable 5 ans. Il retient l'empreinte de ce certificat sur l'hôte.
 - Les codes invalides sont limités à 10 essais par IP toutes les 10 minutes.
@@ -240,7 +241,7 @@ Il n'y a pas de signature hors du hub (le manifeste d'accès signé de homelab#3
 | Faux hub au moment de l'installation (usurpation d'IP, DNS, ARP) | clé du hub épinglée dans la commande d'installation |
 | Faux hub après l'installation | l'agent n'accepte que l'autorité du hub, avec l'usage « serveur » |
 | Agent qui tenterait de se faire passer pour le hub | les certificats d'agent n'ont que l'usage « client » |
-| Commande d'installation récupérée après coup (historique shell, capture d'écran) | code à usage unique, valable 24 h |
+| Commande d'installation récupérée après coup (historique shell, capture d'écran) | code à usage unique, valable 1 h |
 | Faux agent | certificat client signé par le hub et dont l'empreinte est enregistrée pour l'hôte |
 | Hôte compromis ou retiré du parc | « Révoquer l'agent » ou suppression de l'hôte |
 | Binaire modifié pendant une mise à jour, hub compromis | signature de release vérifiée par l'agent |

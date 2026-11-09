@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha512"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -125,6 +127,9 @@ func installBackupClient(ctx context.Context, method string, emit func(string)) 
 		if err != nil {
 			return -1, fmt.Errorf("release key: %w", err)
 		}
+		if err := checkReleaseKey(codename, key); err != nil {
+			return -1, err
+		}
 		if err := os.WriteFile(keyring, key, 0o644); err != nil {
 			return -1, err
 		}
@@ -145,6 +150,25 @@ func installBackupClient(ctx context.Context, method string, emit func(string)) 
 	default:
 		return -1, fmt.Errorf("unknown install method %q", method)
 	}
+}
+
+// SHA-512 of the Proxmox release keys, as published in the Proxmox VE documentation (installation on
+// Debian): a downloaded key that differs is refused, it would make APT trust another repository.
+var proxmoxReleaseKeySHA512 = map[string]string{
+	"bookworm": "7da6fe34168adc6e479327ba517796d4702fa2f8b4f0a9833f5ea6e6b48f6507a6da403a274fe201595edc86a84463d50383d07f64bdde2e3658108db7d6dc87",
+	"trixie":   "8678f2327c49276615288d7ca11e7d296bc8a2b96946fe565a9c81e533f9b15a5dbbad210a0ad5cd46d361ff1d3c4bac55844bc296beefa4f88b86e44e69fa51",
+}
+
+func checkReleaseKey(codename string, key []byte) error {
+	want, ok := proxmoxReleaseKeySHA512[codename]
+	if !ok {
+		return fmt.Errorf("release key: no known SHA-512 for %s", codename)
+	}
+	sum := sha512.Sum512(key)
+	if got := hex.EncodeToString(sum[:]); got != want {
+		return fmt.Errorf("release key: unexpected SHA-512 %s (expected %s), key refused", got, want)
+	}
+	return nil
 }
 
 func httpGetBytes(ctx context.Context, url string, max int64) ([]byte, error) {

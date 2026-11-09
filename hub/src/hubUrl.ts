@@ -50,7 +50,8 @@ export async function agentCommands(req: FastifyRequest, network: AccessNetwork 
   const curl = curlPinned(serverPin);
   return {
     url,
-    install: (code: string) => `${curl} ${url}/install.sh | sh -s -- ${code}`,
+    // the code in the environment of sh, not in its arguments: not visible in the process list
+    install: (code: string) => `${curl} ${url}/install.sh | HLM_ENROLL_CODE=${code} sh -s --`,
     upgrade: `${curl} ${url}/install.sh | sh`,
     uninstall: `${curl} ${url}/install.sh | sh -s -- --uninstall`,
     // Home Assistant OS add-on: what the install command carries, as one value to paste in its options

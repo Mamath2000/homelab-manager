@@ -241,3 +241,17 @@ func TestBackupRetryPass(t *testing.T) {
 		t.Fatal("connect job retried")
 	}
 }
+
+func TestCheckReleaseKey(t *testing.T) {
+	if err := checkReleaseKey("trixie", []byte("not the Proxmox key")); err == nil {
+		t.Fatal("a key with another SHA-512 is accepted")
+	}
+	if err := checkReleaseKey("sid", nil); err == nil {
+		t.Fatal("a codename without a known SHA-512 is accepted")
+	}
+	for codename, want := range proxmoxReleaseKeySHA512 {
+		if len(want) != 128 {
+			t.Errorf("%s: SHA-512 of %d hex characters", codename, len(want))
+		}
+	}
+}

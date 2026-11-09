@@ -27,7 +27,7 @@ Cette page s'adresse à celles et ceux qui veulent comprendre le fonctionnement 
 ### Sécurité
 
 - Comptes avec trois profils (`admin`, `operator`, `viewer`) vérifiés côté hub ; compte `superadmin` à mot de passe à usage unique (premier démarrage, ou `hm-admin superadmin` dans le conteneur) qui ne gère que les comptes ([Comptes et profils](comptes.md)). Mots de passe hachés en scrypt, session en cookie `HttpOnly` / `SameSite=Strict`, limitation des tentatives de connexion.
-- Agents : TLS avec la clé du hub épinglée dans la commande d'installation, code d'installation à usage unique (24 h, stocké haché), clé privée générée sur l'hôte et certificat client par agent (mTLS), révocation immédiate. Binaires de l'agent signés (Ed25519) et vérifiés à chaque mise à jour. Détails et limites : [Sécurité](securite.md).
+- Agents : TLS avec la clé du hub épinglée dans la commande d'installation, code d'installation à usage unique (1 h, stocké haché), clé privée générée sur l'hôte et certificat client par agent (mTLS), révocation immédiate. Binaires de l'agent signés (Ed25519) et vérifiés à chaque mise à jour. Détails et limites : [Sécurité](securite.md).
 - Conçu pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy HTTPS et authentification supplémentaire.
 
 ### API REST (extrait)

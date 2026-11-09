@@ -57,6 +57,7 @@ export function hostDto(h: HostDoc) {
     // cert: TLS client certificate; legacy: plain-text token of the first versions, to reinstall
     agentAuth: h.certFingerprint ? 'cert' : h.tokenHash ? 'legacy' : 'none',
     certIssuedAt: h.certIssuedAt ?? null,
+    enrollIp: h.enrollIp ?? null,
     enrollExpiresAt: h.enrollExpiresAt && h.enrollExpiresAt > new Date() ? h.enrollExpiresAt : null,
     capabilities: h.capabilities ?? [],
     recentlyInstalled: (h.recentlyInstalled ?? [])

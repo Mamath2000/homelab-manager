@@ -44,6 +44,7 @@ Fixées dans `compose.yml` pour le déploiement, et par le Makefile en local (`m
 | `LOG_FILE` | *(vide)* | Chemin d'un fichier où les journaux (JSON) sont aussi écrits, en plus de la sortie standard ; vide : sortie standard seule. Le Makefile le règle sur `logs/hub.log` en local (`make logs` le suit), `compose.yml` ne le définit pas |
 | `TZ` | `Europe/Paris` | fuseau du hub : fuseau proposé par défaut pour les [sauvegardes de répertoires](sauvegardes.md#sauvegardes-de-répertoires) (chaque job garde le sien) |
 | `SESSION_IDLE_HOURS` | `12` | Une session de l'interface se ferme après ce nombre d'heures sans utilisation ([Sessions](comptes.md#sessions)) |
+| `ENROLL_CODE_HOURS` | `1` | Validité du code à usage unique d'une commande d'installation d'agent, en heures ([Enrôlement](securite.md#enrôlement)) |
 | `SESSION_MAX_DAYS` | `7` | Durée maximale d'une session, même utilisée sans interruption. `SESSION_DAYS`, son ancien nom, est encore lu |
 | `WEBAUTHN_RP_ID` | *(vide)* | Domaine auquel les [passkeys](comptes.md#passkeys) sont liées : celui où les navigateurs ouvrent l'interface (`hub.example.org`), **jamais une adresse IP**. Vide : pas de passkey. Le changer rend inutilisables les passkeys déjà enregistrées |
 | `WEBAUTHN_ORIGIN` | `https://<WEBAUTHN_RP_ID>` | Adresses exactes de l'interface, séparées par des virgules, quand elles diffèrent : port (`https://hub.example.org:8443`), sous-domaine (`https://hm.example.org` avec `WEBAUTHN_RP_ID=example.org`) |

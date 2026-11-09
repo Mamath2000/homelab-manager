@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ObjectId } from 'mongodb';
 import { AgentRequestError, REFRESH_SCOPES, agentRequest, disconnectAgent, isOnline, refreshAgent, type RefreshScope } from '../agents.js';
 import { SERVICE_RE, STACK_RE, findStack, isExternal, isUnmanaged } from '../docker.js';
+import { config } from '../config.js';
 import { randomToken, sha256 } from '../crypto.js';
 import { backups, equipments, healthMetrics, hosts, jobs, parseId, probes } from '../db.js';
 import { allAlertDays, hostAlertDays } from '../alerts.js';
@@ -93,14 +94,12 @@ function agentError(reply: { code: (n: number) => { send: (b: unknown) => unknow
   throw err;
 }
 
-export const ENROLL_VALIDITY_MS = 24 * 3600 * 1000;
-
 // Single-use code of the install command; only its hash is stored.
 export function newEnrollCode() {
   let code = randomToken(24);
   // base64url: never start with a dash, which would read like an option on a command line
   while (code.startsWith('-')) code = randomToken(24);
-  const expiresAt = new Date(Date.now() + ENROLL_VALIDITY_MS);
+  const expiresAt = new Date(Date.now() + config.enrollCodeHours * 3600 * 1000);
   return { code, expiresAt, fields: { enrollCodeHash: sha256(code), enrollExpiresAt: expiresAt } };
 }
 

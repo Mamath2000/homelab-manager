@@ -154,14 +154,14 @@ Sans `MONGO_USERNAME`, retirer `-u … -p …` des deux commandes. Une fois la F
 2. Copier la commande affichée et la lancer **en root** sur l'hôte :
 
 ```bash
-curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh | sh -s -- CODE
+curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh | HLM_ENROLL_CODE=CODE sh -s --
 ```
 
 L'agent génère sa clé privée sur l'hôte, reçoit un certificat du hub, puis passe « En ligne » quelques secondes plus tard et remonte son état.
 
 :::info Commande d'installation
 - `--pinnedpubkey` épingle la clé du hub : la commande échoue si un autre serveur répond à sa place.
-- `CODE` est **à usage unique et valable 24 h**. La commande n'est affichée qu'une fois ; au besoin, **Nouvelle commande d'installation** (engrenage **Options** › **Agent**, sur la fiche ou la liste des hôtes) en génère une autre et annule la précédente.
+- `CODE` est **à usage unique et valable 1 h** (`ENROLL_CODE_HOURS`). Il passe par l'environnement de `sh` et non par ses arguments : il n'apparaît pas dans la liste des processus. La commande n'est affichée qu'une fois ; au besoin, **Nouvelle commande d'installation** (engrenage **Options** › **Agent**, sur la fiche ou la liste des hôtes) en génère une autre et annule la précédente.
 
 Détails dans [Sécurité](securite.md).
 :::
@@ -219,7 +219,7 @@ journalctl -u homelab-agent -f
 Pour tout regrouper ailleurs, renseigne **Répertoire d'installation** dans la fenêtre d'installation, ou ajoute `--dir` à la commande :
 
 ```bash
-curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh | sh -s -- CODE --dir /opt/homelab-agent
+curl -fsSLk --pinnedpubkey sha256//CLÉ_DU_HUB https://IP_DU_HUB:3443/install.sh | HLM_ENROLL_CODE=CODE sh -s -- --dir /opt/homelab-agent
 ```
 
 Binaire, configuration, certificat, clé et état (`state/`) vont alors dans ce répertoire, et le service systemd pointe dessus. Le chemin doit être absolu, sans espace : lettres, chiffres, `.`, `_`, `-`, `/`.
@@ -241,7 +241,7 @@ Sur Unraid, l'hôte remonte son état système et ses **stacks Docker** (voir [D
 
 HAOS est une appliance : on n'y lance pas de script. L'agent s'installe comme **application** (add-on) Home Assistant, publiée dans le repo [homelab-manager-haos](https://github.com/Mamath2000/homelab-manager-haos). Elle embarque le binaire de l'agent livré par le hub et tourne sur le réseau de l'hôte : l'agent voit l'interface réelle de la VM, donc sa MAC, et les sauvegardes Proxmox VE de la VM se rattachent à l'hôte (voir [Sauvegardes](sauvegardes.md#lien-hôte--guest-proxmox)).
 
-1. Dans Homelab Manager : **Ajouter un hôte**, puis l'onglet **Home Assistant OS** de la fenêtre d'installation, qui affiche un **jeton d'installation** (adresse du hub, clé épinglée et code à usage unique, valable 24 h).
+1. Dans Homelab Manager : **Ajouter un hôte**, puis l'onglet **Home Assistant OS** de la fenêtre d'installation, qui affiche un **jeton d'installation** (adresse du hub, clé épinglée et code à usage unique, valable 1 h).
 2. Dans Home Assistant : **Paramètres › Applications › Boutique › ⋮ › Dépôts**, ajouter `https://github.com/Mamath2000/homelab-manager-haos`.
 3. Installer **Homelab Manager Agent**, coller le jeton dans l'option `install_token` de l'onglet Configuration, puis démarrer l'application.
 4. Activer **Mise à jour automatique** sur l'application.
@@ -284,7 +284,7 @@ Un poste Windows 10 / 11 (64 bits) remonte sa **présence**, son **système** (n
 .\homelab-agent.exe install JETON
 ```
 
-Le jeton est celui de l'add-on Home Assistant OS : adresse du hub, clé épinglée et code à usage unique (24 h). L'agent vérifie la clé du hub, s'enrôle, puis :
+Le jeton est celui de l'add-on Home Assistant OS : adresse du hub, clé épinglée et code à usage unique (1 h). L'agent vérifie la clé du hub, s'enrôle, puis :
 
 | Élément | Emplacement |
 |---|---|

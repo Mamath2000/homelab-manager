@@ -551,7 +551,7 @@ function HostDetailPage({ id }: { id: string }) {
             <StripItem label="Uptime">{host.info ? uptime(host.info.uptime) : '—'}</StripItem>
             <StripItem label="Agent">{host.agentVersion ?? '—'}</StripItem>
             <StripItem label="Certificat">
-              {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
+              {host.certIssuedAt ? `émis le ${dateTime(host.certIssuedAt)}${host.enrollIp ? ` depuis ${host.enrollIp}` : ''}` : needsReinstall(host) ? <span className="text-red-300">ancien jeton</span> : '—'}
             </StripItem>
             <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
             {!isWindows(host) && <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>}

@@ -54,6 +54,8 @@ export const config = {
   // (SESSION_DAYS: former name of SESSION_MAX_DAYS, still read)
   sessionIdleHours: num('SESSION_IDLE_HOURS', 12),
   sessionMaxDays: num('SESSION_MAX_DAYS', num('SESSION_DAYS', 7)),
+  // validity of the single-use code of an install command (homelab#301)
+  enrollCodeHours: num('ENROLL_CODE_HOURS', 1),
   // passkeys, second factor of the logins (homelab#291): the domain they are bound to, the one the browsers reach the
   // UI at (never an IP address); unset: no passkey. Fixed here, never taken from the request: the agents check it too
   webauthnRpId: env('WEBAUTHN_RP_ID'),

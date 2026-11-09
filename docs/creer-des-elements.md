@@ -30,7 +30,7 @@ Les tags se créent dans **Paramètres › Tags** ou sur place, depuis la fiche 
 ## Hôte
 
 1. **Ajouter un hôte** : nom, site, tags.
-2. Copie la commande d'installation et lance-la **en root** sur la machine. Elle épingle la clé du hub, et son code est à usage unique, valable 24 h.
+2. Copie la commande d'installation et lance-la **en root** sur la machine. Elle épingle la clé du hub, et son code est à usage unique, valable 1 h.
 3. L'hôte passe **En ligne** en quelques secondes.
 
 Selon la machine, d'autres onglets proposent la bonne méthode : **Home Assistant OS** (application), **Unraid**, **Windows**, WSL2. Sur Proxmox VE, l'agent peut s'installer dans un CT ou un nœud **depuis l'inventaire**, sans rien copier ([Proxmox VE](proxmox-ve.md#installer-lagent-depuis-linventaire)).

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Homelab Manager agent installer, served on the TLS agent port of the hub. The commands shown in the
 # hub UI pin the hub key (curl --pinnedpubkey), so this script and the binary come from the hub.
-#   install   : curl -fsSLk --pinnedpubkey sha256//__PIN__ __HUB_URL__/install.sh | sh -s -- <code> [--dir DIR]
+#   install   : curl -fsSLk --pinnedpubkey sha256//__PIN__ __HUB_URL__/install.sh | HLM_ENROLL_CODE=<code> sh -s -- [--dir DIR]
+#               (sh -s -- <code> [--dir DIR] still works)
 #   upgrade   : curl -fsSLk --pinnedpubkey sha256//__PIN__ __HUB_URL__/install.sh | sh
 #   uninstall : curl -fsSLk --pinnedpubkey sha256//__PIN__ __HUB_URL__/install.sh | sh -s -- --uninstall
 #

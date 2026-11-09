@@ -50,7 +50,7 @@ export function registerEnrollRoute(app: FastifyInstance) {
         // a new host (never connected) gets the standard configuration at its first connection
         // (not when FEATURE_STANDARDISATION is off: switching it on later must not standardise it)
         {
-          $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), ...(host.enrolledAt || !config.featureStandardisation ? {} : { setupPending: true }) },
+          $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), enrollIp: req.ip, ...(host.enrolledAt || !config.featureStandardisation ? {} : { setupPending: true }) },
           $unset: { tokenHash: '' },
         },
         { returnDocument: 'after' },

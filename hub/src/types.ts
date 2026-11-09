@@ -300,6 +300,8 @@ export interface HostDoc {
   // sha256 of the client certificate the agent authenticates with (mTLS)
   certFingerprint?: string;
   certIssuedAt?: Date;
+  // address the enrollment code was used from (certIssuedAt: when)
+  enrollIp?: string;
   createdAt: Date;
   enrolledAt?: Date;
   lastSeenAt?: Date;

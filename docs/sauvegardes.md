@@ -342,7 +342,7 @@ Définies dans Homelab Manager et exécutées par l'agent avec `proxmox-backup-c
 Depuis la fiche hôte, carte **Sauvegardes** › **+ Sauvegarde** (administrateurs) : la fenêtre « Sauvegardes lancées par l'agent » liste ses jobs (répertoires et [bases de données](#sauvegardes-de-bases-de-données)) avec, pour chacun, lancer, modifier et supprimer, et **Ajouter** pour un nouveau job ; elle montre aussi l'état du client PBS et le jeton. Un job existant se modifie aussi directement par le crayon de sa ligne (fiche hôte ou page Sauvegardes) :
 
 1. **Client PBS.** L'icône de l'en-tête de la carte indique son état : paquet vert = client installé (APT), conteneur bleu = image Docker présente, paquet barré = absent. Sans client, la fenêtre propose les installations possibles sur cet hôte :
-   - **Installer via APT** : dépôt `pbs-client` de Proxmox et paquet `proxmox-backup-client` (Debian bookworm / trixie, **amd64** uniquement) ;
+   - **Installer via APT** : dépôt `pbs-client` de Proxmox et paquet `proxmox-backup-client` (Debian bookworm / trixie, **amd64** uniquement). L'agent vérifie le SHA-512 de la clé du dépôt et refuse une clé différente ;
    - **Installer via Docker** : téléchargement de l'image du client, publiée pour **amd64** uniquement (repo [pbs-client](https://github.com/Mamath2000/pbs-client)).
 
    L'installation est une tâche de l'agent (visible dans Activité). Un hôte en mode Docker peut passer au client APT, qui est alors préféré. Ailleurs (arm64, autre distribution), installer le client à la main : l'agent le détecte.
