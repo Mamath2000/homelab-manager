@@ -30,5 +30,16 @@
     "aedes": "^1.2.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "@simplewebauthn/server": {
+      "@peculiar/x509": "$@peculiar/x509",
+      "@peculiar/asn1-ecc": "^3.0.0",
+      "@peculiar/asn1-rsa": "^3.0.0",
+      "@peculiar/asn1-x509": "^3.0.0",
+      "@peculiar/asn1-schema": "^3.0.0",
+      "@peculiar/asn1-android": "^3.0.0",
+      "@peculiar/asn1-x509-post-quantum": "^3.0.0"
+    }
   }
 }

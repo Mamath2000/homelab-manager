@@ -10,6 +10,8 @@
 #   MONGO_USERNAME / MONGO_PASSWORD   compte MongoDB (openssl rand -hex 24)
 #   HM_MASTER_KEY   clé maître (openssl rand -base64 32), à sauvegarder à part de la base
 # Facultatifs : HM_HTTPS_SAN (noms et IP du certificat, ex. hub.lan,192.168.1.10), TRUST_PROXY (adresse EXACTE du proxy).
+# Passkeys (docs/comptes.md#passkeys) : WEBAUTHN_RP_ID (domaine de l'interface), WEBAUTHN_ORIGIN (si ce n'est pas
+#   https://<WEBAUTHN_RP_ID>), MFA_REQUIRED=true (passkey obligatoire pour les admins).
 #
 # Le dossier mongo-data doit appartenir à l'uid 999 (mongod ne tourne pas en root ici) : chown 999:999 mongo-data mongo-config
 services:
@@ -31,6 +33,9 @@ services:
       HTTP_MODE: local         # le port 3000 n'écoute que sur la boucle locale du conteneur (sonde de santé), jamais publié
       COOKIE_SECURE: "true"
       TRUST_PROXY: ${TRUST_PROXY:-}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-}
+      MFA_REQUIRED: ${MFA_REQUIRED:-}
       LOG_LEVEL: info
       TZ: Europe/Paris
     volumes:

@@ -68,6 +68,8 @@ Les variables d'environnement se règlent dans [`compose.yml`](compose.yml) ; la
 | `TZ` | `Europe/Paris` | Fuseau du hub (sauvegardes de répertoires) |
 | `LOG_LEVEL` | `info` | Niveau de logs |
 | `SESSION_IDLE_HOURS` / `SESSION_MAX_DAYS` | `12` / `7` | Fin d'une session sans utilisation (heures), durée maximale (jours) |
+| `WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGIN` | *(vide)* | Passkeys, second facteur de connexion : domaine et adresse de l'interface, voir [Passkeys](docs/comptes.md#passkeys) |
+| `MFA_REQUIRED` | `false` | `true` : passkey obligatoire pour les admins |
 | `TRUST_PROXY` | `false` | Adresse du reverse proxy (`192.168.1.20`), ou `true` |
 | `COOKIE_SECURE` | *(automatique)* | Cookie `Secure` en HTTPS ; `true` le force |
 | `HTTPS_PORT` | *(vide)* | Port HTTPS natif de l'interface (`4443`), voir [HTTPS natif](docs/configuration.md#https-natif) |

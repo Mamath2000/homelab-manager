@@ -218,12 +218,13 @@ Mise en route : renseigner le `.env` (champs listés en tête du fichier), `chow
 **Paramètres › Sécurité** (admins) contrôle la posture de l'installation vue depuis le hub :
 
 - HTTP ou HTTPS et cookie `Secure` pour la requête en cours, proxy de confiance ;
+- double authentification des admins : passkeys proposées (`WEBAUTHN_RP_ID`), obligatoires (`MFA_REQUIRED`), admins sans passkey ([Passkeys](comptes.md#passkeys)) ;
 - compte MongoDB et clé maître ;
 - binaires d'agent signés, version minimum, agents en retard sur une protection (version, politique locale) ;
 - brokers MQTT : accès anonyme, TLS ;
 - conteneur du hub : utilisateur non root, système de fichiers en lecture seule, capacités retirées, `no-new-privileges`.
 
-Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les ACL du broker MQTT sur les topics de commande : à contrôler sur le broker ([exemple d’ACL](home-assistant.md#sécurité-des-commandes)). La double authentification des admins n'y figure pas tant qu'elle n'existe pas.
+Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les ACL du broker MQTT sur les topics de commande : à contrôler sur le broker ([exemple d’ACL](home-assistant.md#sécurité-des-commandes)).
 
 ## Ce qui est protégé, et contre quoi
 
@@ -237,6 +238,7 @@ Un point « non vérifiable » signale ce que le hub ne peut pas voir, comme les
 | Faux agent | certificat client signé par le hub et dont l'empreinte est enregistrée pour l'hôte |
 | Hôte compromis ou retiré du parc | « Révoquer l'agent » ou suppression de l'hôte |
 | Binaire modifié pendant une mise à jour, hub compromis | signature de release vérifiée par l'agent |
+| Mot de passe d'un admin volé ou deviné | [passkey](comptes.md#passkeys) demandée après le mot de passe, obligatoire pour les admins avec `MFA_REQUIRED` |
 | Hub ou compte administrateur compromis | [politique locale](#politique-locale-de-lhôte) de l'hôte, image du client de sauvegarde épinglée |
 | Vol de la base MongoDB ou d'une sauvegarde | mots de passe hachés (scrypt), codes d'enrôlement hachés ; avec la [clé maître](#base-de-données-et-secrets), secrets chiffrés (sinon la clé de l'autorité y figure en clair) |
 | Accès à MongoDB depuis un autre conteneur | réseau interne `backend` ; [compte MongoDB](#base-de-données-et-secrets) |

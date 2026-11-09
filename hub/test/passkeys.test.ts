@@ -3,6 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { test } from 'node:test';
 import { config } from '../src/config.js';
 import { mfaRequiredFor, passkeysEnabled, publicKeyPem } from '../src/passkeys.js';
+import { createPki } from '../src/pki.js';
 
 // COSE_Key of an ES256 key (RFC 9053): {1: 2 (EC2), 3: -7 (ES256), -1: 1 (P-256), -2: x, -3: y}
 function coseEs256(x: Buffer, y: Buffer) {
@@ -15,6 +16,13 @@ test('the public key of a passkey is exported as PEM (SPKI), the form the agents
   const jwk = publicKey.export({ format: 'jwk' });
   const cose = coseEs256(Buffer.from(jwk.x!, 'base64url'), Buffer.from(jwk.y!, 'base64url'));
   assert.equal(publicKeyPem({ publicKey: cose.toString('base64url') }), publicKey.export({ type: 'spki', format: 'pem' }).toString());
+});
+
+// @simplewebauthn/server brings @peculiar/x509 too: two versions side by side share the global container of tsyringe
+// and break the certificates of the hub (package.json overrides keep a single one)
+test('the PKI of the hub is still created with the WebAuthn library loaded', async () => {
+  const pki = await createPki();
+  assert.match(pki.caCert, /BEGIN CERTIFICATE/);
 });
 
 test('MFA_REQUIRED applies to the admins only, and only when passkeys can be registered', () => {

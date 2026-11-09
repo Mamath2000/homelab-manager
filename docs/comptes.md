@@ -128,6 +128,62 @@ Dans l'application HAOS **Homelab Manager**, tu peux aussi activer **Réinitiali
 démarrage**, enregistrer puis redémarrer l'application. Le nouveau mot de passe apparaît dans son journal et est valable
 15 minutes. Désactive ensuite l'option pour éviter de régénérer le mot de passe au prochain redémarrage.
 
+## Passkeys
+
+Une **passkey** (WebAuthn) sert de second facteur : elle est demandée **après le mot de passe**, à chaque connexion des
+comptes qui en ont une. Elle se crée avec le navigateur, le système ou un gestionnaire de mots de passe (Bitwarden,
+1Password…) ; une clé matérielle (YubiKey…) convient aussi. Sa clé privée ne quitte jamais l'appareil ou le
+gestionnaire : le hub ne garde que la clé publique, et une passkey volée en base ne permet pas de se connecter.
+
+### Activation
+
+Les passkeys sont proposées dès que `WEBAUTHN_RP_ID` est réglé ([Configuration](configuration.md#variables-denvironnement)) :
+
+- `WEBAUTHN_RP_ID` : le **domaine** où les navigateurs ouvrent l'interface (`hub.example.org`), jamais une adresse IP ;
+  une passkey est liée à ce domaine, le changer rend celles déjà enregistrées inutilisables ;
+- `WEBAUTHN_ORIGIN` : l'adresse exacte de l'interface quand ce n'est pas `https://<WEBAUTHN_RP_ID>` (autre port,
+  sous-domaine) ;
+- l'interface doit être servie en **HTTPS avec un certificat reconnu par le navigateur** (reverse proxy avec Let's
+  Encrypt, ou `HTTPS_CERT_FILE`) : les navigateurs refusent WebAuthn en HTTP et, pour Chrome au moins, sur un certificat
+  accepté en exception, comme celui émis par le hub. Seul `localhost` fait exception (tests en local).
+
+### Enregistrer une passkey
+
+**Mon compte › Passkeys** : donner un nom (« Bitwarden », « YubiKey »), puis **Ajouter** et suivre la fenêtre du
+navigateur. Chaque passkey indique si elle est *synchronisée* (gestionnaire, trousseau du système : utilisable sur
+plusieurs appareils), sa date d'enregistrement et sa dernière utilisation. Gardez-en **une deuxième en secours** : sans
+passkey, seul un accès à l'hôte du hub permet de se reconnecter. **Clé publique** affiche la clé au format PEM,
+destinée aux agents (vérification des actions signées par un admin, homelab#306).
+
+À la connexion, après le mot de passe, **Utiliser ma passkey** ouvre la fenêtre du navigateur. Un échec compte comme une
+[tentative de connexion](#tentatives-de-connexion) refusée et apparaît au [journal](#journal-des-actions). Le mot de
+passe seul n'ouvre pas de session.
+
+### Obligation pour les admins
+
+Avec `MFA_REQUIRED=true`, les comptes `admin` doivent se connecter avec une passkey :
+
+- un admin qui n'en a pas l'enregistre à sa prochaine connexion, sur un écran dédié, avant tout autre accès (l'API lui
+  répond `403 passkey_required` jusque-là) ;
+- un admin connecté avant l'activation par son seul mot de passe doit se reconnecter avec sa passkey ;
+- la dernière passkey d'un admin ne peut pas être supprimée.
+
+Les profils `operator` et `viewer` peuvent en enregistrer une sans y être obligés. Le compte `superadmin` (mot de passe
+à usage unique, comptes seulement) et les [clés d'API](#clés-dapi) ne sont pas concernés. `MFA_REQUIRED` reste sans
+effet tant que `WEBAUTHN_RP_ID` est vide, pour ne pas bloquer les admins : le hub l'écrit dans ses journaux au
+démarrage et la [page Sécurité](securite.md#page-sécurité) le signale. La colonne *Passkeys* de la page **Comptes**
+donne le nombre de passkeys de chaque compte, en orange pour un admin qui n'en a aucune.
+
+### Passkey perdue
+
+Depuis l'hôte du hub, supprimer les passkeys du compte (ses sessions sont fermées, l'action est tracée au journal) :
+
+```bash
+docker compose exec hub hm-admin reset-passkeys <identifiant>
+```
+
+L'utilisateur se reconnecte avec son mot de passe et, si les passkeys sont obligatoires, en enregistre une nouvelle.
+
 ## Sessions
 
 Une session de l'interface se ferme :
@@ -157,8 +213,8 @@ L'onglet **Journal** de la page **Comptes** (admins seulement) trace les actions
 
 | Type d'action | Ce qui est tracé |
 |---|---|
-| Connexions | connexions et déconnexions, échecs (regroupés par adresse et par minute), clé d'API inconnue, mot de passe `superadmin` émis par `hm-admin` |
-| Comptes | création, modification (nom, profil : ancienne → nouvelle valeur), suppression, réinitialisation du mot de passe, changement de son propre mot de passe |
+| Connexions | connexions (avec ou sans passkey) et déconnexions, échecs dont les passkeys refusées (regroupés par adresse et par minute), clé d'API inconnue, mot de passe `superadmin` émis par `hm-admin` |
+| Comptes | création, modification (nom, profil : ancienne → nouvelle valeur), suppression, réinitialisation du mot de passe, changement de son propre mot de passe, sessions fermées, passkey ajoutée ou supprimée, passkeys retirées par `hm-admin reset-passkeys` |
 | Clés d'API | création et révocation (nom de la clé) |
 | Hôtes | ajout, suppression, commande d'installation émise, enrôlement de l'agent (adresse, empreinte du certificat), révocation |
 | Actions | toute tâche lancée par un compte, une clé d'API ou Home Assistant (les tâches planifiées restent dans **Activité**) |

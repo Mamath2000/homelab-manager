@@ -34,6 +34,9 @@ services:
       TZ: Europe/Paris        # fuseau du hub : fuseau par défaut des sauvegardes de répertoires
       # SESSION_IDLE_HOURS: 12  # session fermée après 12 h sans utilisation
       # SESSION_MAX_DAYS: 7     # et 7 jours après la connexion dans tous les cas
+      # WEBAUTHN_RP_ID: hub.example.org  # passkeys (double authentification) : domaine de l'interface, jamais une IP ; HTTPS avec un certificat valide
+      # WEBAUTHN_ORIGIN: https://hub.example.org:8443  # adresse de l'interface, si ce n'est pas https://<WEBAUTHN_RP_ID>
+      # MFA_REQUIRED: "true"  # passkey obligatoire pour les admins, enregistrée à leur prochaine connexion (nécessite WEBAUTHN_RP_ID)
       # TRUST_PROXY: "192.168.1.20"  # OBLIGATOIRE derrière un reverse proxy : son adresse (sinon 400 untrusted_proxy) ; "true" : tout client
       # COOKIE_SECURE: "true" # cookie Secure forcé (absente : automatique, Secure dès que la requête arrive en HTTPS)
       # HTTPS_PORT: 4443      # interface aussi en HTTPS ; le port 3000 redirige alors vers lui (HTTP_MODE)
