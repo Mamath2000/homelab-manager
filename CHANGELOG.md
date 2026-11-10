@@ -4,6 +4,11 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+### Ajouté
+
+- **Gestion des comptes d'un broker Mosquitto (dynamic-security), activée par l'agent** : l'agent relève la version de Mosquitto (2.1 ou plus requise) et si le plugin `dynamic-security` est chargé dans le processus ; la liste des rôles affiche l'état (indisponible, disponible, gérée par le hub) et l'écran **Sécurité MQTT** montre les contrôles de l'agent (systemd, `include_dir`, pas de `password_file`, `acl_file` ni d'autre plugin d'authentification…). **Activer** fait faire par l'agent, sans modifier la configuration de l'administrateur : certificats émis par la CA du hub (certificat serveur avec les IP de l'hôte, certificat client du compte `hlm`), listener TLS 8883 en TLS mutuel, rôle `legacy` sur le groupe anonyme, compte `hlm` sans mot de passe, suppression du compte d'initialisation, journal des refus (`log_dest topic`). Les connexions avec un utilisateur inconnu sont ensuite refusées (les anonymes restent acceptés) : l'écran le dit avant d'activer. En cas d'échec, l'agent retire ce qu'il a ajouté et redémarre le broker ; si le hub ne se connecte pas en TLS mutuel, l'activation est annulée. **Désactiver** retire les fichiers ajoutés et met l'état du plugin de côté. Nécessite l'agent à jour (capacité `mqtt_dynsec`). Voir [Rôles](docs/roles.md#sécurité-dun-broker-mqtt-dynamic-security). (homelab#325)
+- **TLS des rôles broker MQTT** : un rôle `mqtt-broker` en `mqtts` ou `wss` accepte une autorité épinglée et un certificat client (TLS mutuel) ; la clé privée est chiffrée par la clé maître, absente des réponses de l'API et du journal d'audit. (homelab#325)
+
 ## 1.3.1 - 2026-11-10
 
 ### Ajouté

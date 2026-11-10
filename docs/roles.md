@@ -49,6 +49,25 @@ Le certificat d'un contrôleur Omada est auto-signé : le hub n'accepte que celu
 
 L'agent ne lit jamais que l'hôte lui-même, il ne contacte pas une autre machine. Une empreinte déjà épinglée et inchangée reste modifiable sans nouvelle vérification (renommage, application) ; changer d'empreinte ou de porteur la revérifie.
 
+## Sécurité d'un broker MQTT (dynamic-security)
+
+Pour un broker **Mosquitto 2.1 ou plus**, le hub peut gérer la sécurité par le plugin `dynamic-security`, **sans script ni SSH** : tout est fait par l'agent de l'hôte. La liste des rôles indique pour chaque broker si la gestion des comptes est **indisponible** (Mosquitto plus ancien, autre broker, agent à mettre à jour), **disponible** ou **gérée par le hub** ; le bouton **Sécurité MQTT** ouvre l'écran correspondant.
+
+L'écran montre les contrôles de l'agent avant toute activation. Elle est refusée si le broker ne tourne pas sous systemd, si la configuration n'a pas de `include_dir` ni de `listener` explicite, ou si elle définit déjà `password_file`, `acl_file`, `per_listener_settings true` ou un autre plugin d'authentification.
+
+**Activer la gestion des comptes** (confirmation, puis passkey si le compte en a une) :
+
+1. le hub émet avec sa CA un certificat serveur (noms : les IP de l'hôte) et un certificat client pour son compte `hlm` ; la clé du compte reste au hub ;
+2. l'agent ajoute, sans toucher à vos fichiers, `/etc/mosquitto/hlm-tls/` et `conf.d/zz-hlm-dynsec.conf` (plugin, listener 8883 en TLS mutuel, `log_dest topic`), puis redémarre le broker ;
+3. il crée le rôle `legacy` (tous les topics) sur le groupe anonyme, le compte `hlm` authentifié par son certificat, et supprime le compte d'initialisation ;
+4. le hub se connecte en TLS mutuel (`mqtts://…:8883`) et déplace le rôle sur ce port. S'il n'y arrive pas, l'agent annule tout.
+
+:::warning Comptes inconnus refusés
+Une fois dynamic-security actif, **une connexion avec un utilisateur que le broker ne connaît pas est refusée** (un appareil mal configuré ne se connecte plus). Les connexions **anonymes** restent acceptées. Le broker est redémarré : tous ses clients sont déconnectés quelques secondes.
+:::
+
+**Désactiver** retire les fichiers ajoutés et redémarre le broker avec sa configuration d'origine ; l'état du plugin (comptes, rôles) est conservé à côté, daté, sur l'hôte. Le certificat client du hub est valable un an.
+
 ## Réaffecter, supprimer
 
 - **Réaffecter** : modifier le rôle et choisir un autre hôte porteur, paramètres conservés (pour un cluster Proxmox VE, un autre nœud **du même cluster**). Un hôte porteur hors ligne ne déplace rien tout seul : le relevé passe en erreur, comme avant, et la réaffectation reste manuelle.
