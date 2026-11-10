@@ -31,13 +31,19 @@ interface RolePick {
   port: number;
 }
 
+// address and port: optional, '' = the IP of the host (its agent) and the port the agent found (else 1883)
 interface Form {
   name: string;
-  port: number;
   scheme: BrokerScheme;
   address: string;
+  port: string;
   username: string;
 }
+
+// The protocols a role can connect with, offered as cards: only MQTT over TCP for now (TLS, WebSocket come later, with the
+// authority and the certificates managed by HLM).
+const PROTOCOLS: { scheme: BrokerScheme; label: string; hint: string }[] = [{ scheme: 'mqtt', label: 'MQTT', hint: 'TCP, sans chiffrement (mqtt://)' }];
+const MQTT_PORT = 1883;
 
 // One broker an agent found: a process of a host and the ports it listens on (1883, 9001…), the TLS listener of the hub
 // left out. taken: already a role (one process, one role), other than the one edited.
@@ -76,8 +82,8 @@ function brokersOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | null)
 }
 
 const brokerKey = (b: Pick<BrokerFound, 'host' | 'process'>) => `${b.host.id}|${b.process}`;
-// the plain listener first, the way most clients connect
-const defaultListener = (b: BrokerFound) => b.listeners.find((l) => !l.local && l.scheme === 'mqtt') ?? b.listeners.find((l) => !l.local) ?? b.listeners[0];
+// the port the agent found for the protocol, else its usual one
+const defaultPort = (b: BrokerFound | undefined, scheme: BrokerScheme) => b?.listeners.find((l) => !l.local && l.scheme === scheme)?.port ?? MQTT_PORT;
 
 export function generatePassword() {
   const bytes = new Uint8Array(18);
@@ -91,10 +97,11 @@ const DYNSEC_INFO: Record<'unavailable' | 'available' | 'active', string> = {
   active: 'dynamic-security chargé',
 };
 
-// Declares an MQTT broker role, or edits one: the same dialog. Four steps (PbsDialog.tsx): the broker, the connection
-// (name, port, protocol, address), the account, the test; saving needs a successful test and the password is never sent
-// back. When the hub runs the accounts of the broker, the account typed or generated here is made on the broker (or its
-// password changed) when the role is saved. preset: the host and port to start from (banner of a host page).
+// Declares an MQTT broker role, or edits one: the same dialog. Its name first, then four steps (PbsDialog.tsx): the
+// broker, the protocol (address and port optional), the account, the test; saving needs a successful test and the
+// password is never sent back. When the hub runs the accounts of the broker, the account typed or generated here is made
+// on the broker (or its password changed) when the role is saved. preset: the host and port to start from (banner of a
+// host page).
 export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | null; preset?: RolePick; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -108,12 +115,13 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const [initialKey] = useState<string | null>(() => (startBroker ? brokerKey(startBroker) : null));
   const [key, setKey] = useState<string | null>(initialKey);
   const [initial] = useState<Form>(() => {
-    const l = startBroker?.listeners.find((x) => x.port === start?.port);
+    const scheme = role?.config.scheme ?? 'mqtt';
     return {
       name: role?.name ?? '',
-      port: start?.port ?? 0,
-      scheme: role?.config.scheme ?? (SCHEMES.includes(l?.scheme as BrokerScheme) ? (l!.scheme as BrokerScheme) : 'mqtt'),
+      scheme,
       address: role?.config.address ?? '',
+      // the stored port is shown only when it is not the one found
+      port: role && role.config.port !== defaultPort(startBroker, scheme) ? String(role.config.port) : '',
       username: role?.config.username ?? '',
     };
   });
@@ -131,16 +139,9 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
     setTest(null);
   };
   const broker = brokers.find((b) => brokerKey(b) === key);
-  const listenerOf = (b: BrokerFound | undefined, port: number) => b?.listeners.find((l) => l.port === port);
   const choose = (b: BrokerFound) => {
     setKey(brokerKey(b));
-    const l = defaultListener(b);
-    setForm({ ...form, port: l.port, scheme: SCHEMES.includes(l.scheme as BrokerScheme) ? (l.scheme as BrokerScheme) : 'mqtt' });
     setTest(null);
-  };
-  const chooseListener = (port: number) => {
-    const l = listenerOf(broker, port);
-    set({ port, ...(l && SCHEMES.includes(l.scheme as BrokerScheme) ? { scheme: l.scheme as BrokerScheme } : {}) });
   };
   const regenerate = () => {
     setPassword(generatePassword());
@@ -157,9 +158,14 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
 
   const host = broker?.host;
   const carrier = host ? { kind: 'host' as const, id: host.id } : undefined;
+  const port = form.port.trim() ? Number(form.port) : defaultPort(broker, form.scheme);
+  const hostIp = lanAddress(host?.info?.ips);
+  const address = form.address.trim() || hostIp;
+  const url = address ? `${form.scheme}://${address.includes(':') && !address.startsWith('[') ? `[${address}]` : address}:${port}` : '';
+  const protocols = PROTOCOLS.some((p) => p.scheme === form.scheme) ? PROTOCOLS : [...PROTOCOLS, { scheme: form.scheme, label: form.scheme, hint: 'protocole du rôle existant' }];
   const config = () => ({
     scheme: form.scheme,
-    port: form.port,
+    port,
     ...(form.address.trim() ? { address: form.address.trim() } : {}),
     username: form.username,
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
@@ -175,10 +181,10 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
         !r.ok
           ? { level: 'error', title: 'Échec', detail: r.error ?? 'échec' }
           : r.pending
-            ? { level: 'ok', title: 'Broker joignable', detail: r.detail ?? shown }
+            ? { level: 'ok', title: 'Broker joignable', detail: r.detail ?? url }
             : r.anonymous
               ? { level: 'warn', title: 'Connexion réussie, mais connexions anonymes acceptées', detail: ANONYMOUS_HINT }
-              : { level: 'ok', title: 'Connexion réussie', detail: shown },
+              : { level: 'ok', title: 'Connexion réussie', detail: url },
       );
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
@@ -204,9 +210,10 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
 
   const nameOk = form.name.trim().length > 0;
   const addressOk = /^[A-Za-z0-9.:_-]*$/.test(form.address);
-  const shown = `${form.scheme}://${form.address.trim() || "IP de l'hôte"}:${form.port || '?'}`;
+  const portOk = !form.port.trim() || (/^\d{1,5}$/.test(form.port.trim()) && +form.port >= 1 && +form.port <= 65535);
+  const connectionOk = addressOk && portOk && !!url;
   // the account is optional (anonymous broker): done with the connection
-  const [picked, configured, account, tested] = stepStates([!!broker, nameOk && addressOk && !!form.port, nameOk && addressOk && !!form.port, test?.level === 'ok' || test?.level === 'warn']);
+  const [picked, connected, account, tested] = stepStates([!!broker, connectionOk, connectionOk, test?.level === 'ok' || test?.level === 'warn']);
   const dynsecInfo = info ?? (broker?.dynsec ? { state: 'active' as const, managed } : null);
 
   return (
@@ -222,135 +229,138 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
         footer={
           <>
             <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
-            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !test || test.level === 'error'} onClick={() => void save()}>Enregistrer</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !nameOk || !test || test.level === 'error'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
       >
-        <Steps fill>
-          <Step n={1} title="Broker" state={picked} intro={role ? 'Choisir un autre broker déplace le rôle, ses paramètres gardés.' : 'Les brokers que les agents ont trouvés sur leur hôte.'}>
-            {!brokers.length ? (
-              <p className="text-sm text-muted">Aucun broker détecté par les agents. Il faut un agent HLM sur l'hôte du broker.</p>
-            ) : (
-              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                {brokers.map((b) => {
-                  const off = b.taken || b.listeners.every((l) => l.local) || (managed && b.host.id !== role!.carrier.id);
-                  const on = key === brokerKey(b);
-                  return (
-                    <label key={brokerKey(b)} className={clsx('block rounded-md border px-3 py-2', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line', off ? 'opacity-50' : 'cursor-pointer hover:bg-raised/40')}>
-                      <input type="radio" name="role-broker" className="sr-only" checked={on} disabled={off} onChange={() => choose(b)} />
-                      <div className="flex items-center gap-1.5 truncate font-medium text-zinc-100">{b.host.name}</div>
-                      <div className="text-xs text-muted">
-                        {b.process ? `${b.process}${b.version ? ` ${b.version}` : ''}` : 'broker non détecté actuellement'}
-                        {b.taken ? ' · déjà déclaré' : b.listeners.every((l) => l.local) ? ' · en écoute locale seulement : injoignable par le hub' : ''}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-          </Step>
-          <Step n={2} title="Connexion" state={configured} intro="Comment le broker s'appelle dans les sondes, et comment le joindre : par défaut, la première IP privée de l'hôte.">
-            <label className="block">
-              <span className={field}>Nom</span>
-              <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="zigbee2mqtt, esphome…" />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className={field}>Port</span>
-                <select className="input" value={form.port || ''} disabled={!broker} onChange={(e) => chooseListener(Number(e.target.value))}>
-                  {!broker && <option value="">—</option>}
-                  {(broker?.listeners ?? []).map((l) => (
-                    <option key={l.port} value={l.port} disabled={l.local}>
-                      {l.port} · {l.scheme}{l.local ? ' (locale)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className={field}>Protocole</span>
-                <select className="input" value={form.scheme} onChange={(e) => set({ scheme: e.target.value as BrokerScheme })}>
-                  {SCHEMES.map((x) => <option key={x} value={x}>{x}://</option>)}
-                </select>
-              </label>
-            </div>
-            <p className="text-xs text-muted">Les ports sur lesquels le broker écoute, relevés par l'agent ; le protocole est déduit du port choisi.</p>
-            <label className="block">
-              <span className={field}>Adresse (facultatif)</span>
-              <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder="IP de l'hôte" spellCheck={false} />
-              <span className="mt-1 block text-xs text-muted">À renseigner si l'IP choisie par défaut n'est pas la bonne, ou pour un nom DNS.</span>
-            </label>
-          </Step>
-          <Step
-            n={3}
-            title="Compte"
-            state={account}
-            intro={managed ? 'Les comptes de ce broker sont gérés par HLM : le compte est créé, ou son mot de passe changé, sur le broker à l\'enregistrement.' : 'Facultatif : laisser vide pour un broker anonyme. Le compte doit exister sur le broker.'}
-          >
-            <label className="block">
-              <span className={field}>Utilisateur</span>
-              <input className="input" value={form.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
-            </label>
-            <div className="block">
-              <span className={field}>Mot de passe</span>
-              <div className="flex gap-1.5">
-                <input
-                  className="input min-w-0 flex-1"
-                  type={generated ? 'text' : 'password'}
-                  value={password}
-                  disabled={clearPassword}
-                  onChange={(e) => (setPassword(e.target.value), setGenerated(false), setTest(null))}
-                  placeholder={role?.hasSecret ? '••••••••' : ''}
-                  autoComplete="new-password"
-                  spellCheck={false}
-                />
-                <Button icon={RefreshCw} aria-label="Générer un mot de passe" title="Générer un mot de passe" disabled={busy !== null} onClick={regenerate} />
-              </div>
-              {role?.hasSecret && !password && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
-              {generated && password && (
-                <div className="mt-2 space-y-1">
-                  <CopyField value={password} />
-                  <span className="block text-xs text-muted">{managed ? 'Enregistré sur le broker et dans le rôle à l\'enregistrement.' : 'À reporter sur le broker : HLM ne le connaît que pour ce rôle.'}</span>
+        <div className="flex h-full min-h-0 flex-col gap-4">
+          <label className="block max-w-md shrink-0">
+            <span className={field}>Nom du rôle</span>
+            <input className="input" maxLength={64} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="zigbee2mqtt, esphome…" autoFocus={!role} />
+            <span className="mt-1 block text-xs text-muted">L'identifiant du broker dans les sondes et le pont Home Assistant.</span>
+          </label>
+          <div className="min-h-0 flex-1">
+            <Steps fill>
+              <Step n={1} title="Broker" state={picked} intro={role ? 'Choisir un autre broker déplace le rôle, ses paramètres gardés.' : 'Les brokers que les agents ont trouvés sur leur hôte.'}>
+                {!brokers.length ? (
+                  <p className="text-sm text-muted">Aucun broker détecté par les agents. Il faut un agent HLM sur l'hôte du broker.</p>
+                ) : (
+                  <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                    {brokers.map((b) => {
+                      const off = b.taken || b.listeners.every((l) => l.local) || (managed && b.host.id !== role!.carrier.id);
+                      const on = key === brokerKey(b);
+                      return (
+                        <label key={brokerKey(b)} className={clsx('block rounded-md border px-3 py-2', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line', off ? 'opacity-50' : 'cursor-pointer hover:bg-raised/40')}>
+                          <input type="radio" name="role-broker" className="sr-only" checked={on} disabled={off} onChange={() => choose(b)} />
+                          <div className="truncate font-medium text-zinc-100">{b.host.name}</div>
+                          <div className="text-xs text-muted">
+                            {b.process ? `${b.process}${b.version ? ` ${b.version}` : ''}` : 'broker non détecté actuellement'}
+                            {b.taken ? ' · déjà déclaré' : b.listeners.every((l) => l.local) ? ' · en écoute locale seulement : injoignable par le hub' : ''}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </Step>
+              <Step n={2} title="Protocole" state={connected} intro="Comment le hub joint le broker.">
+                <div className="space-y-1.5">
+                  {protocols.map((p) => {
+                    const on = form.scheme === p.scheme;
+                    return (
+                      <label key={p.scheme} className={clsx('block cursor-pointer rounded-md border px-3 py-2', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line hover:bg-raised/40')}>
+                        <input type="radio" name="role-protocol" className="sr-only" checked={on} onChange={() => set({ scheme: p.scheme })} />
+                        <div className="font-medium text-zinc-100">{p.label}</div>
+                        <div className="text-xs text-muted">{p.hint}</div>
+                      </label>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-            {role?.hasSecret && (
-              <label className="flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" checked={clearPassword} onChange={(e) => (setClearPassword(e.target.checked), setTest(null))} className="accent-emerald-500" />
-                Supprimer le mot de passe
-              </label>
-            )}
-          </Step>
-          <Step
-            n={4}
-            title="Test de connexion"
-            state={tested}
-            intro="Le hub se connecte au broker avec ce compte ; l'enregistrement n'est possible qu'après un test réussi."
-            footer={
-              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !broker || !nameOk || !addressOk || !form.port} onClick={() => void runTest()}>
-                {test ? 'Tester à nouveau' : 'Tester la connexion'}
-              </Button>
-            }
-          >
-            <DetectedRows
-              rows={[
-                { label: 'Nom', value: form.name, empty: 'non renseigné' },
-                { label: 'Hôte', value: host?.name, empty: 'non choisi' },
-                { label: 'Broker', value: shown },
-                { label: 'Utilisateur', value: form.username, empty: 'anonyme' },
-              ]}
-            />
-            <CheckLine label="Broker MQTT" check={test} idle={shown} />
-            {dynsecInfo && (
-              <p className="flex items-start gap-1.5 text-xs text-muted">
-                <ShieldCheck className={clsx('mt-0.5 h-3.5 w-3.5 shrink-0', dynsecInfo.managed ? 'text-emerald-400' : 'text-zinc-500')} aria-hidden />
-                <span>
-                  Pour info : {dynsecInfo.managed ? 'comptes gérés par HLM (dynamic-security)' : DYNSEC_INFO[dynsecInfo.state]}
-                  {dynsecInfo.state === 'unavailable' && dynsecInfo.reason ? ` (${dynsecInfo.reason})` : ''}.
-                </span>
-              </p>
-            )}
-          </Step>
-        </Steps>
+                <p className="pt-1 text-[11px] font-medium tracking-wide text-muted uppercase">Facultatif</p>
+                <label className="block">
+                  <span className={field}>Adresse IP</span>
+                  <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder={hostIp || "IP de l'hôte"} spellCheck={false} />
+                  <span className="mt-1 block text-xs text-muted">Par défaut, l'IP de l'hôte relevée par son agent. À renseigner pour une autre IP ou un nom DNS.</span>
+                </label>
+                <label className="block">
+                  <span className={field}>Port</span>
+                  <input className="input font-mono text-xs" inputMode="numeric" value={form.port} onChange={(e) => set({ port: e.target.value.trim() })} placeholder={String(defaultPort(broker, form.scheme))} />
+                  <span className="mt-1 block text-xs text-muted">Par défaut, le port relevé par l'agent pour ce protocole, sinon {MQTT_PORT}.</span>
+                </label>
+              </Step>
+              <Step
+                n={3}
+                title="Identifiants"
+                state={account}
+                intro={managed ? 'Les comptes de ce broker sont gérés par HLM : le compte est créé, ou son mot de passe changé, sur le broker à l\'enregistrement.' : 'Facultatif : laisser vide pour un broker anonyme. Le compte doit exister sur le broker.'}
+              >
+                <label className="block">
+                  <span className={field}>Utilisateur</span>
+                  <input className="input" value={form.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
+                </label>
+                <div className="block">
+                  <span className={field}>Mot de passe</span>
+                  <div className="flex gap-1.5">
+                    <input
+                      className="input min-w-0 flex-1"
+                      type={generated ? 'text' : 'password'}
+                      value={password}
+                      disabled={clearPassword}
+                      onChange={(e) => (setPassword(e.target.value), setGenerated(false), setTest(null))}
+                      placeholder={role?.hasSecret ? '••••••••' : ''}
+                      autoComplete="new-password"
+                      spellCheck={false}
+                    />
+                    <Button icon={RefreshCw} aria-label="Générer un mot de passe" title="Générer un mot de passe" disabled={busy !== null} onClick={regenerate} />
+                  </div>
+                  {role?.hasSecret && !password && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
+                  {generated && password && (
+                    <div className="mt-2 space-y-1">
+                      <CopyField value={password} />
+                      <span className="block text-xs text-muted">{managed ? 'Enregistré sur le broker et dans le rôle à l\'enregistrement.' : 'À reporter sur le broker : HLM ne le connaît que pour ce rôle.'}</span>
+                    </div>
+                  )}
+                </div>
+                {role?.hasSecret && (
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <input type="checkbox" checked={clearPassword} onChange={(e) => (setClearPassword(e.target.checked), setTest(null))} className="accent-emerald-500" />
+                    Supprimer le mot de passe
+                  </label>
+                )}
+              </Step>
+              <Step
+                n={4}
+                title="Test de connexion"
+                state={tested}
+                intro="Le hub se connecte au broker avec ces identifiants ; l'enregistrement n'est possible qu'après un test réussi."
+                footer={
+                  <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !broker || !connectionOk} onClick={() => void runTest()}>
+                    {test ? 'Tester à nouveau' : 'Tester la connexion'}
+                  </Button>
+                }
+              >
+                <DetectedRows
+                  rows={[
+                    { label: 'Nom', value: form.name, empty: 'non renseigné' },
+                    { label: 'Hôte', value: host?.name, empty: 'non choisi' },
+                    { label: 'URL', value: url, empty: host ? "IP de l'hôte inconnue : la saisir" : 'broker non choisi' },
+                    { label: 'Utilisateur', value: form.username, empty: 'anonyme' },
+                  ]}
+                />
+                <CheckLine label="Broker MQTT" check={test} idle={url || '—'} />
+                {dynsecInfo && (
+                  <p className="flex items-start gap-1.5 text-xs text-muted">
+                    <ShieldCheck className={clsx('mt-0.5 h-3.5 w-3.5 shrink-0', dynsecInfo.managed ? 'text-emerald-400' : 'text-zinc-500')} aria-hidden />
+                    <span>
+                      Pour info : {dynsecInfo.managed ? 'comptes gérés par HLM (dynamic-security)' : DYNSEC_INFO[dynsecInfo.state]}
+                      {dynsecInfo.state === 'unavailable' && dynsecInfo.reason ? ` (${dynsecInfo.reason})` : ''}.
+                    </span>
+                  </p>
+                )}
+              </Step>
+            </Steps>
+          </div>
+        </div>
       </Modal>
       <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
         Les paramètres du rôle modifiés ne seront pas enregistrés.

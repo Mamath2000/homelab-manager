@@ -37,12 +37,12 @@ Un rôle de type broker n'est jamais saisi à la main : l'agent de l'hôte signa
 
 ### Broker MQTT
 
-La même fenêtre sert à déclarer et à modifier un broker, en quatre étapes :
+La même fenêtre sert à déclarer et à modifier un broker : d'abord le **nom du rôle** (son identifiant dans les sondes et le pont Home Assistant), puis quatre étapes :
 
 1. **Broker** : les brokers que les agents ont trouvés, un par hôte et par processus (Mosquitto et sa version). Un broker déjà déclaré est grisé (un processus, un rôle).
-2. **Connexion** : le nom du rôle, le **port** parmi ceux sur lesquels le broker écoute (1883, 9001…, relevés par l'agent ; le protocole en est déduit, modifiable), l'adresse facultative. Le listener TLS que l'agent ajoute pour le hub (8883, voir plus bas) n'est jamais proposé.
-3. **Compte** : utilisateur et mot de passe, facultatifs (broker anonyme). L'icône à côté du mot de passe en **génère** un, affiché avec un bouton de copie. Si les comptes du broker sont **gérés par HLM**, le compte est **créé, ou son mot de passe changé, sur le broker** à l'enregistrement ; sinon il doit exister sur le broker.
-4. **Test** : le hub se connecte avec ce compte. Il indique **pour info** si la gestion des comptes est possible sur ce broker (dynamic-security). Pour un broker géré, un compte pas encore créé est accepté au test (« sera créé à l'enregistrement ») ; l'enregistrement le crée puis vérifie la connexion.
+2. **Protocole** : **MQTT** (TCP, `mqtt://`), le seul pour l'instant, présélectionné ; TLS et WebSocket viendront plus tard. En dessous, facultatifs : l'**adresse IP** (par défaut celle de l'hôte, relevée par son agent ; à saisir pour une autre IP ou un nom DNS) et le **port** (par défaut celui que l'agent a relevé pour ce protocole, sinon 1883). Le listener TLS que l'agent ajoute pour le hub (8883, voir plus bas) n'est jamais utilisé.
+3. **Identifiants** : utilisateur et mot de passe, facultatifs (broker anonyme). L'icône à côté du mot de passe en **génère** un, affiché avec un bouton de copie. Si les comptes du broker sont **gérés par HLM**, le compte est **créé, ou son mot de passe changé, sur le broker** à l'enregistrement ; sinon il doit exister sur le broker.
+4. **Test** : rappelle l'URL réelle (par exemple `mqtt://192.168.100.10:1883`) et se connecte avec ces identifiants. Il indique **pour info** si la gestion des comptes est possible sur ce broker (dynamic-security). Pour un broker géré, un compte pas encore créé est accepté au test (« sera créé à l'enregistrement ») ; l'enregistrement le crée puis vérifie la connexion.
 
 Dans la liste des rôles, une icône bouclier à côté du nom d'un broker indique la gestion des comptes : **verte** si HLM la gère, **grise** si elle est seulement possible (ou chargée mais gérée hors HLM), absente si indisponible. L'avertissement « connexions anonymes acceptées » reste affiché.
 
