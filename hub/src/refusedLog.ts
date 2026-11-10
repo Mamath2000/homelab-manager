@@ -77,6 +77,13 @@ export function refusedOf(roleId: string, now = Date.now()): Refused[] {
 /** The administrator clears a client from the list (it comes back if it is refused again). */
 export const forgetRefused = (roleId: string, clientId: string) => entries.get(roleId)?.delete(clientId) ?? false;
 
+/** The administrator clears the whole list (clients that change their client id at each try fill it). */
+export function clearRefused(roleId: string) {
+  const n = entries.get(roleId)?.size ?? 0;
+  entries.get(roleId)?.clear();
+  return n;
+}
+
 /** An account was made for this client: it stays listed until a connection passes (or is refused again, the password is wrong). */
 export function markCreated(roleId: string, clientId: string, account: string, now = Date.now()) {
   const e = entries.get(roleId)?.get(clientId);

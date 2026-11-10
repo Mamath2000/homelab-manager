@@ -4,7 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
-import { forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
+import { clearRefused, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
 import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
@@ -342,6 +342,11 @@ export function registerRoleRoutes(app: FastifyInstance) {
       }
     },
   );
+  app.delete<{ Params: { id: string } }>('/api/roles/:id/mqtt-refused', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    return { cleared: clearRefused(role._id) };
+  });
   // clears a refused client from the list (kept in memory by the hub, refusedLog.ts): it comes back if it is refused again
   app.delete<{ Params: { id: string; clientId: string } }>('/api/roles/:id/mqtt-refused/:clientId', async (req, reply) => {
     const role = brokerRole(req.params.id);

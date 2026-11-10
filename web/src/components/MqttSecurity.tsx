@@ -209,6 +209,10 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
     done(async () => {
       await api.forgetMqttRefused(role.id, c.clientId);
     });
+  const clearAll = () =>
+    done(async () => {
+      await api.clearMqttRefused(role.id);
+    });
   const remove = () =>
     done(async () => {
       await api.deleteMqttAccount(role.id, deleting!.username);
@@ -227,6 +231,11 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
         wide="xl"
         footer={
           <>
+            {refused.length > 0 && (
+              <Button icon={X} disabled={busy} onClick={() => void clearAll()} title="Vide la liste des clients refusés (ils reviennent s'ils sont de nouveau refusés)">
+                Retirer tous les clients refusés
+              </Button>
+            )}
             <Button icon={RefreshCw} loading={q.isFetching} disabled={q.isFetching} onClick={() => void q.refetch()}>Actualiser</Button>
             <Button onClick={onClose}>Fermer</Button>
           </>
