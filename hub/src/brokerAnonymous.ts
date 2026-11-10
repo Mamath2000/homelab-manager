@@ -17,7 +17,7 @@ export async function checkBrokersAnonymous() {
     brokers.map(async (b) => {
       if (!b.url) return;
       try {
-        await testConnection(b.url, '', '');
+        await testConnection(b.url, '', '', b.tls?.caPem ? { caPem: b.tls.caPem } : undefined);
         anonymous.set(b.id, true);
       } catch {
         anonymous.set(b.id, false);

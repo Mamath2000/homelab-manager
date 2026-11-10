@@ -15,11 +15,12 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
   const base = { id: r._id, type: r.type, name: r.name, carrier: { kind: r.carrier.kind, id: r.carrier.id.toHexString(), name: host?.name ?? '' } };
   switch (r.type) {
     case 'mqtt-broker': {
-      const { password, ...config } = r.config;
+      const { password, clientKeyPem, ...config } = r.config;
       return {
         ...base,
         config: { ...config, address: config.address ?? null },
         hasSecret: !!password,
+        hasClientKey: !!clientKeyPem,
         url: roleUrl(r.config, host?.info?.ips),
         account: r.config.username,
         status: worst([probeEngine()?.pool.status(r._id) ?? null, bridgeStatusOf(r._id)]),

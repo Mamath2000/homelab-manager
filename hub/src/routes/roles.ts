@@ -4,6 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
 import { roleView } from '../roleView.js';
@@ -33,6 +34,10 @@ const config = {
     address: { type: 'string', maxLength: 253, pattern: '^[A-Za-z0-9.:_-]*$' },
     username: { type: 'string', maxLength: 128 },
     password: { type: 'string', maxLength: 256 }, // absent: unchanged, "": cleared
+    // TLS (mqtts, wss), PEM: the authority to trust, the certificate of the hub and its key (absent with the certificate: the stored key is kept)
+    caPem: { type: 'string', maxLength: PEM_MAX },
+    clientCertPem: { type: 'string', maxLength: PEM_MAX },
+    clientKeyPem: { type: 'string', maxLength: PEM_MAX },
     // omada-controller: the address of the Open API and the application of the controller (client mode)
     url: { type: 'string', maxLength: 256 },
     fingerprint: { type: 'string', maxLength: 128 }, // "": the system CAs
@@ -74,6 +79,9 @@ export interface ConfigBody {
   address?: string;
   username?: string;
   password?: string;
+  caPem?: string;
+  clientCertPem?: string;
+  clientKeyPem?: string;
   url?: string;
   fingerprint?: string;
   clientId?: string;
@@ -86,7 +94,7 @@ interface CarrierBody {
 
 // the fields of each declared type; its secret: kept when absent from an edit
 const FIELDS: Record<DeclaredType, { required: (keyof ConfigBody)[]; optional: (keyof ConfigBody)[]; secret: keyof ConfigBody }> = {
-  'mqtt-broker': { required: ['scheme', 'port', 'username'], optional: ['address', 'password'], secret: 'password' },
+  'mqtt-broker': { required: ['scheme', 'port', 'username'], optional: ['address', 'password', 'caPem', 'clientCertPem', 'clientKeyPem'], secret: 'password' },
   'omada-controller': { required: ['url', 'clientId'], optional: ['fingerprint', 'clientSecret'], secret: 'clientSecret' },
 };
 
@@ -97,6 +105,7 @@ export function configError(type: DeclaredType, c: ConfigBody) {
   if (missing) return `${missing} manquant`;
   const extra = Object.keys(c).find((k) => !required.includes(k as keyof ConfigBody) && !optional.includes(k as keyof ConfigBody));
   if (extra) return `${extra} inattendu pour un rôle ${ROLE_DEFS[type].label}`;
+  if (type === 'mqtt-broker') return tlsError(c, c.scheme!);
   if (type === 'omada-controller') {
     if (!SERVER_URL_RE.test(c.url!.trim())) return 'URL invalide (https://contrôleur:8043)';
     if (!c.clientId!.trim()) return 'client_id manquant';
@@ -142,7 +151,21 @@ export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): Dec
 export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): DeclaredRole['config'] {
   if (type === 'omada-controller')
     return { url: c.url!.trim().replace(/\/+$/, ''), fingerprint: c.fingerprint ? normalizeFingerprint(c.fingerprint) : '', clientId: c.clientId!.trim(), clientSecret: secret };
-  return { scheme: c.scheme!, port: c.port!, ...(c.address ? { address: c.address } : {}), username: c.username!, password: secret };
+  return {
+    scheme: c.scheme!,
+    port: c.port!,
+    ...(c.address ? { address: c.address } : {}),
+    username: c.username!,
+    password: secret,
+    ...(c.caPem?.trim() ? { caPem: c.caPem.trim() } : {}),
+    ...(c.clientCertPem?.trim() && c.clientKeyPem?.trim() ? { clientCertPem: c.clientCertPem.trim(), clientKeyPem: c.clientKeyPem.trim() } : {}),
+  };
+}
+
+// An edit that sends the client certificate without its key keeps the stored key (it is never sent back to the UI).
+export function withStoredKey(c: ConfigBody, stored: DeclaredRole | undefined): ConfigBody {
+  if (stored?.type !== 'mqtt-broker' || !c.clientCertPem?.trim() || c.clientKeyPem !== undefined || !stored.config.clientKeyPem) return c;
+  return { ...c, clientKeyPem: stored.config.clientKeyPem };
 }
 
 const storedSecret = (r: DeclaredRole) => (r.type === 'mqtt-broker' ? r.config.password : r.config.clientSecret);
@@ -190,15 +213,16 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const current = declaredRole(req.params.id);
     if (!current) return reply.code(404).send({ error: 'rôle inconnu' });
     const def = defOf(current.type);
-    const bad = configError(current.type, req.body.config);
+    const body = withStoredKey(req.body.config, current);
+    const bad = configError(current.type, body);
     if (bad) return reply.code(400).send({ error: bad });
     if (req.body.carrier && !def.carriers.includes(req.body.carrier.kind)) return reply.code(400).send({ error: `un rôle ${def.label} ne peut pas être porté par ce type d'élément` });
-    const secret = typedSecret(current.type, req.body.config) ?? storedSecret(current);
+    const secret = typedSecret(current.type, body) ?? storedSecret(current);
     if (current.type === 'omada-controller' && !secret) return reply.code(400).send({ error: 'client_secret manquant' });
     const host = await carrierOf(req.body.carrier ?? { kind: current.carrier.kind, id: current.carrier.id.toHexString() });
     if (!host) return reply.code(404).send({ error: 'host not found' });
     const name = req.body.name.trim();
-    const c = toConfig(current.type, req.body.config, secret);
+    const c = toConfig(current.type, body, secret);
     const moved = !host._id.equals(current.carrier.id);
     // what the agent detected is checked again only when it changes: a broker stopped for a while stays editable
     const why =
@@ -268,10 +292,11 @@ export function registerRoleRoutes(app: FastifyInstance) {
   // connection test of a role being declared or edited. omada-controller: fingerprint, the one its certificate presents
   // when it was refused, and its source (to pin it or not, checkedFingerprint); detail: what the controller answered
   app.post<{ Body: { type: DeclaredType; carrier: CarrierBody; config: ConfigBody; roleId?: string } }>('/api/roles/test', { schema: { body: testBody } }, async (req, reply) => {
-    const { type, config: body } = req.body;
+    const { type } = req.body;
+    const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;
+    const body = withStoredKey(req.body.config, stored);
     const bad = configError(type, body);
     if (bad) return reply.code(400).send({ error: bad });
-    const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;
     const secret = typedSecret(type, body) ?? (stored?.type === type ? storedSecret(stored) : '');
     if (type === 'omada-controller') {
       const c = toConfig(type, body, secret);
@@ -286,12 +311,13 @@ export function registerRoleRoutes(app: FastifyInstance) {
     }
     const host = await carrierOf(req.body.carrier);
     if (!host) return reply.code(404).send({ error: 'host not found' });
-    const url = roleUrl(toConfig(type, body, secret), host.info?.ips);
+    const mqttConfig = toConfig('mqtt-broker', body, secret);
+    const url = roleUrl(mqttConfig, host.info?.ips);
     if (!url) return { ok: false, error: "adresse de l'hôte inconnue : la saisir" };
     try {
-      await testConnection(url, body.username!, secret);
-      // without an account too: anyone on the network may publish on it
-      const anonymous = await testConnection(url, '', '').then(() => true, () => false);
+      await testConnection(url, body.username!, secret, tlsOf(mqttConfig));
+      // without an account too (no certificate either, the authority only): anyone on the network may publish on it
+      const anonymous = await testConnection(url, '', '', mqttConfig.caPem ? { caPem: mqttConfig.caPem } : undefined).then(() => true, () => false);
       return { ok: true, ...(anonymous ? { anonymous: true, detail: 'le broker accepte aussi les connexions anonymes : tout le réseau peut y publier' } : {}) };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

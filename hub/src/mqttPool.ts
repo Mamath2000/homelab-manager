@@ -1,5 +1,6 @@
 import mqtt, { type MqttClient } from 'mqtt';
 import type { Measure } from './probeRunners.js';
+import { tlsKey, tlsOptions } from './mqttTls.js';
 import type { MqttBroker } from './types.js';
 
 // One connection per broker, shared by all the probes that listen to it, and one subscription per topic:
@@ -33,7 +34,7 @@ const sleepUntil = (conn: Conn, ms: number) =>
     conn.wake.add(done);
   });
 
-const keyOf = (b: MqttBroker) => `${b.url}|${b.username}|${b.password}`;
+const keyOf = (b: MqttBroker) => `${b.url}|${b.username}|${b.password}|${tlsKey(b.tls)}`;
 
 export class MqttPool {
   private conns = new Map<string, Conn>();
@@ -67,6 +68,7 @@ export class MqttPool {
     const client = mqtt.connect(b.url, {
       username: b.username || undefined,
       password: b.password || undefined,
+      ...tlsOptions(b.tls),
       clientId: `homelab-manager-probes-${Math.random().toString(16).slice(2, 10)}`,
       reconnectPeriod: 5000,
       connectTimeout: 10_000,

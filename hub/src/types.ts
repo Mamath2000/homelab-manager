@@ -1308,7 +1308,16 @@ export interface RoleCarrier {
 
 // mqtt-broker: an MQTT broker the probes listen to (distinct from the one of the Home Assistant bridge), reached at
 // address (the first private IP of its host when absent) and port.
-export interface MqttBrokerConfig {
+// TLS material of a broker (mqtts, wss), PEM. caPem: the authority the broker certificate must come from (else the
+// system ones); clientCertPem + clientKeyPem: the certificate the hub presents (mutual TLS, the broker takes its name as
+// the account). The key is sealed with the master key (storedSecrets.ts). Named *Pem: the audit never logs them.
+export interface MqttTls {
+  caPem?: string;
+  clientCertPem?: string;
+  clientKeyPem?: string;
+}
+
+export interface MqttBrokerConfig extends MqttTls {
   scheme: BrokerScheme;
   port: number;
   address?: string;
@@ -1442,6 +1451,7 @@ export interface MqttBroker {
   url: string; // mqtt://host:1883, mqtts://...
   username: string;
   password: string;
+  tls?: MqttTls;
   hostId: ObjectId;
 }
 

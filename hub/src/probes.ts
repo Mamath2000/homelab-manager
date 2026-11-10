@@ -5,6 +5,7 @@ import { hosts, probeDays, probeMeasures, probes } from './db.js';
 import { lanAddress } from './hostAddress.js';
 import { publish, subscribe } from './events.js';
 import { MqttPool } from './mqttPool.js';
+import { tlsOf } from './mqttTls.js';
 import { pingFromHost } from './probeSource.js';
 import { measureVpn } from './vpnProbes.js';
 import { measureLocal, PING_HOST_RE, type Measure } from './probeRunners.js';
@@ -33,7 +34,7 @@ export async function loadMqttBrokers(): Promise<{ brokers: MqttBroker[] }> {
   const list = allRoles().filter((r) => r.type === 'mqtt-broker');
   const carriers = await hosts.find({ _id: { $in: list.map((r) => r.carrier.id) } }, { projection: { 'info.ips': 1 } }).toArray();
   const ips = new Map(carriers.map((h) => [h._id.toHexString(), h.info?.ips]));
-  const brokers = list.map((r) => ({ id: r._id, name: r.name, url: roleUrl(r.config, ips.get(r.carrier.id.toHexString())), username: r.config.username, password: r.config.password, hostId: r.carrier.id }));
+  const brokers = list.map((r) => ({ id: r._id, name: r.name, url: roleUrl(r.config, ips.get(r.carrier.id.toHexString())), username: r.config.username, password: r.config.password, tls: tlsOf(r.config), hostId: r.carrier.id }));
   return { brokers };
 }
 

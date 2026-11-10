@@ -17,8 +17,12 @@ export const SETTINGS_SECRETS = {
 } as const satisfies Record<string, readonly string[]>;
 type SettingsId = keyof typeof SETTINGS_SECRETS;
 
-// declared roles: the secret of their config
-export const ROLE_SECRETS: Partial<Record<RoleDoc['type'], string>> = { 'mqtt-broker': 'password', 'omada-controller': 'clientSecret', 'pve-cluster': 'tokenSecret' };
+// declared roles: the secrets of their config
+export const ROLE_SECRETS: Partial<Record<RoleDoc['type'], readonly string[]>> = {
+  'mqtt-broker': ['password', 'clientKeyPem'],
+  'omada-controller': ['clientSecret'],
+  'pve-cluster': ['tokenSecret'],
+};
 
 const settingsAad = (id: string) => (f: string) => `settings/${id}/${f}`;
 const roleAad = (id: string, f: string) => `roles/${id}/config.${f}`;
@@ -40,8 +44,8 @@ export function openSettings<T extends object>(id: SettingsId, doc: T | null): T
 export function openRole<R extends RoleDoc>(r: R): R {
   const f = ROLE_SECRETS[r.type];
   if (!f || !r.config) return r;
-  noteClear(r.config as object, [f]);
-  return { ...r, config: openFields(r.config as object, [f], (x) => roleAad(String(r._id), x)) } as R;
+  noteClear(r.config as object, f);
+  return { ...r, config: openFields(r.config as object, f, (x) => roleAad(String(r._id), x)) } as R;
 }
 
 export function openCredential<C extends { tokenId: string; tokenSecret: string }>(c: C): C;
@@ -70,11 +74,12 @@ export async function sealStored(): Promise<number> {
     }
   }
   for (const r of await roles.find({ type: { $in: Object.keys(ROLE_SECRETS) } } as never).toArray()) {
-    const f = ROLE_SECRETS[r.type as RoleDoc['type']]!;
-    const v = (r.config as unknown as Record<string, unknown> | undefined)?.[f];
-    if (!clear(v)) continue;
-    const res = await roles.updateOne({ _id: r._id, [`config.${f}`]: v } as never, { $set: { [`config.${f}`]: seal(v, roleAad(String(r._id), f)) } });
-    n += res.modifiedCount;
+    for (const f of ROLE_SECRETS[r.type as RoleDoc['type']]!) {
+      const v = (r.config as unknown as Record<string, unknown> | undefined)?.[f];
+      if (!clear(v)) continue;
+      const res = await roles.updateOne({ _id: r._id, [`config.${f}`]: v } as never, { $set: { [`config.${f}`]: seal(v, roleAad(String(r._id), f)) } });
+      n += res.modifiedCount;
+    }
   }
   const list = await hosts.find({ 'pbsCredential.tokenSecret': { $type: 'string', $not: SEALED } }, { projection: { pbsCredential: 1 } }).toArray();
   for (const h of list) {
@@ -109,7 +114,7 @@ export async function anySealed(): Promise<boolean> {
   for (const [id, fields] of Object.entries(SETTINGS_SECRETS)) {
     if (await settings.findOne({ _id: id, $or: fields.map((f) => ({ [f]: SEALED })) } as never, { projection: { _id: 1 } })) return true;
   }
-  const roleQuery = Object.entries(ROLE_SECRETS).map(([type, f]) => ({ type, [`config.${f}`]: SEALED }));
+  const roleQuery = Object.entries(ROLE_SECRETS).flatMap(([type, fields]) => fields.map((f) => ({ type, [`config.${f}`]: SEALED })));
   if (await roles.findOne({ $or: roleQuery } as never, { projection: { _id: 1 } })) return true;
   if (await hosts.findOne({ 'pbsCredential.tokenSecret': SEALED }, { projection: { _id: 1 } })) return true;
   if (await backupJobs.findOne({ 'database.password': SEALED }, { projection: { _id: 1 } })) return true;

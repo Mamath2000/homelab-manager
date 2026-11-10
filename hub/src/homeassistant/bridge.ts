@@ -14,7 +14,8 @@ import { subscribe } from '../events.js';
 import { equipmentProbes, hostProbes } from '../probes.js';
 import { HOME_ASSISTANT, runAs } from '../audit.js';
 import { createJob, hasRunningJob } from '../jobs.js';
-import type { HaDetail, HaHostDetail, HomeAssistantSettings } from '../types.js';
+import { tlsOptions } from '../mqttTls.js';
+import type { HaDetail, HaHostDetail, HomeAssistantSettings, MqttTls } from '../types.js';
 import { build, deviceOf, mqttActionAllowed, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
@@ -357,11 +358,12 @@ export class HomeAssistantBridge {
 }
 
 // Checks that a broker accepts the connection, without touching the running bridge.
-export function testConnection(broker: string, username: string, password: string) {
+export function testConnection(broker: string, username: string, password: string, tls?: MqttTls) {
   return new Promise<void>((resolve, reject) => {
     const client = mqtt.connect(broker, {
       username: username || undefined,
       password: password || undefined,
+      ...tlsOptions(tls),
       connectTimeout: 5000,
       reconnectPeriod: 0,
     });
