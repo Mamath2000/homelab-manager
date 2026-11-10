@@ -27,9 +27,10 @@ import (
 const (
 	dynsecConfName = "zz-hlm-dynsec.conf" // last in the directory: the options after `listener` stay with it
 	dynsecTLSDir   = "/etc/mosquitto/hlm-tls"
-	dynsecInitPw   = "/etc/mosquitto/hlm-dynsec-init"
-	dynsecState    = "/var/lib/mosquitto/dynamic-security.json"
-	dynsecTLSPort  = 8883
+	// read by the plugin once the broker dropped its privileges: root:mosquitto, mode 640 (a 600 file is not readable)
+	dynsecInitPw  = "/etc/mosquitto/hlm-dynsec-init"
+	dynsecState   = "/var/lib/mosquitto/dynamic-security.json"
+	dynsecTLSPort = 8883
 )
 
 // DynsecEnable: what the hub sends. ServerKeyPem is a secret: never logged.
@@ -246,7 +247,7 @@ func enableDynsec(ctx context.Context, h dynsecHost, rep DynsecReport, req Dynse
 	if err != nil {
 		return fail("mot de passe d'initialisation", err)
 	}
-	if err := h.Write(dynsecInitPw, []byte(initPw), 0o600, "mosquitto"); err != nil {
+	if err := h.Write(dynsecInitPw, []byte(initPw), 0o640, "mosquitto"); err != nil {
 		return fail("mot de passe d'initialisation", err)
 	}
 	undo = append(undo, func() { remove(dynsecInitPw) })

@@ -21,6 +21,8 @@ import (
 // fakeHost: files in a map, the commands recorded; failOn: a mosquitto_ctrl command that fails.
 type fakeHost struct {
 	files    map[string]string
+	modes    map[string]os.FileMode
+	groups   map[string]string
 	cmds     []string
 	restarts int
 	failOn   string
@@ -176,5 +178,31 @@ func TestDisableDynsec(t *testing.T) {
 	}
 	if f.files[dynsecState+".disabled-1000"] != "{}" || f.files["/etc/mosquitto/conf.d/local.conf"] == "" || len(f.files) != 2 || f.restarts != 1 {
 		t.Fatalf("files=%v restarts=%d", f.files, f.restarts)
+	}
+}
+
+// The plugin and the TLS listener read their files after the broker dropped its privileges: a file of root:mosquitto
+// must be readable by the group (this is what a 600 init password file broke on a real broker).
+func TestEnableDynsecFilesAreReadableByTheBroker(t *testing.T) {
+	f := &fakeHost{files: map[string]string{}}
+	var written []string
+	h := f.host()
+	write := h.Write
+	h.Write = func(p string, d []byte, mode os.FileMode, group string) error {
+		written = append(written, p)
+		if group == "mosquitto" && mode&0o040 == 0 || group == "" && mode&0o004 == 0 {
+			t.Errorf("%s: mode %o group %q is not readable by the broker", p, mode, group)
+		}
+		return write(p, d, mode, group)
+	}
+	if _, err := enableDynsec(context.Background(), h, okReport(), testPKI(t)); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, p := range written {
+		found = found || p == dynsecInitPw
+	}
+	if !found {
+		t.Fatal("the init password file was not written")
 	}
 }
