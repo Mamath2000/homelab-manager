@@ -1,17 +1,22 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, RefreshCw, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, Search, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type MqttAccount, type MqttHubRole, type MqttRefused } from '../lib/api';
+import { api, type MqttAccount, type MqttAnonymous, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { stillRefused } from '../lib/roles';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { useRoles } from '../lib/queries';
-import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Segmented, Spinner } from './ui';
 
 const STATE = { active: { tone: 'ok', label: 'Gestion des comptes active' }, available: { tone: 'neutral', label: 'Disponible, non activée' }, unavailable: { tone: 'warn', label: 'Indisponible' } } as const;
+// one line of the accounts dialog: a refused client, an account or an anonymous client
+type AccountRow = { kind: 'refused'; c: MqttRefused } | { kind: 'account'; a: MqttAccount } | { kind: 'anonymous'; c: MqttAnonymous };
+type RowFilter = 'all' | 'error' | 'anonymous' | 'accounts';
+const PAGE_SIZE = 15;
+const rowText = (r: AccountRow) => (r.kind === 'account' ? r.a.username : r.kind === 'refused' ? `${r.c.clientId} ${r.c.address} ${r.c.account ?? ''}` : `${r.c.clientId} ${r.c.address}`).toLowerCase();
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 
 // Paramètres › MQTT: the security of the MQTT brokers whose management of accounts is available or active
@@ -253,6 +258,10 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
   const [forClient, setForClient] = useState<MqttRefused | null>(null);
   const [clientUser, setClientUser] = useState('');
   const [clientPassword, setClientPassword] = useState('');
+  // the list is filtered and paged in the dialog: clients that change their id at each try would fill the screen
+  const [filter, setFilter] = useState<RowFilter>('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
 
   const done = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -309,6 +318,25 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
   const anonymousClients = q.data?.anonymous ?? [];
   // anonymous clients without rights connect but can neither publish nor subscribe: for the administrator, they are refused
   const anonymousMute = q.data?.anonymousAllowed === false && q.data?.anonymousAccepted !== false;
+  const rows: AccountRow[] = [
+    ...refused.map((c) => ({ kind: 'refused' as const, c })),
+    ...accounts.map((a) => ({ kind: 'account' as const, a })),
+    ...anonymousClients.map((c) => ({ kind: 'anonymous' as const, c })),
+  ];
+  const inError = (r: AccountRow) => r.kind === 'refused' || (r.kind === 'anonymous' && anonymousMute);
+  const ofFilter = (r: AccountRow, f: RowFilter) => f === 'all' || (f === 'error' ? inError(r) : f === 'anonymous' ? r.kind === 'anonymous' : r.kind === 'account');
+  const count = (f: RowFilter) => rows.filter((r) => ofFilter(r, f)).length;
+  const filters: { id: RowFilter; label: string }[] = [
+    { id: 'all', label: `Tous · ${rows.length}` },
+    { id: 'error', label: `En erreur · ${count('error')}` },
+    { id: 'anonymous', label: `Anonymes · ${count('anonymous')}` },
+    { id: 'accounts', label: `Comptes · ${count('accounts')}` },
+  ];
+  const needle = search.trim().toLowerCase();
+  const visible = rows.filter((r) => ofFilter(r, filter) && (!needle || rowText(r).includes(needle)));
+  const pages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const current = Math.min(page, pages - 1);
+  const pageRows = visible.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE);
   return (
     <>
       <Modal
@@ -318,8 +346,8 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
         wide="screen"
         footer={
           <>
-            {refused.length > 0 && (
-              <Button icon={X} disabled={busy} onClick={() => void clearAll()} title="Vide la liste des clients refusés (ils reviennent s'ils sont de nouveau refusés)">
+            {refused.length + anonymousClients.length > 0 && (
+              <Button icon={X} disabled={busy} onClick={() => void clearAll()} title="Vide la liste des clients refusés et anonymes (ils reviennent à leur prochaine tentative)">
                 Retirer tous les clients refusés
               </Button>
             )}
@@ -338,81 +366,113 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
           ) : q.error ? (
             <p className="text-xs text-red-400">{(q.error as Error).message}</p>
           ) : (
-            <table className="w-full table-fixed text-sm">
-              <thead className="border-b border-line">
-                <tr>
-                  <th className="th">Compte</th>
-                  <th className="th w-40">Connexion</th>
-                  <th className="th w-32" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {refused.map((c) => (
-                  <tr key={`refused:${c.clientId}`} className={stillRefused(c) ? 'bg-red-500/5' : 'bg-amber-500/5'}>
-                    <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
-                      {c.clientId}
-                      <span className={clsx('ml-2 font-sans', stillRefused(c) ? 'text-red-300' : 'text-amber-300')}>
-                        {!c.account ? 'client refusé' : stillRefused(c) ? `toujours refusé · compte « ${c.account} »` : `compte « ${c.account} » créé, en attente de connexion`}
-                      </span>
-                    </td>
-                    <td className="td truncate text-xs text-muted" title={`${c.address} · dernière tentative ${new Date(c.lastAt).toLocaleString('fr-FR')}`}>
-                      {c.address} · {c.count} tentative{c.count > 1 ? 's' : ''} · {timeAgo(c.lastAt)}
-                    </td>
-                    <td className="td">
-                      <div className="flex justify-end gap-1.5">
-                        {!c.account && (
-                          <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient(c))}>
-                            Créer
-                          </Button>
-                        )}
-                        <Button size="sm" icon={X} aria-label={`Retirer ${c.clientId} de la liste`} title="Retirer de la liste (revient s'il est de nouveau refusé)" disabled={busy} onClick={() => void forget(c)} />
-                      </div>
-                    </td>
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented label="Type" options={filters} value={filter} onChange={(f) => (setFilter(f), setPage(0))} />
+                <label className="relative block min-w-48 flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted md:top-2" />
+                  <input className="input pl-8" placeholder="Client, compte ou adresse…" value={search} onChange={(e) => (setSearch(e.target.value), setPage(0))} />
+                </label>
+              </div>
+              <table className="w-full table-fixed text-sm">
+                <thead className="border-b border-line">
+                  <tr>
+                    <th className="th">Compte</th>
+                    <th className="th w-40">Connexion</th>
+                    <th className="th w-32" />
                   </tr>
-                ))}
-                {accounts.map((a) => (
-                  <tr key={a.username}>
-                    <td className="td truncate font-mono text-xs text-zinc-100" title={a.username}>
-                      {a.username}
-                      {a.protected && <span className="ml-2 font-sans text-muted">compte du hub</span>}
-                    </td>
-                    <td className="td">
-                      <Badge tone={a.connected ? 'ok' : 'neutral'}>{a.connected ? (a.connections > 1 ? `connecté · ${a.connections}` : 'connecté') : 'non connecté'}</Badge>
-                    </td>
-                    <td className="td">
-                      {!a.protected && (
-                        <div className="flex justify-end gap-1.5">
-                          <Button size="sm" icon={KeyRound} aria-label={`Changer le mot de passe de ${a.username}`} title="Changer le mot de passe" disabled={busy} onClick={() => (setNewPassword(''), setChanging(a))} />
-                          <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${a.username}`} title="Supprimer" disabled={busy} onClick={() => setDeleting(a)} />
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {anonymousClients.map((c) => (
-                  <tr key={`anonymous:${c.clientId}`} className={anonymousMute ? 'bg-red-500/5' : undefined}>
-                    <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
-                      {c.clientId}
-                      <span className={clsx('ml-2 font-sans', anonymousMute ? 'text-red-300' : 'text-amber-300')} title={anonymousMute ? 'Le broker accepte la connexion mais refuse ses publications et abonnements (les anonymes n\'ont pas de droits)' : undefined}>
-                        {anonymousMute ? 'anonyme refusé · sans droits' : 'anonyme'}
-                      </span>
-                    </td>
-                    <td className="td truncate text-xs text-muted" title={`${c.address} · connecté depuis ${new Date(c.since).toLocaleString('fr-FR')}`}>
-                      <Badge tone={anonymousMute ? 'bad' : c.connected ? 'warn' : 'neutral'}>{c.connected ? 'connecté' : 'déconnecté'}</Badge>{' '}
-                      {c.address} · {c.connected ? `depuis ${timeAgo(c.since)}` : `vu ${timeAgo(c.lastAt)}`}
-                    </td>
-                    <td className="td">
-                      <div className="flex justify-end gap-1.5">
-                        <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient({ clientId: c.clientId, address: c.address, count: 0, firstAt: c.since, lastAt: c.lastAt }))}>
-                          Créer
-                        </Button>
-                        <Button size="sm" icon={X} aria-label={`Retirer ${c.clientId} de la liste`} title="Retirer de la liste (revient à sa prochaine connexion)" disabled={busy} onClick={() => void forgetAnonymous(c.clientId)} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {pageRows.map((r) => {
+                    if (r.kind === 'refused') {
+                      const c = r.c;
+                      return (
+                        <tr key={`refused:${c.clientId}`} className={stillRefused(c) ? 'bg-red-500/5' : 'bg-amber-500/5'}>
+                          <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
+                            {c.clientId}
+                            <span className={clsx('ml-2 font-sans', stillRefused(c) ? 'text-red-300' : 'text-amber-300')}>
+                              {!c.account ? 'client refusé' : stillRefused(c) ? `toujours refusé · compte « ${c.account} »` : `compte « ${c.account} » créé, en attente de connexion`}
+                            </span>
+                          </td>
+                          <td className="td truncate text-xs text-muted" title={`${c.address} · dernière tentative ${new Date(c.lastAt).toLocaleString('fr-FR')}`}>
+                            {c.address} · {c.count} tentative{c.count > 1 ? 's' : ''} · {timeAgo(c.lastAt)}
+                          </td>
+                          <td className="td">
+                            <div className="flex justify-end gap-1.5">
+                              {!c.account && (
+                                <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient(c))}>
+                                  Créer
+                                </Button>
+                              )}
+                              <Button size="sm" icon={X} aria-label={`Retirer ${c.clientId} de la liste`} title="Retirer de la liste (revient s'il est de nouveau refusé)" disabled={busy} onClick={() => void forget(c)} />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    if (r.kind === 'account') {
+                      const a = r.a;
+                      return (
+                        <tr key={a.username}>
+                          <td className="td truncate font-mono text-xs text-zinc-100" title={a.username}>
+                            {a.username}
+                            {a.protected && <span className="ml-2 font-sans text-muted">compte du hub</span>}
+                          </td>
+                          <td className="td">
+                            <Badge tone={a.connected ? 'ok' : 'neutral'}>{a.connected ? (a.connections > 1 ? `connecté · ${a.connections}` : 'connecté') : 'non connecté'}</Badge>
+                          </td>
+                          <td className="td">
+                            {!a.protected && (
+                              <div className="flex justify-end gap-1.5">
+                                <Button size="sm" icon={KeyRound} aria-label={`Changer le mot de passe de ${a.username}`} title="Changer le mot de passe" disabled={busy} onClick={() => (setNewPassword(''), setChanging(a))} />
+                                <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${a.username}`} title="Supprimer" disabled={busy} onClick={() => setDeleting(a)} />
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    }
+                    const c = r.c;
+                    return (
+                      <tr key={`anonymous:${c.clientId}`} className={anonymousMute ? 'bg-red-500/5' : undefined}>
+                        <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
+                          {c.clientId}
+                          <span className={clsx('ml-2 font-sans', anonymousMute ? 'text-red-300' : 'text-amber-300')} title={anonymousMute ? 'Le broker accepte la connexion mais refuse ses publications et abonnements (les anonymes n\'ont pas de droits)' : undefined}>
+                            {anonymousMute ? 'anonyme refusé · sans droits' : 'anonyme'}
+                          </span>
+                        </td>
+                        <td className="td truncate text-xs text-muted" title={`${c.address} · connecté depuis ${new Date(c.since).toLocaleString('fr-FR')}`}>
+                          <Badge tone={anonymousMute ? 'bad' : c.connected ? 'warn' : 'neutral'}>{c.connected ? 'connecté' : 'déconnecté'}</Badge>{' '}
+                          {c.address} · {c.connected ? `depuis ${timeAgo(c.since)}` : `vu ${timeAgo(c.lastAt)}`}
+                        </td>
+                        <td className="td">
+                          <div className="flex justify-end gap-1.5">
+                            <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient({ clientId: c.clientId, address: c.address, count: 0, firstAt: c.since, lastAt: c.lastAt }))}>
+                              Créer
+                            </Button>
+                            <Button size="sm" icon={X} aria-label={`Retirer ${c.clientId} de la liste`} title="Retirer de la liste (revient à sa prochaine connexion)" disabled={busy} onClick={() => void forgetAnonymous(c.clientId)} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {visible.length === 0 && (
+                    <tr>
+                      <td className="td text-xs text-muted" colSpan={3}>
+                        {rows.length ? 'Aucun client pour ce filtre.' : 'Aucun compte ni client.'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {pages > 1 && (
+                <div className="flex items-center justify-end gap-2 text-xs text-muted">
+                  {current * PAGE_SIZE + 1}–{Math.min((current + 1) * PAGE_SIZE, visible.length)} sur {visible.length}
+                  <Button size="sm" icon={ChevronLeft} aria-label="Page précédente" disabled={current === 0} onClick={() => setPage(current - 1)} />
+                  <Button size="sm" icon={ChevronRight} aria-label="Page suivante" disabled={current >= pages - 1} onClick={() => setPage(current + 1)} />
+                </div>
+              )}
+            </>
           )}
           <form
             className="flex flex-wrap items-end gap-2 border-t border-line pt-3"
