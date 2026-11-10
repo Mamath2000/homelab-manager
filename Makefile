@@ -1,5 +1,6 @@
 # Makefile pour homelab-manager — `make` ou `make help` liste les commandes
 .PHONY: help install dev start logs stop agent agent-minor agent-major agent-floor agent-run build lint fmt test check audit clean version \
+        docs-site docs-serve \
         docker-build docker-prune hardened-pin release-key \
         docker-release docker-release-minor docker-release-major docker-promote docker-direct publish
 .DEFAULT_GOAL := help
@@ -31,6 +32,8 @@ PROD_SSH  ?= pve1.lo
 PROD_PCT  ?= 171
 PROD_DIR  ?= /home/mamath/homelab-manager
 PROD_COMPOSE ?= docker-compose.yml
+# Site public de la doc (make docs-serve) : port local du build servi
+DOCS_PORT ?= 3100
 PROD_RUN   = ssh $(PROD_SSH) "$(if $(PROD_PCT),pct exec $(PROD_PCT) -- )sh -c 'cd $(PROD_DIR) && $(1)'"
 
 help: ## Affiche cette aide
@@ -130,7 +133,15 @@ audit: ## Vulnérabilités connues, bloquant en sévérité élevée : npm audit
 	cd agent && GOOS=windows $(GOVULNCHECK) ./...
 
 clean: ## Supprime les artefacts de build
-	rm -rf agent/dist hub/dist web/dist
+	rm -rf agent/dist hub/dist web/dist website/build
+
+# --- Documentation ---------------------------------------------------------------
+
+docs-site: ## Build du site public de la doc (docs/ rendu par Docusaurus dans website/build, liens cassés bloquants) ; publié sur GitHub Pages par la CI
+	cd website && npm ci && npm run build
+
+docs-serve: docs-site ## Sert le build du site public de la doc sur http://localhost:$(DOCS_PORT)/homelab-manager/ [DOCS_PORT=3100]
+	cd website && npm run serve -- --port $(DOCS_PORT) --host 0.0.0.0 --no-open
 
 # --- Docker ----------------------------------------------------------------------
 

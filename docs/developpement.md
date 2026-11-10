@@ -74,6 +74,14 @@ make agent-run CODE=…   # agent local enrôlé avec le code d'une commande d'i
 | `make audit` | Vulnérabilités connues, bloquant en sévérité élevée : `npm audit` des dépendances livrées (hub, interface), `govulncheck` de l'agent (Linux et Windows) ; la CI le lance avec un scan de secrets (gitleaks) |
 | `make docker-build` | Image locale `homelab-manager:latest` (agents signés si la clé de release est présente) |
 | `make release-key` | Crée la clé de signature des agents (une fois) |
+| `make docs-site` / `docs-serve` | Site public de la doc : build Docusaurus de `docs/` dans `website/build` (liens cassés bloquants), servi en local sur le port 3100 (`DOCS_PORT=`) |
+
+### Documentation
+
+`docs/` est la source unique de la doc : rendu par le site Docusaurus de `website/` et publié sur
+[GitHub Pages](https://mamath2000.github.io/homelab-manager/) par le workflow `Docs` à chaque push sur `main` qui touche `docs/`
+ou `website/` (une pull request ne fait que le build). Les liens sont relatifs et restent dans `docs/` : un lien vers une page
+hors du dépôt casse le build.
 
 ### Release
 

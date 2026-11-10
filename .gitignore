@@ -11,6 +11,8 @@ mongo-config/
 tailscale.env
 tailscale/
 logs/
+website/build/
+website/.docusaurus/
 
 # Anciens fichiers du manifeste d'accès signé (retiré, homelab#320) : gardés hors dépôt tant qu'ils existent en local
 tools/access.json

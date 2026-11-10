@@ -84,6 +84,8 @@ Pensé pour rester sur le LAN : ne l'expose pas sur Internet sans reverse proxy 
 
 ## Documentation
 
+Toute la doc en ligne : **[mamath2000.github.io/homelab-manager](https://mamath2000.github.io/homelab-manager/)** (recherche, navigation), générée depuis [`docs/`](docs/).
+
 | Pour… | Lire |
 | --- | --- |
 | Démarrer | [Démarrage rapide](docs/demarrage-rapide.md) · [Installation](docs/installation.md) · [Configuration](docs/configuration.md) |

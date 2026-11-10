@@ -29,6 +29,13 @@ updates:
       - dependency-name: typescript
         versions: ['>=7']
 
+  # public documentation site (GitHub Pages)
+  - package-ecosystem: npm
+    directory: /website
+    schedule: { interval: weekly }
+    groups:
+      website: { patterns: ['*'], update-types: [minor, patch] }
+
   # base images of the Dockerfile (Go toolchain of the agents, Node of the hub)
   - package-ecosystem: docker
     directory: /

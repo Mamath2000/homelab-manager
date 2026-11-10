@@ -61,5 +61,28 @@ Statut en direct de chaque hôte, par domaine et par élément suivi (voir [Aler
 
 ## Exemple : widget Homepage
 
-Voir [Homepage](../../sites/vouille/homepage/index.md#widget-homelab-manager) : widget `customapi`, clé d'un compte
-`viewer` sans mot de passe.
+Le widget [`customapi`](https://gethomepage.dev/widgets/services/customapi/) de [Homepage](https://gethomepage.dev) affiche
+les compteurs de `/api/summary` sans code. Clé d'un compte `viewer` sans mot de passe, rangée dans le `.env` de Homepage
+(`HOMEPAGE_VAR_HLMANAGER_KEY`) :
+
+```yaml
+- Homelab Manager:
+    href: https://HUB
+    widget:
+      type: customapi
+      url: https://HUB/api/summary
+      refreshInterval: 60000
+      headers:
+        Authorization: "Bearer {{HOMEPAGE_VAR_HLMANAGER_KEY}}"
+      mappings:
+        - field: hostsOffline
+          label: Hors ligne
+        - field: security
+          label: MAJ sécurité
+        - field: hostsToReboot
+          label: Reboot
+        - field: alerts
+          label: Alertes
+```
+
+Hub en HTTPS avec son propre certificat : donner sa CA à Homepage (`NODE_EXTRA_CA_CERTS`) plutôt que couper la vérification TLS.
