@@ -179,7 +179,8 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
                       <input type="radio" name="role-carrier" className="sr-only" checked={on} disabled={off} onChange={() => choose(h, c)} />
                       <div className="truncate font-medium text-zinc-100">{h.name}</div>
                       <div className="text-xs text-muted">
-                        {c.process ? `${c.process} · ` : ''}port {c.port}
+                        {c.process ? `${c.process}${c.version ? ` ${c.version}` : ''} · ` : ''}port {c.port}
+                        {c.dynsec ? ' · dynamic-security chargé' : ''}
                         {taken ? ' · déjà déclaré' : c.local ? ' · en écoute locale seulement : injoignable par le hub' : ''}
                       </div>
                     </label>
