@@ -27,6 +27,8 @@ export async function startAgentServer() {
       rejectUnauthorized: false,
     },
   });
+  let timer: NodeJS.Timeout | undefined;
+  app.addHook('onClose', async () => clearInterval(timer));
   await app.register(websocket, { options: { maxPayload: 1 << 20 } });
   registerInstallRoutes(app);
   registerEnrollRoute(app);
@@ -40,8 +42,7 @@ export async function startAgentServer() {
     app.server.setSecureContext({ key: next.serverKey, cert: next.serverCert, ca: [next.caCert], minVersion: 'TLSv1.2' });
   };
   await renew().catch((err) => app.log.error({ err }, 'certificate of the agent port not renewed'));
-  const timer = setInterval(() => renew().catch((err) => app.log.error({ err }, 'certificate of the agent port not renewed')), DAY);
+  timer = setInterval(() => renew().catch((err) => app.log.error({ err }, 'certificate of the agent port not renewed')), DAY);
   timer.unref();
-  app.addHook('onClose', async () => clearInterval(timer));
   return app;
 }
