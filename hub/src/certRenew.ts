@@ -59,13 +59,14 @@ export async function hostByCertificate(fingerprint: string, notAfter: Date | nu
 }
 
 /** Issues a renewed certificate for an online agent and has it installed; it is used from its next connection on. */
-export async function renewAgentCert(host: Pick<HostDoc, '_id' | 'name'>) {
+export async function renewAgentCert(host: Pick<HostDoc, '_id' | 'name'>, log: FastifyBaseLogger, trigger: 'auto' | 'manual') {
   const id = host._id.toHexString();
   const peer = peerCertificate(id);
   if (!peer) throw new Error('hôte hors ligne');
   const { certPem, fingerprint, notAfter } = await signClientKey(await loadPki(), peer.spki, id);
   await hosts.updateOne({ _id: host._id }, { $set: { nextCertFingerprint: fingerprint, nextCertIssuedAt: new Date() } });
   await agentRequest(id, 'cert_install', { cert: certPem }, 30_000);
+  log.info({ host: host.name, notAfter, trigger }, 'agent certificate renewed');
   return { notAfter };
 }
 
@@ -80,8 +81,7 @@ export async function maybeRenewAgentCert(hostId: ObjectId, log: FastifyBaseLogg
   );
   if (!host) return false;
   try {
-    const { notAfter } = await renewAgentCert(host);
-    log.info({ host: host.name, notAfter }, 'agent certificate renewed');
+    await renewAgentCert(host, log, 'auto');
     return true;
   } catch (err) {
     log.warn({ err, host: host.name }, 'agent certificate not renewed');

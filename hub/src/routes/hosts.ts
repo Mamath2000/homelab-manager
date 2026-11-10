@@ -280,10 +280,11 @@ export function registerHostRoutes(app: FastifyInstance) {
     if (!host.capabilities?.includes('cert_renew')) return reply.code(409).send({ error: "agent trop ancien : le mettre à jour d'abord" });
     if (!isOnline(req.params.id)) return reply.code(409).send({ error: 'hôte hors ligne' });
     try {
-      const { notAfter } = await renewAgentCert(host);
+      const { notAfter } = await renewAgentCert(host, req.log, 'manual');
       req.auditNote.details = { notAfter: notAfter.toISOString() };
       return { notAfter };
     } catch (err) {
+      req.log.warn({ err, host: host.name }, 'agent certificate not renewed');
       return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
