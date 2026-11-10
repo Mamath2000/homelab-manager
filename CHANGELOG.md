@@ -4,6 +4,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+## 1.3.0 - 2026-11-10
+
 ### Ajouté
 
 - **Mises à jour de Home Assistant OS et Core** : l'agent HAOS lit les versions installée et disponible de l'OS et de Core par le Supervisor (`/os/info`, `/core/info`) et les remonte avec le `hello`. Une version disponible est un avertissement du domaine **Mises à jour**, et Home Assistant reçoit deux entités `update` en lecture seule (**Home Assistant OS**, **Home Assistant Core**). Le Supervisor, qui se met à jour seul, n'est pas suivi. Nécessite l'agent 1.2.1, donc une nouvelle version de l'application [homelab-manager-haos](https://github.com/Mamath2000/homelab-manager-haos). Voir [Home Assistant OS](docs/installation.md#home-assistant-os). (homelab#322)
