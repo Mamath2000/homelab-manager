@@ -1719,6 +1719,14 @@ export interface MqttAnonymous {
   lastAt: number;
 }
 
+// Whether a broker run by the hub accepts clients without an account (hub/src/mqttAnonymous.ts)
+export interface MqttAnonymousState {
+  allowed: boolean; // they can connect and work
+  accepted: boolean | null; // its configuration lets them connect (null: the agent could not say)
+  legacy: boolean; // the legacy role (every topic) is on the anonymous group
+  configurable: boolean; // the agent can change the configuration
+}
+
 export interface MqttBrokerView {
   id: string;
   name: string;
@@ -1898,16 +1906,17 @@ export const api = {
   roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
   roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
     request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
-  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[]; refused: MqttRefused[]; anonymous: MqttAnonymous[]; anonymousAllowed: boolean | null }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
+  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[]; refused: MqttRefused[]; anonymous: MqttAnonymous[]; anonymousAllowed: boolean | null; anonymousAccepted: boolean | null }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
   createMqttAccount: (roleId: string, username: string, password?: string, clientId?: string) =>
     request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}), ...(clientId ? { clientId } : {}) }),
   setMqttAccountPassword: (roleId: string, username: string, password?: string) =>
     request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`, password ? { password } : {}),
   deleteMqttAccount: (roleId: string, username: string) => request<{ ok: true }>('DELETE', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`),
-  mqttAnonymous: (roleId: string) => request<{ allowed: boolean }>('GET', `/api/roles/${roleId}/mqtt-anonymous`),
-  setMqttAnonymous: (roleId: string, allowed: boolean) => request<{ allowed: boolean }>('PUT', `/api/roles/${roleId}/mqtt-anonymous`, { allowed }),
+  mqttAnonymous: (roleId: string) => request<MqttAnonymousState>('GET', `/api/roles/${roleId}/mqtt-anonymous`),
+  setMqttAnonymous: (roleId: string, allowed: boolean) => request<MqttAnonymousState>('PUT', `/api/roles/${roleId}/mqtt-anonymous`, { allowed }),
   clearMqttRefused: (roleId: string) => request<{ cleared: number }>('DELETE', `/api/roles/${roleId}/mqtt-refused`),
   forgetMqttRefused: (roleId: string, clientId: string) => request<{ ok: boolean }>('DELETE', `/api/roles/${roleId}/mqtt-refused/${encodeURIComponent(clientId)}`),
+  forgetMqttAnonymous: (roleId: string, clientId: string) => request<{ ok: boolean }>('DELETE', `/api/roles/${roleId}/mqtt-anonymous/${encodeURIComponent(clientId)}`),
   mqttSecurity: (roleId: string) => request<MqttSecurityView>('GET', `/api/roles/${roleId}/mqtt-security`),
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
   disableMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/disable`),

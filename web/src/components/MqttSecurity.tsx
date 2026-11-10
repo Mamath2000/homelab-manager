@@ -34,7 +34,7 @@ export function MqttSecuritySettings() {
 function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [confirm, setConfirm] = useState<'enable' | 'disable' | 'anonymous-off' | null>(null);
+  const [confirm, setConfirm] = useState<'enable' | 'disable' | 'anonymous-off' | 'anonymous-on' | null>(null);
   const [busy, setBusy] = useState(false);
   const q = useQuery({ queryKey: ['mqtt-security', role.id], queryFn: () => api.mqttSecurity(role.id), refetchOnWindowFocus: false });
   const v = q.data;
@@ -61,11 +61,14 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
 
   const manageable = state === 'active' && hubManaged;
   const anon = useQuery({ queryKey: ['mqtt-anonymous', role.id], queryFn: () => api.mqttAnonymous(role.id), enabled: manageable, refetchOnWindowFocus: false });
+  // the anonymous clients connected now, listed in the confirmation that refuses them
+  const still = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), enabled: confirm === 'anonymous-off', refetchOnWindowFocus: false });
+  const stillAnonymous = (still.data?.anonymous ?? []).filter((a) => a.connected);
   const setAnonymous = async (allowed: boolean) => {
     setBusy(true);
     try {
       await api.setMqttAnonymous(role.id, allowed);
-      toast.success(allowed ? 'Connexions anonymes acceptées' : 'Connexions anonymes sans droits');
+      toast.success(allowed ? 'Connexions anonymes acceptées' : 'Connexions anonymes refusées');
       setConfirm(null);
       await Promise.all([qc.invalidateQueries({ queryKey: ['mqtt-anonymous', role.id] }), qc.invalidateQueries({ queryKey: keys.roles })]);
     } catch (err) {
@@ -139,17 +142,19 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
                   type="checkbox"
                   className="mt-0.5 accent-emerald-500"
                   checked={!!anon.data?.allowed}
-                  disabled={anon.isLoading || !!anon.error || busy}
-                  onChange={(e) => (e.target.checked ? void setAnonymous(true) : setConfirm('anonymous-off'))}
+                  disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
+                  onChange={(e) => setConfirm(e.target.checked ? 'anonymous-on' : 'anonymous-off')}
                 />
                 <span>
                   Accepter les connexions anonymes
                   <span className="block text-xs text-muted">
-                    Un client sans nom d'utilisateur a les droits du rôle <code>legacy</code> : tous les topics. Décoché, il se connecte encore
-                    mais ne peut ni publier ni s'abonner. C'est l'état de transition : décocher quand plus aucun appareil n'est anonyme.
+                    Un client sans nom d'utilisateur se connecte avec les droits du rôle <code>legacy</code> (tous les topics). Décoché, le broker <b>refuse</b> la
+                    connexion (« not authorised ») et le client apparaît dans la liste des clients refusés. Le changement redémarre le broker quelques secondes.
+                    État de transition : décocher quand plus aucun appareil n'est anonyme.
                   </span>
                 </span>
               </label>
+              {anon.data?.configurable === false && <p className="text-xs text-amber-300">L'agent de l'hôte ne répond pas ou est trop ancien : le changement n'est pas possible pour l'instant.</p>}
               {anon.error && <p className="text-xs text-red-400">{(anon.error as Error).message}</p>}
             </div>
           )}
@@ -172,13 +177,36 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
         open={confirm === 'anonymous-off'}
         onClose={() => setConfirm(null)}
         onConfirm={() => void setAnonymous(false)}
-        title="Retirer les droits des clients anonymes"
-        confirmLabel="Retirer les droits"
+        title="Refuser les clients anonymes"
+        confirmLabel="Refuser et redémarrer le broker"
         danger
         loading={busy}
       >
-        Les appareils qui se connectent <b>sans compte</b> à <b>{role.name}</b> resteront connectés mais ne pourront plus publier ni lire : ils paraîtront « en ligne »
-        sans rien échanger. Vérifier d'abord qu'aucun appareil n'est encore anonyme (journal du broker). Réversible : recocher la case.
+        <p>
+          Le broker <b>{role.name}</b> va être redémarré (tous ses clients déconnectés quelques secondes), puis <b>refusera</b> toute connexion sans compte. Les
+          appareils concernés s'afficheront dans les clients refusés. Réversible : recocher la case.
+        </p>
+        {still.isLoading ? (
+          <p className="mt-2 text-xs text-muted">Recherche des clients anonymes connectés…</p>
+        ) : stillAnonymous.length > 0 ? (
+          <div className="mt-2 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+            {stillAnonymous.length} client{stillAnonymous.length > 1 ? 's' : ''} anonyme{stillAnonymous.length > 1 ? 's sont' : ' est'} encore connecté{stillAnonymous.length > 1 ? 's' : ''} :{' '}
+            <span className="font-mono">{stillAnonymous.map((a) => a.clientId).join(', ')}</span>. {stillAnonymous.length > 1 ? 'Ils seront coupés' : 'Il sera coupé'}.
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-emerald-400">Aucun client anonyme connecté.</p>
+        )}
+      </ConfirmModal>
+      <ConfirmModal
+        open={confirm === 'anonymous-on'}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => void setAnonymous(true)}
+        title="Accepter les clients anonymes"
+        confirmLabel="Accepter et redémarrer le broker"
+        loading={busy}
+      >
+        Le broker <b>{role.name}</b> va être redémarré (quelques secondes) et acceptera de nouveau les connexions sans compte, avec les droits du rôle <code>legacy</code> : tout
+        appareil du réseau pourra y publier.
       </ConfirmModal>
       <ConfirmModal
         open={confirm === 'enable'}
@@ -261,6 +289,10 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
     done(async () => {
       await api.forgetMqttRefused(role.id, c.clientId);
     });
+  const forgetAnonymous = (clientId: string) =>
+    done(async () => {
+      await api.forgetMqttAnonymous(role.id, clientId);
+    });
   const clearAll = () =>
     done(async () => {
       await api.clearMqttRefused(role.id);
@@ -276,7 +308,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
   const refused = q.data?.refused ?? [];
   const anonymousClients = q.data?.anonymous ?? [];
   // anonymous clients without rights connect but can neither publish nor subscribe: for the administrator, they are refused
-  const anonymousMute = q.data?.anonymousAllowed === false;
+  const anonymousMute = q.data?.anonymousAllowed === false && q.data?.anonymousAccepted !== false;
   return (
     <>
       <Modal
@@ -370,10 +402,11 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
                       {c.address} · {c.connected ? `depuis ${timeAgo(c.since)}` : `vu ${timeAgo(c.lastAt)}`}
                     </td>
                     <td className="td">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-1.5">
                         <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient({ clientId: c.clientId, address: c.address, count: 0, firstAt: c.since, lastAt: c.lastAt }))}>
                           Créer
                         </Button>
+                        <Button size="sm" icon={X} aria-label={`Retirer ${c.clientId} de la liste`} title="Retirer de la liste (revient à sa prochaine connexion)" disabled={busy} onClick={() => void forgetAnonymous(c.clientId)} />
                       </div>
                     </td>
                   </tr>

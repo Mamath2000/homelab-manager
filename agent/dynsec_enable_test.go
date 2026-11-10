@@ -40,6 +40,12 @@ func (f *fakeHost) host() dynsecHost {
 			return nil
 		},
 		Rename: func(a, b string) error { f.files[b] = f.files[a]; delete(f.files, a); return nil },
+		Read: func(p string) ([]byte, error) {
+			if v, ok := f.files[p]; ok {
+				return []byte(v), nil
+			}
+			return nil, os.ErrNotExist
+		},
 		Exists: func(p string) bool {
 			for k := range f.files {
 				if k == p || strings.HasPrefix(k, p+"/") {
@@ -204,5 +210,58 @@ func TestEnableDynsecFilesAreReadableByTheBroker(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("the init password file was not written")
+	}
+}
+
+func TestWithAnonymous(t *testing.T) {
+	base := dynsecConf("/lib/x.so", false)
+	denied := withAnonymous(base, false)
+	if !strings.Contains(denied, "log_dest topic\nallow_anonymous false\nlistener 8883") {
+		t.Fatalf("not before the listener:\n%s", denied)
+	}
+	if withAnonymous(denied, false) != denied {
+		t.Fatal("not idempotent")
+	}
+	if withAnonymous(denied, true) != base {
+		t.Fatalf("allowing must give the file back:\n%s", withAnonymous(denied, true))
+	}
+}
+
+func TestSetAnonymous(t *testing.T) {
+	settleTime = time.Millisecond
+	defer func() { settleTime = time.Second }()
+	conf := "/etc/mosquitto/conf.d/" + dynsecConfName
+	f := &fakeHost{files: map[string]string{conf: dynsecConf("/lib/x.so", false)}}
+	h := f.host()
+	active := true
+	run := h.Run
+	h.Run = func(ctx context.Context, name string, args ...string) (string, error) {
+		if name == "systemctl" {
+			if active {
+				return "active\n", nil
+			}
+			return "failed\n", fmt.Errorf("exit 3")
+		}
+		return run(ctx, name, args...)
+	}
+	rep := okReport()
+	if _, err := setAnonymous(context.Background(), h, rep, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.files[conf], "allow_anonymous false") || f.restarts != 1 {
+		t.Fatalf("file=%s restarts=%d", f.files[conf], f.restarts)
+	}
+	// already so: nothing written, no restart
+	if steps, err := setAnonymous(context.Background(), h, rep, false); err != nil || f.restarts != 1 || steps[0] != "déjà dans cet état" {
+		t.Fatalf("steps=%v err=%v restarts=%d", steps, err, f.restarts)
+	}
+	// the broker does not come back: the file is put back
+	before := f.files[conf]
+	active = false
+	if _, err := setAnonymous(context.Background(), h, rep, true); err == nil || !strings.Contains(err.Error(), "configuration restaurée") {
+		t.Fatalf("err = %v", err)
+	}
+	if f.files[conf] != before {
+		t.Fatalf("not restored:\n%s", f.files[conf])
 	}
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { anonymousOf, clearRefused, forgetRefused, markCreated, noteLogLine, parseConnected, parseRefused, refusedOf } from '../src/refusedLog.js';
+import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, noteLogLine, parseConnected, parseRefused, refusedOf } from '../src/refusedLog.js';
 
 test('parseRefused reads the client id and the address, without the port', () => {
   assert.deepEqual(parseRefused('1794318425: Client mqtt_salon [192.168.100.52:41234] disconnected: not authorised.'), { clientId: 'mqtt_salon', address: '192.168.100.52' });
@@ -101,4 +101,14 @@ test('clearing the list also clears the anonymous clients', () => {
   noteLogLine(id, '1000: New client connected from 10.0.0.6:2 as anon (p4, c1, k60).');
   assert.equal(clearRefused(id), 2);
   assert.deepEqual(anonymousOf(id, 2_000_000), []);
+});
+
+test('an anonymous client cleared from the list comes back at its next connection', () => {
+  const id = 'role-h';
+  noteLogLine(id, 'New client connected from 10.0.0.6:2 as anon (p4, c1, k60).', 1000);
+  assert.equal(forgetAnonymous(id, 'anon'), true);
+  assert.equal(forgetAnonymous(id, 'anon'), false);
+  assert.deepEqual(anonymousOf(id, 2000), []);
+  noteLogLine(id, 'New client connected from 10.0.0.6:3 as anon (p4, c1, k60).', 3000);
+  assert.equal(anonymousOf(id, 4000).length, 1);
 });

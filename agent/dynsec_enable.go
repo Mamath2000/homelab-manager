@@ -53,6 +53,7 @@ type dynsecHost struct {
 	Remove  func(path string) error                                              // missing is not an error
 	Rename  func(from, to string) error
 	Exists  func(path string) bool
+	Read    func(path string) ([]byte, error)
 	MkDir   func(path string, mode os.FileMode, group string) error
 	Run     func(ctx context.Context, name string, args ...string) (string, error)
 	Restart func(ctx context.Context, unit string) error
@@ -84,6 +85,7 @@ func realDynsecHost() dynsecHost {
 		},
 		Rename: os.Rename,
 		Exists: func(p string) bool { _, err := os.Stat(p); return err == nil },
+		Read:   os.ReadFile,
 		MkDir: func(p string, mode os.FileMode, group string) error {
 			if err := os.MkdirAll(p, mode); err != nil {
 				return err
@@ -366,4 +368,68 @@ func disableDynsec(ctx context.Context, h dynsecHost, includeDir, unit string) (
 		return steps, fmt.Errorf("redémarrage du broker : %v", err)
 	}
 	return append(steps, "broker redémarré"), nil
+}
+
+// withAnonymous: the file added by the enabling with allow_anonymous false (anonymous connections refused) or without any
+// allow_anonymous line (the configuration of the administrator decides). The line goes before `listener`: a global option.
+func withAnonymous(conf string, allowed bool) string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimRight(conf, "\n"), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "allow_anonymous") {
+			continue
+		}
+		out = append(out, l)
+		if !allowed && strings.TrimSpace(l) == "log_dest topic" {
+			out = append(out, "allow_anonymous false")
+		}
+	}
+	return strings.Join(out, "\n") + "\n"
+}
+
+// settleTime: how long the broker is watched between two checks after a restart (shortened by the tests)
+var settleTime = time.Second
+
+// setAnonymous allows or refuses the connections without account: the file of the enabling is rewritten and the broker
+// restarted; if it does not come back, the previous file is put back. Nothing is done when the file already says it.
+func setAnonymous(ctx context.Context, h dynsecHost, rep DynsecReport, allowed bool) ([]string, error) {
+	if rep.IncludeDir == "" || rep.Unit == "" {
+		return nil, fmt.Errorf("répertoire d'inclusion ou unité inconnus")
+	}
+	confPath := path.Join(rep.IncludeDir, dynsecConfName)
+	old, err := h.Read(confPath)
+	if err != nil {
+		return nil, fmt.Errorf("fichier de configuration de HLM illisible (dynamic-security activé par le hub ?) : %v", err)
+	}
+	next := withAnonymous(string(old), allowed)
+	if next == string(old) {
+		return []string{"déjà dans cet état"}, nil
+	}
+	if err := h.Write(confPath, []byte(next), 0o644, ""); err != nil {
+		return nil, err
+	}
+	back := func(why error) ([]string, error) {
+		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = h.Write(confPath, old, 0o644, "")
+		msg := "configuration restaurée"
+		if rerr := h.Restart(rctx, rep.Unit); rerr != nil {
+			msg += fmt.Sprintf(", mais le redémarrage a échoué : %v", rerr)
+		}
+		return nil, fmt.Errorf("%v (%s)", why, msg)
+	}
+	if err := h.Restart(ctx, rep.Unit); err != nil {
+		return back(fmt.Errorf("redémarrage du broker : %v", err))
+	}
+	// the broker must stay up a moment: a bad option makes it stop right after its start
+	for i := 0; i < 5; i++ {
+		select {
+		case <-ctx.Done():
+			return back(ctx.Err())
+		case <-time.After(settleTime):
+		}
+		if out, err := h.Run(ctx, "systemctl", "is-active", rep.Unit); err != nil || strings.TrimSpace(out) != "active" {
+			return back(fmt.Errorf("le broker ne repart pas"))
+		}
+	}
+	return []string{"broker redémarré"}, nil
 }

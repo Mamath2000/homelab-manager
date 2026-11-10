@@ -20,6 +20,8 @@ export const DYNSEC_TLS_PORT = 8883;
 export interface DynsecReport {
   eligible: boolean;
   active: boolean;
+  // the broker accepts a connection without account (allow_anonymous true in its configuration)
+  allowAnonymous?: boolean;
   version?: string;
   unit?: string;
   confFile?: string;
@@ -35,7 +37,7 @@ export class DynsecError extends Error {
   }
 }
 
-async function carrier(role: MqttBrokerRole) {
+export async function carrier(role: MqttBrokerRole) {
   const host = await hosts.findOne({ _id: role.carrier.id });
   if (!host) throw new DynsecError('hôte porteur introuvable', 404);
   if (!host.capabilities?.includes('mqtt_dynsec')) throw new DynsecError("l'agent de cet hôte ne sait pas gérer dynamic-security (mise à jour requise)");

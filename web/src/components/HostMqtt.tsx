@@ -14,7 +14,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
   const accounts = (q.data?.accounts ?? []).filter((a) => !a.protected);
   const connected = accounts.filter((a) => a.connected).length;
   // without rights for the anonymous group a client that connects anonymously is refused, for the administrator
-  const mute = q.data?.anonymousAllowed === false;
+  const mute = q.data?.anonymousAllowed === false && q.data?.anonymousAccepted !== false;
   const anonymousClients = q.data?.anonymous ?? [];
   const anonymous = mute ? 0 : anonymousClients.filter((a) => a.connected).length;
   const refused = (q.data?.refused ?? []).filter(stillRefused).length + (mute ? anonymousClients.length : 0);

@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { testConnection } from './homeassistant/bridge.js';
-import { getAnonymousAllowed } from './mqttAccounts.js';
+import { anonymousState } from './mqttAnonymous.js';
 import { loadMqttBrokers } from './probes.js';
 import { allRoles } from './roles.js';
 
@@ -11,10 +11,14 @@ const anonymous = new Map<string, boolean>();
 
 export const brokerAnonymous = (id: string): boolean | null => anonymous.get(id) ?? null;
 
+// whether the configuration of a broker run by the hub lets anonymous clients connect (null: unknown, or not run by the hub)
+const accepted = new Map<string, boolean | null>();
+export const brokerAnonymousAccepted = (id: string): boolean | null => accepted.get(id) ?? null;
+
 export async function checkBrokersAnonymous() {
   const { brokers } = await loadMqttBrokers();
   const ids = new Set(brokers.map((b) => b.id));
-  for (const id of anonymous.keys()) if (!ids.has(id)) anonymous.delete(id);
+  for (const id of anonymous.keys()) if (!ids.has(id)) (anonymous.delete(id), accepted.delete(id));
   await Promise.all(
     brokers.map(async (b) => {
       if (!b.url) return;
@@ -22,7 +26,7 @@ export async function checkBrokersAnonymous() {
       // says whether the anonymous group has rights
       const role = allRoles().find((r) => r.type === 'mqtt-broker' && r._id === b.id);
       if (role?.type === 'mqtt-broker' && role.config.dynsec) {
-        await getAnonymousAllowed(role).then((allowed) => anonymous.set(b.id, allowed), () => undefined);
+        await anonymousState(role).then((st) => (anonymous.set(b.id, st.allowed), accepted.set(b.id, st.accepted)), () => undefined);
         return;
       }
       try {

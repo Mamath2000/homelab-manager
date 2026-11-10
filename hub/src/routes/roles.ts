@@ -4,9 +4,10 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
-import { anonymousOf, clearRefused, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
-import { createAccount, deleteAccount, getAnonymousAllowed, listAccounts, setAccountPassword, setAnonymousAllowed } from '../mqttAccounts.js';
-import { brokerAnonymous, checkBrokersAnonymous } from '../brokerAnonymous.js';
+import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
+import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
+import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
+import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
@@ -320,7 +321,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     try {
-      return { accounts: await listAccounts(role), refused: refusedOf(role._id), anonymous: anonymousOf(role._id), anonymousAllowed: brokerAnonymous(role._id) };
+      return { accounts: await listAccounts(role), refused: refusedOf(role._id), anonymous: anonymousOf(role._id), anonymousAllowed: brokerAnonymous(role._id), anonymousAccepted: brokerAnonymousAccepted(role._id) };
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -348,12 +349,13 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     return { cleared: clearRefused(role._id) };
   });
-  // Whether the broker accepts clients without an account (the legacy role on its anonymous group, mqttAccounts.ts)
+  // Whether the broker accepts clients without an account (mqttAnonymous.ts): the configuration of the broker, changed by its
+  // agent with a restart, and the rights of the anonymous group
   app.get<{ Params: { id: string } }>('/api/roles/:id/mqtt-anonymous', async (req, reply) => {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     try {
-      return { allowed: await getAnonymousAllowed(role) };
+      return await anonymousState(role);
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -366,9 +368,9 @@ export function registerRoleRoutes(app: FastifyInstance) {
       if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
       req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { anonymous: req.body.allowed } };
       try {
-        const allowed = await setAnonymousAllowed(role, req.body.allowed);
+        const state = await setAnonymous(role, req.body.allowed);
         void checkBrokersAnonymous().catch(() => undefined);
-        return { allowed };
+        return state;
       } catch (err) {
         return dynsecFail(reply, err);
       }
@@ -379,6 +381,12 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     return { ok: forgetRefused(role._id, req.params.clientId) };
+  });
+  // same for an anonymous client: it comes back at its next connection
+  app.delete<{ Params: { id: string; clientId: string } }>('/api/roles/:id/mqtt-anonymous/:clientId', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    return { ok: forgetAnonymous(role._id, req.params.clientId) };
   });
   app.put<{ Params: { id: string; username: string }; Body: { password?: string } }>(
     '/api/roles/:id/mqtt-accounts/:username',

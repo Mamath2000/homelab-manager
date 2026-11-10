@@ -380,7 +380,7 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		out.Result, err = checkDynsec(ctx, in.Port)
 	case "mqtt_log_tail":
 		out.Result, err = mqttLogTail(ctx, in.Port)
-	case "mqtt_dynsec_enable", "mqtt_dynsec_disable":
+	case "mqtt_dynsec_enable", "mqtt_dynsec_disable", "mqtt_anonymous_set":
 		out.Result, err = s.dynsecChange(ctx, in)
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
@@ -709,6 +709,13 @@ func (s *session) dynsecChange(ctx context.Context, in Inbound) (any, error) {
 	rep, err := checkDynsec(cctx, in.Dynsec.Port)
 	if err != nil {
 		return nil, err
+	}
+	if in.Op == "mqtt_anonymous_set" {
+		if in.Allowed == nil {
+			return nil, fmt.Errorf("missing allowed")
+		}
+		steps, err := setAnonymous(cctx, realDynsecHost(), *rep, *in.Allowed)
+		return map[string][]string{"steps": steps}, err
 	}
 	if in.Op == "mqtt_dynsec_disable" {
 		steps, err := disableDynsec(cctx, realDynsecHost(), rep.IncludeDir, rep.Unit)

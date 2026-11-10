@@ -33,9 +33,11 @@ type DynsecReport struct {
 	Unit     string `json:"unit,omitempty"`
 	ConfFile string `json:"confFile,omitempty"`
 	// where the enabling puts its file, and the plugin it loads (not shown by the hub)
-	IncludeDir string        `json:"includeDir,omitempty"`
-	Lib        string        `json:"lib,omitempty"`
-	Checks     []DynsecCheck `json:"checks"`
+	IncludeDir string `json:"includeDir,omitempty"`
+	// the broker accepts a connection without account (allow_anonymous true, the last word of the configuration)
+	AllowAnonymous bool          `json:"allowAnonymous"`
+	Lib            string        `json:"lib,omitempty"`
+	Checks         []DynsecCheck `json:"checks"`
 }
 
 // confLine: one directive of a Mosquitto configuration. A comment only starts a line: Mosquitto keeps what follows
@@ -112,6 +114,17 @@ var authDirectives = map[string]string{
 	"auth_plugin":   "un plugin d'authentification (auth_plugin)",
 }
 
+// anonymousAllowed: the last allow_anonymous of the configuration; absent, Mosquitto 2 refuses once a listener is declared.
+func anonymousAllowed(conf []confLine) bool {
+	allowed := false
+	for _, l := range conf {
+		if l.Key == "allow_anonymous" {
+			allowed = strings.EqualFold(l.Value, "true")
+		}
+	}
+	return allowed
+}
+
 func hasListener(conf []confLine) bool {
 	for _, l := range conf {
 		if l.Key == "listener" || l.Key == "port" {
@@ -159,6 +172,7 @@ func analyzeDynsec(in dynsecInputs) DynsecReport {
 		add("conf", "error", "configuration illisible (%s) : %v", in.ConfFile, in.ConfErr)
 	}
 	includeDir, listeners := "", []string{}
+	r.AllowAnonymous = anonymousAllowed(in.Conf)
 	for _, l := range in.Conf {
 		switch l.Key {
 		case "include_dir":
