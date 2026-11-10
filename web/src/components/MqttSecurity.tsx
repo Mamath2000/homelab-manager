@@ -213,7 +213,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
   const qc = useQueryClient();
   const toast = useToast();
   const key = ['mqtt-accounts', role.id];
-  const q = useQuery({ queryKey: key, queryFn: () => api.mqttAccounts(role.id), refetchInterval: 10_000 });
+  const q = useQuery({ queryKey: key, queryFn: () => api.mqttAccounts(role.id), refetchInterval: 30_000, refetchOnWindowFocus: false });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);

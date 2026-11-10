@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { Radio, Users } from 'lucide-react';
+import { Radio, RefreshCw, Users } from 'lucide-react';
 import { api, type MqttHubRole } from '../lib/api';
 import { stillRefused } from '../lib/roles';
 import { Badge, Button, Panel } from './ui';
@@ -9,7 +9,8 @@ import { MqttAccountsModal } from './MqttSecurity';
 
 function BrokerRow({ role }: { role: MqttHubRole }) {
   const [open, setOpen] = useState(false);
-  const q = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), refetchInterval: 15_000 });
+  // read when the page opens and on demand: no polling of the broker while the page stays open
+  const q = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), refetchOnWindowFocus: false });
   const accounts = (q.data?.accounts ?? []).filter((a) => !a.protected);
   const connected = accounts.filter((a) => a.connected).length;
   const refused = (q.data?.refused ?? []).filter(stillRefused).length;
@@ -41,6 +42,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
       )}
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" icon={Users} onClick={() => setOpen(true)}>Gérer les comptes</Button>
+        <Button size="sm" icon={RefreshCw} loading={q.isFetching} disabled={q.isFetching} aria-label="Actualiser" title="Actualiser" onClick={() => void q.refetch()} />
         <Link className="text-xs text-muted underline" to="/settings?tab=mqtt">Réglages de la sécurité</Link>
       </div>
       {open && <MqttAccountsModal role={role} onClose={() => setOpen(false)} />}
