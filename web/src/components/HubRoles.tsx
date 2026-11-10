@@ -84,7 +84,7 @@ const brokerKey = (b: Pick<BrokerFound, 'host' | 'process'>) => `${b.host.id}|${
 // the port the agent found for the protocol, else its usual one
 const defaultPort = (b: BrokerFound | undefined, scheme: BrokerScheme) => b?.listeners.find((l) => !l.local && l.scheme === scheme)?.port ?? MQTT_PORT;
 
-export function generatePassword() {
+function generatePassword() {
   const bytes = new Uint8Array(18);
   crypto.getRandomValues(bytes);
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
