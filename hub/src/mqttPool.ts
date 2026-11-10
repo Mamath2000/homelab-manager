@@ -19,6 +19,7 @@ interface Conn {
   state: BrokerState;
   error: string | null;
   topics: Set<string>;
+  denied: Set<string>; // topics the broker refused the subscription to (no right)
   last: Map<string, Last>;
   wake: Set<() => void>; // waiting for a change (connection, message)
 }
@@ -53,13 +54,14 @@ export class MqttPool {
       for (const t of conn.topics) {
         if (topics.has(t)) continue;
         conn.topics.delete(t);
+        conn.denied.delete(t);
         conn.last.delete(t);
         if (conn.state === 'connected') conn.client.unsubscribe(t);
       }
       for (const t of topics) {
         if (conn.topics.has(t)) continue;
         conn.topics.add(t);
-        if (conn.state === 'connected') conn.client.subscribe(t);
+        if (conn.state === 'connected') this.subscribe(conn, [t]);
       }
     }
   }
@@ -73,12 +75,12 @@ export class MqttPool {
       reconnectPeriod: 5000,
       connectTimeout: 10_000,
     });
-    const conn: Conn = { key: keyOf(b), client, state: 'connecting', error: null, topics: new Set(), last: new Map(), wake: new Set() };
+    const conn: Conn = { key: keyOf(b), client, state: 'connecting', error: null, topics: new Set(), denied: new Set(), last: new Map(), wake: new Set() };
     const changed = () => [...conn.wake].forEach((w) => w());
     client.on('connect', () => {
       conn.state = 'connected';
       conn.error = null;
-      if (conn.topics.size) client.subscribe([...conn.topics]);
+      if (conn.topics.size) this.subscribe(conn, [...conn.topics]);
       changed();
     });
     client.on('error', (err) => {
@@ -95,6 +97,16 @@ export class MqttPool {
     });
     this.conns.set(b.id, conn);
     return conn;
+  }
+
+  // the broker answers 0x80 (or more) for a topic the account may not read; mqtt.js then gives the SUBACK in the error
+  private subscribe(conn: Conn, topics: string[]) {
+    conn.client.subscribe(topics, (err) => {
+      const codes = (err as { packet?: { granted?: unknown[] } } | undefined)?.packet?.granted;
+      if (err && !codes) return;
+      topics.forEach((t, i) => (typeof codes?.[i] === 'number' && (codes[i] as number) >= 0x80 ? conn.denied.add(t) : conn.denied.delete(t)));
+      [...conn.wake].forEach((w) => w());
+    });
   }
 
   private close(id: string) {
@@ -118,6 +130,7 @@ export class MqttPool {
     const t0 = performance.now();
     const limit = t0 + timeoutMs;
     for (;;) {
+      if (conn.state === 'connected' && conn.denied.has(topic)) return { state: 'down', message: "abonnement refusé par le broker : le compte de la connexion n'a pas le droit de lire ce topic" };
       if (conn.state === 'connected') {
         const last = conn.last.get(topic);
         if (last && (contains ? true : Date.now() - last.at <= timeoutMs)) {

@@ -16,10 +16,11 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
   const base = { id: r._id, type: r.type, name: r.name, carrier: { kind: r.carrier.kind, id: r.carrier.id.toHexString(), name: host?.name ?? '' } };
   switch (r.type) {
     case 'mqtt-broker': {
-      const { password, clientKeyPem, ...config } = r.config;
+      const { password, clientKeyPem, dynsec, ...config } = r.config;
       return {
         ...base,
-        config: { ...config, address: config.address ?? null },
+        // the identity of the hub on the broker (certificate, key) stays here: the UI only knows when it ends
+        config: { ...config, address: config.address ?? null, ...(dynsec ? { dynsec: { enabledAt: dynsec.enabledAt, clientNotAfter: dynsec.clientNotAfter } } : {}) },
         hasSecret: !!password,
         hasClientKey: !!clientKeyPem,
         // the management of the accounts (dynamic-security), as the agent of the host reports it

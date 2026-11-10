@@ -28,8 +28,8 @@ test('securityOf: unavailable, available, active', () => {
   assert.equal(securityOf(role(9999), host({ version: '2.1.2' })).state, 'unavailable');
 });
 
-test('securityOf: after an activation the role is on 8883, the agent still lists the process on its former port', () => {
-  const activated = { config: { port: 8883, dynsec: { plainPort: 1883 } } } as Pick<MqttBrokerRole, 'config'>;
+test('securityOf: the role keeps its port after an activation, the TLS listener of the hub is not the role', () => {
+  const activated = { config: { port: 1883, dynsec: { enabledAt: new Date() } } } as Pick<MqttBrokerRole, 'config'>;
   assert.equal(securityOf(activated, host({ version: '2.1.2', dynsec: true })).state, 'active');
   assert.equal(securityOf({ config: { port: 8883 } } as Pick<MqttBrokerRole, 'config'>, host({ version: '2.1.2', dynsec: true })).state, 'unavailable');
 });
@@ -58,4 +58,16 @@ test('issueMqttCert: server certificate with the names of the host, client certi
   assert.equal(c.subject, 'CN=hlm');
   assert.ok(c.checkPrivateKey(createPrivateKey(client.key)));
   assert.ok(c.verify(new X509Certificate(pki.caCert).publicKey), 'signed by the CA');
+});
+
+test('adminBroker: the hub administers on the TLS listener with its own certificate, whatever the connection of the role', async () => {
+  const { adminBroker } = await import('../src/mqttDynsec.js');
+  const { roleAccountName } = await import('../src/mqttAccounts.js');
+  const role = { _id: 'vouille', config: { scheme: 'mqtt', port: 1883, username: 'hlm-vouille', password: 'x', dynsec: { enabledAt: new Date(), clientNotAfter: new Date(), caPem: 'CA', clientCertPem: 'CERT', clientKeyPem: 'KEY' } } } as unknown as MqttBrokerRole;
+  const admin = adminBroker(role, ['192.168.100.10'])!;
+  assert.equal(admin.url, 'mqtts://192.168.100.10:8883');
+  assert.deepEqual([admin.tls?.caPem, admin.tls?.clientCertPem, admin.tls?.clientKeyPem], ['CA', 'CERT', 'KEY']);
+  assert.equal(adminBroker({ ...role, config: { ...role.config, dynsec: undefined } } as unknown as MqttBrokerRole, ['192.168.100.10']), null);
+  assert.equal(adminBroker(role, []), null);
+  assert.equal(roleAccountName(role), 'hlm-vouille');
 });

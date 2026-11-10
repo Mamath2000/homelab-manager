@@ -20,10 +20,8 @@ export const versionAtLeast = (v: string, major: number, minor: number) => {
 // What the agent reported of the broker (the candidate of its port): the management of the accounts is available from
 // Mosquitto 2.1, active when the plugin is loaded in the process.
 export function securityOf(role: Pick<MqttBrokerRole, 'config'>, host: Pick<HostDoc, 'roleCandidates'> | null): Security {
-  // the agent lists the ports of the process it saw at its last hello: right after an activation the new port is not
-  // there yet, the process is (it listens on the port it was reached at before)
-  const find = (port: number) => host?.roleCandidates?.find((x) => x.type === 'mqtt-broker' && x.port === port);
-  const c = find(role.config.port) ?? (role.config.dynsec ? find(role.config.dynsec.plainPort) : undefined);
+  // the connection of the role never moves to the TLS listener of the hub: its port is the one of the broker
+  const c = host?.roleCandidates?.find((x) => x.type === 'mqtt-broker' && x.port === role.config.port);
   if (!c) return { state: 'unavailable', reason: "broker non détecté par l'agent" };
   if (!c.process.startsWith('mosquitto')) return { state: 'unavailable', reason: 'seul Mosquitto est pris en charge' };
   if (!c.version) return { state: 'unavailable', reason: 'version de Mosquitto inconnue (agent à mettre à jour ?)' };

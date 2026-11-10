@@ -2,10 +2,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import mqtt, { type MqttClient } from 'mqtt';
 import { agentRequest, isOnline } from './agents.js';
 import { dynsecRun } from './dynsecClient.js';
-import { DYNSEC_ACCOUNT } from './mqttDynsec.js';
+import { DYNSEC_ACCOUNT, loadAdminBrokers } from './mqttDynsec.js';
 import { tlsKey, tlsOptions } from './mqttTls.js';
-import { loadMqttBrokers } from './probes.js';
-import { allRoles } from './roles.js';
 
 // The connections a broker refused (a client with an account it does not know, or a wrong password), read from the log
 // the broker publishes on $SYS/broker/log/# (log_dest topic, set by the activation of dynamic-security). The log line has
@@ -163,7 +161,7 @@ async function replay(b: { id: string; name: string; url: string; hostId: { toHe
 }
 
 export async function reconcileRefusedWatch(log: FastifyBaseLogger) {
-  const wanted = (await loadMqttBrokers()).brokers.filter((b) => b.url && allRoles().some((r) => r.type === 'mqtt-broker' && r._id === b.id && r.config.dynsec));
+  const wanted = await loadAdminBrokers();
   for (const [id, l] of links) {
     if (!wanted.some((b) => b.id === id)) {
       l.client.end(true);

@@ -188,3 +188,25 @@ for (const [order, headers] of [['Transfer-Encoding first', 'Transfer-Encoding: 
     }
   });
 }
+
+test('mqtt: a subscription the broker refuses (no right on the topic) is said, not taken for a silence', async () => {
+  const broker = await Aedes.createBroker();
+  broker.authorizeSubscribe = (_client, sub, done) => done(null, sub.topic.startsWith('allowed/') ? sub : null);
+  const server = createServer(broker.handle);
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as AddressInfo).port;
+  const b: MqttBroker = { id: 'vouille', name: 'vouille', url: `mqtt://127.0.0.1:${port}`, username: '', password: '' };
+  const pool = new MqttPool();
+  pool.sync([b], new Map([['vouille', new Set(['allowed/x', 'forbidden/x'])]]));
+  try {
+    const refused = await pool.check('vouille', 'forbidden/x', undefined, 3000);
+    assert.equal(refused.state, 'down');
+    assert.match(refused.message!, /abonnement refusé/);
+    const silent = await pool.check('vouille', 'allowed/x', undefined, 500);
+    assert.equal(silent.message, 'aucun message en 1 s');
+  } finally {
+    pool.closeAll();
+    await close(server);
+    await new Promise<void>((r) => broker.close(() => r()));
+  }
+});

@@ -1,9 +1,7 @@
 import { agentRequest } from './agents.js';
 import { testConnection } from './homeassistant/bridge.js';
-import { carrier, DynsecError, type DynsecReport } from './mqttDynsec.js';
+import { adminBroker, carrier, DynsecError, type DynsecReport } from './mqttDynsec.js';
 import { getAnonymousAllowed, setAnonymousAllowed } from './mqttAccounts.js';
-import { tlsOf } from './mqttTls.js';
-import { roleUrl } from './probes.js';
 import type { MqttBrokerRole } from './types.js';
 
 // Whether a broker whose accounts the hub runs accepts clients without an account. Two things decide it: the configuration
@@ -48,7 +46,9 @@ export async function setAnonymous(role: MqttBrokerRole, allowed: boolean): Prom
   await agentSet(id, role, allowed);
   // the hub must still reach the broker by its certificate; if not, the agent puts the former setting back
   try {
-    await testConnection(roleUrl(role.config, host.info?.ips), '', '', tlsOf(role.config));
+    const admin = adminBroker(role, host.info?.ips);
+    if (!admin) throw new Error('adresse du broker inconnue');
+    await testConnection(admin.url, '', '', admin.tls);
   } catch (err) {
     await agentSet(id, role, !allowed).catch(() => undefined);
     throw new DynsecError(`le hub ne se connecte plus au broker (${(err as Error).message}) : changement annulé`, 502);

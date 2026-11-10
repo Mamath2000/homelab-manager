@@ -17,9 +17,9 @@ export const SETTINGS_SECRETS = {
 } as const satisfies Record<string, readonly string[]>;
 type SettingsId = keyof typeof SETTINGS_SECRETS;
 
-// declared roles: the secrets of their config
+// declared roles: the secrets of their config (a dotted name is a field of a sub-document)
 export const ROLE_SECRETS: Partial<Record<RoleDoc['type'], readonly string[]>> = {
-  'mqtt-broker': ['password', 'clientKeyPem'],
+  'mqtt-broker': ['password', 'clientKeyPem', 'dynsec.clientKeyPem'],
   'omada-controller': ['clientSecret'],
   'pve-cluster': ['tokenSecret'],
 };
@@ -32,7 +32,17 @@ export const databasePasswordAad = (id: { toString(): string }) => `backupJobs/$
 
 // a secret read in clear while there is a key: written since the last sealing, sealed in a second
 const noteClear = (o: object, fields: readonly string[]) => {
-  if (hasMasterKey() && fields.some((f) => clear((o as Record<string, unknown>)[f]))) resealSoon();
+  if (hasMasterKey() && fields.some((f) => clear(pathGet(o, f)))) resealSoon();
+};
+
+const pathGet = (o: object, path: string): unknown => path.split('.').reduce<unknown>((x, k) => (x && typeof x === 'object' ? (x as Record<string, unknown>)[k] : undefined), o);
+
+// a copy of o with the string at path opened (the sub-documents on the way copied too)
+const openPath = (o: object, path: string, aad: string): object => {
+  const [k, ...rest] = path.split('.');
+  const v = (o as Record<string, unknown>)[k];
+  if (rest.length) return v && typeof v === 'object' ? { ...o, [k]: openPath(v, rest.join('.'), aad) } : o;
+  return typeof v === 'string' ? { ...o, [k]: open(v, aad) } : o;
 };
 
 export function openSettings<T extends object>(id: SettingsId, doc: T | null): T | null {
@@ -45,7 +55,7 @@ export function openRole<R extends RoleDoc>(r: R): R {
   const f = ROLE_SECRETS[r.type];
   if (!f || !r.config) return r;
   noteClear(r.config as object, f);
-  return { ...r, config: openFields(r.config as object, f, (x) => roleAad(String(r._id), x)) } as R;
+  return { ...r, config: f.reduce((c, x) => openPath(c, x, roleAad(String(r._id), x)), r.config as object) } as R;
 }
 
 export function openCredential<C extends { tokenId: string; tokenSecret: string }>(c: C): C;
@@ -75,7 +85,7 @@ export async function sealStored(): Promise<number> {
   }
   for (const r of await roles.find({ type: { $in: Object.keys(ROLE_SECRETS) } } as never).toArray()) {
     for (const f of ROLE_SECRETS[r.type as RoleDoc['type']]!) {
-      const v = (r.config as unknown as Record<string, unknown> | undefined)?.[f];
+      const v = r.config && pathGet(r.config, f);
       if (!clear(v)) continue;
       const res = await roles.updateOne({ _id: r._id, [`config.${f}`]: v } as never, { $set: { [`config.${f}`]: seal(v, roleAad(String(r._id), f)) } });
       n += res.modifiedCount;

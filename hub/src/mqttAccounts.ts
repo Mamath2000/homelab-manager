@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { roles } from './db.js';
 import { dynsecRun, type DynsecCommand, type DynsecResponse } from './dynsecClient.js';
-import { DYNSEC_ACCOUNT, DynsecError } from './mqttDynsec.js';
-import { loadMqttBrokers } from './probes.js';
+import { adminBrokerOf, DYNSEC_ACCOUNT, DynsecError } from './mqttDynsec.js';
+import { rolesSaved } from './roleEvents.js';
 import type { MqttBrokerRole } from './types.js';
 
 // The accounts of a broker whose dynamic-security the hub runs (mqttDynsec.ts): list with their connection state, create,
@@ -25,8 +26,8 @@ export interface Account {
 
 async function broker(role: MqttBrokerRole) {
   if (!role.config.dynsec) throw new DynsecError("la gestion des comptes n'est pas activée par le hub sur ce rôle");
-  const b = (await loadMqttBrokers()).brokers.find((x) => x.id === role._id);
-  if (!b?.url) throw new DynsecError("adresse du broker inconnue (hôte sans adresse)");
+  const b = await adminBrokerOf(role);
+  if (!b) throw new DynsecError('adresse du broker inconnue (hôte sans adresse)');
   return b;
 }
 
@@ -123,4 +124,22 @@ export async function setAnonymousAllowed(role: MqttBrokerRole, allowed: boolean
   const now = await getAnonymousAllowed(role);
   if (now !== allowed) throw new DynsecError("le broker n'a pas pris le changement en compte", 502);
   return now;
+}
+
+// The account the connection of the role works with (probes, Home Assistant bridge): made on the broker with every topic,
+// and written into the role, which is never recreated. Named after the role; asked again, it only changes the password.
+export const roleAccountName = (role: Pick<MqttBrokerRole, '_id'>) => `hlm-${role._id}`.slice(0, 64);
+
+export async function setRoleAccount(role: MqttBrokerRole, password?: string) {
+  const username = roleAccountName(role);
+  let done: { username: string; password: string };
+  try {
+    done = await createAccount(role, username, password);
+  } catch (err) {
+    if (!(err instanceof DynsecError) || err.message !== 'ce compte existe déjà') throw err;
+    done = await setAccountPassword(role, username, password);
+  }
+  await roles.updateOne({ _id: role._id } as never, { $set: { 'config.username': done.username, 'config.password': done.password } });
+  await rolesSaved([role.carrier.id]);
+  return done;
 }

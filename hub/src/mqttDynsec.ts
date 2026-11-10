@@ -1,17 +1,21 @@
+import type { FastifyBaseLogger } from 'fastify';
 import { agentRequest, isOnline, refreshAgent } from './agents.js';
 import { hosts, roles } from './db.js';
 import { testConnection } from './homeassistant/bridge.js';
 import { tlsOf } from './mqttTls.js';
 import { issueMqttCert, MQTT_CERT_DAYS } from './pki.js';
 import { loadPki } from './pkiStore.js';
+import { allRoles } from './roles.js';
+import { openRole, resealSoon } from './storedSecrets.js';
 import { roleUrl } from './probes.js';
 import { rolesSaved } from './roleEvents.js';
 import { securityOf } from './mqttSecurity.js';
-import type { HostDoc, MqttBrokerConfig, MqttBrokerRole } from './types.js';
+import type { HostDoc, MqttBroker, MqttBrokerRole } from './types.js';
 
 // Dynamic-security on a Mosquitto broker, run by the agent of its host (agent/dynsec_enable.go): the hub only issues the
-// certificates (its CA signs them), asks, checks that it reaches the broker in mutual TLS and then moves the role to
-// the TLS listener. Without that check the agent is asked to undo everything.
+// certificates (its CA signs them), asks and checks that it reaches the broker in mutual TLS. Without that check the
+// agent is asked to undo everything. The hub administers the broker with its own identity (config.dynsec, TLS listener);
+// the connection of the role (probes, Home Assistant bridge) is never touched: it stays what the administrator typed.
 
 export const DYNSEC_ACCOUNT = 'hlm';
 export const DYNSEC_TLS_PORT = 8883;
@@ -77,6 +81,31 @@ export async function securityView(role: MqttBrokerRole) {
 
 const sansOf = (host: HostDoc, role: MqttBrokerRole) => [...new Set([...(role.config.address ? [role.config.address] : []), ...(host.info?.ips ?? [])])];
 
+// How the hub administers the broker: the TLS listener of the agent, with the certificate of the account `hlm` (never a
+// password). null: dynamic-security is not run by the hub, or the address of the host is unknown.
+export function adminBroker(role: MqttBrokerRole, ips: string[] | null | undefined): Pick<MqttBroker, 'url' | 'tls'> | null {
+  const d = role.config.dynsec;
+  if (!d?.clientCertPem || !d.clientKeyPem) return null;
+  const url = roleUrl({ scheme: 'mqtts', port: DYNSEC_TLS_PORT, address: role.config.address }, ips);
+  return url ? { url, tls: tlsOf(d) } : null;
+}
+
+// Every broker whose dynamic-security the hub runs, as it administers it.
+export async function loadAdminBrokers() {
+  const list = allRoles().filter((r): r is MqttBrokerRole => r.type === 'mqtt-broker' && !!r.config.dynsec);
+  const carriers = await hosts.find({ _id: { $in: list.map((r) => r.carrier.id) } }, { projection: { 'info.ips': 1 } }).toArray();
+  const ips = new Map(carriers.map((h) => [h._id.toHexString(), h.info?.ips]));
+  return list.flatMap((r) => {
+    const b = adminBroker(r, ips.get(r.carrier.id.toHexString()));
+    return b ? [{ id: r._id, name: r.name, ...b, hostId: r.carrier.id }] : [];
+  });
+}
+
+export async function adminBrokerOf(role: MqttBrokerRole) {
+  const host = await hosts.findOne({ _id: role.carrier.id }, { projection: { 'info.ips': 1 } });
+  return adminBroker(role, host?.info?.ips);
+}
+
 export async function enableDynsec(role: MqttBrokerRole) {
   const { host, id } = await carrier(role);
   const report = await agentRequest<DynsecReport>(id, 'mqtt_dynsec_check', { port: role.config.port }, 20_000);
@@ -93,23 +122,15 @@ export async function enableDynsec(role: MqttBrokerRole) {
   } catch (err) {
     throw new DynsecError(`activation échouée : ${(err as Error).message}`, 502);
   }
-  const config: MqttBrokerConfig = {
-    ...role.config,
-    scheme: 'mqtts',
-    port: DYNSEC_TLS_PORT,
-    username: DYNSEC_ACCOUNT,
-    password: '',
-    caPem: pki.caCert,
-    clientCertPem: client.cert,
-    clientKeyPem: client.key,
-    dynsec: { enabledAt: new Date(), plainPort, clientNotAfter: client.notAfter },
-  };
+  const dynsec = { enabledAt: new Date(), clientNotAfter: client.notAfter, caPem: pki.caCert, clientCertPem: client.cert, clientKeyPem: client.key };
+  const config = { ...role.config, dynsec };
   // the hub must reach the broker by its own certificate; if not, the agent undoes it all
-  const url = roleUrl(config, host.info?.ips);
+  const admin = adminBroker({ ...role, config }, host.info?.ips);
   try {
-    await testConnection(url, '', '', tlsOf(config));
+    if (!admin) throw new Error('adresse du broker inconnue');
+    await testConnection(admin.url, '', '', admin.tls);
   } catch (err) {
-    await agentRequest(id, 'mqtt_dynsec_disable', { dynsec: { port: DYNSEC_TLS_PORT } }, 150_000).catch(() => undefined);
+    await agentRequest(id, 'mqtt_dynsec_disable', { dynsec: { port: plainPort } }, 150_000).catch(() => undefined);
     throw new DynsecError(`le hub ne se connecte pas au broker en TLS mutuel (${(err as Error).message}) : activation annulée`, 502);
   }
   await roles.replaceOne({ _id: role._id }, { ...role, config });
@@ -127,12 +148,27 @@ export async function disableDynsec(role: MqttBrokerRole) {
   } catch (err) {
     throw new DynsecError(`désactivation échouée : ${(err as Error).message}`, 502);
   }
-  const config: MqttBrokerConfig = { ...role.config, scheme: 'mqtt', port: role.config.dynsec.plainPort, username: '', password: '' };
-  delete config.caPem;
-  delete config.clientCertPem;
-  delete config.clientKeyPem;
+  // the connection of the role is left as it is (the broker accepts accounts again, or anyone, as before)
+  const config = { ...role.config };
   delete config.dynsec;
   await roles.replaceOne({ _id: role._id }, { ...role, config });
   await refreshAgent(id, ['info']).catch(() => undefined);
   await rolesSaved([host._id]);
+}
+
+// Before the hub kept the identity of the administration in the role itself: the role was moved to the TLS listener, with
+// the certificate and the account `hlm`, so that the probes and the Home Assistant bridge no longer worked. The identity
+// goes to config.dynsec and the role goes back to the port it was reached at before (plainPort), without account: the
+// administrator gives it its own (mqttAccounts.ts, setRoleAccount).
+export async function migrateDynsecIdentity(log: FastifyBaseLogger) {
+  const stored = await roles.find({ type: 'mqtt-broker', 'config.dynsec.plainPort': { $exists: true } } as never).toArray();
+  for (const doc of stored) {
+    const role = openRole(doc as unknown as MqttBrokerRole) as MqttBrokerRole & { config: { dynsec: { plainPort: number } } };
+    const { caPem, clientCertPem, clientKeyPem, dynsec, ...rest } = role.config;
+    const { plainPort, ...d } = dynsec;
+    const config = { ...rest, scheme: 'mqtt' as const, port: plainPort, username: '', password: '', dynsec: { ...d, ...(caPem ? { caPem } : {}), ...(clientCertPem ? { clientCertPem } : {}), ...(clientKeyPem ? { clientKeyPem } : {}) } };
+    await roles.replaceOne({ _id: doc._id } as never, { ...doc, config } as never);
+    log.info({ role: role._id }, 'MQTT: identity of the administration moved out of the connection of the role (back on its former port, without account)');
+  }
+  if (stored.length) resealSoon();
 }

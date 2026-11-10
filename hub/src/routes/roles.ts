@@ -5,7 +5,7 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
-import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
+import { createAccount, deleteAccount, listAccounts, roleAccountName, setAccountPassword, setRoleAccount } from '../mqttAccounts.js';
 import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
@@ -233,7 +233,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const name = req.body.name.trim();
     const c = toConfig(current.type, body, secret);
     // set by the activation of dynamic-security, not by a form
-    if (current.type === 'mqtt-broker' && current.config.dynsec && (body.scheme === 'mqtts' || body.scheme === 'wss')) (c as MqttBrokerConfig).dynsec = current.config.dynsec;
+    if (current.type === 'mqtt-broker' && current.config.dynsec) (c as MqttBrokerConfig).dynsec = current.config.dynsec;
     const moved = !host._id.equals(current.carrier.id);
     // what the agent detected is checked again only when it changes: a broker stopped for a while stays editable
     const why =
@@ -284,6 +284,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const r = declaredRole(id);
     return r?.type === 'mqtt-broker' ? r : undefined;
   };
+  const accountBody0 = { type: 'object', additionalProperties: false, properties: { password: { type: 'string', maxLength: 256 } } } as const;
   const dynsecFail = (reply: FastifyReply, err: unknown) => {
     if (err instanceof DynsecError) return reply.code(err.status).send({ error: err.message });
     throw err;
@@ -310,6 +311,19 @@ export function registerRoleRoutes(app: FastifyInstance) {
     try {
       await disableDynsec(role);
       return { ok: true };
+    } catch (err) {
+      return dynsecFail(reply, err);
+    }
+  });
+
+  // The account of the connection of the role itself (probes, Home Assistant bridge), made on the broker and written into
+  // the role (mqttAccounts.ts): the password is generated when absent, returned once
+  app.put<{ Params: { id: string }; Body: { password?: string } }>('/api/roles/:id/mqtt-role-account', { schema: { body: accountBody0 } }, async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: roleAccountName(role) } };
+    try {
+      return await setRoleAccount(role, req.body.password);
     } catch (err) {
       return dynsecFail(reply, err);
     }

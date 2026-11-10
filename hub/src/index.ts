@@ -24,6 +24,7 @@ import { registerRoleRoutes } from './routes/roles.js';
 import { registerOmadaRoutes } from './routes/omada.js';
 import { startOmadaPoller } from './omadaSync.js';
 import { watchSettingsRoles } from './roleEvents.js';
+import { migrateDynsecIdentity } from './mqttDynsec.js';
 import { loadRoles, migrateHostRoles } from './roles.js';
 import { migrateAccessManifest } from './setup.js';
 import { registerEquipmentRoutes } from './routes/equipments.js';
@@ -100,6 +101,7 @@ try {
   await closeDb();
   process.exit(1);
 }
+await migrateDynsecIdentity(app.log);
 await loadRoles();
 await migrateHaBroker();
 await recoverJobs();

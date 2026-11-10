@@ -1322,11 +1322,12 @@ export interface MqttTls {
   clientKeyPem?: string;
 }
 
-// Set while the agent runs dynamic-security on the broker (mqttDynsec.ts): plainPort, where the broker was reached
-// before; enabledAt; clientNotAfter, end of validity of the certificate of the hub.
-export interface MqttDynsec {
+// Set while the agent runs dynamic-security on the broker (mqttDynsec.ts): enabledAt; clientNotAfter, end of validity of
+// the certificate of the hub. caPem, clientCertPem, clientKeyPem: the identity the hub administers the broker with (TLS
+// listener, mutual TLS, account `hlm`), apart from the connection of the role (config.scheme/port/username), which the
+// probes and the Home Assistant bridge keep using as before. The key is sealed (storedSecrets.ts).
+export interface MqttDynsec extends MqttTls {
   enabledAt: Date;
-  plainPort: number;
   clientNotAfter: Date;
 }
 

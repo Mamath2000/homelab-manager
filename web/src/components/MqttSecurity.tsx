@@ -41,6 +41,10 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<'enable' | 'disable' | 'anonymous-off' | 'anonymous-on' | null>(null);
   const [busy, setBusy] = useState(false);
+  // the account of the connection of the role: dialog, password typed, the one made (shown once)
+  const [roleAccount, setRoleAccount] = useState(false);
+  const [roleAccountPassword, setRoleAccountPassword] = useState('');
+  const [roleAccountShown, setRoleAccountShown] = useState<{ username: string; password: string } | null>(null);
   const q = useQuery({ queryKey: ['mqtt-security', role.id], queryFn: () => api.mqttSecurity(role.id), refetchOnWindowFocus: false });
   const v = q.data;
   const state = v?.state ?? role.security.state;
@@ -59,6 +63,21 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
     } catch (err) {
       toast.error((err as Error).message);
       setConfirm(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const defineRoleAccount = async () => {
+    setBusy(true);
+    try {
+      const r = await api.setMqttRoleAccount(role.id, roleAccountPassword || undefined);
+      setRoleAccount(false);
+      setRoleAccountPassword('');
+      setRoleAccountShown(r);
+      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers }), qc.invalidateQueries({ queryKey: ['mqtt-accounts', role.id] })]);
+    } catch (err) {
+      toast.error((err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -101,8 +120,9 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
           {state === 'active' && hubManaged && (
             <p className="text-muted">
               Les comptes se gèrent depuis la fiche de l'hôte <Link className="underline" to={`/hosts/${role.carrier.id}`}>{role.carrier.name}</Link>.{' '}
-              Le hub parle au broker en TLS mutuel (<code>{role.url}</code>) avec son propre certificat, sans mot de passe. Les clients anonymes restent acceptés
-              (rôle <code>legacy</code>) ; un client qui se connecte avec un compte inconnu est refusé.
+              Le hub administre le broker en TLS mutuel (port 8883) avec son propre certificat, sans mot de passe : c'est à part de la connexion du rôle ci-dessous, que les
+              sondes et le pont Home Assistant continuent d'utiliser. Les clients anonymes restent acceptés (rôle <code>legacy</code>) ; un client qui se connecte avec un compte
+              inconnu est refusé.
             </p>
           )}
 
@@ -136,6 +156,20 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
                   ))}
                 </ul>
               )}
+            </div>
+          )}
+
+          {manageable && (
+            <div className="space-y-1.5 border-t border-line pt-3">
+              <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Connexion du rôle</p>
+              <p className="text-xs text-muted">
+                Ce que les sondes et le pont Home Assistant utilisent pour joindre ce broker : <code>{role.url}</code>, {role.account ? <>compte <code>{role.account}</code></> : 'sans compte (anonyme)'}.
+                Le compte est créé sur le broker (accès à tous les topics) et écrit dans le rôle, qui n'est pas recréé. Une fois défini, le broker peut refuser les anonymes sans couper les
+                sondes.
+              </p>
+              <Button size="sm" icon={KeyRound} disabled={busy} onClick={() => (setRoleAccountPassword(''), setRoleAccount(true))}>
+                {role.account ? 'Changer le mot de passe du compte' : 'Définir le compte de la connexion'}
+              </Button>
             </div>
           )}
 
@@ -178,6 +212,34 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
           </div>
         </div>
       </Panel>
+      <Modal
+        open={roleAccount}
+        onClose={() => setRoleAccount(false)}
+        title={`Compte de la connexion · ${role.name}`}
+        footer={
+          <>
+            <Button onClick={() => setRoleAccount(false)}>Annuler</Button>
+            <Button variant="primary" loading={busy} disabled={busy} onClick={() => void defineRoleAccount()}>Enregistrer</Button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-sm">
+          <p className="text-muted">
+            Le compte <code>hlm-{role.id}</code> est créé (ou son mot de passe changé) sur le broker et la connexion du rôle l'utilise aussitôt. Les sondes et le pont Home Assistant
+            se reconnectent d'eux-mêmes.
+          </p>
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">Mot de passe (généré si vide)</span>
+            <input className="input" type="password" value={roleAccountPassword} onChange={(e) => setRoleAccountPassword(e.target.value)} autoComplete="new-password" />
+          </label>
+        </div>
+      </Modal>
+      <Modal open={!!roleAccountShown} onClose={() => setRoleAccountShown(null)} title={`Mot de passe de ${roleAccountShown?.username ?? ''}`} footer={<Button onClick={() => setRoleAccountShown(null)}>Fermer</Button>}>
+        <div className="space-y-2 text-sm">
+          <p className="text-muted">Le rôle l'utilise déjà. À noter si besoin : il n'est affiché qu'une fois.</p>
+          {roleAccountShown && <CopyField value={roleAccountShown.password} />}
+        </div>
+      </Modal>
       <ConfirmModal
         open={confirm === 'anonymous-off'}
         onClose={() => setConfirm(null)}
@@ -234,8 +296,8 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
         danger
         loading={busy}
       >
-        Le broker <b>{role.name}</b> va être redémarré avec sa configuration d'origine. Les comptes et rôles créés sont mis de côté sur l'hôte (pas supprimés) ; le hub
-        retrouve le port d'avant, sans TLS.
+        Le broker <b>{role.name}</b> va être redémarré avec sa configuration d'origine. Les comptes et rôles créés sont mis de côté sur l'hôte (pas supprimés). La connexion
+        du rôle n'est pas modifiée.
       </ConfirmModal>
     </>
   );
