@@ -36,8 +36,6 @@ interface Form {
   scheme: BrokerScheme;
   address: string;
   username: string;
-  caPem: string;
-  clientCertPem: string;
 }
 
 // The brokers the agents found on the hosts. taken: already a role (not the one being edited).
@@ -73,13 +71,10 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
       scheme: role?.config.scheme ?? (SCHEMES.includes(c?.scheme as BrokerScheme) ? (c!.scheme as BrokerScheme) : 'mqtt'),
       address: role?.config.address ?? '',
       username: role?.config.username ?? '',
-      caPem: role?.config.caPem ?? '',
-      clientCertPem: role?.config.clientCertPem ?? '',
     };
   });
   const [form, setForm] = useState<Form>(initial);
   const [password, setPassword] = useState('');
-  const [clientKey, setClientKey] = useState('');
   const [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
@@ -95,7 +90,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
     if (!role && SCHEMES.includes(c.scheme as BrokerScheme)) setForm({ ...form, scheme: c.scheme as BrokerScheme });
     setTest(null);
   };
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || JSON.stringify(pick) !== JSON.stringify(initialPick) || !!password || clearPassword || !!clientKey;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || JSON.stringify(pick) !== JSON.stringify(initialPick) || !!password || clearPassword;
   const requestClose = () => {
     if (busy) return;
     if (dirty) setConfirmDiscard(true);
@@ -105,15 +100,12 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const candidates = candidatesOf(hosts, roles, role);
   const host = pick ? hosts.find((h) => h.id === pick.hostId) : undefined;
   const carrier = pick ? { kind: 'host' as const, id: pick.hostId } : undefined;
-  const tls = form.scheme === 'mqtts' || form.scheme === 'wss';
   const config = () => ({
     scheme: form.scheme,
     port: pick?.port ?? 0,
     ...(form.address.trim() ? { address: form.address.trim() } : {}),
     username: form.username,
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
-    // the key is never sent back: absent keeps the stored one; without a certificate the pair is cleared
-    ...(tls ? { caPem: form.caPem.trim(), clientCertPem: form.clientCertPem.trim(), ...(form.clientCertPem.trim() ? (clientKey.trim() ? { clientKeyPem: clientKey.trim() } : {}) : { clientKeyPem: '' }) } : {}),
   });
 
   const runTest = async () => {
@@ -152,11 +144,9 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
 
   const nameOk = form.name.trim().length > 0;
   const addressOk = /^[A-Za-z0-9.:_-]*$/.test(form.address);
-  // a certificate needs its key: typed now, or already stored
-  const tlsOk = !tls || !form.clientCertPem.trim() || !!clientKey.trim() || !!role?.hasClientKey;
   const shown = `${form.scheme}://${form.address.trim() || "IP de l'hôte"}:${pick?.port ?? '?'}`;
   // the account is optional (anonymous broker): done with the broker
-  const [carried, configured, account, tested] = stepStates([!!pick, nameOk && addressOk && tlsOk, nameOk && addressOk, test?.level === 'ok']);
+  const [carried, configured, account, tested] = stepStates([!!pick, nameOk && addressOk, nameOk && addressOk, test?.level === 'ok']);
 
   return (
     <>
@@ -220,34 +210,6 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
               <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder="IP de l'hôte" spellCheck={false} />
               <span className="mt-1 block text-xs text-muted">À renseigner si l'IP choisie par défaut n'est pas la bonne, ou pour un nom DNS.</span>
             </label>
-            {tls && (
-              <>
-                <label className="block">
-                  <span className={field}>Autorité de certification (PEM)</span>
-                  <textarea className="input h-20 font-mono text-xs" value={form.caPem} onChange={(e) => set({ caPem: e.target.value })} placeholder="-----BEGIN CERTIFICATE-----" spellCheck={false} />
-                  <span className="mt-1 block text-xs text-muted">Facultatif : la CA qui a signé le certificat du broker (sinon les CA du système). Le certificat du broker est toujours vérifié.</span>
-                </label>
-                <label className="block">
-                  <span className={field}>Certificat client (PEM)</span>
-                  <textarea className="input h-20 font-mono text-xs" value={form.clientCertPem} onChange={(e) => set({ clientCertPem: e.target.value })} placeholder="-----BEGIN CERTIFICATE-----" spellCheck={false} />
-                  <span className="mt-1 block text-xs text-muted">Identité du hub auprès du broker (TLS mutuel) : le broker en tire le nom du compte. Vider pour ne plus en présenter.</span>
-                </label>
-                {form.clientCertPem.trim() && (
-                  <label className="block">
-                    <span className={field}>Clé privée (PEM)</span>
-                    <textarea
-                      className="input h-20 font-mono text-xs"
-                      value={clientKey}
-                      onChange={(e) => (setClientKey(e.target.value), setTest(null))}
-                      placeholder={role?.hasClientKey ? '••••••••' : '-----BEGIN PRIVATE KEY-----'}
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    {role?.hasClientKey && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder la clé enregistrée</span>}
-                  </label>
-                )}
-              </>
-            )}
           </Step>
           <Step n={3} title="Compte" state={account} intro="Facultatif : laisser vide pour un broker anonyme.">
             <label className="block">
@@ -280,7 +242,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
             state={tested}
             intro="Le hub se connecte au broker avec ce compte ; l'enregistrement n'est possible qu'après un test réussi."
             footer={
-              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !pick || !nameOk || !addressOk || !tlsOk} onClick={() => void runTest()}>
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !pick || !nameOk || !addressOk} onClick={() => void runTest()}>
                 {test ? 'Tester à nouveau' : 'Tester la connexion'}
               </Button>
             }
