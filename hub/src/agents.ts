@@ -297,7 +297,8 @@ export function registerAgentSocket(app: FastifyInstance) {
               if (healthHost?.capabilities?.includes('health')) sendToAgent(id, await healthConfigForHost(healthHost));
               await maybeAutoUpdate(host._id);
               // the client certificate, when its renewal is due (it reconnects with the new one): not awaited
-              maybeRenewAgentCert(host._id, log).catch((err) => log.warn({ err }, 'certificate renewal failed'));
+              // req.log: certRenew.ts names the host itself (the scheduler calls it too)
+              maybeRenewAgentCert(host._id, req.log).catch((err) => log.warn({ err }, 'certificate renewal failed'));
               // answered through this socket: not awaited
               onAgentHello(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
               // its backups: the agent keeps them on disk, this resends the current definition
