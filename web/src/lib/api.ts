@@ -1714,7 +1714,7 @@ interface HubRoleBase {
 }
 export type HubRole =
   // anonymous: the broker also accepts connections without an account (null: not checked yet)
-  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string }; anonymous?: boolean | null })
+  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string; caPem?: string; clientCertPem?: string }; hasClientKey?: boolean; anonymous?: boolean | null })
   | (HubRoleBase & { type: 'pve-cluster'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
   // kept in the settings of the backups (pbsSettings, pbsRemoteSettings), roles once connected
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
@@ -1731,7 +1731,8 @@ export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 // moves the role
 export type HubRoleCarrier = { kind: 'host' | 'equipment'; id: string };
 export type HubRoleInput = { carrier?: HubRoleCarrier; name: string } & (
-  | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string } }
+  // caPem / clientCertPem / clientKeyPem (mqtts, wss): clientKeyPem absent keeps the stored key, an empty certificate clears the pair
+  | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string; caPem?: string; clientCertPem?: string; clientKeyPem?: string } }
   | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string } }
 );
 // The fingerprint a controller presents, checked against the one the agent of its carrier reads on the host (homelab#300).
