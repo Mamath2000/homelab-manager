@@ -27,12 +27,15 @@ type DynsecCheck struct {
 }
 
 type DynsecReport struct {
-	Eligible bool          `json:"eligible"`
-	Active   bool          `json:"active"` // the plugin is already loaded
-	Version  string        `json:"version,omitempty"`
-	Unit     string        `json:"unit,omitempty"`
-	ConfFile string        `json:"confFile,omitempty"`
-	Checks   []DynsecCheck `json:"checks"`
+	Eligible bool   `json:"eligible"`
+	Active   bool   `json:"active"` // the plugin is already loaded
+	Version  string `json:"version,omitempty"`
+	Unit     string `json:"unit,omitempty"`
+	ConfFile string `json:"confFile,omitempty"`
+	// where the enabling puts its file, and the plugin it loads (not shown by the hub)
+	IncludeDir string        `json:"includeDir,omitempty"`
+	Lib        string        `json:"lib,omitempty"`
+	Checks     []DynsecCheck `json:"checks"`
 }
 
 // confLine: one directive of a Mosquitto configuration. A comment only starts a line: Mosquitto keeps what follows
@@ -109,6 +112,15 @@ var authDirectives = map[string]string{
 	"auth_plugin":   "un plugin d'authentification (auth_plugin)",
 }
 
+func hasListener(conf []confLine) bool {
+	for _, l := range conf {
+		if l.Key == "listener" || l.Key == "port" {
+			return true
+		}
+	}
+	return false
+}
+
 func versionAtLeast(v string, major, minor int) bool {
 	parts := strings.Split(v, ".")
 	if len(parts) < 2 {
@@ -120,7 +132,7 @@ func versionAtLeast(v string, major, minor int) bool {
 }
 
 func analyzeDynsec(in dynsecInputs) DynsecReport {
-	r := DynsecReport{Version: in.Version, Unit: in.Unit, ConfFile: in.ConfFile, Active: in.Dynsec}
+	r := DynsecReport{Version: in.Version, Unit: in.Unit, ConfFile: in.ConfFile, Active: in.Dynsec, Lib: in.Lib}
 	add := func(id, level, format string, a ...any) {
 		r.Checks = append(r.Checks, DynsecCheck{ID: id, Level: level, Detail: fmt.Sprintf(format, a...)})
 	}
@@ -172,7 +184,12 @@ func analyzeDynsec(in dynsecInputs) DynsecReport {
 	if includeDir == "" && in.ConfErr == nil {
 		add("include_dir", "error", "la configuration n'a pas de include_dir : l'agent n'ajoute pas de fichier à celui de l'administrateur")
 	} else if includeDir != "" {
+		r.IncludeDir = includeDir
 		add("include_dir", "info", "fichier ajouté dans %s", includeDir)
+	}
+	// without a listener of its own Mosquitto offers a default one on 1883, that a new listener would remove
+	if in.ConfErr == nil && !hasListener(in.Conf) {
+		add("listener", "error", "aucun listener explicite dans la configuration : en ajouter un ferait disparaître celui par défaut")
 	}
 	if in.Lib == "" {
 		add("plugin_lib", "error", "mosquitto_dynamic_security.so introuvable")

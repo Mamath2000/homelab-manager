@@ -73,6 +73,7 @@ func TestAnalyzeDynsecRefuses(t *testing.T) {
 		"plugin_lib":  func(i *dynsecInputs) { i.Lib = "" },
 		"ctrl":        func(i *dynsecInputs) { i.HasCtrl = false },
 		"port_8883":   func(i *dynsecInputs) { i.TLSInUse = true },
+		"listener":    func(i *dynsecInputs) { i.Conf = []confLine{{"m", "include_dir", "/etc/mosquitto/conf.d"}} },
 		"auth":        func(i *dynsecInputs) { i.Conf = append(i.Conf, confLine{"l", "password_file", "/etc/mosquitto/pw"}) },
 		"plugin":      func(i *dynsecInputs) { i.Conf = append(i.Conf, confLine{"l", "global_plugin", "/usr/lib/x/other.so"}) },
 		"per_listener_settings": func(i *dynsecInputs) {

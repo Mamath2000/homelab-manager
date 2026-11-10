@@ -378,6 +378,8 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		out.Result, err = readTlsFingerprint(ctx, in.Host, in.Port, localIPs)
 	case "mqtt_dynsec_check":
 		out.Result, err = checkDynsec(ctx, in.Port)
+	case "mqtt_dynsec_enable", "mqtt_dynsec_disable":
+		out.Result, err = s.dynsecChange(ctx, in)
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
 		out.Result = map[string][]string{"scopes": s.refresh(ctx, in.Scopes)}
@@ -692,4 +694,23 @@ func main() {
 		s := &session{hub: cfg.Hub, http: client, id: id, conn: conn, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}
 		return s.loop(ctx)
 	})
+}
+
+// dynsecChange: enables dynamic-security on the Mosquitto broker of the port (certificates from the hub), or disables
+// it. The checks are made again here: the agent does not trust a report the hub made earlier.
+func (s *session) dynsecChange(ctx context.Context, in Inbound) (any, error) {
+	if in.Dynsec == nil {
+		return nil, fmt.Errorf("missing dynsec")
+	}
+	cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	rep, err := checkDynsec(cctx, in.Dynsec.Port)
+	if err != nil {
+		return nil, err
+	}
+	if in.Op == "mqtt_dynsec_disable" {
+		steps, err := disableDynsec(cctx, realDynsecHost(), rep.IncludeDir, rep.Unit)
+		return map[string][]string{"steps": steps}, err
+	}
+	return enableDynsec(cctx, realDynsecHost(), *rep, *in.Dynsec)
 }
