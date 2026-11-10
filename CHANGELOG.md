@@ -4,6 +4,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+## 1.3.1 - 2026-11-10
+
 ### Ajouté
 
 - **Documentation en ligne** : `docs/` est publiée sur [mamath2000.github.io/homelab-manager](https://mamath2000.github.io/homelab-manager/) (recherche, navigation), lien en tête du README. Le site est construit par Docusaurus (`website/`) et déployé sur GitHub Pages par `make docker-promote` depuis le tag promu : il décrit la version `latest`. Un push ou une pull request ne fait que le build, qui échoue sur un lien cassé. Voir [Documentation](docs/developpement.md#documentation).
