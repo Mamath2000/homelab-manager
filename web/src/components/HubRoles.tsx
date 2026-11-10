@@ -5,7 +5,7 @@ import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react'
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
-import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus } from '../lib/roles';
+import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleIcon, roleTint } from '../lib/hostSkills';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
@@ -43,7 +43,7 @@ function candidatesOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | nu
   const list = hosts.flatMap((h) =>
     (h.roleCandidates ?? [])
       .filter((c) => c.type === 'mqtt-broker')
-      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === h.id && r.config.port === c.port) })),
+      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === h.id && r.config.port === c.port) || (ofManagedBroker(h, c) && !(editing && h.id === editing.carrier.id && c.port === editing.config.port)) })),
   );
   // the carrier of the role edited stays offered, even if its agent no longer reports the service
   if (editing && !list.some((x) => x.host.id === editing.carrier.id && x.c.port === editing.config.port)) {

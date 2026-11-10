@@ -261,7 +261,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   const screenWide = wide === 'screen' || wide === 'screen-wide';
   // 'screen' windows fit their content, up to the height available (16:9 is only a width reference): scrolls only when needed
   return (
-    <div data-modal className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={dismissable ? onClose : undefined}>
+    <div data-modal className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-xs" onMouseDown={dismissable ? onClose : undefined}>
       <div
         className={clsx(
           'panel my-auto w-full min-w-0 bg-panel shadow-2xl shadow-black/60',

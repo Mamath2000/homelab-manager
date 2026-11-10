@@ -1,4 +1,4 @@
-import type { Host, HubRole, HubRoleType, MqttHubRole, MqttRefused } from './api';
+import type { Host, HubRole, HubRoleType, MqttHubRole, MqttRefused, RoleCandidate } from './api';
 import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
@@ -9,7 +9,15 @@ export function lanAddress(ips: string[] | null | undefined) {
   return v4.find((ip) => ip.startsWith('192.168.') || ip.startsWith('10.')) ?? v4.find((ip) => !/^172\.(1[7-9]|2\d|3[01])\./.test(ip)) ?? v4[0] ?? '';
 }
 
-export const offeredCandidates = (host: Host) => (host.roleCandidates ?? []).filter((c) => c.type === 'mqtt-broker' && !c.local && !host.roles.some((r) => r.type === 'mqtt-broker' && r.config.port === c.port));
+// The other ports of a broker whose accounts the hub manages (1883 and 9001 beside the TLS port of its role): one process,
+// one role. Only the process tells, the agent lists ports.
+export function ofManagedBroker(host: Host, c: RoleCandidate) {
+  const managed = host.roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker' && !!r.security.managed).map((r) => r.config.port);
+  return (host.roleCandidates ?? []).some((x) => x.type === 'mqtt-broker' && x.process === c.process && managed.includes(x.port));
+}
+
+export const offeredCandidates = (host: Host) =>
+  (host.roleCandidates ?? []).filter((c) => c.type === 'mqtt-broker' && !c.local && !host.roles.some((r) => r.type === 'mqtt-broker' && r.config.port === c.port) && !ofManagedBroker(host, c));
 
 export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'mqtt-broker', label: 'Broker MQTT', hint: 'écouté par les sondes MQTT, et broker de l’intégration Home Assistant' },
