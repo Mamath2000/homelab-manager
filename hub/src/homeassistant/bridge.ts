@@ -14,7 +14,7 @@ import { subscribe } from '../events.js';
 import { equipmentProbes, hostProbes } from '../probes.js';
 import { HOME_ASSISTANT, runAs } from '../audit.js';
 import { createJob, hasRunningJob } from '../jobs.js';
-import { tlsOptions } from '../mqttTls.js';
+import { tlsKey, tlsOptions } from '../mqttTls.js';
 import type { HaDetail, HaHostDetail, HomeAssistantSettings, MqttTls } from '../types.js';
 import { build, deviceOf, mqttActionAllowed, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
@@ -61,7 +61,7 @@ export class HomeAssistantBridge {
     const prev = this.settings;
     const same =
       prev && next && prev.enabled === next.enabled && prev.broker === next.broker && prev.username === next.username &&
-      prev.password === next.password && prev.topic === next.topic && prev.discoveryPrefix === next.discoveryPrefix;
+      prev.password === next.password && tlsKey(prev.tls) === tlsKey(next.tls) && prev.topic === next.topic && prev.discoveryPrefix === next.discoveryPrefix;
     if (same) {
       // only the link changed: republish the devices
       this.settings = next;
@@ -85,6 +85,7 @@ export class HomeAssistantBridge {
     const client = mqtt.connect(s.broker, {
       username: s.username || undefined,
       password: s.password || undefined,
+      ...tlsOptions(s.tls),
       clientId: `homelab-manager-${Math.random().toString(16).slice(2, 10)}`,
       reconnectPeriod: 5000,
       connectTimeout: 10_000,

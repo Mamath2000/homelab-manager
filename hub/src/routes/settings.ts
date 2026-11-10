@@ -38,7 +38,7 @@ export async function loadHaBridgeSettings(): Promise<HomeAssistantSettings> {
   const s = await loadHomeAssistantSettings();
   if (!s.brokerRoleId) return s;
   const b = (await loadMqttBrokers()).brokers.find((x) => x.id === s.brokerRoleId);
-  return { ...s, broker: b?.url ?? '', username: b?.username ?? '', password: b?.password ?? '' };
+  return { ...s, broker: b?.url ?? '', username: b?.username ?? '', password: b?.password ?? '', ...(b?.tls ? { tls: b.tls } : {}) };
 }
 
 // The broker role that is the broker typed before the roles: same address and account.

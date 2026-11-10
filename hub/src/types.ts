@@ -746,6 +746,8 @@ export interface HomeAssistantSettings {
   broker: string; // mqtt://host:1883, mqtts://...
   username: string;
   password: string;
+  // TLS material of the broker role (mqtts, wss), given with the address and account by loadHaBridgeSettings; never stored here
+  tls?: MqttTls;
   topic: string; // prefix of the state / command topics
   discoveryPrefix: string;
   publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
