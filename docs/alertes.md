@@ -15,7 +15,7 @@ Le cœur de Homelab Manager : un seul calcul, fait par le hub, donne l'état de 
 | Domaine | Ce qu'il suit | S'applique à l'hôte si |
 |---|---|---|
 | **Connexion** (`system`) | l'agent est joignable | toujours |
-| **Mises à jour** (`apt`) | sécurité, redémarrage, paquets, fraîcheur des listes | l'hôte a rapporté APT |
+| **Mises à jour** (`apt`) | sécurité, redémarrage, paquets, fraîcheur des listes ; sur Home Assistant OS, une version de l'OS ou de Core disponible (avertissement) | l'hôte a rapporté APT, ou ses versions Home Assistant OS |
 | **Docker** (`docker`) | une stack gérée = un élément (problème, image à mettre à jour) | l'hôte a rapporté Docker |
 | **Sauvegardes** (`backup`) | un groupe de sauvegarde = un élément | au moins une sauvegarde est rattachée à l'hôte |
 | **Copie externe** (`offsite`) | la copie vers le PBS de secours, un groupe copié = un élément | au moins une copie déportée est activée |

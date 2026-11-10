@@ -41,6 +41,14 @@ export interface HostInfo {
   virt: string;
   // MAC addresses of the network interfaces (agents >= 0.2): link with a Proxmox VE guest
   macs?: string[] | null;
+  // Home Assistant OS (agents >= 1.2.1): installed and latest versions read from the Supervisor
+  haos?: { os?: HaosUpdate; core?: HaosUpdate };
+}
+
+export interface HaosUpdate {
+  current: string;
+  latest: string;
+  available: boolean;
 }
 
 export interface HealthSystem {

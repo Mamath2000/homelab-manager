@@ -18,6 +18,19 @@ type HostInfo struct {
 	IPs      []string `json:"ips"`
 	Virt     string   `json:"virt"` // lxc, kvm, none...
 	MACs     []string `json:"macs"` // hardware addresses of the interfaces, link with a Proxmox VE guest
+	// Home Assistant OS only: installed and latest versions, read from the Supervisor (haos.go)
+	HAOS *HAOSUpdates `json:"haos,omitempty"`
+}
+
+type HAOSUpdates struct {
+	OS   *HAOSUpdate `json:"os,omitempty"`
+	Core *HAOSUpdate `json:"core,omitempty"`
+}
+
+type HAOSUpdate struct {
+	Current   string `json:"current"`
+	Latest    string `json:"latest"`
+	Available bool   `json:"available"`
 }
 
 // selfHash is the sha256 of the running binary, reported to the hub so that it can

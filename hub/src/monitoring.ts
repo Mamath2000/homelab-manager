@@ -5,7 +5,7 @@ import { backupState } from './pbs.js';
 import { offsiteState } from './offsite.js';
 import { upsProblems } from './ups.js';
 import { isHealthAlertSilenced } from './healthSilence.js';
-import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, EquipmentDoc, HostDoc, ProbeDoc } from './types.js';
+import type { AlertDomain, AlertLevel, BackupDoc, DayAlert, EquipmentDoc, HaosUpdate, HostDoc, ProbeDoc } from './types.js';
 
 // What the hub monitors, in two levels:
 // - a domain (system, apt, backup...) groups what one source can tell about a host;
@@ -106,6 +106,17 @@ export function aptStatus(h: Pick<HostDoc, 'apt' | 'roaming'>, ctx: Pick<Context
     check('updates', 'Paquets', others > 0 ? 'warn' : 'ok', `${others} paquet(s) à mettre à jour`),
     check('lists', 'Listes', ctx.now - r.listsUpdatedAt > STALE_LISTS_MS ? 'warn' : 'ok', 'Listes de paquets périmées'),
   ]);
+}
+
+// Home Assistant OS has no APT: its updates are the OS and Core ones, reported by the Supervisor (agent haos.go).
+// The agent offers no action on HAOS: a warning, never an alert.
+export function haosUpdateStatus(h: Pick<HostDoc, 'info'>, ctx: Pick<Context, 'online'>): DomainReport {
+  const u = h.info?.haos;
+  if (!u) return null;
+  if (!ctx.online) return unknown('Hôte hors ligne');
+  const one = (key: string, label: string, v?: HaosUpdate) =>
+    v ? [check(key, label, v.available ? 'warn' : 'ok', `${label} à mettre à jour : ${v.current} → ${v.latest}`)] : [];
+  return known([...one('haos_os', 'Home Assistant OS', u.os), ...one('haos_core', 'Home Assistant Core', u.core)]);
 }
 
 export function dockerStatus(h: HostDoc, ctx: Pick<Context, 'online'>): DomainReport {
@@ -223,7 +234,8 @@ export function servicesStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, '
 
 const PROVIDERS: Record<AlertDomain, Provider> = {
   system: systemStatus,
-  apt: aptStatus,
+  // a host has APT or is HAOS, never both
+  apt: (h, ctx) => aptStatus(h, ctx) ?? haosUpdateStatus(h, ctx),
   docker: dockerStatus,
   backup: backupStatus,
   offsite: offsiteStatus,

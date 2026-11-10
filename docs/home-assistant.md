@@ -112,6 +112,7 @@ Les top 5 classent les hôtes en ligne, hors hôtes itinérants (leurs dernière
 | État | capteur binaire de connectivité (agent connecté au hub : en ligne / hors ligne) ; `unique_id` `hm_ID_etat`, entité `binary_sensor.HOTE_etat` à la création |
 | Redémarrage requis | capteur binaire (problème), dès que l'hôte a remonté son état APT |
 | Agent | entité `update` (configuration) : version installée / distribuée par le hub, installable depuis HA ; indisponible quand l’agent est hors ligne |
+| Home Assistant OS, Home Assistant Core | entités `update` en lecture seule (hôtes HAOS, section APT) : version installée / disponible, sans installation depuis cette entité |
 | Vérifier les images Docker | bouton (hôtes avec Docker) : compare les images des stacks à leur registre |
 | Alertes, Problème | alertes de l'agent et de tous les sous-composants de l'hôte |
 | Système, Noyau, Adresse IP, Vu | diagnostic |
@@ -203,6 +204,7 @@ Une sonde **inconnue** (broker MQTT injoignable, ping non autorisé, hôte itin�
 | APT | avertissement | Mises à jour de sécurité disponibles |
 | APT | avertissement | Redémarrage requis |
 | APT | avertissement | Listes de paquets non rafraîchies depuis plus de 2 jours (sauf hôte itinérant hors ligne) |
+| APT | avertissement | Home Assistant OS ou Core à mettre à jour (hôtes HAOS) |
 | Docker | avertissement | Stack partielle (une partie des conteneurs seulement tourne) |
 | Docker | avertissement | Conteneur en mauvaise santé (`unhealthy`) |
 | Docker | avertissement | Conteneur qui redémarre en boucle |

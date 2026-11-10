@@ -238,6 +238,11 @@ export function build(all: HostState[], opts: BuildOptions) {
         states.push([t(key), JSON.stringify(state)]);
         commands.set(t(key, 'set'), { payload: INSTALL, ...cmd });
       },
+      // read only (no command_topic): Home Assistant shows the versions, nothing can be installed from it
+      version(key: string, name: string, state: Record<string, unknown>, extra: Component = {}) {
+        add(key, 'update', name, { state_topic: t(key), ...extra });
+        states.push([t(key), JSON.stringify(state)]);
+      },
       finish() {
         devices.push({
           id,
@@ -491,6 +496,11 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
     // reported with the packages, but a reboot concerns the whole host
     if (r && sec.has('apt')) d.binary('reboot_required', 'Redémarrage requis', r.rebootRequired, { device_class: 'problem', icon: 'mdi:restart-alert' });
+    // Home Assistant OS: the OS and Core versions, updated from that Home Assistant (the agent offers no action there)
+    const haos = sec.has('apt') ? host.info?.haos : undefined;
+    for (const [key, title, v] of [['haos_os', 'Home Assistant OS', haos?.os], ['haos_core', 'Home Assistant Core', haos?.core]] as const) {
+      if (v) d.version(key, title, { installed_version: v.current, latest_version: v.latest || v.current, title }, { icon: 'mdi:home-assistant' });
+    }
     if (view) d.button('docker_check', 'Vérifier les images Docker', { action: 'docker_check', hostIds: [hid] }, { icon: 'mdi:docker' });
     if (probeSection) for (const p of hostProbes.filter((x) => !placed.has(String(x._id)))) d.probe(p, readable(p));
     d.alerts(hostAlerts);

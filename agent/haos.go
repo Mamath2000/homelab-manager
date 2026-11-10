@@ -51,17 +51,34 @@ func supervisorGet(ctx context.Context, path string, out any) error {
 	return json.Unmarshal(body.Data, out)
 }
 
+// supervisorVersion: installed and latest version of /os/info or /core/info (nil when unreadable).
+// The Supervisor updates itself: it is left out.
+func supervisorVersion(ctx context.Context, path string) *HAOSUpdate {
+	var v struct {
+		Version         string `json:"version"`
+		VersionLatest   string `json:"version_latest"`
+		UpdateAvailable bool   `json:"update_available"`
+	}
+	if err := supervisorGet(ctx, path, &v); err != nil {
+		log.Printf("%v", err)
+		return nil
+	}
+	if v.Version == "" {
+		return nil
+	}
+	return &HAOSUpdate{Current: v.Version, Latest: v.VersionLatest, Available: v.UpdateAvailable}
+}
+
 // haosInfo overrides what the container cannot know about the host: OS name and version,
-// hostname and virtualization. Kept as is when the Supervisor does not answer.
+// hostname and virtualization, plus the OS and Core updates. Kept as is when the Supervisor does not answer.
 func haosInfo(ctx context.Context, info *HostInfo) {
 	info.OSID, info.OSName = "haos", "Home Assistant OS"
-	var osInfo struct {
-		Version string `json:"version"`
+	osUpdate, coreUpdate := supervisorVersion(ctx, "/os/info"), supervisorVersion(ctx, "/core/info")
+	if osUpdate != nil {
+		info.OSName = "Home Assistant OS " + osUpdate.Current
 	}
-	if err := supervisorGet(ctx, "/os/info", &osInfo); err == nil && osInfo.Version != "" {
-		info.OSName = "Home Assistant OS " + osInfo.Version
-	} else if err != nil {
-		log.Printf("%v", err)
+	if osUpdate != nil || coreUpdate != nil {
+		info.HAOS = &HAOSUpdates{OS: osUpdate, Core: coreUpdate}
 	}
 	var host struct {
 		Hostname       string `json:"hostname"`

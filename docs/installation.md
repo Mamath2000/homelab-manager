@@ -251,6 +251,7 @@ Au premier démarrage, l'application récupère l'autorité du hub (clé vérifi
 Ce que remonte un hôte HAOS :
 
 - **système** : version de Home Assistant OS, nom d'hôte et virtualisation lus par l'API Supervisor, adresses et MAC de la VM (les interfaces internes de HA et Docker sont ignorées) ;
+- **mises à jour de Home Assistant OS et Core** : versions installée et disponible (`/os/info`, `/core/info`), relues à chaque `hello` (toutes les 30 min et à l'actualisation). Une version disponible est un avertissement du domaine **Mises à jour**. L'agent ne lance pas la mise à jour : elle se fait depuis Home Assistant. Le Supervisor, qui se met à jour seul, n'est pas suivi. Agent 1.2.1 ou plus ;
 - **rien d'autre** : ni mises à jour APT (« non pris en charge » dans la liste des hôtes), ni stacks Docker, ni standardisation, ni bouton Redémarrer, ni sauvegardes de répertoires (HA sauvegarde déjà ses fichiers).
 
 **Mises à jour.** L'agent ne se met pas à jour lui-même : un binaire remplacé dans le conteneur serait perdu à sa recréation. La version de l'application suit celle de l'agent : à chaque release publiée du hub, une tâche GitHub Actions du repo (lancée à la publication, et chaque jour) publie une nouvelle version de l'application si l'agent a changé, que Home Assistant installe seul avec la mise à jour automatique. Un agent HAOS en retard est signalé sans bouton de mise à jour.

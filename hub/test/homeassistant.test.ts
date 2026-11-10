@@ -246,6 +246,26 @@ test('outdated agents: update entity, alert and root counter', () => {
   assert.equal(commands.get(`hm/${ROOT_KEY}/update_agents/set`), undefined);
 });
 
+test('HAOS: read-only OS and Core update entities, the update a warning alert', () => {
+  const base = host('ha-jar');
+  const h = {
+    ...base,
+    info: { ...base.info!, osId: 'haos', haos: { os: { current: '16.2', latest: '16.3', available: true }, core: { current: '2026.11.1', latest: '2026.11.1', available: false } } },
+  };
+  const { devices, commands } = build([{ host: h, online: true, busy: false }], opts);
+  const states = new Map(devices.flatMap((d) => d.states));
+  const id = h._id.toHexString();
+  const comps = devices.find((d) => d.id === `hm_${id}`)!.discovery.components as Record<string, { platform: string; command_topic?: string }>;
+  assert.equal(comps.haos_os.platform, 'update');
+  assert.equal(comps.haos_os.command_topic, undefined);
+  assert.equal(comps.haos_core.platform, 'update');
+  const os = JSON.parse(states.get(`${at(devices, `hm_${id}`)}/haos_os/state`)!);
+  assert.deepEqual([os.installed_version, os.latest_version], ['16.2', '16.3']);
+  assert.equal([...commands.keys()].some((t) => t.includes('/haos_')), false);
+  const alerts = JSON.parse(states.get(`${at(devices, `hm_${id}`)}/alerts/attributes`)!);
+  assert.deepEqual(alerts.alerts.map((a: { level: string; message: string }) => [a.level, a.message]), [['warning', 'Home Assistant OS à mettre à jour : 16.2 → 16.3']]);
+});
+
 test('testConnection reports broker availability and authentication', async () => {
   const broker = await Aedes.createBroker();
   broker.authenticate = (_client, username, password, done) => done(null, username === 'ha' && password?.toString() === 'secret');

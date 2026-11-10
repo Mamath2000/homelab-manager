@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { DOMAINS, aptStatus, backupStatus, dayOf, dockerStatus, evaluate, evaluateAll, healthStatus, offsiteStatus, servicesStatus, systemStatus, worst, type Context } from '../src/monitoring.js';
+import { DOMAINS, aptStatus, backupStatus, dayOf, dockerStatus, evaluate, evaluateAll, haosUpdateStatus, healthStatus, offsiteStatus, servicesStatus, systemStatus, worst, type Context } from '../src/monitoring.js';
 import type { AptReport, BackupDoc, DockerStack, HostDoc, Package, ProbeDoc, ProbeState } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -39,6 +39,22 @@ test('APT: not applicable without a report, unknown offline, security first then
   assert.deepEqual(dayOf(sec)?.reasons, ['Mises à jour de sécurité : curl', 'Redémarrage requis', '1 paquet(s) à mettre à jour']);
   const warn = aptStatus({ apt: report({ upgradable: [pkg('vim')], rebootRequired: true, rebootPkgs: ['linux-image'], listsUpdatedAt: now - 3 * 24 * H }) }, on);
   assert.deepEqual(dayOf(warn), { level: 'warn', reasons: ['Redémarrage requis (linux-image)', '1 paquet(s) à mettre à jour', 'Listes de paquets périmées'] });
+});
+
+test('HAOS: not applicable outside HAOS, unknown offline; an OS or Core update is a warning, in the APT domain', () => {
+  const info = (haos: NonNullable<HostDoc['info']>['haos']) => ({ hostname: 'ha', osId: 'haos', osName: 'Home Assistant OS', kernel: '', arch: 'amd64', uptime: 1, ips: [], virt: 'kvm', haos });
+  assert.equal(haosUpdateStatus({}, on), null);
+  const v = (current: string, latest: string) => ({ current, latest, available: current !== latest });
+  const upToDate = info({ os: v('16.3', '16.3'), core: v('2026.11.1', '2026.11.1') });
+  assert.equal(haosUpdateStatus({ info: upToDate }, off)?.level, 'unknown');
+  assert.deepEqual(dayOf(haosUpdateStatus({ info: upToDate }, on)), { level: 'ok', reasons: [] });
+  const both = haosUpdateStatus({ info: info({ os: v('16.2', '16.3'), core: v('2026.11.0', '2026.11.1') }) }, on);
+  assert.deepEqual(dayOf(both), {
+    level: 'warn',
+    reasons: ['Home Assistant OS à mettre à jour : 16.2 → 16.3', 'Home Assistant Core à mettre à jour : 2026.11.0 → 2026.11.1'],
+  });
+  // the APT domain of a HAOS host carries them
+  assert.equal(evaluate(host({ info: info({ core: v('2026.11.0', '2026.11.1') }) }), { ...on, groups: [] }).domains.apt?.level, 'warn');
 });
 
 function stack(name: string, status: DockerStack['status'], states: string[], health?: string): DockerStack {

@@ -43,6 +43,22 @@ func TestHaosInfo(t *testing.T) {
 	if info.Hostname != "homeassistant" || info.Virt != "kvm" {
 		t.Errorf("host = %q %q", info.Hostname, info.Virt)
 	}
+	// /core/info refused: the OS update alone
+	if info.HAOS == nil || info.HAOS.Core != nil || *info.HAOS.OS != (HAOSUpdate{Current: "16.2", Latest: "16.3", Available: true}) {
+		t.Errorf("updates = %+v", info.HAOS)
+	}
+}
+
+func TestHaosInfoCoreUpdate(t *testing.T) {
+	fakeSupervisor(t, map[string]string{
+		"/os/info":   `{"result":"ok","data":{"version":"16.3","version_latest":"16.3","update_available":false}}`,
+		"/core/info": `{"result":"ok","data":{"version":"2026.11.0","version_latest":"2026.11.1","update_available":true}}`,
+	})
+	info := &HostInfo{}
+	haosInfo(t.Context(), info)
+	if info.HAOS == nil || info.HAOS.OS.Available || *info.HAOS.Core != (HAOSUpdate{Current: "2026.11.0", Latest: "2026.11.1", Available: true}) {
+		t.Errorf("updates = %+v", info.HAOS)
+	}
 }
 
 // Supervisor refusing (role, outage): the host is still HAOS, the rest is kept.
@@ -50,7 +66,7 @@ func TestHaosInfoSupervisorDown(t *testing.T) {
 	fakeSupervisor(t, map[string]string{})
 	info := &HostInfo{Hostname: "a1b2c3-homelab-agent", Virt: "none"}
 	haosInfo(t.Context(), info)
-	if info.OSID != "haos" || info.OSName != "Home Assistant OS" || info.Hostname != "a1b2c3-homelab-agent" || info.Virt != "none" {
+	if info.OSID != "haos" || info.OSName != "Home Assistant OS" || info.Hostname != "a1b2c3-homelab-agent" || info.Virt != "none" || info.HAOS != nil {
 		t.Errorf("info = %+v", info)
 	}
 }
