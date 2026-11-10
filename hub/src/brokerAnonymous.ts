@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { testConnection } from './homeassistant/bridge.js';
+import { getAnonymousAllowed } from './mqttAccounts.js';
 import { loadMqttBrokers } from './probes.js';
+import { allRoles } from './roles.js';
 
 // Whether each broker role also accepts connections without an account (F-03): anyone on the network can then publish,
 // the commands of the Home Assistant bridge included. Checked by a connection without credentials, every 30 minutes
@@ -16,6 +18,13 @@ export async function checkBrokersAnonymous() {
   await Promise.all(
     brokers.map(async (b) => {
       if (!b.url) return;
+      // the hub runs the accounts: its link is mutual TLS, a connection without credentials there tells nothing; the broker
+      // says whether the anonymous group has rights
+      const role = allRoles().find((r) => r.type === 'mqtt-broker' && r._id === b.id);
+      if (role?.type === 'mqtt-broker' && role.config.dynsec) {
+        await getAnonymousAllowed(role).then((allowed) => anonymous.set(b.id, allowed), () => undefined);
+        return;
+      }
       try {
         await testConnection(b.url, '', '', b.tls?.caPem ? { caPem: b.tls.caPem } : undefined);
         anonymous.set(b.id, true);

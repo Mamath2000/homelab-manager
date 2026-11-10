@@ -5,7 +5,8 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { clearRefused, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
-import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
+import { createAccount, deleteAccount, getAnonymousAllowed, listAccounts, setAccountPassword, setAnonymousAllowed } from '../mqttAccounts.js';
+import { checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
@@ -347,6 +348,32 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     return { cleared: clearRefused(role._id) };
   });
+  // Whether the broker accepts clients without an account (the legacy role on its anonymous group, mqttAccounts.ts)
+  app.get<{ Params: { id: string } }>('/api/roles/:id/mqtt-anonymous', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    try {
+      return { allowed: await getAnonymousAllowed(role) };
+    } catch (err) {
+      return dynsecFail(reply, err);
+    }
+  });
+  app.put<{ Params: { id: string }; Body: { allowed: boolean } }>(
+    '/api/roles/:id/mqtt-anonymous',
+    { schema: { body: { type: 'object', required: ['allowed'], additionalProperties: false, properties: { allowed: { type: 'boolean' } } } } },
+    async (req, reply) => {
+      const role = brokerRole(req.params.id);
+      if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+      req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { anonymous: req.body.allowed } };
+      try {
+        const allowed = await setAnonymousAllowed(role, req.body.allowed);
+        void checkBrokersAnonymous().catch(() => undefined);
+        return { allowed };
+      } catch (err) {
+        return dynsecFail(reply, err);
+      }
+    },
+  );
   // clears a refused client from the list (kept in memory by the hub, refusedLog.ts): it comes back if it is refused again
   app.delete<{ Params: { id: string; clientId: string } }>('/api/roles/:id/mqtt-refused/:clientId', async (req, reply) => {
     const role = brokerRole(req.params.id);

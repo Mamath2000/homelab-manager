@@ -34,7 +34,7 @@ export function MqttSecuritySettings() {
 function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [confirm, setConfirm] = useState<'enable' | 'disable' | null>(null);
+  const [confirm, setConfirm] = useState<'enable' | 'disable' | 'anonymous-off' | null>(null);
   const [busy, setBusy] = useState(false);
   const q = useQuery({ queryKey: ['mqtt-security', role.id], queryFn: () => api.mqttSecurity(role.id), refetchOnWindowFocus: false });
   const v = q.data;
@@ -51,6 +51,23 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
       toast.success(what === 'enable' ? 'Gestion des comptes activée' : 'Gestion des comptes désactivée');
       setConfirm(null);
       await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers }), qc.invalidateQueries({ queryKey: ['mqtt-security', role.id] })]);
+    } catch (err) {
+      toast.error((err as Error).message);
+      setConfirm(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const manageable = state === 'active' && hubManaged;
+  const anon = useQuery({ queryKey: ['mqtt-anonymous', role.id], queryFn: () => api.mqttAnonymous(role.id), enabled: manageable, refetchOnWindowFocus: false });
+  const setAnonymous = async (allowed: boolean) => {
+    setBusy(true);
+    try {
+      await api.setMqttAnonymous(role.id, allowed);
+      toast.success(allowed ? 'Connexions anonymes acceptées' : 'Connexions anonymes sans droits');
+      setConfirm(null);
+      await Promise.all([qc.invalidateQueries({ queryKey: ['mqtt-anonymous', role.id] }), qc.invalidateQueries({ queryKey: keys.roles })]);
     } catch (err) {
       toast.error((err as Error).message);
       setConfirm(null);
@@ -114,6 +131,29 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
             </div>
           )}
 
+          {manageable && (
+            <div className="space-y-1.5 border-t border-line pt-3">
+              <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Clients anonymes</p>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-emerald-500"
+                  checked={!!anon.data?.allowed}
+                  disabled={anon.isLoading || !!anon.error || busy}
+                  onChange={(e) => (e.target.checked ? void setAnonymous(true) : setConfirm('anonymous-off'))}
+                />
+                <span>
+                  Accepter les connexions anonymes
+                  <span className="block text-xs text-muted">
+                    Un client sans nom d'utilisateur a les droits du rôle <code>legacy</code> : tous les topics. Décoché, il se connecte encore
+                    mais ne peut ni publier ni s'abonner. C'est l'état de transition : décocher quand plus aucun appareil n'est anonyme.
+                  </span>
+                </span>
+              </label>
+              {anon.error && <p className="text-xs text-red-400">{(anon.error as Error).message}</p>}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             {state === 'available' && (
               <Button variant="primary" icon={ShieldCheck} disabled={q.isLoading || blocked || busy} onClick={() => setConfirm('enable')}>
@@ -128,6 +168,18 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
           </div>
         </div>
       </Panel>
+      <ConfirmModal
+        open={confirm === 'anonymous-off'}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => void setAnonymous(false)}
+        title="Retirer les droits des clients anonymes"
+        confirmLabel="Retirer les droits"
+        danger
+        loading={busy}
+      >
+        Les appareils qui se connectent <b>sans compte</b> à <b>{role.name}</b> resteront connectés mais ne pourront plus publier ni lire : ils paraîtront « en ligne »
+        sans rien échanger. Vérifier d'abord qu'aucun appareil n'est encore anonyme (journal du broker). Réversible : recocher la case.
+      </ConfirmModal>
       <ConfirmModal
         open={confirm === 'enable'}
         onClose={() => setConfirm(null)}

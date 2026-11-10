@@ -94,3 +94,33 @@ export async function deleteAccount(role: MqttBrokerRole, username: string) {
   const [r] = await run(role, [{ command: 'deleteClient', username }]);
   if (errorOf(r)) throw new DynsecError(errorOf(r)!, 409);
 }
+
+// Anonymous clients: dynamic-security gives them the rights of the group set with setAnonymousGroup. They are accepted
+// while that group holds the role LEGACY_ROLE (every topic); without it they still connect but may neither publish nor
+// subscribe. Changed on the fly, no restart.
+export const LEGACY_ROLE = 'legacy';
+export const ANONYMOUS_GROUP = 'anonymous';
+
+export async function getAnonymousAllowed(role: MqttBrokerRole) {
+  const [r] = await run(role, [{ command: 'getGroup', groupname: ANONYMOUS_GROUP }]);
+  if (r?.error) return false;
+  const roles = ((r.data?.group as { roles?: { rolename: string }[] } | undefined)?.roles ?? []).map((x) => x.rolename);
+  return roles.includes(LEGACY_ROLE);
+}
+
+export async function setAnonymousAllowed(role: MqttBrokerRole, allowed: boolean) {
+  const commands: DynsecCommand[] = allowed
+    ? [
+        // made again when missing: the answers "already exists" are not errors
+        { command: 'createRole', rolename: LEGACY_ROLE },
+        ...ACLS.map((acltype) => ({ command: 'addRoleACL', rolename: LEGACY_ROLE, acltype, topic: '#', allow: true, priority: 5 })),
+        { command: 'createGroup', groupname: ANONYMOUS_GROUP },
+        { command: 'setAnonymousGroup', groupname: ANONYMOUS_GROUP },
+        { command: 'addGroupRole', groupname: ANONYMOUS_GROUP, rolename: LEGACY_ROLE, priority: 5 },
+      ]
+    : [{ command: 'removeGroupRole', groupname: ANONYMOUS_GROUP, rolename: LEGACY_ROLE }];
+  await run(role, commands);
+  const now = await getAnonymousAllowed(role);
+  if (now !== allowed) throw new DynsecError("le broker n'a pas pris le changement en compte", 502);
+  return now;
+}
