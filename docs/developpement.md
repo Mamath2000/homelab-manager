@@ -79,8 +79,9 @@ make agent-run CODE=…   # agent local enrôlé avec le code d'une commande d'i
 ### Documentation
 
 `docs/` est la source unique de la doc : rendu par le site Docusaurus de `website/` et publié sur
-[GitHub Pages](https://mamath2000.github.io/homelab-manager/) par le workflow `Docs` à chaque push sur `main` qui touche `docs/`
-ou `website/` (une pull request ne fait que le build). Les liens sont relatifs et restent dans `docs/` : un lien vers une page
+[GitHub Pages](https://mamath2000.github.io/homelab-manager/) par `make docker-promote`, qui lance le workflow `Docs` sur le tag
+promu (`gh workflow run docs.yml --ref vX.Y.Z`) : le site décrit la version `latest`, pas les nouveautés encore en dev. Un push
+ou une pull request qui touche `docs/` ou `website/` ne fait que le build. Les liens sont relatifs et restent dans `docs/` : un lien vers une page
 hors du dépôt casse le build.
 
 ### Release
@@ -100,7 +101,7 @@ Une release lance d'abord `make check`. Elle refuse un arbre de travail non comm
 2. construit l'image amd64 + arm64 (binaires de l'agent signés, clé passée en secret BuildKit) et la pousse sous les tags `dev`, `X.Y.Z-dev` et le hash du commit ;
 3. crée le tag git `vX.Y.Z`, pousse le commit et le tag, puis lance la synchro de l'application HAOS **dev** de l'agent (`homelab-manager-haos`).
 
-`make docker-promote` (après confirmation, `YES=1` pour s'en passer) republie l'image `X.Y.Z-dev` telle quelle, sans rebuild et pour toutes ses architectures, sous `X.Y.Z` et `latest`, crée la release GitHub `vX.Y.Z` (notes = section « Non publié » du `CHANGELOG.md`, renommée en version et commitée/poussée par la promotion ; à défaut, notes générées par GitHub depuis la dernière release publiée), puis lance la synchro des applications HAOS **prod**. Le tag `vX.Y.Z` doit exister sur origin (posé par `docker-release`). Une version déjà en prod est refusée. La stack du CT 171 (`make publish`, `make docker-direct`) suit le tag `dev`. `make publish` épingle l'image du hub par son empreinte dans le compose du CT (`image: mathmath350/homelab-manager:dev@sha256:…`, ancien fichier gardé en `docker-compose.yml.bak`) avant de la récupérer : le déploiement est celui de l'empreinte lue à cet instant, pas celui d'un tag qui peut bouger. Retour arrière : remettre le `.bak` en place puis `docker compose up -d`.
+`make docker-promote` (après confirmation, `YES=1` pour s'en passer) republie l'image `X.Y.Z-dev` telle quelle, sans rebuild et pour toutes ses architectures, sous `X.Y.Z` et `latest`, crée la release GitHub `vX.Y.Z` (notes = section « Non publié » du `CHANGELOG.md`, renommée en version et commitée/poussée par la promotion ; à défaut, notes générées par GitHub depuis la dernière release publiée), puis lance la synchro des applications HAOS **prod** et le déploiement de la [doc publique](#documentation) depuis le tag `vX.Y.Z`. Le tag `vX.Y.Z` doit exister sur origin (posé par `docker-release`). Une version déjà en prod est refusée. La stack du CT 171 (`make publish`, `make docker-direct`) suit le tag `dev`. `make publish` épingle l'image du hub par son empreinte dans le compose du CT (`image: mathmath350/homelab-manager:dev@sha256:…`, ancien fichier gardé en `docker-compose.yml.bak`) avant de la récupérer : le déploiement est celui de l'empreinte lue à cet instant, pas celui d'un tag qui peut bouger. Retour arrière : remettre le `.bak` en place puis `docker compose up -d`.
 
 `DOCKER_USER` (défaut `mathmath350`), `PLATFORMS` (défaut `linux/amd64,linux/arm64`) et `RELEASE_KEY` sont surchargeables.
 

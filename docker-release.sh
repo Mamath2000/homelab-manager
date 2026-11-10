@@ -9,7 +9,8 @@
 #   release-major : majeur +1, mineur et build remis à 0 (X+1.0.0)
 #   promote       : prod : l'image X.Y.Z-dev (défaut : VERSION, sinon PROMOTE_VERSION) est publiée telle quelle
 #                   (sans rebuild, toutes architectures) sous X.Y.Z et latest, puis release GitHub vX.Y.Z (notes = section « Non publié » du CHANGELOG.md, renommée en version
-#                   et commitée) et synchro des applications HAOS prod lancée ; confirmation demandée sauf YES=1
+#                   et commitée), synchro des applications HAOS prod et déploiement de la doc publique (GitHub Pages,
+#                   workflow docs.yml sur le tag vX.Y.Z) lancés ; confirmation demandée sauf YES=1
 #   prune         : libère le disque : agent/hub/web dist, anciennes images locales de homelab-manager et
 #                   homelab-agent-haos (restent latest, dev et la version courante), images orphelines, cache buildx > 7 j
 #                   (proposé aussi en fin de release, avec confirmation ; YES=1 l'accepte d'office)
@@ -123,6 +124,13 @@ haos_sync() {
         || echo "⚠️  Synchro HAOS $1 non lancée : make -C ../homelab-manager-haos sync CHANNEL=$1 (sinon cron quotidien)"
 }
 
+# docs_deploy VERSION : doc publique (GitHub Pages) construite depuis le tag vX.Y.Z, sans bloquer en cas d'échec
+docs_deploy() {
+    gh workflow run docs.yml --ref "v$1" \
+        && echo "✅ Doc publique v$1 lancée (docs.yml → GitHub Pages) : gh run list --workflow docs.yml" \
+        || echo "⚠️  Doc publique non lancée : gh workflow run docs.yml --ref v$1"
+}
+
 # github_release VERSION : release GitHub vX.Y.Z (notes = section « Non publié » du CHANGELOG.md, renommée en
 # version et commitée), sans bloquer en cas d'échec : l'image est déjà publiée
 github_release() {
@@ -153,7 +161,7 @@ github_release() {
 }
 
 if [ "$action" = "promote" ]; then
-    command -v gh >/dev/null 2>&1 || { echo "❌ gh est requis (synchro HAOS)."; exit 1; }
+    command -v gh >/dev/null 2>&1 || { echo "❌ gh est requis (release GitHub, synchro HAOS, doc publique)."; exit 1; }
     docker buildx version >/dev/null 2>&1 || { echo "❌ docker buildx est requis."; exit 1; }
     docker info 2>/dev/null | grep -q Username || { echo "❌ Non connecté à Docker Hub (docker login)."; exit 1; }
     IMAGE="$DOCKER_USER/$APP_NAME"
@@ -177,6 +185,7 @@ if [ "$action" = "promote" ]; then
     echo "✅ $IMAGE:{$PROMOTE,latest} publiées"
     github_release "$PROMOTE"
     haos_sync prod
+    docs_deploy "$PROMOTE"
     exit 0
 fi
 

@@ -1,7 +1,8 @@
 name: Docs
 
 # Public documentation site: docs/ rendered by Docusaurus (website/) and published on GitHub Pages.
-# Pull requests only build it (broken links fail the build); a push to main also deploys it.
+# Pushes and pull requests only build it (broken links fail the build). It is deployed by `make docker-promote`,
+# which runs this workflow on the promoted tag (gh workflow run docs.yml --ref vX.Y.Z): the site documents latest.
 on:
   push:
     branches: [main]
@@ -12,11 +13,6 @@ on:
 
 permissions:
   contents: read
-
-# One deployment at a time; a newer push cancels the build still waiting, never a deployment in progress.
-concurrency:
-  group: pages-${{ github.ref }}
-  cancel-in-progress: false
 
 # Actions pinned by commit SHA (a tag can be moved), kept up to date by Dependabot (.github/dependabot.yml).
 jobs:
@@ -30,15 +26,19 @@ jobs:
           cache: npm
           cache-dependency-path: website/package-lock.json
       - run: make docs-site
-      - if: github.event_name != 'pull_request'
+      - if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: website/build
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
+    # one deployment at a time, never cancelled midway
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write

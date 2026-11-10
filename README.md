@@ -1,5 +1,7 @@
 # Homelab Manager
 
+📖 **[Documentation](https://mamath2000.github.io/homelab-manager/)**
+
 **Une seule interface pour savoir si ton homelab va bien** : état des machines, mises à jour, Docker, **sauvegardes**, services et équipements réseau, avec des alertes qui disent quoi, où et depuis quand.
 
 Pensé pour le réseau local : un **hub** en conteneur, un **agent** léger par machine, aucun port à ouvrir sur les hôtes.
