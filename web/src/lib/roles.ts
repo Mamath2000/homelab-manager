@@ -9,11 +9,11 @@ export function lanAddress(ips: string[] | null | undefined) {
   return v4.find((ip) => ip.startsWith('192.168.') || ip.startsWith('10.')) ?? v4.find((ip) => !/^172\.(1[7-9]|2\d|3[01])\./.test(ip)) ?? v4[0] ?? '';
 }
 
-// The other ports of a broker whose accounts the hub manages (1883 and 9001 beside the TLS port of its role): one process,
-// one role. Only the process tells, the agent lists ports.
+// The other ports of a broker whose accounts the hub manages (the TLS listener of the hub on 8883, 9001…, beside the port
+// of its role): one process, one role. Only the process tells, the agent lists ports.
 export function ofManagedBroker(host: Host, c: RoleCandidate) {
   const managed = host.roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker' && !!r.security.managed).map((r) => r.config.port);
-  return (host.roleCandidates ?? []).some((x) => x.type === 'mqtt-broker' && x.process === c.process && managed.includes(x.port));
+  return c.port !== undefined && !managed.includes(c.port) && (host.roleCandidates ?? []).some((x) => x.type === 'mqtt-broker' && x.process === c.process && managed.includes(x.port));
 }
 
 export const offeredCandidates = (host: Host) =>

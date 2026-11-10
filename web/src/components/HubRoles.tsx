@@ -42,8 +42,9 @@ interface Form {
 function candidatesOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | null) {
   const list = hosts.flatMap((h) =>
     (h.roleCandidates ?? [])
-      .filter((c) => c.type === 'mqtt-broker')
-      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === h.id && r.config.port === c.port) || (ofManagedBroker(h, c) && !(editing && h.id === editing.carrier.id && c.port === editing.config.port)) })),
+      // the other ports of a broker the hub manages (its TLS listener…) are not brokers to declare: not listed at all
+      .filter((c) => c.type === 'mqtt-broker' && !ofManagedBroker(h, c))
+      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === h.id && r.config.port === c.port) })),
   );
   // the carrier of the role edited stays offered, even if its agent no longer reports the service
   if (editing && !list.some((x) => x.host.id === editing.carrier.id && x.c.port === editing.config.port)) {
@@ -165,6 +166,12 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
           </>
         }
       >
+        {role?.security.managed && (
+          <p className="mb-3 rounded-md border border-line bg-raised/40 px-3 py-2 text-xs text-muted">
+            La gestion des comptes (dynamic-security) est active sur ce broker. Le hub l'administre avec sa propre identité (TLS mutuel, port 8883), à part : ce formulaire ne règle que la
+            <b> connexion du rôle</b>, celle des sondes et du pont Home Assistant. Pour lui donner un compte sans passer par ici : <Link className="underline" to="/settings?tab=mqtt">Paramètres › MQTT › Connexion du rôle</Link>.
+          </p>
+        )}
         <Steps fill>
           <Step n={1} title="Hôte" state={carried} intro={role ? "Choisir un autre hôte déplace le rôle, ses paramètres gardés." : "Les brokers que les agents ont trouvés en écoute sur leur hôte."}>
             {!candidates.length ? (
