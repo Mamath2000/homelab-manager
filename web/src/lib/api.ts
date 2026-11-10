@@ -1705,6 +1705,9 @@ export interface MqttRefused {
   count: number;
   firstAt: number;
   lastAt: number;
+  // an account was made for it from the list, and when: it stays until a connection passes
+  account?: string;
+  accountAt?: number;
 }
 
 export interface MqttBrokerView {

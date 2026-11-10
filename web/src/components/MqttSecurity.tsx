@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Plus, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type MqttAccount, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
+import { stillRefused } from '../lib/roles';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { useRoles } from '../lib/queries';
@@ -235,19 +237,23 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
               </thead>
               <tbody className="divide-y divide-line">
                 {refused.map((c) => (
-                  <tr key={`refused:${c.clientId}`} className="bg-red-500/5">
+                  <tr key={`refused:${c.clientId}`} className={stillRefused(c) ? 'bg-red-500/5' : 'bg-amber-500/5'}>
                     <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
                       {c.clientId}
-                      <span className="ml-2 font-sans text-red-300">client refusé</span>
+                      <span className={clsx('ml-2 font-sans', stillRefused(c) ? 'text-red-300' : 'text-amber-300')}>
+                        {!c.account ? 'client refusé' : stillRefused(c) ? `toujours refusé · compte « ${c.account} »` : `compte « ${c.account} » créé, en attente de connexion`}
+                      </span>
                     </td>
                     <td className="td truncate text-xs text-muted" title={`${c.address} · dernière tentative ${new Date(c.lastAt).toLocaleString('fr-FR')}`}>
                       {c.address} · {c.count} tentative{c.count > 1 ? 's' : ''} · {timeAgo(c.lastAt)}
                     </td>
                     <td className="td">
                       <div className="flex justify-end">
-                        <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient(c))}>
-                          Créer
-                        </Button>
+                        {!c.account && (
+                          <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient(c))}>
+                            Créer
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>

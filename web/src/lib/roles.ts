@@ -1,4 +1,4 @@
-import type { Host, HubRole, HubRoleType, MqttHubRole } from './api';
+import type { Host, HubRole, HubRoleType, MqttHubRole, MqttRefused } from './api';
 import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
@@ -33,3 +33,7 @@ export const roleStatus = (b: { status: HubRole['status']; url: string }): { lab
 export function hostMqttBrokers(host: Host) {
   return host.roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker' && r.security.state === 'active' && !!r.security.managed);
 }
+
+// A client whose last message in the log of the broker is a refusal: not one an account was made for since, until it is
+// refused again (wrong name or password)
+export const stillRefused = (c: MqttRefused) => !c.account || c.lastAt > (c.accountAt ?? 0);

@@ -15,6 +15,7 @@ const TOPIC = '$SYS/broker/log/#';
 const KEEP_MS = 7 * 24 * 3600 * 1000;
 const MAX_PER_BROKER = 100;
 const LINE_RE = /Client (\S+) \[([^\]]+?)(?::\d+)?\] disconnected: not authorised/;
+const CONNECTED_RE = /New client connected from \S+ as (\S+) \(/;
 
 export interface Refused {
   clientId: string;
@@ -22,6 +23,9 @@ export interface Refused {
   count: number;
   firstAt: number;
   lastAt: number;
+  // an account was made for it from this list (the user name is the administrator's: the log has none), and when
+  account?: string;
+  accountAt?: number;
 }
 
 /** "Client esp-1 [192.168.1.5:5123] disconnected: not authorised." -> its client id and address; null for any other line. */
@@ -30,10 +34,21 @@ export function parseRefused(line: string) {
   return m ? { clientId: m[1], address: m[2] } : null;
 }
 
+/** "New client connected from 10.0.0.5:1234 as esp-1 (p4, c1, k60)." -> its client id; null for any other line. */
+export function parseConnected(line: string) {
+  return CONNECTED_RE.exec(line)?.[1] ?? null;
+}
+
 const entries = new Map<string, Map<string, Refused>>();
 const links = new Map<string, { key: string; client: MqttClient }>();
 
-export function noteRefused(roleId: string, line: string, now = Date.now()) {
+/** One line of the log: a refusal counts against its client id, a connection that passes clears it (the last message wins). */
+export function noteLogLine(roleId: string, line: string, now = Date.now()) {
+  const connected = parseConnected(line);
+  if (connected) {
+    entries.get(roleId)?.delete(connected);
+    return;
+  }
   const p = parseRefused(line);
   if (!p) return;
   let list = entries.get(roleId);
@@ -59,7 +74,11 @@ export function refusedOf(roleId: string, now = Date.now()): Refused[] {
   return [...list.values()].sort((a, b) => b.lastAt - a.lastAt);
 }
 
-export const forgetRefused = (roleId: string, clientId: string) => entries.get(roleId)?.delete(clientId);
+/** An account was made for this client: it stays listed until a connection passes (or is refused again, the password is wrong). */
+export function markCreated(roleId: string, clientId: string, account: string, now = Date.now()) {
+  const e = entries.get(roleId)?.get(clientId);
+  if (e) Object.assign(e, { account, accountAt: now });
+}
 
 /** Opens a link to each broker whose dynamic-security the hub runs, closes the others; run again when the roles change. */
 export async function reconcileRefusedWatch(log: FastifyBaseLogger) {
@@ -90,7 +109,7 @@ export async function reconcileRefusedWatch(log: FastifyBaseLogger) {
     });
     client.on('error', (err) => log.debug({ err: err.message, broker: b.name }, 'refused connections: link error'));
     client.on('message', (_t, payload) => {
-      for (const line of payload.toString().split('\n')) noteRefused(b.id, line);
+      for (const line of payload.toString().split('\n')) noteLogLine(b.id, line);
     });
     links.set(b.id, { key, client });
   }

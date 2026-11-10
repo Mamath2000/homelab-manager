@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { Radio, Users } from 'lucide-react';
 import { api, type MqttHubRole } from '../lib/api';
+import { stillRefused } from '../lib/roles';
 import { Badge, Button, Panel } from './ui';
 import { MqttAccountsModal } from './MqttSecurity';
 
@@ -11,7 +12,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
   const q = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), refetchInterval: 15_000 });
   const accounts = (q.data?.accounts ?? []).filter((a) => !a.protected);
   const connected = accounts.filter((a) => a.connected).length;
-  const refused = q.data?.refused.length ?? 0;
+  const refused = (q.data?.refused ?? []).filter(stillRefused).length;
   return (
     <div className="space-y-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">

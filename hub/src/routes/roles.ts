@@ -4,7 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
-import { forgetRefused, refusedOf } from '../refusedLog.js';
+import { markCreated, refusedOf } from '../refusedLog.js';
 import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
@@ -334,8 +334,8 @@ export function registerRoleRoutes(app: FastifyInstance) {
       req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.body.username } };
       try {
         const created = await createAccount(role, req.body.username, req.body.password);
-        // created from a refused connection: it leaves the list (it comes back if the device is still refused)
-        if (req.body.clientId) forgetRefused(role._id, req.body.clientId);
+        // made for a refused client: it stays listed, as waiting, until a connection passes
+        if (req.body.clientId) markCreated(role._id, req.body.clientId, created.username);
         return reply.code(201).send(created);
       } catch (err) {
         return dynsecFail(reply, err);
