@@ -104,7 +104,7 @@ func TestEnableDynsec(t *testing.T) {
 		t.Error("the conf still points to the init file")
 	}
 	all := strings.Join(f.cmds, "\n")
-	for _, want := range []string{"createRole legacy", "setAnonymousGroup anonymous", "createClient hlm", "addClientRole hlm super-admin 5", "deleteClient admin"} {
+	for _, want := range []string{"createRole legacy", "setAnonymousGroup anonymous", "createClient hlm", "addClientRole hlm super-admin 5", "addClientRole hlm sys-observe 5", "deleteClient admin"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("missing command %q", want)
 		}

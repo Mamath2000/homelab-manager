@@ -307,6 +307,8 @@ func enableDynsec(ctx context.Context, h dynsecHost, rep DynsecReport, req Dynse
 		// the account of the hub: its certificate, no password
 		[]string{"createClient", req.Admin},
 		[]string{"addClientRole", req.Admin, "super-admin", "5"},
+		// super-admin does not cover the $SYS topics, where the hub reads the log of the refused connections
+		[]string{"addClientRole", req.Admin, "sys-observe", "5"},
 	)
 	for _, a := range setup {
 		if out, err := ctrl(a...); err != nil {

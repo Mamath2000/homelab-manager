@@ -1,5 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import mqtt, { type MqttClient } from 'mqtt';
+import { dynsecRun } from './dynsecClient.js';
+import { DYNSEC_ACCOUNT } from './mqttDynsec.js';
 import { tlsKey, tlsOptions } from './mqttTls.js';
 import { loadMqttBrokers } from './probes.js';
 import { allRoles } from './roles.js';
@@ -80,7 +82,12 @@ export async function reconcileRefusedWatch(log: FastifyBaseLogger) {
       reconnectPeriod: 10_000,
       connectTimeout: 10_000,
     });
-    client.on('connect', () => client.subscribe(TOPIC, { qos: 0 }, (err) => err && log.warn({ err: err.message, broker: b.name }, 'refused connections: subscription failed')));
+    client.on('connect', () => {
+      // the account of the hub reads $SYS only with sys-observe (super-admin does not cover it): given again, harmless when it
+      // has it, and it repairs a broker activated before the agent gave it
+      const ready = dynsecRun(b, [{ command: 'addClientRole', username: DYNSEC_ACCOUNT, rolename: 'sys-observe', priority: 5 }]).catch(() => undefined);
+      void ready.then(() => client.subscribe(TOPIC, { qos: 0 }, (err) => err && log.warn({ err: err.message, broker: b.name }, 'refused connections: subscription failed')));
+    });
     client.on('error', (err) => log.debug({ err: err.message, broker: b.name }, 'refused connections: link error'));
     client.on('message', (_t, payload) => {
       for (const line of payload.toString().split('\n')) noteRefused(b.id, line);
