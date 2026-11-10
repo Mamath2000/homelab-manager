@@ -315,7 +315,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
         open
         onClose={onClose}
         title={`Comptes MQTT · ${role.name}`}
-        wide="xl"
+        wide="screen"
         footer={
           <>
             {refused.length > 0 && (
