@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plug, Plus, Radio, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type DynsecReport, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus } from '../lib/roles';
 import { roleIcon, roleTint } from '../lib/hostSkills';
@@ -11,6 +11,7 @@ import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
+import { MqttSecurityModal } from './MqttSecurity';
 import { PbsModal } from './BackupSettings';
 import { RemoteModal } from './OffsiteSettings';
 import { PbsDisconnectModal } from './PbsDisconnect';
@@ -51,43 +52,6 @@ function candidatesOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | nu
     if (host) list.unshift({ host, c: { type: editing.type, process: '', port: editing.config.port, scheme: editing.config.scheme }, taken: false });
   }
   return list;
-}
-
-// The checks the agent makes before enabling dynamic-security on a Mosquitto broker (nothing is written).
-function DynsecCheckPanel({ hostId, port }: { hostId: string; port: number }) {
-  const [report, setReport] = useState<DynsecReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const run = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setReport(await api.mqttDynsecCheck(hostId, port));
-    } catch (err) {
-      setReport(null);
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="mt-2 space-y-1.5">
-      <Button size="sm" loading={busy} disabled={busy} onClick={() => void run()}>Contrôler la gestion des comptes</Button>
-      {error && <p className="text-xs text-red-400">{error}</p>}
-      {report && (
-        <ul className="space-y-0.5 text-xs">
-          {report.checks.map((c, i) => (
-            <li key={i} className={c.level === 'error' ? 'text-red-400' : c.level === 'warn' ? 'text-amber-400' : 'text-muted'}>
-              {c.level === 'error' ? '✗' : c.level === 'warn' ? '!' : '·'} {c.detail}
-            </li>
-          ))}
-          <li className={clsx('font-medium', report.eligible ? 'text-emerald-400' : 'text-red-400')}>
-            {report.active ? 'Déjà active' : report.eligible ? 'Ce broker peut être activé' : "Ce broker ne peut pas être activé en l'état"}
-          </li>
-        </ul>
-      )}
-    </div>
-  );
 }
 
 // Declares an MQTT broker role, or edits one (choosing another host moves it, its settings kept). Four steps
@@ -220,7 +184,6 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
                         {c.dynsec ? ' · dynamic-security chargé' : ''}
                         {taken ? ' · déjà déclaré' : c.local ? ' · en écoute locale seulement : injoignable par le hub' : ''}
                       </div>
-                      {on && c.process.startsWith('mosquitto') && !c.local && h.capabilities?.includes('mqtt_dynsec') && <DynsecCheckPanel hostId={h.id} port={c.port} />}
                     </label>
                   );
                 })}
@@ -753,9 +716,12 @@ export function RolesSettings() {
   const [rotating, setRotating] = useState(false);
   const askRemove = (r: HubRole) => (r.type === 'pbs-primary' || r.type === 'pbs-offsite' ? setDisconnecting(r.type) : setRemoving(r));
   const uses = (r: HubRole) => r.uses ?? [];
+  const [securingId, setSecuringId] = useState<string | null>(null);
+  const securing = roles?.find((r): r is MqttHubRole => r.id === securingId && r.type === 'mqtt-broker') ?? null;
   const actions = (r: HubRole) => (
     <div className="flex shrink-0 items-center gap-1.5">
       {r.type === 'pbs-primary' && <Button size="sm" icon={KeyRound} aria-label="Régénérer les jetons des hôtes" title="Régénérer les jetons des hôtes" onClick={() => setRotating(true)} />}
+      {r.type === 'mqtt-broker' && r.security.state !== 'unavailable' && <Button size="sm" icon={ShieldCheck} aria-label={`Sécurité MQTT de ${r.name}`} title="Sécurité MQTT : comptes" onClick={() => setSecuringId(r.id)} />}
       <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => edit(r)} />
       <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : r.type.startsWith('pbs-') ? 'Déconnecter' : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => askRemove(r)} />
     </div>
@@ -867,6 +833,11 @@ export function RolesSettings() {
                       <td className="td">
                         <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
                         {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
+                        {r.type === 'mqtt-broker' && (
+                          <p className="mt-0.5 truncate text-xs text-muted" title={r.security.reason}>
+                            Comptes : {r.security.state === 'active' ? <span className="text-emerald-400">gérés par le hub</span> : r.security.state === 'available' ? 'disponible' : 'indisponible'}
+                          </p>
+                        )}
                         {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-0.5 truncate text-xs text-red-300" title={ANONYMOUS_HINT}>connexions anonymes acceptées</p>}
                       </td>
                       <td className="td truncate text-muted" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</td>
@@ -891,6 +862,7 @@ export function RolesSettings() {
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
       {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
+      {securing && <MqttSecurityModal role={securing} onClose={() => setSecuringId(null)} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-cluster' && (!editing.role || cluster) && (

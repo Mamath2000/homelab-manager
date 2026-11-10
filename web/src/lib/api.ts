@@ -1673,6 +1673,19 @@ export interface DynsecReport {
   confFile?: string;
   checks: DynsecCheck[];
 }
+// The management of the accounts of a broker (dynamic-security): unavailable (Mosquitto < 2.1, other broker, agent too
+// old), available, active (plugin loaded). In the role (security) and, with the checks of the agent, on its own route.
+export interface MqttSecurity {
+  state: 'unavailable' | 'available' | 'active';
+  version?: string;
+  reason?: string;
+}
+export interface MqttSecurityView extends MqttSecurity {
+  report: DynsecReport | null;
+  error: string | null;
+  enabledAt: string | null;
+  clientNotAfter: string | null;
+}
 
 export interface MqttBrokerView {
   id: string;
@@ -1732,7 +1745,7 @@ interface HubRoleBase {
 }
 export type HubRole =
   // anonymous: the broker also accepts connections without an account (null: not checked yet)
-  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string }; anonymous?: boolean | null })
+  | (HubRoleBase & { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address: string | null; username: string }; security: MqttSecurity; anonymous?: boolean | null })
   | (HubRoleBase & { type: 'pve-cluster'; config: { cluster: string; url: string; fingerprint: string; tokenId: string; timezone?: string; polledAt?: string; pollError?: string | null; guests?: number } })
   // kept in the settings of the backups (pbsSettings, pbsRemoteSettings), roles once connected
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
@@ -1853,7 +1866,9 @@ export const api = {
   roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
   roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
     request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
-  mqttDynsecCheck: (hostId: string, port: number) => request<DynsecReport>('GET', `/api/roles/mqtt-dynsec-check/${hostId}?port=${port}`),
+  mqttSecurity: (roleId: string) => request<MqttSecurityView>('GET', `/api/roles/${roleId}/mqtt-security`),
+  enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
+  disableMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/disable`),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
