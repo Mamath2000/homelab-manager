@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, Radio, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
@@ -11,7 +11,6 @@ import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
 import { field } from './ProxmoxServer';
-import { MqttSecurityModal } from './MqttSecurity';
 import { PbsModal } from './BackupSettings';
 import { RemoteModal } from './OffsiteSettings';
 import { PbsDisconnectModal } from './PbsDisconnect';
@@ -716,12 +715,9 @@ export function RolesSettings() {
   const [rotating, setRotating] = useState(false);
   const askRemove = (r: HubRole) => (r.type === 'pbs-primary' || r.type === 'pbs-offsite' ? setDisconnecting(r.type) : setRemoving(r));
   const uses = (r: HubRole) => r.uses ?? [];
-  const [securingId, setSecuringId] = useState<string | null>(null);
-  const securing = roles?.find((r): r is MqttHubRole => r.id === securingId && r.type === 'mqtt-broker') ?? null;
   const actions = (r: HubRole) => (
     <div className="flex shrink-0 items-center gap-1.5">
       {r.type === 'pbs-primary' && <Button size="sm" icon={KeyRound} aria-label="Régénérer les jetons des hôtes" title="Régénérer les jetons des hôtes" onClick={() => setRotating(true)} />}
-      {r.type === 'mqtt-broker' && r.security.state !== 'unavailable' && <Button size="sm" icon={ShieldCheck} aria-label={`Sécurité MQTT de ${r.name}`} title="Sécurité MQTT : comptes" onClick={() => setSecuringId(r.id)} />}
       <Button size="sm" icon={Pencil} aria-label={`Modifier ${r.name}`} title="Modifier" onClick={() => edit(r)} />
       <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${r.name}`} title={uses(r).length ? `Utilisé par : ${uses(r).join(', ')}` : r.type.startsWith('pbs-') ? 'Déconnecter' : 'Supprimer'} disabled={uses(r).length > 0} onClick={() => askRemove(r)} />
     </div>
@@ -835,7 +831,11 @@ export function RolesSettings() {
                         {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
                         {r.type === 'mqtt-broker' && (
                           <p className="mt-0.5 truncate text-xs text-muted" title={r.security.reason}>
-                            Comptes : {r.security.state === 'active' ? <span className="text-emerald-400">gérés par le hub</span> : r.security.state === 'available' ? 'disponible' : 'indisponible'}
+                            Comptes : {r.security.state === 'unavailable' ? 'indisponible' : (
+                              <Link className="underline" to="/settings?tab=mqtt">
+                                {r.security.state === 'active' ? <span className="text-emerald-400">gérés par le hub</span> : 'disponible'}
+                              </Link>
+                            )}
                           </p>
                         )}
                         {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-0.5 truncate text-xs text-red-300" title={ANONYMOUS_HINT}>connexions anonymes acceptées</p>}
@@ -862,7 +862,6 @@ export function RolesSettings() {
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
       {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
-      {securing && <MqttSecurityModal role={securing} onClose={() => setSecuringId(null)} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-cluster' && (!editing.role || cluster) && (

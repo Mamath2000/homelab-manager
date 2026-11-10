@@ -4,14 +4,30 @@ import { ShieldCheck, ShieldOff } from 'lucide-react';
 import { api, type MqttHubRole } from '../lib/api';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { Badge, Button, ConfirmModal, Modal, Spinner } from './ui';
+import { useRoles } from '../lib/queries';
+import { Badge, Button, ConfirmModal, Panel, Spinner } from './ui';
 
 const STATE = { active: { tone: 'ok', label: 'Gestion des comptes active' }, available: { tone: 'neutral', label: 'Disponible, non activée' }, unavailable: { tone: 'warn', label: 'Indisponible' } } as const;
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 
-// Security of an MQTT broker (dynamic-security, run by the agent of its host): state, the checks the agent makes, the
-// activation (certificates by the CA of the hub, listener TLS, hub account by certificate) and its way back.
-export function MqttSecurityModal({ role, onClose }: { role: MqttHubRole; onClose: () => void }) {
+// Paramètres › MQTT: the security of the MQTT brokers whose management of accounts is available or active
+// (dynamic-security, run by the agent of the host), one panel per broker role.
+export function MqttSecuritySettings() {
+  const { data: roles = [] } = useRoles();
+  const brokers = roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker' && r.security.state !== 'unavailable');
+  if (!brokers.length) return <Panel title="Sécurité MQTT" icon={ShieldCheck}><p className="text-sm text-muted">Aucun broker MQTT déclaré dont la gestion des comptes soit disponible (Mosquitto 2.1 ou plus, agent à jour).</p></Panel>;
+  return (
+    <div className="space-y-4">
+      {brokers.map((r) => (
+        <BrokerSecurity key={r.id} role={r} />
+      ))}
+    </div>
+  );
+}
+
+// One broker: state, the checks the agent makes, the activation (certificates by the CA of the hub, listener TLS, hub
+// account by certificate) and its way back.
+function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [confirm, setConfirm] = useState<'enable' | 'disable' | null>(null);
@@ -41,7 +57,7 @@ export function MqttSecurityModal({ role, onClose }: { role: MqttHubRole; onClos
 
   return (
     <>
-      <Modal open onClose={onClose} title={`Sécurité MQTT · ${role.name}`} wide footer={<Button onClick={onClose}>Fermer</Button>}>
+      <Panel title={`Sécurité MQTT · ${role.name}`} icon={ShieldCheck}>
         <div className="space-y-4 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={STATE[state].tone}>{STATE[state].label}</Badge>
@@ -106,7 +122,7 @@ export function MqttSecurityModal({ role, onClose }: { role: MqttHubRole; onClos
             )}
           </div>
         </div>
-      </Modal>
+      </Panel>
       <ConfirmModal
         open={confirm === 'enable'}
         onClose={() => setConfirm(null)}

@@ -51,9 +51,9 @@ L'agent ne lit jamais que l'hôte lui-même, il ne contacte pas une autre machin
 
 ## Sécurité d'un broker MQTT (dynamic-security)
 
-Pour un broker **Mosquitto 2.1 ou plus**, le hub peut gérer la sécurité par le plugin `dynamic-security`, **sans script ni SSH** : tout est fait par l'agent de l'hôte. La liste des rôles indique pour chaque broker si la gestion des comptes est **indisponible** (Mosquitto plus ancien, autre broker, agent à mettre à jour), **disponible** ou **gérée par le hub** ; le bouton **Sécurité MQTT** ouvre l'écran correspondant.
+Pour un broker **Mosquitto 2.1 ou plus**, le hub peut gérer la sécurité par le plugin `dynamic-security`, **sans script ni SSH** : tout est fait par l'agent de l'hôte. La liste des rôles indique pour chaque broker si la gestion des comptes est **indisponible** (Mosquitto plus ancien, autre broker, agent à mettre à jour), **disponible** ou **gérée par le hub** ; dès qu'un broker l'offre, l'onglet **Paramètres › MQTT** apparaît (un panneau par broker), comme Proxmox VE ou Omada avec leur rôle.
 
-L'écran montre les contrôles de l'agent avant toute activation. Elle est refusée si le broker ne tourne pas sous systemd, si la configuration n'a pas de `include_dir` ni de `listener` explicite, ou si elle définit déjà `password_file`, `acl_file`, `per_listener_settings true` ou un autre plugin d'authentification.
+Le panneau montre les contrôles de l'agent avant toute activation. Elle est refusée si le broker ne tourne pas sous systemd, si la configuration n'a pas de `include_dir` ni de `listener` explicite, ou si elle définit déjà `password_file`, `acl_file`, `per_listener_settings true` ou un autre plugin d'authentification.
 
 **Activer la gestion des comptes** (confirmation, puis passkey si le compte en a une) :
 
