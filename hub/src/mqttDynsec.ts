@@ -1,4 +1,4 @@
-import { agentRequest, isOnline } from './agents.js';
+import { agentRequest, isOnline, refreshAgent } from './agents.js';
 import { hosts, roles } from './db.js';
 import { testConnection } from './homeassistant/bridge.js';
 import { tlsOf } from './mqttTls.js';
@@ -111,6 +111,8 @@ export async function enableDynsec(role: MqttBrokerRole) {
     throw new DynsecError(`le hub ne se connecte pas au broker en TLS mutuel (${(err as Error).message}) : activation annulée`, 502);
   }
   await roles.replaceOne({ _id: role._id }, { ...role, config });
+  // the agent lists its ports again (the new listener), so that the state follows
+  await refreshAgent(id, ['info']).catch(() => undefined);
   await rolesSaved([host._id]);
   return { port: DYNSEC_TLS_PORT, notAfter: client.notAfter, validityDays: MQTT_CERT_DAYS };
 }
@@ -129,5 +131,6 @@ export async function disableDynsec(role: MqttBrokerRole) {
   delete config.clientKeyPem;
   delete config.dynsec;
   await roles.replaceOne({ _id: role._id }, { ...role, config });
+  await refreshAgent(id, ['info']).catch(() => undefined);
   await rolesSaved([host._id]);
 }

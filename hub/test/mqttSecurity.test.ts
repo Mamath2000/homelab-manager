@@ -28,6 +28,12 @@ test('securityOf: unavailable, available, active', () => {
   assert.equal(securityOf(role(9999), host({ version: '2.1.2' })).state, 'unavailable');
 });
 
+test('securityOf: after an activation the role is on 8883, the agent still lists the process on its former port', () => {
+  const activated = { config: { port: 8883, dynsec: { plainPort: 1883 } } } as Pick<MqttBrokerRole, 'config'>;
+  assert.equal(securityOf(activated, host({ version: '2.1.2', dynsec: true })).state, 'active');
+  assert.equal(securityOf({ config: { port: 8883 } } as Pick<MqttBrokerRole, 'config'>, host({ version: '2.1.2', dynsec: true })).state, 'unavailable');
+});
+
 test('withStoredKey keeps the stored TLS material when the form sends none', () => {
   const stored = { type: 'mqtt-broker', config: { scheme: 'mqtts', port: 8883, username: 'hlm', password: '', caPem: 'CA', clientCertPem: 'CERT', clientKeyPem: 'KEY' } } as never;
   const kept = withStoredKey({ scheme: 'mqtts', port: 8883, username: 'hlm' } as never, stored);
