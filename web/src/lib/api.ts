@@ -1696,6 +1696,15 @@ export interface MqttAccount {
   protected: boolean;
 }
 
+// A connection the broker refused (hub/src/refusedLog.ts): the log has the client id and the address, not the user name
+export interface MqttRefused {
+  clientId: string;
+  address: string;
+  count: number;
+  firstAt: number;
+  lastAt: number;
+}
+
 export interface MqttBrokerView {
   id: string;
   name: string;
@@ -1875,9 +1884,9 @@ export const api = {
   roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
   roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
     request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
-  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[] }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
-  createMqttAccount: (roleId: string, username: string, password?: string) =>
-    request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}) }),
+  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[]; refused: MqttRefused[] }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
+  createMqttAccount: (roleId: string, username: string, password?: string, clientId?: string) =>
+    request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}), ...(clientId ? { clientId } : {}) }),
   setMqttAccountPassword: (roleId: string, username: string, password?: string) =>
     request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`, password ? { password } : {}),
   deleteMqttAccount: (roleId: string, username: string) => request<{ ok: true }>('DELETE', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`),

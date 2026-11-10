@@ -40,6 +40,7 @@ import { startOffsitePoller } from './offsite.js';
 import { startMountReconciler } from './pbsMount.js';
 import { migratePveClusters, migratePveRoleType, startPvePoller } from './pve.js';
 import { startProbes } from './probes.js';
+import { reconcileRefusedWatch, stopRefusedWatch } from './refusedLog.js';
 import { registerPasskeyRoutes } from './routes/passkeys.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
@@ -179,7 +180,11 @@ watchSettingsRoles();
 // the broker role of the bridge changed (edited, moved, its host got other IPs): apply does nothing when the address and
 // account are the same
 const brokerCheck = startBrokerAnonymousCheck(app.log);
+// the connections refused by the brokers whose accounts the hub manages (refusedLog.ts)
+const watchRefused = () => reconcileRefusedWatch(app.log).catch((err) => app.log.warn({ err }, 'refused connections'));
+void watchRefused();
 subscribe((event) => {
+  if (event === 'probe.config') void watchRefused();
   if (event === 'probe.config') brokerCheck.run();
   if (event === 'probe.config') loadHaBridgeSettings().then((s) => bridge.apply(s), (err) => app.log.error({ err }, 'Home Assistant: broker role'));
 });
@@ -199,6 +204,7 @@ async function shutdown() {
   stopPvePoller();
   stopOmadaPoller();
   stopProbes();
+  stopRefusedWatch();
   await bridge.stop(false);
   await flushLogs().catch(() => {});
   await flushAudit();

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Plus, ShieldCheck, ShieldOff, Trash2, Users } from 'lucide-react';
-import { api, type MqttAccount, type MqttHubRole } from '../lib/api';
+import { api, type MqttAccount, type MqttHubRole, type MqttRefused } from '../lib/api';
+import { timeAgo } from '../lib/format';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { useRoles } from '../lib/queries';
@@ -165,6 +166,10 @@ function Accounts({ role }: { role: MqttHubRole }) {
   const [changing, setChanging] = useState<MqttAccount | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [deleting, setDeleting] = useState<MqttAccount | null>(null);
+  // a refused connection the account is made for: its client id, the name to give (the log has no user name)
+  const [forClient, setForClient] = useState<MqttRefused | null>(null);
+  const [clientUser, setClientUser] = useState('');
+  const [clientPassword, setClientPassword] = useState('');
 
   const done = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -184,6 +189,12 @@ function Accounts({ role }: { role: MqttHubRole }) {
       setPassword('');
       setShown(r);
     });
+  const createForClient = () =>
+    done(async () => {
+      const r = await api.createMqttAccount(role.id, clientUser.trim(), clientPassword || undefined, forClient!.clientId);
+      setForClient(null);
+      setShown(r);
+    });
   const change = () =>
     done(async () => {
       const r = await api.setMqttAccountPassword(role.id, changing!.username, newPassword || undefined);
@@ -199,13 +210,14 @@ function Accounts({ role }: { role: MqttHubRole }) {
     });
 
   const accounts = q.data?.accounts ?? [];
+  const refused = q.data?.refused ?? [];
   return (
     <>
       <Panel title={`Comptes MQTT · ${role.name}`} icon={Users}>
         <div className="space-y-3 text-sm">
           <p className="text-xs text-muted">
-            Un compte donne accès à tous les topics du broker. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé ; les connexions
-            anonymes restent acceptées.
+            Un compte donne accès à tous les topics du broker. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé : il apparaît alors en tête de liste
+            (« client refusé », avec son identifiant de client) et le bouton Créer lui fait un compte ; les connexions anonymes restent acceptées.
           </p>
           {q.isLoading ? (
             <Spinner />
@@ -221,6 +233,24 @@ function Accounts({ role }: { role: MqttHubRole }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
+                {refused.map((c) => (
+                  <tr key={`refused:${c.clientId}`} className="bg-red-500/5">
+                    <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
+                      {c.clientId}
+                      <span className="ml-2 font-sans text-red-300">client refusé</span>
+                    </td>
+                    <td className="td truncate text-xs text-muted" title={`${c.address} · dernière tentative ${new Date(c.lastAt).toLocaleString('fr-FR')}`}>
+                      {c.address} · {c.count} tentative{c.count > 1 ? 's' : ''} · {timeAgo(c.lastAt)}
+                    </td>
+                    <td className="td">
+                      <div className="flex justify-end">
+                        <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient(c))}>
+                          Créer
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
                 {accounts.map((a) => (
                   <tr key={a.username}>
                     <td className="td truncate font-mono text-xs text-zinc-100" title={a.username}>
@@ -265,6 +295,32 @@ function Accounts({ role }: { role: MqttHubRole }) {
         </div>
       </Panel>
 
+      <Modal
+        open={!!forClient}
+        onClose={() => setForClient(null)}
+        title={`Créer un compte pour ${forClient?.clientId ?? ''}`}
+        footer={
+          <>
+            <Button onClick={() => setForClient(null)}>Annuler</Button>
+            <Button variant="primary" icon={Plus} loading={busy} disabled={busy || !clientUser.trim()} onClick={() => void createForClient()}>Créer</Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm">
+          <p className="text-xs text-muted">
+            Le journal du broker donne l'identifiant du client, pas le nom d'utilisateur qu'il a essayé. Saisir le nom que l'appareil utilise (dans sa configuration
+            MQTT) : il se connectera dès qu'il aura ce compte et son mot de passe.
+          </p>
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">Nom du compte</span>
+            <input className="input" value={clientUser} onChange={(e) => setClientUser(e.target.value)} maxLength={64} autoComplete="off" spellCheck={false} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs text-muted">Mot de passe (généré si vide)</span>
+            <input className="input" type="password" value={clientPassword} onChange={(e) => setClientPassword(e.target.value)} autoComplete="new-password" />
+          </label>
+        </div>
+      </Modal>
       <Modal open={!!shown} onClose={() => setShown(null)} title={`Mot de passe de ${shown?.username ?? ''}`} footer={<Button onClick={() => setShown(null)}>Fermer</Button>}>
         <div className="space-y-2 text-sm">
           <p className="text-muted">À copier maintenant et à saisir dans l'appareil : il n'est affiché qu'une fois et ne peut pas être relu ensuite.</p>

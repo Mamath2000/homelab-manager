@@ -4,6 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { forgetRefused, refusedOf } from '../refusedLog.js';
 import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
@@ -318,21 +319,24 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     try {
-      return { accounts: await listAccounts(role) };
+      return { accounts: await listAccounts(role), refused: refusedOf(role._id) };
     } catch (err) {
       return dynsecFail(reply, err);
     }
   });
   const accountBody = { type: 'object', additionalProperties: false, properties: { password: { type: 'string', maxLength: 256 } } } as const;
-  app.post<{ Params: { id: string }; Body: { username: string; password?: string } }>(
+  app.post<{ Params: { id: string }; Body: { username: string; password?: string; clientId?: string } }>(
     '/api/roles/:id/mqtt-accounts',
-    { schema: { body: { ...accountBody, required: ['username'], properties: { ...accountBody.properties, username: { type: 'string', maxLength: 128 } } } } },
+    { schema: { body: { ...accountBody, required: ['username'], properties: { ...accountBody.properties, username: { type: 'string', maxLength: 128 }, clientId: { type: 'string', maxLength: 256 } } } } },
     async (req, reply) => {
       const role = brokerRole(req.params.id);
       if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
       req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.body.username } };
       try {
-        return reply.code(201).send(await createAccount(role, req.body.username, req.body.password));
+        const created = await createAccount(role, req.body.username, req.body.password);
+        // created from a refused connection: it leaves the list (it comes back if the device is still refused)
+        if (req.body.clientId) forgetRefused(role._id, req.body.clientId);
+        return reply.code(201).send(created);
       } catch (err) {
         return dynsecFail(reply, err);
       }
