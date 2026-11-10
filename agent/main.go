@@ -378,6 +378,8 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		out.Result, err = readTlsFingerprint(ctx, in.Host, in.Port, localIPs)
 	case "mqtt_dynsec_check":
 		out.Result, err = checkDynsec(ctx, in.Port)
+	case "mqtt_log_tail":
+		out.Result, err = mqttLogTail(ctx, in.Port)
 	case "mqtt_dynsec_enable", "mqtt_dynsec_disable":
 		out.Result, err = s.dynsecChange(ctx, in)
 	case "refresh":

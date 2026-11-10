@@ -4,7 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
-import { clearRefused, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
+import { anonymousOf, clearRefused, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
 import { createAccount, deleteAccount, getAnonymousAllowed, listAccounts, setAccountPassword, setAnonymousAllowed } from '../mqttAccounts.js';
 import { checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
@@ -320,7 +320,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     try {
-      return { accounts: await listAccounts(role), refused: refusedOf(role._id) };
+      return { accounts: await listAccounts(role), refused: refusedOf(role._id), anonymous: anonymousOf(role._id) };
     } catch (err) {
       return dynsecFail(reply, err);
     }

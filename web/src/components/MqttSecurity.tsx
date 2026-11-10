@@ -274,6 +274,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
 
   const accounts = q.data?.accounts ?? [];
   const refused = q.data?.refused ?? [];
+  const anonymousClients = q.data?.anonymous ?? [];
   return (
     <>
       <Modal
@@ -295,7 +296,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
       >
         <div className="space-y-3 text-sm">
           <p className="text-xs text-muted">
-            Un compte donne accès à tous les topics du broker. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé : il apparaît alors en tête de liste
+            Un compte donne accès à tous les topics du broker. Les clients qui se connectent sans compte (anonymes) sont listés aussi : « Créer » leur prépare un compte pour la migration. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé : il apparaît alors en tête de liste
             (« client refusé », avec son identifiant de client) et le bouton Créer lui fait un compte ; les connexions anonymes restent acceptées.
           </p>
           {q.isLoading ? (
@@ -351,6 +352,25 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
                           <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${a.username}`} title="Supprimer" disabled={busy} onClick={() => setDeleting(a)} />
                         </div>
                       )}
+                    </td>
+                  </tr>
+                ))}
+                {anonymousClients.map((c) => (
+                  <tr key={`anonymous:${c.clientId}`}>
+                    <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
+                      {c.clientId}
+                      <span className="ml-2 font-sans text-amber-300">anonyme</span>
+                    </td>
+                    <td className="td truncate text-xs text-muted" title={`${c.address} · connecté depuis ${new Date(c.since).toLocaleString('fr-FR')}`}>
+                      <Badge tone={c.connected ? 'warn' : 'neutral'}>{c.connected ? 'connecté' : 'déconnecté'}</Badge>{' '}
+                      {c.address} · {c.connected ? `depuis ${timeAgo(c.since)}` : `vu ${timeAgo(c.lastAt)}`}
+                    </td>
+                    <td className="td">
+                      <div className="flex justify-end">
+                        <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient({ clientId: c.clientId, address: c.address, count: 0, firstAt: c.since, lastAt: c.lastAt }))}>
+                          Créer
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

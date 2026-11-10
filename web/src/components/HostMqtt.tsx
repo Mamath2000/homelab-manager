@@ -13,6 +13,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
   const accounts = (q.data?.accounts ?? []).filter((a) => !a.protected);
   const connected = accounts.filter((a) => a.connected).length;
   const refused = (q.data?.refused ?? []).filter(stillRefused).length;
+  const anonymous = (q.data?.anonymous ?? []).filter((a) => a.connected).length;
   return (
     <div className="space-y-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -29,6 +30,9 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
           </span>
           <span>
             <b className="text-zinc-100">{q.isLoading ? '…' : connected}</b> <span className="text-muted">connecté{connected > 1 ? 's' : ''}</span>
+          </span>
+          <span>
+            {anonymous > 0 ? <Badge tone="warn">{anonymous} anonyme{anonymous > 1 ? 's' : ''} connecté{anonymous > 1 ? 's' : ''}</Badge> : <span className="text-muted">aucun anonyme connecté</span>}
           </span>
           <span>
             {refused > 0 ? <Badge tone="bad">{refused} client{refused > 1 ? 's' : ''} refusé{refused > 1 ? 's' : ''}</Badge> : <span className="text-muted">aucun client refusé</span>}
