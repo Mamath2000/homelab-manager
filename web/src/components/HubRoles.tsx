@@ -116,7 +116,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const [initial] = useState<Form>(() => {
     const scheme = role?.config.scheme ?? 'mqtt';
     return {
-      name: role?.name ?? '',
+      name: role?.name ?? startBroker?.host.name ?? '',
       scheme,
       address: role?.config.address ?? '',
       // the stored port is shown only when it is not the one found
@@ -140,6 +140,8 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const broker = brokers.find((b) => brokerKey(b) === key);
   const choose = (b: BrokerFound) => {
     setKey(brokerKey(b));
+    // a new role is named after the host of its broker, until the name is typed
+    if (!role && (!form.name.trim() || form.name === broker?.host.name)) setForm({ ...form, name: b.host.name });
     setTest(null);
   };
   const regenerate = () => {
