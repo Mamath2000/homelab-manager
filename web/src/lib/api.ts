@@ -1659,6 +1659,21 @@ export interface RoleCandidate {
   dynsec?: boolean;
 }
 
+// Read-only checks of the agent before enabling dynamic-security on a Mosquitto broker (agent/dynsec_check.go)
+export interface DynsecCheck {
+  id: string;
+  level: 'error' | 'warn' | 'info';
+  detail: string;
+}
+export interface DynsecReport {
+  eligible: boolean;
+  active: boolean;
+  version?: string;
+  unit?: string;
+  confFile?: string;
+  checks: DynsecCheck[];
+}
+
 export interface MqttBrokerView {
   id: string;
   name: string;
@@ -1838,6 +1853,7 @@ export const api = {
   roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
   roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
     request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
+  mqttDynsecCheck: (hostId: string, port: number) => request<DynsecReport>('GET', `/api/roles/mqtt-dynsec-check/${hostId}?port=${port}`),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),

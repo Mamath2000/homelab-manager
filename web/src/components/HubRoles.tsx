@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type DynsecReport, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, roleStatus } from '../lib/roles';
 import { roleIcon, roleTint } from '../lib/hostSkills';
@@ -51,6 +51,43 @@ function candidatesOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | nu
     if (host) list.unshift({ host, c: { type: editing.type, process: '', port: editing.config.port, scheme: editing.config.scheme }, taken: false });
   }
   return list;
+}
+
+// The checks the agent makes before enabling dynamic-security on a Mosquitto broker (nothing is written).
+function DynsecCheckPanel({ hostId, port }: { hostId: string; port: number }) {
+  const [report, setReport] = useState<DynsecReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setReport(await api.mqttDynsecCheck(hostId, port));
+    } catch (err) {
+      setReport(null);
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-2 space-y-1.5">
+      <Button size="sm" loading={busy} disabled={busy} onClick={() => void run()}>Contrôler la gestion des comptes</Button>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {report && (
+        <ul className="space-y-0.5 text-xs">
+          {report.checks.map((c, i) => (
+            <li key={i} className={c.level === 'error' ? 'text-red-400' : c.level === 'warn' ? 'text-amber-400' : 'text-muted'}>
+              {c.level === 'error' ? '✗' : c.level === 'warn' ? '!' : '·'} {c.detail}
+            </li>
+          ))}
+          <li className={clsx('font-medium', report.eligible ? 'text-emerald-400' : 'text-red-400')}>
+            {report.active ? 'Déjà active' : report.eligible ? 'Ce broker peut être activé' : "Ce broker ne peut pas être activé en l'état"}
+          </li>
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // Declares an MQTT broker role, or edits one (choosing another host moves it, its settings kept). Four steps
@@ -183,6 +220,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
                         {c.dynsec ? ' · dynamic-security chargé' : ''}
                         {taken ? ' · déjà déclaré' : c.local ? ' · en écoute locale seulement : injoignable par le hub' : ''}
                       </div>
+                      {on && c.process.startsWith('mosquitto') && !c.local && h.capabilities?.includes('mqtt_dynsec') && <DynsecCheckPanel hostId={h.id} port={c.port} />}
                     </label>
                   );
                 })}

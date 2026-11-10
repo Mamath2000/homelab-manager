@@ -12,6 +12,16 @@ import { allRoles, defOf, newRoleId, ROLE_DEFS, ROLE_ID_RE, roleConflict } from 
 import { FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint, SERVER_URL_RE } from '../tlsApi.js';
 import { BROKER_SCHEMES, CARRIER_KINDS, type BrokerScheme, type CarrierKind, type HostDoc, type MqttBrokerConfig, type MqttBrokerRole, type OmadaControllerConfig, type OmadaControllerRole } from '../types.js';
 
+// the report of the agent (agent/dynsec_check.go)
+export interface DynsecReport {
+  eligible: boolean;
+  active: boolean;
+  version?: string;
+  unit?: string;
+  confFile?: string;
+  checks: { id: string; level: 'error' | 'warn' | 'info'; detail: string }[];
+}
+
 // Roles of the hub (roles.ts): read by every account (never a secret), written by the admins (profiles.ts refuses what
 // it does not list): the hub opens connections to what is declared here. The MQTT brokers and the Omada controllers are
 // declared here; a Proxmox VE cluster through routes/backups.ts (its token is made by the agent of the
@@ -262,6 +272,24 @@ export function registerRoleRoutes(app: FastifyInstance) {
       const host = req.body.carrier ? await carrierOf(req.body.carrier) : null;
       try {
         return await checkedFingerprint(url, await fetchFingerprint(url, 443), localFingerprint(host));
+      } catch (err) {
+        return reply.code(502).send({ error: (err as Error).message });
+      }
+    },
+  );
+
+  // Read-only checks of the agent before enabling dynamic-security on a Mosquitto broker of a host (dynsec_check.go):
+  // nothing is written. 409: no agent able to tell (offline, too old).
+  app.get<{ Params: { hostId: string }; Querystring: { port: number } }>(
+    '/api/roles/mqtt-dynsec-check/:hostId',
+    { schema: { querystring: { type: 'object', required: ['port'], properties: { port: { type: 'integer', minimum: 1, maximum: 65535 } } } } },
+    async (req, reply) => {
+      const host = await carrierOf({ kind: 'host', id: req.params.hostId });
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!host.capabilities?.includes('mqtt_dynsec')) return reply.code(409).send({ error: "l'agent de cet hôte ne sait pas contrôler dynamic-security (mise à jour requise)" });
+      if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'agent hors ligne' });
+      try {
+        return await agentRequest<DynsecReport>(host._id.toHexString(), 'mqtt_dynsec_check', { port: req.query.port }, 20_000);
       } catch (err) {
         return reply.code(502).send({ error: (err as Error).message });
       }

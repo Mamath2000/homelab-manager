@@ -49,6 +49,8 @@ func platformCapabilities() []string {
 	caps = append(caps, "ping", "ping_from")
 	// certificate of a service of this host read locally, to pin it (tlsfingerprint.go)
 	caps = append(caps, "tls_fingerprint")
+	// read-only checks before enabling dynamic-security on a Mosquitto broker (dynsec_check.go)
+	caps = append(caps, "mqtt_dynsec")
 	// client certificate renewed by the hub (certrenew.go)
 	caps = append(caps, "cert_renew")
 	if _, err := findSmartctl(); err == nil {
@@ -374,6 +376,8 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		out.Result, err = pingHost(ctx, in.Host, in.From, in.TimeoutSec, execPing)
 	case "tls_fingerprint":
 		out.Result, err = readTlsFingerprint(ctx, in.Host, in.Port, localIPs)
+	case "mqtt_dynsec_check":
+		out.Result, err = checkDynsec(ctx, in.Port)
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
 		out.Result = map[string][]string{"scopes": s.refresh(ctx, in.Scopes)}
