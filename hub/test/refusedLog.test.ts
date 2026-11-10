@@ -94,3 +94,11 @@ test('log lines carry the time they were written: replayed history keeps its dat
   const [e] = refusedOf(id, 1794318425_000 + 1000);
   assert.equal(e.lastAt, 1794318425_000);
 });
+
+test('clearing the list also clears the anonymous clients', () => {
+  const id = 'role-g';
+  noteLogLine(id, 'Client a [10.0.0.5:1] disconnected: not authorised.', 1000);
+  noteLogLine(id, '1000: New client connected from 10.0.0.6:2 as anon (p4, c1, k60).');
+  assert.equal(clearRefused(id), 2);
+  assert.deepEqual(anonymousOf(id, 2_000_000), []);
+});

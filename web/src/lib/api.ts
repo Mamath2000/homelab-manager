@@ -1898,7 +1898,7 @@ export const api = {
   roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
   roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
     request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
-  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[]; refused: MqttRefused[]; anonymous: MqttAnonymous[] }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
+  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[]; refused: MqttRefused[]; anonymous: MqttAnonymous[]; anonymousAllowed: boolean | null }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
   createMqttAccount: (roleId: string, username: string, password?: string, clientId?: string) =>
     request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}), ...(clientId ? { clientId } : {}) }),
   setMqttAccountPassword: (roleId: string, username: string, password?: string) =>

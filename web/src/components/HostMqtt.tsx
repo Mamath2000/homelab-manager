@@ -13,8 +13,11 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
   const q = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), refetchOnWindowFocus: false });
   const accounts = (q.data?.accounts ?? []).filter((a) => !a.protected);
   const connected = accounts.filter((a) => a.connected).length;
-  const refused = (q.data?.refused ?? []).filter(stillRefused).length;
-  const anonymous = (q.data?.anonymous ?? []).filter((a) => a.connected).length;
+  // without rights for the anonymous group a client that connects anonymously is refused, for the administrator
+  const mute = q.data?.anonymousAllowed === false;
+  const anonymousClients = q.data?.anonymous ?? [];
+  const anonymous = mute ? 0 : anonymousClients.filter((a) => a.connected).length;
+  const refused = (q.data?.refused ?? []).filter(stillRefused).length + (mute ? anonymousClients.length : 0);
   return (
     <div className="space-y-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">

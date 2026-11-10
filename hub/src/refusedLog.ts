@@ -132,10 +132,11 @@ export function refusedOf(roleId: string, now = Date.now()): Refused[] {
 /** The administrator clears a client from the list (it comes back if it is refused again). */
 export const forgetRefused = (roleId: string, clientId: string) => entries.get(roleId)?.delete(clientId) ?? false;
 
-/** The administrator clears the whole list (clients that change their client id at each try fill it). */
+/** The administrator clears the whole list, refused and anonymous clients (clients that change their client id at each try fill it). */
 export function clearRefused(roleId: string) {
-  const n = entries.get(roleId)?.size ?? 0;
+  const n = (entries.get(roleId)?.size ?? 0) + (anonymous.get(roleId)?.size ?? 0);
   entries.get(roleId)?.clear();
+  anonymous.get(roleId)?.clear();
   return n;
 }
 

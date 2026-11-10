@@ -275,6 +275,8 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
   const accounts = q.data?.accounts ?? [];
   const refused = q.data?.refused ?? [];
   const anonymousClients = q.data?.anonymous ?? [];
+  // anonymous clients without rights connect but can neither publish nor subscribe: for the administrator, they are refused
+  const anonymousMute = q.data?.anonymousAllowed === false;
   return (
     <>
       <Modal
@@ -356,13 +358,15 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
                   </tr>
                 ))}
                 {anonymousClients.map((c) => (
-                  <tr key={`anonymous:${c.clientId}`}>
+                  <tr key={`anonymous:${c.clientId}`} className={anonymousMute ? 'bg-red-500/5' : undefined}>
                     <td className="td truncate font-mono text-xs text-zinc-100" title={c.clientId}>
                       {c.clientId}
-                      <span className="ml-2 font-sans text-amber-300">anonyme</span>
+                      <span className={clsx('ml-2 font-sans', anonymousMute ? 'text-red-300' : 'text-amber-300')} title={anonymousMute ? 'Le broker accepte la connexion mais refuse ses publications et abonnements (les anonymes n\'ont pas de droits)' : undefined}>
+                        {anonymousMute ? 'anonyme refusé · sans droits' : 'anonyme'}
+                      </span>
                     </td>
                     <td className="td truncate text-xs text-muted" title={`${c.address} · connecté depuis ${new Date(c.since).toLocaleString('fr-FR')}`}>
-                      <Badge tone={c.connected ? 'warn' : 'neutral'}>{c.connected ? 'connecté' : 'déconnecté'}</Badge>{' '}
+                      <Badge tone={anonymousMute ? 'bad' : c.connected ? 'warn' : 'neutral'}>{c.connected ? 'connecté' : 'déconnecté'}</Badge>{' '}
                       {c.address} · {c.connected ? `depuis ${timeAgo(c.since)}` : `vu ${timeAgo(c.lastAt)}`}
                     </td>
                     <td className="td">
