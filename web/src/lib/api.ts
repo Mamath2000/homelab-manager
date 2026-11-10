@@ -1687,6 +1687,15 @@ export interface MqttSecurityView extends MqttSecurity {
   clientNotAfter: string | null;
 }
 
+// An account of a broker whose dynamic-security the hub runs (hub/src/mqttAccounts.ts); protected: the account of the hub
+export interface MqttAccount {
+  username: string;
+  connected: boolean;
+  connections: number;
+  roles: string[];
+  protected: boolean;
+}
+
 export interface MqttBrokerView {
   id: string;
   name: string;
@@ -1866,6 +1875,12 @@ export const api = {
   roleFingerprint: (url: string, carrier: HubRoleCarrier | null) => request<PresentedFingerprint>('POST', '/api/roles/fingerprint', { url, ...(carrier ? { carrier } : {}) }),
   roleProbe: (url: string, fingerprint: string, carrier: HubRoleCarrier | null) =>
     request<HubRoleTest>('POST', '/api/roles/probe', { url, fingerprint, ...(carrier ? { carrier } : {}) }),
+  mqttAccounts: (roleId: string) => request<{ accounts: MqttAccount[] }>('GET', `/api/roles/${roleId}/mqtt-accounts`),
+  createMqttAccount: (roleId: string, username: string, password?: string) =>
+    request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}) }),
+  setMqttAccountPassword: (roleId: string, username: string, password?: string) =>
+    request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`, password ? { password } : {}),
+  deleteMqttAccount: (roleId: string, username: string) => request<{ ok: true }>('DELETE', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`),
   mqttSecurity: (roleId: string) => request<MqttSecurityView>('GET', `/api/roles/${roleId}/mqtt-security`),
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
   disableMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/disable`),

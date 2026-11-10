@@ -4,6 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { createAccount, deleteAccount, listAccounts, setAccountPassword } from '../mqttAccounts.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
@@ -305,6 +306,58 @@ export function registerRoleRoutes(app: FastifyInstance) {
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
     try {
       await disableDynsec(role);
+      return { ok: true };
+    } catch (err) {
+      return dynsecFail(reply, err);
+    }
+  });
+
+  // Accounts of a broker whose dynamic-security the hub runs (mqttAccounts.ts): list with the connection state, create,
+  // change the password (generated when absent, returned once), delete
+  app.get<{ Params: { id: string } }>('/api/roles/:id/mqtt-accounts', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    try {
+      return { accounts: await listAccounts(role) };
+    } catch (err) {
+      return dynsecFail(reply, err);
+    }
+  });
+  const accountBody = { type: 'object', additionalProperties: false, properties: { password: { type: 'string', maxLength: 256 } } } as const;
+  app.post<{ Params: { id: string }; Body: { username: string; password?: string } }>(
+    '/api/roles/:id/mqtt-accounts',
+    { schema: { body: { ...accountBody, required: ['username'], properties: { ...accountBody.properties, username: { type: 'string', maxLength: 128 } } } } },
+    async (req, reply) => {
+      const role = brokerRole(req.params.id);
+      if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+      req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.body.username } };
+      try {
+        return reply.code(201).send(await createAccount(role, req.body.username, req.body.password));
+      } catch (err) {
+        return dynsecFail(reply, err);
+      }
+    },
+  );
+  app.put<{ Params: { id: string; username: string }; Body: { password?: string } }>(
+    '/api/roles/:id/mqtt-accounts/:username',
+    { schema: { body: accountBody } },
+    async (req, reply) => {
+      const role = brokerRole(req.params.id);
+      if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+      req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.params.username } };
+      try {
+        return await setAccountPassword(role, req.params.username, req.body.password);
+      } catch (err) {
+        return dynsecFail(reply, err);
+      }
+    },
+  );
+  app.delete<{ Params: { id: string; username: string } }>('/api/roles/:id/mqtt-accounts/:username', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.params.username } };
+    try {
+      await deleteAccount(role, req.params.username);
       return { ok: true };
     } catch (err) {
       return dynsecFail(reply, err);

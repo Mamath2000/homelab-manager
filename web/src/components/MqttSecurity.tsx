@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, ShieldOff } from 'lucide-react';
-import { api, type MqttHubRole } from '../lib/api';
+import { KeyRound, Plus, ShieldCheck, ShieldOff, Trash2, Users } from 'lucide-react';
+import { api, type MqttAccount, type MqttHubRole } from '../lib/api';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { useRoles } from '../lib/queries';
-import { Badge, Button, ConfirmModal, Panel, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
 
 const STATE = { active: { tone: 'ok', label: 'Gestion des comptes active' }, available: { tone: 'neutral', label: 'Disponible, non activée' }, unavailable: { tone: 'warn', label: 'Indisponible' } } as const;
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
@@ -123,6 +123,7 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
           </div>
         </div>
       </Panel>
+      {state === 'active' && hubManaged && <Accounts role={role} />}
       <ConfirmModal
         open={confirm === 'enable'}
         onClose={() => setConfirm(null)}
@@ -146,6 +147,150 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
       >
         Le broker <b>{role.name}</b> va être redémarré avec sa configuration d'origine. Les comptes et rôles créés sont mis de côté sur l'hôte (pas supprimés) ; le hub
         retrouve le port d'avant, sans TLS.
+      </ConfirmModal>
+    </>
+  );
+}
+
+// The accounts of the broker: name and password, with the connection state. A password is shown once, when it is made.
+function Accounts({ role }: { role: MqttHubRole }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const key = ['mqtt-accounts', role.id];
+  const q = useQuery({ queryKey: key, queryFn: () => api.mqttAccounts(role.id), refetchInterval: 10_000 });
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [shown, setShown] = useState<{ username: string; password: string } | null>(null);
+  const [changing, setChanging] = useState<MqttAccount | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [deleting, setDeleting] = useState<MqttAccount | null>(null);
+
+  const done = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+      await qc.invalidateQueries({ queryKey: key });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const create = () =>
+    done(async () => {
+      const r = await api.createMqttAccount(role.id, username.trim(), password || undefined);
+      setUsername('');
+      setPassword('');
+      setShown(r);
+    });
+  const change = () =>
+    done(async () => {
+      const r = await api.setMqttAccountPassword(role.id, changing!.username, newPassword || undefined);
+      setChanging(null);
+      setNewPassword('');
+      setShown(r);
+    });
+  const remove = () =>
+    done(async () => {
+      await api.deleteMqttAccount(role.id, deleting!.username);
+      toast.success(`Compte ${deleting!.username} supprimé`);
+      setDeleting(null);
+    });
+
+  const accounts = q.data?.accounts ?? [];
+  return (
+    <>
+      <Panel title={`Comptes MQTT · ${role.name}`} icon={Users}>
+        <div className="space-y-3 text-sm">
+          <p className="text-xs text-muted">
+            Un compte donne accès à tous les topics du broker. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé ; les connexions
+            anonymes restent acceptées.
+          </p>
+          {q.isLoading ? (
+            <Spinner />
+          ) : q.error ? (
+            <p className="text-xs text-red-400">{(q.error as Error).message}</p>
+          ) : (
+            <table className="w-full table-fixed text-sm">
+              <thead className="border-b border-line">
+                <tr>
+                  <th className="th">Compte</th>
+                  <th className="th w-40">Connexion</th>
+                  <th className="th w-24" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {accounts.map((a) => (
+                  <tr key={a.username}>
+                    <td className="td truncate font-mono text-xs text-zinc-100" title={a.username}>
+                      {a.username}
+                      {a.protected && <span className="ml-2 font-sans text-muted">compte du hub</span>}
+                    </td>
+                    <td className="td">
+                      <Badge tone={a.connected ? 'ok' : 'neutral'}>{a.connected ? (a.connections > 1 ? `connecté · ${a.connections}` : 'connecté') : 'non connecté'}</Badge>
+                    </td>
+                    <td className="td">
+                      {!a.protected && (
+                        <div className="flex justify-end gap-1.5">
+                          <Button size="sm" icon={KeyRound} aria-label={`Changer le mot de passe de ${a.username}`} title="Changer le mot de passe" disabled={busy} onClick={() => (setNewPassword(''), setChanging(a))} />
+                          <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${a.username}`} title="Supprimer" disabled={busy} onClick={() => setDeleting(a)} />
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <form
+            className="flex flex-wrap items-end gap-2 border-t border-line pt-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void create();
+            }}
+          >
+            <label className="block">
+              <span className="mb-1 block text-xs text-muted">Nouveau compte</span>
+              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={64} placeholder="esphome, zigbee2mqtt…" autoComplete="off" spellCheck={false} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-muted">Mot de passe (généré si vide)</span>
+              <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+            </label>
+            <Button type="submit" variant="primary" icon={Plus} loading={busy} disabled={busy || !username.trim()}>
+              Ajouter
+            </Button>
+          </form>
+        </div>
+      </Panel>
+
+      <Modal open={!!shown} onClose={() => setShown(null)} title={`Mot de passe de ${shown?.username ?? ''}`} footer={<Button onClick={() => setShown(null)}>Fermer</Button>}>
+        <div className="space-y-2 text-sm">
+          <p className="text-muted">À copier maintenant et à saisir dans l'appareil : il n'est affiché qu'une fois et ne peut pas être relu ensuite.</p>
+          {shown && <CopyField value={shown.password} />}
+        </div>
+      </Modal>
+      <Modal
+        open={!!changing}
+        onClose={() => setChanging(null)}
+        title={`Changer le mot de passe de ${changing?.username ?? ''}`}
+        footer={
+          <>
+            <Button onClick={() => setChanging(null)}>Annuler</Button>
+            <Button variant="primary" loading={busy} disabled={busy} onClick={() => void change()}>Changer</Button>
+          </>
+        }
+      >
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs text-muted">Nouveau mot de passe (généré si vide)</span>
+          <input className="input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
+        </label>
+        <p className="mt-2 text-xs text-muted">L'appareil qui utilise ce compte devra recevoir le nouveau mot de passe.</p>
+      </Modal>
+      <ConfirmModal open={!!deleting} onClose={() => setDeleting(null)} onConfirm={() => void remove()} title="Supprimer le compte" confirmLabel="Supprimer" danger loading={busy}>
+        Le compte <b>{deleting?.username}</b> est supprimé du broker : les appareils qui l'utilisent sont refusés à leur prochaine connexion
+        {deleting?.connected ? ' (il est connecté en ce moment et sera déconnecté)' : ''}.
       </ConfirmModal>
     </>
   );

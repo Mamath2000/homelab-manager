@@ -66,6 +66,8 @@ Le panneau montre les contrôles de l'agent avant toute activation. Elle est ref
 Une fois dynamic-security actif, **une connexion avec un utilisateur que le broker ne connaît pas est refusée** (un appareil mal configuré ne se connecte plus). Les connexions **anonymes** restent acceptées. Le broker est redémarré : tous ses clients sont déconnectés quelques secondes.
 :::
 
+**Comptes.** Une fois la gestion activée, le panneau **Comptes MQTT** (Paramètres › MQTT) liste les comptes du broker avec leur **état de connexion** (connecté, nombre de connexions). On peut **ajouter** un compte (nom et mot de passe, **généré** si on n'en saisit pas), **changer son mot de passe** et le **supprimer** ; le mot de passe n'est affiché qu'une fois, à sa création ou à son changement. Le compte du hub (`hlm`, par certificat) est affiché mais jamais modifiable. Un compte donne pour l'instant accès à **tous les topics** (rôle `hlm-full`) : les droits par topic ne sont pas encore gérés. Ces actions demandent le passkey et sont inscrites au journal d'audit, sans mot de passe.
+
 **Désactiver** retire les fichiers ajoutés et redémarre le broker avec sa configuration d'origine ; l'état du plugin (comptes, rôles) est conservé à côté, daté, sur l'hôte. Le certificat client du hub est valable un an.
 
 ## Réaffecter, supprimer
