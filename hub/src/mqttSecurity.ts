@@ -6,6 +6,8 @@ export type SecurityState = 'unavailable' | 'available' | 'active';
 export interface Security {
   state: SecurityState;
   version?: string;
+  // the hub runs the plugin itself (activated from the settings): the accounts can be managed from the host
+  managed?: boolean;
   // why it is unavailable
   reason?: string;
 }
@@ -25,7 +27,7 @@ export function securityOf(role: Pick<MqttBrokerRole, 'config'>, host: Pick<Host
   if (!c) return { state: 'unavailable', reason: "broker non détecté par l'agent" };
   if (!c.process.startsWith('mosquitto')) return { state: 'unavailable', reason: 'seul Mosquitto est pris en charge' };
   if (!c.version) return { state: 'unavailable', reason: 'version de Mosquitto inconnue (agent à mettre à jour ?)' };
-  if (c.dynsec) return { state: 'active', version: c.version };
+  if (c.dynsec) return { state: 'active', version: c.version, managed: !!role.config.dynsec };
   if (!versionAtLeast(c.version, 2, 1)) return { state: 'unavailable', version: c.version, reason: `Mosquitto ${c.version} : la version 2.1 ou plus est requise` };
   return { state: 'available', version: c.version };
 }

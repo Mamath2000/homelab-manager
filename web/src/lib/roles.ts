@@ -1,4 +1,4 @@
-import type { Host, HubRole, HubRoleType } from './api';
+import type { Host, HubRole, HubRoleType, MqttHubRole } from './api';
 import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
@@ -28,3 +28,8 @@ export const roleStatus = (b: { status: HubRole['status']; url: string }): { lab
       : b.status.state === 'connected' ? { label: 'Connecté', tone: 'ok' }
         : b.status.state === 'connecting' ? { label: 'Connexion…', tone: 'info' }
           : { label: 'Injoignable', tone: 'warn' };
+
+// The MQTT brokers of a host whose accounts the hub manages (dynamic-security activated from Settings › MQTT)
+export function hostMqttBrokers(host: Host) {
+  return host.roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker' && r.security.state === 'active' && !!r.security.managed);
+}

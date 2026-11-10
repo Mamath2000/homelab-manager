@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, ShieldCheck, ShieldOff, Trash2, Users } from 'lucide-react';
+import { KeyRound, Plus, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
+import { Link } from 'react-router';
 import { api, type MqttAccount, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { keys } from '../lib/queries';
@@ -72,6 +73,7 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
           )}
           {state === 'active' && hubManaged && (
             <p className="text-muted">
+              Les comptes se gèrent depuis la fiche de l'hôte <Link className="underline" to={`/hosts/${role.carrier.id}`}>{role.carrier.name}</Link>.{' '}
               Le hub parle au broker en TLS mutuel (<code>{role.url}</code>) avec son propre certificat, sans mot de passe. Les clients anonymes restent acceptés
               (rôle <code>legacy</code>) ; un client qui se connecte avec un compte inconnu est refusé.
             </p>
@@ -124,7 +126,6 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
           </div>
         </div>
       </Panel>
-      {state === 'active' && hubManaged && <Accounts role={role} />}
       <ConfirmModal
         open={confirm === 'enable'}
         onClose={() => setConfirm(null)}
@@ -153,8 +154,8 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
   );
 }
 
-// The accounts of the broker: name and password, with the connection state. A password is shown once, when it is made.
-function Accounts({ role }: { role: MqttHubRole }) {
+// The accounts of the broker, in a dialog opened from its host: name and password, with the connection state. A password is shown once, when it is made.
+export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const key = ['mqtt-accounts', role.id];
@@ -213,7 +214,7 @@ function Accounts({ role }: { role: MqttHubRole }) {
   const refused = q.data?.refused ?? [];
   return (
     <>
-      <Panel title={`Comptes MQTT · ${role.name}`} icon={Users}>
+      <Modal open onClose={onClose} title={`Comptes MQTT · ${role.name}`} wide footer={<Button onClick={onClose}>Fermer</Button>}>
         <div className="space-y-3 text-sm">
           <p className="text-xs text-muted">
             Un compte donne accès à tous les topics du broker. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé : il apparaît alors en tête de liste
@@ -293,7 +294,7 @@ function Accounts({ role }: { role: MqttHubRole }) {
             </Button>
           </form>
         </div>
-      </Panel>
+      </Modal>
 
       <Modal
         open={!!forClient}

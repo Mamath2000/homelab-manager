@@ -27,7 +27,8 @@ import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache }
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
-import { offeredCandidates, roleTypeLabel } from '../lib/roles';
+import { hostMqttBrokers, offeredCandidates, roleTypeLabel } from '../lib/roles';
+import { HostMqttPanel } from '../components/HostMqtt';
 import { ProbesPanel } from '../components/Probes';
 import { BrokerWizard } from '../components/HubRoles';
 import { AlertTimeline } from '../components/AlertTimeline';
@@ -398,6 +399,8 @@ function HostDetailPage({ id }: { id: string }) {
   if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
   if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
   if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
+  const mqttBrokers = hostMqttBrokers(host);
+  if (mqttBrokers.length) blocks.push(<HostMqttPanel key="mqtt" roles={mqttBrokers} />);
   blocks.push(<ProbesPanel key="probes" owner={{ kind: 'host', host }} />);
   if (isWindows(host)) blocks.push(<SessionsPanel key="sessions" host={host} />);
   else if (!hasApt(host) && !host.docker) {

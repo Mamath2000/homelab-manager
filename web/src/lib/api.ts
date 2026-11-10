@@ -1678,6 +1678,8 @@ export interface DynsecReport {
 export interface MqttSecurity {
   state: 'unavailable' | 'available' | 'active';
   version?: string;
+  // the hub runs the plugin (activated from the settings): the accounts are managed from the host
+  managed?: boolean;
   reason?: string;
 }
 export interface MqttSecurityView extends MqttSecurity {
