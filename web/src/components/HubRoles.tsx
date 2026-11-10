@@ -21,7 +21,6 @@ import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, ResponsiveList, S
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
 
-const SCHEMES: BrokerScheme[] = ['mqtt', 'mqtts', 'ws', 'wss'];
 // a broker open without an account: anyone on the network may publish, the commands of Home Assistant included
 const ANONYMOUS_HINT = "n'importe qui sur le réseau peut y publier, y compris les commandes de Home Assistant. Désactiver l'accès anonyme du broker (allow_anonymous false).";
 
