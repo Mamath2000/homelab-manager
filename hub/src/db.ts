@@ -64,6 +64,7 @@ export async function connectDb() {
   await Promise.all([
     hosts.createIndex({ name: 1 }),
     hosts.createIndex({ certFingerprint: 1 }, { sparse: true }),
+    hosts.createIndex({ nextCertFingerprint: 1 }, { sparse: true }),
     hosts.createIndex({ enrollCodeHash: 1 }, { sparse: true }),
     jobs.createIndex({ hostId: 1, createdAt: -1 }),
     jobs.createIndex({ createdAt: -1 }),

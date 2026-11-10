@@ -69,7 +69,7 @@ Priorités : **P0** immédiat, **P1** sous un mois, **P2** dans le trimestre, **
 | P3 | Masquage des secrets dans les fichiers compose affichés, journaux filtrés selon le profil | correction | ✅ fait : fichiers compose réservés aux admins, sortie des jobs non lisible par le lecteur ([Docker](docker.md#logs-et-fichiers-compose)) |
 | P3 | Vérification assistée des empreintes PBS, PVE et Omada | évolution | ✅ fait : empreinte lue par l'agent sur l'hôte et invite à la comparer ([Sauvegardes](sauvegardes.md#proxmox-backup-server), [Empreinte du contrôleur Omada](roles.md#empreinte-du-contrôleur-omada)) |
 | P3 | Code d'enrôlement hors de la ligne de commande, validité réduite | évolution | ✅ fait ([Enrôlement](securite.md#enrôlement)) |
-| P3 | Renouvellement automatique des certificats et rotation de l'autorité | évolution | renouvellement et durées réduites : à faire ; rotation de l'autorité : non retenue |
+| P3 | Renouvellement automatique des certificats et rotation de l'autorité | évolution | renouvellement et durées réduites (1 an pour les agents, 2 ans pour le serveur) : ✅ fait ([Renouvellement des certificats](securite.md#renouvellement-des-certificats)) ; rotation de l'autorité : non retenue |
 | P3 | Vérification de la clé du dépôt Proxmox | correction | ✅ fait ([Sauvegardes](sauvegardes.md)) |
 | P3 | Version masquée aux visiteurs non connectés, noms de compte insensibles à la casse | correction | ✅ fait ([Comptes](comptes.md#nom-et-identifiant)) ; `/api/health` ne renvoie plus la version |
 | P3 | Droits par site ou groupe d'hôtes, clés d'API à portée réduite, SSO / OIDC | évolution | droits par site et clés d'API restreintes : non retenus, les profils globaux suffisent ; SSO / OIDC : non retenu |

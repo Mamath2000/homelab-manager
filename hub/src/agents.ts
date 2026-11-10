@@ -2,6 +2,7 @@ import type { ObjectId } from 'mongodb';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { TLSSocket } from 'node:tls';
+import type { X509Certificate } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import { hosts } from './db.js';
 import { publish } from './events.js';
@@ -23,14 +24,27 @@ import { randomUUID } from 'node:crypto';
 import { BROKER_SCHEMES, type AptReport, type HostDoc, type HostInfo, type HostPolicy, type RoleCandidate } from './types.js';
 import { removeStackProbes } from './probes.js';
 import { carriedBy } from './roles.js';
+import { hostByCertificate, maybeRenewAgentCert } from './certRenew.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     agentHost?: HostDoc;
+    agentPeer?: PeerCertificate;
   }
 }
 
 const connections = new Map<string, WebSocket>();
+
+// Client certificate an agent connected with: its key is the one a renewal is signed for (certRenew.ts).
+export interface PeerCertificate {
+  spki: Buffer; // DER SubjectPublicKeyInfo
+  notAfter: Date;
+}
+const peers = new Map<string, PeerCertificate>();
+
+export function peerCertificate(hostId: string) {
+  return connections.has(hostId) ? peers.get(hostId) : undefined;
+}
 
 export function isOnline(hostId: string) {
   return connections.has(hostId);
@@ -121,14 +135,19 @@ export function disconnectAgent(hostId: string) {
 }
 
 // Mutual TLS: the client certificate must be issued by the hub CA (checked by the TLS layer) and
-// be the one currently recorded for a host (revocation = the fingerprint is removed).
+// be the one currently recorded for a host, or its renewal (revocation = the fingerprints are removed).
 async function authenticate(req: FastifyRequest) {
   const socket = req.raw.socket as TLSSocket;
   if (!socket.encrypted || !socket.authorized) return null;
   const cert = socket.getPeerCertificate();
   if (!cert?.fingerprint256) return null;
   const fingerprint = cert.fingerprint256.replaceAll(':', '').toLowerCase();
-  return hosts.findOne({ certFingerprint: fingerprint });
+  const x509: X509Certificate | undefined = socket.getPeerX509Certificate();
+  const notAfter = x509 ? new Date(x509.validTo) : null;
+  if (x509 && notAfter && !Number.isNaN(notAfter.getTime())) {
+    req.agentPeer = { spki: x509.publicKey.export({ type: 'spki', format: 'der' }), notAfter };
+  }
+  return hostByCertificate(fingerprint, req.agentPeer?.notAfter ?? null);
 }
 
 async function emitHost(hostId: HostDoc['_id']) {
@@ -226,6 +245,8 @@ export function registerAgentSocket(app: FastifyInstance) {
         );
       }
       connections.set(id, socket);
+      if (req.agentPeer) peers.set(id, req.agentPeer);
+      else peers.delete(id);
       clearTimeout(replayTimers.get(id));
       replayTimers.delete(id);
       log.info('agent connected');
@@ -275,6 +296,8 @@ export function registerAgentSocket(app: FastifyInstance) {
               const healthHost = await hosts.findOne({ _id: host._id });
               if (healthHost?.capabilities?.includes('health')) sendToAgent(id, await healthConfigForHost(healthHost));
               await maybeAutoUpdate(host._id);
+              // the client certificate, when its renewal is due (it reconnects with the new one): not awaited
+              maybeRenewAgentCert(host._id, log).catch((err) => log.warn({ err }, 'certificate renewal failed'));
               // answered through this socket: not awaited
               onAgentHello(host._id).catch((err) => log.warn({ err }, 'standardisation check failed'));
               // its backups: the agent keeps them on disk, this resends the current definition
@@ -414,6 +437,7 @@ export function registerAgentSocket(app: FastifyInstance) {
         // a reconnect may already have replaced this socket
         if (connections.get(id) !== socket) return;
         connections.delete(id);
+        peers.delete(id);
         log.info('agent disconnected');
         failPending(id);
         // an agent that replays its results sends them at its next connection, if it comes back in time
@@ -425,7 +449,7 @@ export function registerAgentSocket(app: FastifyInstance) {
 
       // Listeners must be attached before the first await, so this comes last.
       const now = new Date();
-      await hosts.updateOne({ _id: host._id }, { $set: { lastSeenAt: now } });
+      await hosts.updateOne({ _id: host._id }, { $set: { lastSeenAt: now, ...(req.agentPeer ? { certNotAfter: req.agentPeer.notAfter } : {}) } });
       await hosts.updateOne({ _id: host._id, enrolledAt: { $exists: false } }, { $set: { enrolledAt: now } });
       await emitHost(host._id);
     },

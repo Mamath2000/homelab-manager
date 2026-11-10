@@ -1,5 +1,6 @@
 import { isOnline } from './agents.js';
 import { agentOutdated } from './agentBinaries.js';
+import { CERT_WARN_DAYS } from './certRenew.js';
 import { dockerView } from './docker.js';
 import { backupState } from './pbs.js';
 import { offsiteState } from './offsite.js';
@@ -87,11 +88,23 @@ const STALE_LISTS_MS = 2 * 24 * 3600 * 1000;
 
 // --- providers ----------------------------------------------------------------------------------
 
-export function systemStatus(h: Pick<HostDoc, 'enrolledAt' | 'roaming' | 'critical'>, ctx: Pick<Context, 'online' | 'agentOutdated'>): DomainStatus {
-  if (ctx.online) return known([check('connection', 'Connexion', 'ok'), check('agent', 'Agent', ctx.agentOutdated ? 'warn' : 'ok', 'Agent à mettre à jour')]);
+// Client certificate of the agent, renewed while it is online (certRenew.ts): one about to end belongs to an agent away
+// for months or too old to renew it; once expired the agent can no longer connect and must be installed again.
+function certChecks(h: Pick<HostDoc, 'certNotAfter'>, now: number): Check[] {
+  if (!h.certNotAfter) return [];
+  const notAfter = new Date(h.certNotAfter);
+  const left = notAfter.getTime() - now;
+  if (left <= 0) return [check('certificate', 'Certificat', 'alert', "Certificat de l'agent expiré : réinstaller l'agent")];
+  const day = notAfter.toISOString().slice(0, 10).split('-').reverse().join('/');
+  return [check('certificate', 'Certificat', left < CERT_WARN_DAYS * 24 * 3600 * 1000 ? 'warn' : 'ok', `Certificat de l'agent valable jusqu'au ${day}`)];
+}
+
+export function systemStatus(h: Pick<HostDoc, 'enrolledAt' | 'roaming' | 'critical' | 'certNotAfter'>, ctx: Pick<Context, 'online' | 'agentOutdated'> & { now?: number }): DomainStatus {
+  const cert = certChecks(h, ctx.now ?? Date.now());
+  if (ctx.online) return known([check('connection', 'Connexion', 'ok'), check('agent', 'Agent', ctx.agentOutdated ? 'warn' : 'ok', 'Agent à mettre à jour'), ...cert]);
   if (!h.enrolledAt) return unknown('En attente de connexion');
   if (h.roaming) return unknown('Absent (itinérant)');
-  return known([check('connection', 'Connexion', h.critical ? 'alert' : 'warn', 'Agent hors ligne')]);
+  return known([check('connection', 'Connexion', h.critical ? 'alert' : 'warn', 'Agent hors ligne'), ...cert]);
 }
 
 export function aptStatus(h: Pick<HostDoc, 'apt' | 'roaming'>, ctx: Pick<Context, 'online' | 'now'>): DomainReport {

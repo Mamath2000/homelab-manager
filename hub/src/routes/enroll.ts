@@ -44,14 +44,15 @@ export function registerEnrollRoute(app: FastifyInstance) {
         return reply.code(401).send({ error: 'invalid or expired enrollment code' });
       }
       const hostId = host._id.toHexString();
-      const { certPem, fingerprint } = await signClientCsr(await loadPki(), req.body.csr, hostId);
+      const { certPem, fingerprint, notAfter } = await signClientCsr(await loadPki(), req.body.csr, hostId);
       const updated = await hosts.findOneAndUpdate(
         { _id: host._id },
         // a new host (never connected) gets the standard configuration at its first connection
         // (not when FEATURE_STANDARDISATION is off: switching it on later must not standardise it)
         {
-          $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), enrollIp: req.ip, ...(host.enrolledAt || !config.featureStandardisation ? {} : { setupPending: true }) },
-          $unset: { tokenHash: '' },
+          $set: { certFingerprint: fingerprint, certIssuedAt: new Date(), certNotAfter: notAfter, enrollIp: req.ip, ...(host.enrolledAt || !config.featureStandardisation ? {} : { setupPending: true }) },
+          // a renewal of the previous certificate is void
+          $unset: { tokenHash: '', nextCertFingerprint: '', nextCertIssuedAt: '', certRenewAttemptAt: '' },
         },
         { returnDocument: 'after' },
       );

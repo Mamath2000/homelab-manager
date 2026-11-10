@@ -201,6 +201,7 @@ route('host', 'host.create', 'POST /api/hosts');
 route('host', 'host.delete', 'DELETE /api/hosts/:id');
 route('host', 'host.enrollCode', 'POST /api/hosts/:id/enroll');
 route('host', 'host.revoke', 'POST /api/hosts/:id/revoke');
+route('host', 'host.certRenew', 'POST /api/hosts/:id/cert-renew');
 route('settings', 'settings.homeassistant', 'PUT /api/settings/homeassistant');
 route('settings', 'settings.agents', 'PUT /api/settings/agents');
 route('settings', 'settings.pbs', 'PUT /api/settings/pbs');

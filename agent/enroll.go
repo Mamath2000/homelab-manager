@@ -79,6 +79,8 @@ func enroll(ctx context.Context, hub, code, dir string) (string, error) {
 	if err := writeFileAtomic(filepath.Join(dir, certFile), []byte(out.Cert), 0o644); err != nil {
 		return "", err
 	}
+	// a renewal left unconfirmed belonged to the previous identity (certrenew.go)
+	_ = os.Remove(filepath.Join(dir, prevCertFile))
 	return out.HostID, nil
 }
 

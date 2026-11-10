@@ -308,6 +308,13 @@ export interface HostDoc {
   // sha256 of the client certificate the agent authenticates with (mTLS)
   certFingerprint?: string;
   certIssuedAt?: Date;
+  // end of validity of that certificate (read from it at each connection)
+  certNotAfter?: Date;
+  // renewed certificate sent to the agent: accepted too until the agent connects with it, then the only one (certRenew.ts)
+  nextCertFingerprint?: string;
+  nextCertIssuedAt?: Date;
+  // last automatic renewal attempt (one a day at most)
+  certRenewAttemptAt?: Date;
   // address the enrollment code was used from (certIssuedAt: when)
   enrollIp?: string;
   createdAt: Date;

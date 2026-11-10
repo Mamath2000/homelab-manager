@@ -66,4 +66,6 @@ type Inbound struct {
 	// backup_run: the backup job to run now
 	BackupJob    string       `json:"backupJob,omitempty"`
 	HealthConfig HealthConfig `json:"healthConfig,omitempty"`
+	// cert_install: the renewed client certificate (PEM), for the key of this agent (certrenew.go)
+	Cert string `json:"cert,omitempty"`
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, RefreshCw, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { useUpdateHostCache } from '../lib/queries';
@@ -134,6 +134,7 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
   const [haDetail, setHaDetail] = useState(host.haDetail);
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
+  const [renewing, setRenewing] = useState(false);
   const [install, setInstall] = useState<InstallInfo | null>(null);
   const [section, setSection] = useState<SectionId>(initialSection ?? 'settings');
   const [navRef, navMore] = useScrollMore<HTMLElement>();
@@ -167,6 +168,19 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
       toast.error((err as Error).message);
     } finally {
       setEnrolling(false);
+    }
+  };
+
+  // the agent reconnects with the new certificate right away: the host update follows
+  const renewCert = async () => {
+    setRenewing(true);
+    try {
+      const { notAfter } = await api.renewHostCert(host.id);
+      toast.success(`Certificat renouvelé, valable jusqu’au ${new Date(notAfter).toLocaleDateString('fr-FR')}`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setRenewing(false);
     }
   };
 
@@ -322,7 +336,22 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
                   <dt className="text-muted">Authentification</dt>
                   <dd className={needsReinstall(host) || agentRevoked(host) ? 'text-red-300' : 'text-zinc-200'}>{authLabel(host)}</dd>
                 </div>
+                {host.certNotAfter && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted">Certificat valable jusqu’au</dt>
+                    <dd className="text-zinc-200">
+                      {new Date(host.certNotAfter).toLocaleDateString('fr-FR')}{' '}
+                      {!host.capabilities.includes('cert_renew') && <Badge tone="warn">sans renouvellement automatique</Badge>}
+                    </dd>
+                  </div>
+                )}
               </dl>
+              {host.capabilities.includes('cert_renew') && (
+                <div className="border-t border-line pt-4">
+                  <p className="mb-2 text-xs text-muted">Le certificat est renouvelé automatiquement dans ses 4 derniers mois. L’agent se reconnecte aussitôt avec le nouveau.</p>
+                  <Button icon={RefreshCw} loading={renewing} disabled={!host.online} title={host.online ? undefined : 'Disponible lorsque l’hôte est en ligne'} onClick={renewCert}>Renouveler le certificat</Button>
+                </div>
+              )}
               <div className="border-t border-line pt-4">
                 <p className="mb-2 text-xs text-muted">Génère une nouvelle commande d’installation. L’agent actuel reste actif jusqu’au nouvel enrôlement.</p>
                 <Button icon={KeyRound} loading={enrolling} onClick={newInstall}>Nouvelle commande d’installation</Button>

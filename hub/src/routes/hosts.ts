@@ -20,6 +20,7 @@ import { applySetup, canSetup } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostDetail, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
 import { haLevelSchema, normalizeHostDetail } from '../homeassistant/detail.js';
 import { carriedBy, carrierDeleteError } from '../roles.js';
+import { CERT_FIELDS, renewAgentCert } from '../certRenew.js';
 
 const hostBody = {
   type: 'object',
@@ -256,7 +257,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     if (!_id) return reply.code(404).send({ error: 'host not found' });
     const updated = await hosts.findOneAndUpdate(
       { _id },
-      { $unset: { certFingerprint: '', certIssuedAt: '', tokenHash: '', enrollCodeHash: '', enrollExpiresAt: '' } },
+      { $unset: { ...CERT_FIELDS, tokenHash: '', enrollCodeHash: '', enrollExpiresAt: '' } },
       { returnDocument: 'after' },
     );
     if (!updated) return reply.code(404).send({ error: 'host not found' });
@@ -266,6 +267,25 @@ export function registerHostRoutes(app: FastifyInstance) {
     const dto = { ...hostDto(updated), online: false };
     publish('host', dto);
     return dto;
+  });
+
+  // Renews the client certificate of the agent now (also done automatically, certRenew.ts): valid from its next
+  // connection, which follows at once.
+  app.post<{ Params: { id: string } }>('/api/hosts/:id/cert-renew', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    const host = _id ? await hosts.findOne({ _id }) : null;
+    if (!host) return reply.code(404).send({ error: 'host not found' });
+    req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name } };
+    if (!host.certFingerprint) return reply.code(409).send({ error: "l'agent n'est pas enrôlé" });
+    if (!host.capabilities?.includes('cert_renew')) return reply.code(409).send({ error: "agent trop ancien : le mettre à jour d'abord" });
+    if (!isOnline(req.params.id)) return reply.code(409).send({ error: 'hôte hors ligne' });
+    try {
+      const { notAfter } = await renewAgentCert(host);
+      req.auditNote.details = { notAfter: notAfter.toISOString() };
+      return { notAfter };
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // alerts of the last days (APT, Docker, backups), for the timeline of the host page

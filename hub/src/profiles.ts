@@ -105,8 +105,9 @@ export const SENSITIVE_ACTIONS = new Set([
   'PUT /api/hosts/:id/setup',
   'PUT /api/hosts/:id/access-keys/ack',
   'POST /api/settings/access/apply',
-  // agents: install command (enrollment code), revocation, removal of the host
+  // agents: install command (enrollment code), renewal of the certificate, revocation, removal of the host
   'POST /api/hosts/:id/enroll',
+  'POST /api/hosts/:id/cert-renew',
   'POST /api/hosts/:id/revoke',
   'DELETE /api/hosts/:id',
   // restore of a database

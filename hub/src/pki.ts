@@ -13,8 +13,11 @@ x509.cryptoProvider.set(webcrypto as unknown as Crypto);
 
 const ALG = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 const SIGNING = { name: 'ECDSA', hash: 'SHA-256' } as const;
-const YEAR = 365 * 24 * 3600 * 1000;
-export const CLIENT_CERT_YEARS = 5;
+const DAY = 24 * 3600 * 1000;
+const YEAR = 365 * DAY;
+// Lifetimes of the certificates of the agent link, renewed before they end (certRenew.ts, homelab#302).
+export const CLIENT_CERT_DAYS = 365;
+export const SERVER_CERT_DAYS = 730;
 
 function serial() {
   // positive 128-bit serial
@@ -65,23 +68,7 @@ export async function createPki(): Promise<Omit<PkiDoc, '_id'>> {
     ],
   });
   const serverKeys = await newKeys();
-  const server = await x509.X509CertificateGenerator.create({
-    serialNumber: serial(),
-    subject: 'CN=homelab-manager',
-    issuer: ca.subject,
-    notBefore: now,
-    notAfter: new Date(now.getTime() + 10 * YEAR),
-    signingAlgorithm: SIGNING,
-    publicKey: serverKeys.publicKey,
-    signingKey: caKeys.privateKey,
-    extensions: [
-      new x509.BasicConstraintsExtension(false, undefined, true),
-      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
-      new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.serverAuth], false),
-      new x509.SubjectAlternativeNameExtension([{ type: 'dns', value: 'homelab-manager' }, { type: 'dns', value: 'localhost' }]),
-      await x509.AuthorityKeyIdentifierExtension.create(caKeys.publicKey),
-    ],
-  });
+  const server = await agentPortCert(ca, caKeys.privateKey, serverKeys.publicKey, now);
   return {
     caCert: ca.toString('pem'),
     caKey: await keyToPem(caKeys.privateKey),
@@ -90,6 +77,39 @@ export async function createPki(): Promise<Omit<PkiDoc, '_id'>> {
     createdAt: now,
   };
 }
+
+// TLS certificate of the agent port. The agents check it against the CA they pinned, not by itself: it is reissued
+// for the same key (renewServerCert), which keeps the pin of the install command (spkiPin) unchanged.
+async function agentPortCert(ca: x509.X509Certificate, caKey: CryptoKey, publicKey: CryptoKey | x509.PublicKey, now: Date) {
+  return x509.X509CertificateGenerator.create({
+    serialNumber: serial(),
+    subject: 'CN=homelab-manager',
+    issuer: ca.subject,
+    notBefore: new Date(now.getTime() - 5 * 60_000),
+    notAfter: new Date(now.getTime() + SERVER_CERT_DAYS * DAY),
+    signingAlgorithm: SIGNING,
+    publicKey,
+    signingKey: caKey,
+    extensions: [
+      new x509.BasicConstraintsExtension(false, undefined, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
+      new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.serverAuth], false),
+      new x509.SubjectAlternativeNameExtension([{ type: 'dns', value: 'homelab-manager' }, { type: 'dns', value: 'localhost' }]),
+      await x509.AuthorityKeyIdentifierExtension.create(ca.publicKey),
+    ],
+  });
+}
+
+/** The certificate of the agent port issued again for its own key. */
+export async function renewServerCert(pki: Pick<PkiDoc, 'caCert' | 'caKey' | 'serverCert'>, now = new Date()) {
+  const ca = new x509.X509Certificate(pki.caCert);
+  const current = new x509.X509Certificate(pki.serverCert);
+  const cert = await agentPortCert(ca, await pemToKey(pki.caKey), current.publicKey, now);
+  return { certPem: cert.toString('pem'), notAfter: cert.notAfter };
+}
+
+/** End of validity of a PEM certificate. */
+export const certNotAfter = (pem: string) => new x509.X509Certificate(pem).notAfter;
 
 /** true when the PEM is a well-formed, self-signed (proof of possession) CSR. */
 export async function checkCsr(csrPem: string) {
@@ -107,6 +127,14 @@ export async function checkCsr(csrPem: string) {
 export async function signClientCsr(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, csrPem: string, hostId: string) {
   const csr = new x509.Pkcs10CertificateRequest(csrPem);
   if (!(await csr.verify())) throw new Error('invalid CSR signature');
+  return signClientKey(pki, csr.publicKey, hostId);
+}
+
+/**
+ * Signs a client certificate for a public key already proven: the one of a CSR, or the one an agent presented in its
+ * mutual TLS handshake (renewal, certRenew.ts). spki: DER SubjectPublicKeyInfo.
+ */
+export async function signClientKey(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, publicKey: x509.PublicKey | Buffer, hostId: string) {
   const ca = new x509.X509Certificate(pki.caCert);
   const now = new Date();
   const cert = await x509.X509CertificateGenerator.create({
@@ -114,9 +142,9 @@ export async function signClientCsr(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, csrPe
     subject: `CN=${hostId}`,
     issuer: ca.subject,
     notBefore: new Date(now.getTime() - 5 * 60_000), // tolerate small clock skews
-    notAfter: new Date(now.getTime() + CLIENT_CERT_YEARS * YEAR),
+    notAfter: new Date(now.getTime() + CLIENT_CERT_DAYS * DAY),
     signingAlgorithm: SIGNING,
-    publicKey: csr.publicKey,
+    publicKey: publicKey instanceof x509.PublicKey ? publicKey : new x509.PublicKey(new Uint8Array(publicKey)),
     signingKey: await pemToKey(pki.caKey),
     extensions: [
       new x509.BasicConstraintsExtension(false, undefined, true),
@@ -126,7 +154,7 @@ export async function signClientCsr(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, csrPe
     ],
   });
   const pem = cert.toString('pem');
-  return { certPem: pem, fingerprint: certFingerprint(pem) };
+  return { certPem: pem, fingerprint: certFingerprint(pem), notAfter: cert.notAfter };
 }
 
 // Certificate of the TLS port of the UI (uiTls.ts), distinct from the one of the agent port: the agents pin that one,

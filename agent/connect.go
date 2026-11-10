@@ -20,15 +20,16 @@ const (
 )
 
 // connectLoop keeps a WebSocket open to the hub until ctx ends; run serves each connection and
-// returns when it breaks.
-func connectLoop(ctx context.Context, hub string, client *http.Client, run func(context.Context, *websocket.Conn) error) {
+// returns when it breaks. id (nil in tests) follows the outcome of each attempt for a renewed certificate.
+func connectLoop(ctx context.Context, hub string, client *http.Client, id *agentIdentity, run func(context.Context, *websocket.Conn) error) {
 	endpoint := wsURL(hub)
 	backoff := backoffMin
 	for ctx.Err() == nil {
 		dctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		// mutual TLS: the hub knows the agent by its certificate, no secret is sent
-		conn, _, err := websocket.Dial(dctx, endpoint, &websocket.DialOptions{HTTPClient: client})
+		conn, res, err := websocket.Dial(dctx, endpoint, &websocket.DialOptions{HTTPClient: client})
 		cancel()
+		id.dialed(res, err)
 		// jitter on the wait only, so the backoff progression itself does not drift
 		wait := time.Duration(float64(backoff) * (1 - backoffJitter + 2*backoffJitter*rand.Float64()))
 		if err != nil {

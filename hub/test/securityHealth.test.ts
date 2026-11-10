@@ -27,13 +27,28 @@ test('database and master key', () => {
 
 test('agents: only the enrolled ones, each gap named', () => {
   const policy = { file: '/etc/p.json', invalid: false, agentInstall: false, deny: [], pbsFingerprints: [], pinPbs: false, pinnedPbs: '', pinFile: '' };
-  const h = (name: string, extra: object) => ({ name, enrolledAt: new Date(), certFingerprint: 'x', agentMinVersion: '1.0.12', policy, ...extra }) as never;
+  const h = (name: string, extra: object) => ({ name, enrolledAt: new Date(), certFingerprint: 'x', agentMinVersion: '1.0.12', policy, capabilities: ['cert_renew'], ...extra }) as never;
   const items = agentItems(
     [h('good', {}), h('old', { agentMinVersion: undefined, policy: undefined }), h('late', {}), { name: 'new' } as never],
     (x) => (x.name === 'late' ? true : false),
   );
   assert.deepEqual(items.map((i) => i.name), ['old', 'late']);
   assert.match(items[0].detail, /version minimum.*politique locale/);
+});
+
+test('agents: certificate without automatic renewal, or not renewed yet', () => {
+  const policy = { file: '/etc/p.json', invalid: false, agentInstall: false, deny: [], pbsFingerprints: [], pinPbs: false, pinnedPbs: '', pinFile: '' };
+  const now = Date.UTC(2026, 10, 10);
+  const day = 86_400_000;
+  const h = (name: string, extra: object) => ({ name, enrolledAt: new Date(), certFingerprint: 'x', agentMinVersion: '1.0.12', policy, capabilities: ['cert_renew'], ...extra }) as never;
+  const items = agentItems(
+    [h('renewed', { certNotAfter: new Date(now + 300 * day) }), h('old', { capabilities: [] }), h('five-years', { certNotAfter: new Date(now + 4 * 365 * day) })],
+    () => false,
+    now,
+  );
+  assert.deepEqual(items.map((i) => i.name), ['old', 'five-years']);
+  assert.match(items[0].detail, /sans renouvellement automatique/);
+  assert.match(items[1].detail, /pas encore renouvelé/);
 });
 
 test('mqtt: anonymous broker is bad, mqtt:// is a warning, the ACL stays unknown while the bridge is on', () => {

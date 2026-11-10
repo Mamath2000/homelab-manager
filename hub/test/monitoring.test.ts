@@ -14,6 +14,18 @@ const report = (o: Partial<AptReport> = {}): AptReport => ({ checkedAt: now, lis
 const host = (o: Partial<HostDoc> = {}): HostDoc => ({ _id: new ObjectId(), name: 'h', createdAt: new Date(), enrolledAt: new Date(), ...o }) as HostDoc;
 const group = (o: Partial<BackupDoc> = {}) => ({ _id: 'ds/ns/host/home', backupId: 'home', lastBackup: now - H, verify: null, gone: false, staleHours: 26, ...o }) as BackupDoc;
 
+test('system: the certificate of the agent is a warning in its last 30 days, an alert once expired', () => {
+  const day = 24 * H;
+  const level = (left: number, online = true) => systemStatus(host({ certNotAfter: new Date(now + left) }), { online, now }).checks.find((c) => c.key === 'certificate')?.level;
+  assert.equal(level(200 * day), 'ok');
+  assert.equal(level(10 * day), 'warn');
+  assert.equal(level(10 * day, false), 'warn');
+  assert.equal(level(-day, false), 'alert');
+  assert.match(dayOf(systemStatus(host({ certNotAfter: new Date(now - day) }), { online: false, now }))!.reasons.join(), /expiré/);
+  // unknown (agent not connected since the update of the hub): no check
+  assert.equal(systemStatus(host(), { online: true, now }).checks.some((c) => c.key === 'certificate'), false);
+});
+
 test('worst: the highest level wins, ok without any', () => {
   assert.equal(worst([]), 'ok');
   assert.equal(worst(['ok', 'warn']), 'warn');

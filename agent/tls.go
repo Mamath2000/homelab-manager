@@ -60,8 +60,9 @@ func verifyHub(raw [][]byte, roots *x509.CertPool) error {
 	return nil
 }
 
-// tlsConfig trusts only the pinned CA and, once enrolled, presents the agent certificate.
-func tlsConfig(roots *x509.CertPool, client *tls.Certificate) *tls.Config {
+// tlsConfig trusts only the pinned CA and, once enrolled, presents the agent certificate (read at each
+// handshake: a renewed one is used from the next connection on, certrenew.go).
+func tlsConfig(roots *x509.CertPool, client func() *tls.Certificate) *tls.Config {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		// the default verification (system CAs + host name) is replaced by verifyHub
@@ -71,7 +72,7 @@ func tlsConfig(roots *x509.CertPool, client *tls.Certificate) *tls.Config {
 		},
 	}
 	if client != nil {
-		cfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return client, nil }
+		cfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return client(), nil }
 	}
 	return cfg
 }
@@ -84,16 +85,16 @@ func httpClient(cfg *tls.Config) *http.Client {
 }
 
 // identity loads the CA and the client certificate of an enrolled agent.
-func identity(dir string) (*x509.CertPool, *tls.Certificate, error) {
+func identity(dir string) (*agentIdentity, error) {
 	roots, err := loadCA(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	cert, err := tls.LoadX509KeyPair(filepath.Join(dir, certFile), filepath.Join(dir, keyFile))
 	if err != nil {
-		return nil, nil, fmt.Errorf("agent not enrolled (%w): run the install command shown by the hub", err)
+		return nil, fmt.Errorf("agent not enrolled (%w): run the install command shown by the hub", err)
 	}
-	return roots, &cert, nil
+	return newAgentIdentity(dir, roots, &cert), nil
 }
 
 func tlsKeyPair(certPEM, keyPEM []byte) (tls.Certificate, error) {

@@ -25,6 +25,7 @@ const defaultDir = "/etc/homelab-agent"
 type session struct {
 	hub           string
 	http          *http.Client // pinned TLS + client certificate, for downloads from the hub
+	id            *agentIdentity
 	conn          *websocket.Conn
 	mu            sync.Mutex // serialises writes
 	healthMu      sync.RWMutex
@@ -48,6 +49,8 @@ func platformCapabilities() []string {
 	caps = append(caps, "ping", "ping_from")
 	// certificate of a service of this host read locally, to pin it (tlsfingerprint.go)
 	caps = append(caps, "tls_fingerprint")
+	// client certificate renewed by the hub (certrenew.go)
+	caps = append(caps, "cert_renew")
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
@@ -105,7 +108,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// HAOS add-on: no action on the host at this stage, it only describes itself (haos.go)
 	if onHAOS {
-		caps := []string{"haos", "refresh", "health"}
+		caps := []string{"haos", "refresh", "health", "cert_renew"}
 		if haBackupsReadable.Load() {
 			caps = append(caps, "ha_backups")
 		}
@@ -384,6 +387,8 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 			out.Result = map[string]bool{"ok": true}
 			go s.dockerReport(ctx)
 		}
+	case "cert_install":
+		out.Result, err = certInstall(s.id, s.http, in.Cert)
 	default:
 		err = fmt.Errorf("unknown request %q", in.Op)
 	}
@@ -391,6 +396,9 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		out.Error = err.Error()
 	}
 	_ = s.send(ctx, out)
+	if in.Op == "cert_install" && err == nil {
+		reconnectWithNewCert(s.conn)
+	}
 }
 
 func (s *session) report(ctx context.Context) {
@@ -661,13 +669,13 @@ func main() {
 	} else {
 		log.Printf("agent updates: signature checked, version floor %s", minVersion)
 	}
-	roots, cert, err := identity(cfg.Dir)
+	id, err := identity(cfg.Dir)
 	if err != nil {
 		log.Fatal(err)
 	}
 	ensurePolicy(cfg.Dir)
 	removeLegacyAnchor(cfg.Dir)
-	client := httpClient(tlsConfig(roots, cert))
+	client := httpClient(tlsConfig(id.roots, id.current))
 
 	jobResults.recover()
 	// scheduled backups run whether the hub is reachable or not
@@ -676,8 +684,8 @@ func main() {
 	// and so do the copies to this secondary PBS
 	go offsite.loop(ctx)
 
-	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
-		s := &session{hub: cfg.Hub, http: client, conn: conn, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}
+	connectLoop(ctx, cfg.Hub, client, id, func(ctx context.Context, conn *websocket.Conn) error {
+		s := &session{hub: cfg.Hub, http: client, id: id, conn: conn, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}
 		return s.loop(ctx)
 	})
 }

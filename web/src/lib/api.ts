@@ -345,6 +345,8 @@ export interface Host {
   // none: not enrolled yet, or revoked
   agentAuth: 'cert' | 'legacy' | 'none';
   certIssuedAt: string | null;
+  // end of validity of the client certificate (renewed automatically by agents with cert_renew)
+  certNotAfter: string | null;
   enrollIp: string | null;
   // pending install command (single-use code), null once used or expired
   enrollExpiresAt: string | null;
@@ -1799,6 +1801,7 @@ export const api = {
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),
+  renewHostCert: (id: string) => request<{ notAfter: string }>('POST', `/api/hosts/${id}/cert-renew`),
 
   homeAssistant: () => request<HomeAssistantSettings>('GET', '/api/settings/homeassistant'),
   saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),

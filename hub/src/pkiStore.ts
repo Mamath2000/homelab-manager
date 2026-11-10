@@ -12,6 +12,11 @@ export interface Pki extends PkiDoc {
 
 let cached: Pki | null = null;
 
+// After a change of the stored PKI (renewed certificate of the agent port, certRenew.ts): read again at the next use.
+export function resetPki() {
+  cached = null;
+}
+
 // Loads the PKI, creating it on the first start of the hub.
 export async function loadPki(): Promise<Pki> {
   if (cached) return cached;

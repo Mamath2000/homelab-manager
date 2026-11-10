@@ -127,7 +127,7 @@ type Inbound struct {
 	Service string `json:"service,omitempty"`
 	// rpc: request answered with rpc_result, outside the job queue
 	ReqID string `json:"reqId,omitempty"`
-	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | db_restore_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | tls_fingerprint | refresh
+	Op    string `json:"op,omitempty"` // docker_logs | docker_compose_file | docker_forget | setup_check | backup_database_check | db_restore_check | backup_estimate | nextcloud_discover | ups_command | pbs_detect | pbs_token | pbs_token_delete | pbs_mount | pbs_umount | pbs_mount_status | pbs_mount_check | pve_detect | pve_token | pve_token_delete | pve_guest_check | pve_node_check | tls_fingerprint | refresh | cert_install
 	Tail  int    `json:"tail,omitempty"`
 	// ping: address to ping and delay of the measure (ping.go)
 	Host       string `json:"host,omitempty"`
@@ -172,6 +172,8 @@ type Inbound struct {
 	// refresh: info | apt | docker | ha_backups | ups; empty: all the agent can read
 	Scopes       []string     `json:"scopes,omitempty"`
 	HealthConfig HealthConfig `json:"healthConfig,omitempty"`
+	// cert_install: the renewed client certificate (PEM), for the key of this agent (certrenew.go)
+	Cert string `json:"cert,omitempty"`
 }
 
 // DbRestoreSpec: what the hub asks to restore. The dump is read from the PBS snapshot mounted on this

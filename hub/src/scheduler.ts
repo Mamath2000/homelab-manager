@@ -4,6 +4,7 @@ import { healthMetrics, hosts, jobs } from './db.js';
 import { publish } from './events.js';
 import { loadAgentSettings, maybeAutoUpdate } from './agentUpdate.js';
 import { createJob, hasRunningJob } from './jobs.js';
+import { renewDueAgentCerts } from './certRenew.js';
 
 // Hosts created by the add-host dialog whose agent never connected (dialog closed, page reloaded) and
 // whose install code has expired: ghosts, removed.
@@ -29,6 +30,8 @@ async function tick(log: FastifyBaseLogger) {
   for (const h of await hosts.find({}, { projection: { _id: 1 } }).toArray()) {
     if (await maybeAutoUpdate(h._id)) log.info({ host: h._id.toHexString() }, 'automatic agent update');
   }
+  // agents connected for months without a new hello reach their renewal here
+  await renewDueAgentCerts(log);
 
   // an interval of 0 disables the automatic apt-get update only
   const { checkIntervalHours } = await loadAgentSettings();

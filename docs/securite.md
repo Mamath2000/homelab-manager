@@ -17,7 +17,7 @@ Rien ne circule en clair entre le hub et les agents, et aucun secret réutilisab
 
 ## Autorité de certification interne
 
-Au premier démarrage, le hub crée sa propre autorité de certification (ECDSA P-256, valable 20 ans) et son certificat serveur (10 ans). Ils sont stockés dans MongoDB (collection `settings`, document `pki`). Il n'y a besoin ni d'une autorité publique ni d'un nom de domaine.
+Au premier démarrage, le hub crée sa propre autorité de certification (ECDSA P-256, valable 20 ans) et son certificat serveur (2 ans, [renouvelé automatiquement](#renouvellement-des-certificats)). Ils sont stockés dans MongoDB (collection `settings`, document `pki`). Il n'y a besoin ni d'une autorité publique ni d'un nom de domaine.
 
 Les empreintes sont affichées dans **Paramètres > Agent** : adresse des agents, clé épinglée du serveur, empreinte SHA-256 de l'autorité.
 
@@ -48,7 +48,7 @@ Le résultat doit être identique à la clé épinglée affichée dans les param
 - La commande d'installation contient un **code à usage unique, valable 1 h** (`ENROLL_CODE_HOURS`). Il est passé par la variable `HLM_ENROLL_CODE`, pas en argument : il n'apparaît pas dans la liste des processus. Le hub n'en garde que le hash. Une nouvelle commande annule la précédente.
 - La fiche de l'hôte indique quand et depuis quelle adresse le code a été utilisé (ligne **Certificat**).
 - L'agent génère **sa clé privée sur l'hôte** (`/etc/homelab-agent/agent.key`, droits 600). Elle ne quitte jamais l'hôte : l'agent envoie au hub une demande de certificat (CSR) accompagnée du code.
-- Le hub consomme le code, puis signe un **certificat client** : nom = identifiant de l'hôte, usage « authentification client » uniquement, valable 5 ans. Il retient l'empreinte de ce certificat sur l'hôte.
+- Le hub consomme le code, puis signe un **certificat client** : nom = identifiant de l'hôte, usage « authentification client » uniquement, valable 1 an et [renouvelé automatiquement](#renouvellement-des-certificats). Il retient l'empreinte de ce certificat sur l'hôte.
 - Les codes invalides sont limités à 10 essais par IP toutes les 10 minutes.
 - **Installation depuis l'inventaire Proxmox VE** ([Proxmox VE](proxmox-ve.md#installer-lagent-depuis-linventaire)) : l'agent d'un nœud (root) lance l'installateur dans un CT (`pct exec`) ou sur un autre nœud (SSH, clé d'hôte vérifiée par les fichiers de Proxmox VE). Les commandes sont fixes et le code d'enrôlement passe **sur l'entrée standard** : il n'apparaît ni dans une ligne de commande, ni dans le journal du job. L'agent reçoit le code du hub par la liaison TLS mutuelle.
 
@@ -57,6 +57,23 @@ Le résultat doit être identique à la clé épinglée affichée dans les param
 - L'agent vérifie que le certificat du hub est signé par l'autorité de `ca.pem` et qu'il porte l'usage « serveur ». Le nom d'hôte n'est pas contrôlé : changer l'IP ou le nom du hub ne casse rien.
 - Le hub exige un certificat client signé par son autorité, **et** dont l'empreinte est celle retenue pour l'hôte.
 - Il n'y a ni jeton ni mot de passe : rien d'utile à intercepter.
+
+## Renouvellement des certificats
+
+Les certificats de la liaison avec les agents sont renouvelés sans intervention. L'autorité (20 ans) ne l'est pas.
+
+| Certificat | Durée | Renouvelé |
+|---|---|---|
+| Client de chaque agent | 1 an | dans ses 4 derniers mois, par le hub, quand l'agent est connecté |
+| Serveur du port agents (`3443`) | 2 ans | dans ses 6 derniers mois, par le hub lui-même, sans redémarrage |
+
+- **Agent** : le hub signe un nouveau certificat pour **la clé que l'agent utilise déjà** (celle qu'il présente à la connexion ; elle ne quitte toujours pas l'hôte) et le lui envoie. L'agent vérifie qu'il correspond à sa clé, qu'il est signé par l'autorité épinglée pour un usage client, qu'il porte le même nom d'hôte et qu'il est valable au moins 7 jours, puis l'écrit dans `agent.crt` (l'ancien est gardé dans `agent.crt.prev`) et se reconnecte aussitôt avec lui.
+- **Bascule sans coupure** : tant que l'agent ne s'est pas reconnecté avec le nouveau certificat, le hub accepte les deux. Dès la reconnexion, seul le nouveau est valable, et le journal des actions l'enregistre (`host.certRenewed`). Si l'agent n'a pas pu l'écrire, il continue avec l'ancien et le hub réessaie le lendemain. Si le hub refuse trois fois de suite le nouveau certificat (par exemple un hub remis à une version antérieure), l'agent revient à `agent.crt.prev` tant qu'il est valable.
+- **Certificats existants** : un certificat plus long que la durée actuelle (5 ans pour les agents, 10 ans pour le serveur des versions précédentes) est renouvelé dès le premier contact.
+- **Serveur** : il est réémis pour **la même clé**. L'empreinte épinglée par les commandes d'installation et les jetons HAOS (**Paramètres › Agent**) ne change donc pas.
+- **Agents anciens** : seuls les agents qui annoncent la capacité `cert_renew` sont renouvelés ; les autres gardent leur certificat de 5 ans, ce que signale la [page Sécurité](#page-sécurité). Une mise à jour de l'agent suffit. Sur Home Assistant OS, il faut la nouvelle version de l'application de l'agent.
+- **Renouvellement à la demande** : **Options** › **Agent** › **Renouveler le certificat** (admins, passkey redemandée, hôte en ligne). La même fenêtre indique la date de fin du certificat.
+- **Fin proche** : le domaine **Connexion** de l'hôte passe en avertissement dans les 30 derniers jours (agent hors ligne depuis des mois), en alerte une fois le certificat expiré. L'agent ne peut alors plus se connecter : il faut le réinstaller (**Nouvelle commande d'installation**).
 
 ## Révocation
 
@@ -221,7 +238,7 @@ Mise en route : renseigner le `.env` (champs listés en tête du fichier), `chow
 - HTTP ou HTTPS et cookie `Secure` pour la requête en cours, proxy de confiance ;
 - double authentification des admins : passkeys proposées (`WEBAUTHN_RP_ID`), obligatoires (`MFA_REQUIRED`), admins sans passkey ([Passkeys](comptes.md#passkeys)) ;
 - compte MongoDB et clé maître ;
-- binaires d'agent signés, version minimum, agents en retard sur une protection (version, politique locale) ;
+- binaires d'agent signés, version minimum, agents en retard sur une protection (version, politique locale, certificat sans renouvellement automatique ou pas encore renouvelé) ;
 - brokers MQTT : accès anonyme, TLS ;
 - conteneur du hub : utilisateur non root, système de fichiers en lecture seule, capacités retirées, `no-new-privileges`.
 
@@ -261,6 +278,6 @@ Un agent du réseau Tailscale joint le hub par son adresse tailnet, sur le même
 - À l'installation initiale, tout vient du hub. La sécurité repose sur la commande copiée depuis l'interface, et donc sur l'accès à cette interface.
 - Il n'y a pas de protection contre le retour à une version plus ancienne : un hub compromis peut redistribuer un ancien agent signé.
 - L'autorité du hub vit dans MongoDB : si la base est perdue sans sauvegarde, ou sa clé maître perdue, tous les agents sont à réinstaller.
-- Les certificats ne sont pas renouvelés automatiquement : 5 ans pour les agents (une réinstallation en délivre un nouveau), 10 ans pour le serveur, 20 ans pour l'autorité.
+- L'autorité (20 ans) n'est pas renouvelée et ne peut pas être remplacée sans réinstaller tous les agents : après une fuite de la base, c'est la seule issue. Les certificats des agents et du serveur sont [renouvelés automatiquement](#renouvellement-des-certificats).
 - Le port `3443` doit rester en accès direct, ou passer par un proxy TCP (*passthrough*). Un reverse proxy qui termine le TLS casserait l'épinglage et l'authentification des agents.
 - L'interface (port `3000`) est servie en HTTP par défaut. Pour du HTTPS : un reverse proxy, ou le [port HTTPS natif](configuration.md#https-natif) (`HTTPS_PORT`), les deux pouvant se combiner quand le proxy est sur une autre machine. Un bandeau signale une page servie en HTTP, et aux admins un trajet proxy → hub en clair. Le certificat émis par le hub s'accepte comme exception ; son autorité ne doit pas être importée dans un navigateur ou un système (pas de contrainte de nom).

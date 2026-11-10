@@ -1,3 +1,4 @@
+import { CLIENT_CERT_DAYS } from './pki.js';
 import { readFileSync } from 'node:fs';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ObjectId } from 'mongodb';
@@ -147,10 +148,10 @@ export function dataChecks(i: { mongoAuth: boolean; masterKey: boolean }): Secur
   ];
 }
 
-type AgentHost = Pick<HostDoc, 'name' | 'enrolledAt' | 'certFingerprint' | 'info' | 'agentVersion' | 'agentMinVersion' | 'policy' | 'agentHash' | 'capabilities'>;
+type AgentHost = Pick<HostDoc, 'name' | 'enrolledAt' | 'certFingerprint' | 'certNotAfter' | 'info' | 'agentVersion' | 'agentMinVersion' | 'policy' | 'agentHash' | 'capabilities'>;
 
 // One line per agent that is behind on a protection; hosts that never enrolled are not agents yet.
-export function agentItems(list: AgentHost[], outdated: (h: AgentHost) => boolean | null): NonNullable<SecurityCheck['items']> {
+export function agentItems(list: AgentHost[], outdated: (h: AgentHost) => boolean | null, now = Date.now()): NonNullable<SecurityCheck['items']> {
   const items: NonNullable<SecurityCheck['items']> = [];
   for (const h of list) {
     if (!h.enrolledAt || !h.certFingerprint) continue;
@@ -160,6 +161,9 @@ export function agentItems(list: AgentHost[], outdated: (h: AgentHost) => boolea
     if (!h.policy) gaps.push('pas de politique locale (agent trop ancien)');
     else if (h.policy.invalid) gaps.push('politique locale invalide');
     else if (!h.policy.file) gaps.push('aucune politique locale posée : l’agent accepte tout');
+    // certificates of the first versions last 5 years; renewed ones one year (certRenew.ts)
+    if (!h.capabilities?.includes('cert_renew')) gaps.push('certificat sans renouvellement automatique (agent trop ancien)');
+    else if (h.certNotAfter && new Date(h.certNotAfter).getTime() - now > (CLIENT_CERT_DAYS + 1) * 24 * 3600 * 1000) gaps.push('certificat pas encore renouvelé (valable plus d’un an)');
     if (gaps.length) items.push({ name: h.name, status: 'warn', detail: gaps.join(' · ') });
   }
   return items;

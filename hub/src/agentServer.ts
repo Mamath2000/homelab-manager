@@ -5,8 +5,11 @@ import Fastify from 'fastify';
 import { registerAgentSocket } from './agents.js';
 import { config } from './config.js';
 import { loadPki } from './pkiStore.js';
+import { renewServerCertIfDue } from './certRenew.js';
 import { registerEnrollRoute } from './routes/enroll.js';
 import { registerInstallRoutes } from './routes/install.js';
+
+const DAY = 24 * 3600 * 1000;
 
 export async function startAgentServer() {
   const pki = await loadPki();
@@ -30,5 +33,15 @@ export async function startAgentServer() {
   registerAgentSocket(app);
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: 'not found' }));
   await app.listen({ port: config.agentTlsPort, host: config.host });
+  // its certificate, reissued for the same key when due (certRenew.ts): loaded without a restart
+  const renew = async () => {
+    if (!(await renewServerCertIfDue(app.log))) return;
+    const next = await loadPki();
+    app.server.setSecureContext({ key: next.serverKey, cert: next.serverCert, ca: [next.caCert], minVersion: 'TLSv1.2' });
+  };
+  await renew().catch((err) => app.log.error({ err }, 'certificate of the agent port not renewed'));
+  const timer = setInterval(() => renew().catch((err) => app.log.error({ err }, 'certificate of the agent port not renewed')), DAY);
+  timer.unref();
+  app.addHook('onClose', async () => clearInterval(timer));
   return app;
 }

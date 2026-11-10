@@ -5,7 +5,7 @@ import 'reflect-metadata';
 import * as x509 from '@peculiar/x509';
 import { webcrypto } from 'node:crypto';
 import { haosToken } from '../src/hubUrl.js';
-import { certFingerprint, createPki, signClientCsr, spkiPin } from '../src/pki.js';
+import { CLIENT_CERT_DAYS, SERVER_CERT_DAYS, certFingerprint, certNotAfter, createPki, renewServerCert, signClientCsr, signClientKey, spkiPin } from '../src/pki.js';
 
 async function csrFor(cn: string) {
   const keys = (await webcrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
@@ -66,4 +66,33 @@ test('the HAOS add-on token carries the agent URL, the pin and the code, shell-s
   const token = haosToken('https://192.168.100.171:3443', 'abc+/def=', 'Xy_-12');
   assert.match(token, /^[A-Za-z0-9_-]+$/);
   assert.deepEqual(JSON.parse(Buffer.from(token, 'base64url').toString()), { hub: 'https://192.168.100.171:3443', pin: 'abc+/def=', code: 'Xy_-12' });
+});
+
+test('a renewal is signed for the key the agent presented, named after the host, for one year', async () => {
+  const pki = await createPki();
+  const keys = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const spki = keys.publicKey.export({ type: 'spki', format: 'der' });
+  const { certPem, fingerprint, notAfter } = await signClientKey(pki, spki, 'host123');
+  const cert = new NodeCert(certPem);
+  assert.equal(cert.subject, 'CN=host123');
+  assert.deepEqual(cert.keyUsage, ['1.3.6.1.5.5.7.3.2']);
+  assert.ok(cert.verify(new NodeCert(pki.caCert).publicKey));
+  assert.ok(cert.checkPrivateKey(keys.privateKey));
+  assert.equal(fingerprint, certFingerprint(certPem));
+  const days = (notAfter.getTime() - Date.now()) / 86_400_000;
+  assert.ok(Math.abs(days - CLIENT_CERT_DAYS) < 1);
+});
+
+test('the certificate of the agent port is reissued for its own key: the pin of the install commands is kept', async () => {
+  const pki = await createPki();
+  assert.ok(Math.abs((certNotAfter(pki.serverCert).getTime() - Date.now()) / 86_400_000 - SERVER_CERT_DAYS) < 1);
+  const later = new Date(Date.now() + 600 * 86_400_000);
+  const { certPem, notAfter } = await renewServerCert(pki, later);
+  assert.equal(spkiPin(certPem), spkiPin(pki.serverCert));
+  assert.notEqual(certFingerprint(certPem), certFingerprint(pki.serverCert));
+  assert.ok(Math.abs((notAfter.getTime() - later.getTime()) / 86_400_000 - SERVER_CERT_DAYS) < 1);
+  const cert = new NodeCert(certPem);
+  assert.deepEqual(cert.keyUsage, ['1.3.6.1.5.5.7.3.1']);
+  assert.ok(cert.verify(new NodeCert(pki.caCert).publicKey));
+  assert.ok(cert.checkPrivateKey(createPrivateKey(pki.serverKey)));
 });

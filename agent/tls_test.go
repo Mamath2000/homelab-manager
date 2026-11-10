@@ -100,7 +100,7 @@ func TestMutualTLS(t *testing.T) {
 	srv.StartTLS()
 	defer srv.Close()
 
-	res, err := httpClient(tlsConfig(ca.pool, &client)).Get(srv.URL)
+	res, err := httpClient(tlsConfig(ca.pool, func() *tls.Certificate { return &client })).Get(srv.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestMutualTLS(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 	// another CA pinned: the hub is refused
-	if _, err := httpClient(tlsConfig(newTestCA(t).pool, &client)).Get(srv.URL); err == nil {
+	if _, err := httpClient(tlsConfig(newTestCA(t).pool, func() *tls.Certificate { return &client })).Get(srv.URL); err == nil {
 		t.Fatal("hub accepted with a different pinned CA")
 	}
 }

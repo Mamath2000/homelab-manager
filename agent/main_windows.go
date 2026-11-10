@@ -169,19 +169,19 @@ func (s *service) Execute(_ []string, req <-chan svc.ChangeRequest, status chan<
 func runAgent(ctx context.Context, cfg config) {
 	log.Printf("homelab-agent %s (windows)", version)
 	defer probes.stop()
-	roots, cert, err := identity(cfg.Dir)
+	id, err := identity(cfg.Dir)
 	if err != nil {
 		log.Printf("identity: %v", err)
 		return
 	}
 	agentDir = cfg.Dir
 	ensurePolicy(cfg.Dir)
-	client := httpClient(tlsConfig(roots, cert))
+	client := httpClient(tlsConfig(id.roots, id.current))
 	// scheduled backups run whether the hub is reachable or not
 	backups = newBackupModule(cfg.Dir)
 	go backups.loop(ctx)
-	connectLoop(ctx, cfg.Hub, client, func(ctx context.Context, conn *websocket.Conn) error {
-		return (&session{conn: conn, http: client, hub: cfg.Hub, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}).loop(ctx)
+	connectLoop(ctx, cfg.Hub, client, id, func(ctx context.Context, conn *websocket.Conn) error {
+		return (&session{conn: conn, http: client, hub: cfg.Hub, id: id, healthCfg: defaultHealthConfig(), healthChanged: make(chan struct{}, 1)}).loop(ctx)
 	})
 }
 
@@ -189,6 +189,7 @@ type session struct {
 	conn          *websocket.Conn
 	http          *http.Client
 	hub           string
+	id            *agentIdentity
 	mu            sync.Mutex // serialises writes
 	healthMu      sync.RWMutex
 	healthCfg     HealthConfig
@@ -211,7 +212,7 @@ func (s *session) send(ctx context.Context, m Outbound) error {
 func (s *session) hello(ctx context.Context) error {
 	// backups: backup_setup (the hub may send definitions), backup_connect (jobs run on connection),
 	// "backup" and backup:cli once the CLI named by the definition is there
-	caps := []string{"refresh", "session", "health", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect", "backup_retry"}
+	caps := []string{"refresh", "session", "health", "agent_update", "reboot", "shutdown", "lock", "backup_setup", "backup_connect", "backup_retry", "cert_renew"}
 	if _, err := findSmartctl(); err == nil {
 		caps = append(caps, "smart")
 	}
@@ -338,10 +339,19 @@ func (s *session) loop(ctx context.Context) error {
 				} else {
 					out.Result = map[string][]SmartCandidate{"candidates": list}
 				}
+			} else if in.Op == "cert_install" {
+				if r, err := certInstall(s.id, s.http, in.Cert); err != nil {
+					out.Error = err.Error()
+				} else {
+					out.Result = r
+				}
 			} else {
 				out.Error = fmt.Sprintf("unknown request %q", in.Op)
 			}
 			_ = s.send(ctx, out)
+			if in.Op == "cert_install" && out.Error == "" {
+				reconnectWithNewCert(s.conn)
+			}
 		case "run":
 			s.run(ctx, in)
 		case "backup_sync":
