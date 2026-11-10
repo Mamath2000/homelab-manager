@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type MqttAccount, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -216,7 +216,18 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
   const refused = q.data?.refused ?? [];
   return (
     <>
-      <Modal open onClose={onClose} title={`Comptes MQTT · ${role.name}`} wide footer={<Button onClick={onClose}>Fermer</Button>}>
+      <Modal
+        open
+        onClose={onClose}
+        title={`Comptes MQTT · ${role.name}`}
+        wide
+        footer={
+          <>
+            <Button icon={RefreshCw} loading={q.isFetching} disabled={q.isFetching} onClick={() => void q.refetch()}>Actualiser</Button>
+            <Button onClick={onClose}>Fermer</Button>
+          </>
+        }
+      >
         <div className="space-y-3 text-sm">
           <p className="text-xs text-muted">
             Un compte donne accès à tous les topics du broker. Un appareil configuré avec un identifiant qui n'est pas dans cette liste est refusé : il apparaît alors en tête de liste
