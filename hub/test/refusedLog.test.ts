@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { markCreated, noteLogLine, parseConnected, parseRefused, refusedOf } from '../src/refusedLog.js';
+import { forgetRefused, markCreated, noteLogLine, parseConnected, parseRefused, refusedOf } from '../src/refusedLog.js';
 
 test('parseRefused reads the client id and the address, without the port', () => {
   assert.deepEqual(parseRefused('1794318425: Client mqtt_salon [192.168.100.52:41234] disconnected: not authorised.'), { clientId: 'mqtt_salon', address: '192.168.100.52' });
@@ -41,4 +41,14 @@ test('the last message of a client wins: a connection that passes clears its ref
   assert.ok(again.lastAt > again.accountAt!);
   noteLogLine(id, 'New client connected from 10.0.0.5:1002 as Test (p4, c1, k60).', 4000);
   assert.deepEqual(refusedOf(id, 4500).map((e) => e.clientId), ['Other']);
+});
+
+test('the administrator can clear a refused client', () => {
+  const id = 'role-c';
+  noteLogLine(id, 'Client esp-9 [10.0.0.5:1000] disconnected: not authorised.', 1000);
+  assert.equal(forgetRefused(id, 'esp-9'), true);
+  assert.equal(forgetRefused(id, 'esp-9'), false);
+  assert.deepEqual(refusedOf(id, 2000), []);
+  noteLogLine(id, 'Client esp-9 [10.0.0.5:1001] disconnected: not authorised.', 3000);
+  assert.equal(refusedOf(id, 3500).length, 1);
 });

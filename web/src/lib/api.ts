@@ -1895,6 +1895,7 @@ export const api = {
   setMqttAccountPassword: (roleId: string, username: string, password?: string) =>
     request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`, password ? { password } : {}),
   deleteMqttAccount: (roleId: string, username: string) => request<{ ok: true }>('DELETE', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`),
+  forgetMqttRefused: (roleId: string, clientId: string) => request<{ ok: boolean }>('DELETE', `/api/roles/${roleId}/mqtt-refused/${encodeURIComponent(clientId)}`),
   mqttSecurity: (roleId: string) => request<MqttSecurityView>('GET', `/api/roles/${roleId}/mqtt-security`),
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
   disableMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/disable`),

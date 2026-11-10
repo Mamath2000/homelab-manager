@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Plus, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, RefreshCw, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type MqttAccount, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -205,6 +205,10 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
       setNewPassword('');
       setShown(r);
     });
+  const forget = (c: MqttRefused) =>
+    done(async () => {
+      await api.forgetMqttRefused(role.id, c.clientId);
+    });
   const remove = () =>
     done(async () => {
       await api.deleteMqttAccount(role.id, deleting!.username);
@@ -220,7 +224,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
         open
         onClose={onClose}
         title={`Comptes MQTT · ${role.name}`}
-        wide
+        wide="xl"
         footer={
           <>
             <Button icon={RefreshCw} loading={q.isFetching} disabled={q.isFetching} onClick={() => void q.refetch()}>Actualiser</Button>
@@ -243,7 +247,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
                 <tr>
                   <th className="th">Compte</th>
                   <th className="th w-40">Connexion</th>
-                  <th className="th w-24" />
+                  <th className="th w-32" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -259,12 +263,13 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
                       {c.address} · {c.count} tentative{c.count > 1 ? 's' : ''} · {timeAgo(c.lastAt)}
                     </td>
                     <td className="td">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-1.5">
                         {!c.account && (
                           <Button size="sm" icon={Plus} disabled={busy} onClick={() => (setClientUser(c.clientId), setClientPassword(''), setForClient(c))}>
                             Créer
                           </Button>
                         )}
+                        <Button size="sm" icon={X} aria-label={`Retirer ${c.clientId} de la liste`} title="Retirer de la liste (revient s'il est de nouveau refusé)" disabled={busy} onClick={() => void forget(c)} />
                       </div>
                     </td>
                   </tr>
