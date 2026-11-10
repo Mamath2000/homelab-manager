@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,13 +29,18 @@ type RoleCandidate struct {
 	Scheme string `json:"scheme"`
 	// Local: listens on loopback only, so the hub cannot reach it
 	Local bool `json:"local,omitempty"`
+	// Mosquitto only (mosquitto.go): its version as it prints it ("2.1.2"), and whether the dynamic-security plugin is
+	// loaded in the running process. Empty / false when the agent cannot tell.
+	Version string `json:"version,omitempty"`
+	Dynsec  bool   `json:"dynsec,omitempty"`
+	pid     int
 }
 
 // mqttBrokerProcesses: names of the listening processes (as `ss` prints them) that are an MQTT broker.
 var mqttBrokerProcesses = []string{"mosquitto", "nanomq", "vernemq", "hivemq"}
 
 // ssListenRe: one line of `ss -H -ltnp` with its process.
-var ssListenRe = regexp.MustCompile(`^LISTEN\s+\S+\s+\S+\s+(\S+):(\d+)\s+\S+\s+users:\(\("([^"]+)"`)
+var ssListenRe = regexp.MustCompile(`^LISTEN\s+\S+\s+\S+\s+(\S+):(\d+)\s+\S+\s+users:\(\("([^"]+)"(?:,pid=(\d+))?`)
 
 // omadaHTTPSPort: the management port (and Open API) of an Omada controller, 8043 by default but changeable. It is the
 // port proposed for the candidate, not what tells a controller.
@@ -98,6 +104,9 @@ func parseRoleCandidates(ssOut string) []RoleCandidate {
 		c, ok := found[k]
 		if !ok {
 			c = &RoleCandidate{Type: typ, Process: proc, Port: port, Scheme: scheme, Local: true}
+			if m[4] != "" {
+				c.pid, _ = strconv.Atoi(m[4])
+			}
 			found[k] = c
 		}
 		if !isLoopback(m[1]) {
@@ -198,5 +207,11 @@ func collectRoleCandidates(ctx context.Context) []RoleCandidate {
 	if err != nil {
 		return nil
 	}
-	return append([]RoleCandidate{}, parseRoleCandidates(string(out))...)
+	cands := append([]RoleCandidate{}, parseRoleCandidates(string(out))...)
+	for i := range cands {
+		if cands[i].Type == "mqtt-broker" && strings.HasPrefix(cands[i].Process, "mosquitto") {
+			describeMosquitto(ctx, &cands[i])
+		}
+	}
+	return cands
 }

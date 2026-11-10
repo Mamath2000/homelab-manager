@@ -75,3 +75,30 @@ func TestParseProcNetListen(t *testing.T) {
 		t.Fatalf("loopback = %+v, want local", loop)
 	}
 }
+
+func TestParseRoleCandidatesPid(t *testing.T) {
+	got := parseRoleCandidates(`LISTEN 0 100 0.0.0.0:1883 0.0.0.0:* users:(("mosquitto",pid=701,fd=5))`)
+	if len(got) != 1 || got[0].pid != 701 {
+		t.Fatalf("pid = %+v", got)
+	}
+}
+
+func TestParseMosquittoVersion(t *testing.T) {
+	for in, want := range map[string]string{
+		"mosquitto version 2.1.2\n\nmosquitto is an MQTT v5.0/v3.1.1/v3.1 message broker.": "2.1.2",
+		"mosquitto version 2.0.21": "2.0.21",
+		"usage: nope":              "",
+	} {
+		if got := parseMosquittoVersion(in); got != want {
+			t.Errorf("%q = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestMapsHaveDynsec(t *testing.T) {
+	with := "7f1 r-xp 0 08:01 12 /usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so\n"
+	without := "7f1 r-xp 0 08:01 12 /usr/lib/x86_64-linux-gnu/libssl.so.3\n"
+	if !mapsHaveDynsec(strings.NewReader(with)) || mapsHaveDynsec(strings.NewReader(without)) {
+		t.Fatal("maps detection")
+	}
+}

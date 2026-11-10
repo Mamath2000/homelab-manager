@@ -161,12 +161,12 @@ function isReport(r: unknown): r is AptReport {
 }
 
 // What an agent reports it found listening: only the known shapes are kept.
-function cleanCandidates(raw: unknown[]): RoleCandidate[] {
+export function cleanCandidates(raw: unknown[]): RoleCandidate[] {
   const out: RoleCandidate[] = [];
   for (const c of raw as Record<string, unknown>[]) {
     if (!c || (c.type !== 'mqtt-broker' && c.type !== 'omada-controller') || typeof c.process !== 'string' || !Number.isInteger(c.port) || (c.port as number) < 1 || (c.port as number) > 65535) continue;
     const scheme = c.type === 'omada-controller' ? 'https' : typeof c.scheme === 'string' && (BROKER_SCHEMES as readonly string[]).includes(c.scheme) ? c.scheme : 'mqtt';
-    out.push({ type: c.type, process: c.process.slice(0, 32), port: c.port as number, scheme, ...(c.local ? { local: true } : {}) });
+    out.push({ type: c.type, process: c.process.slice(0, 32), port: c.port as number, scheme, ...(c.local ? { local: true } : {}), ...(c.type === 'mqtt-broker' && typeof c.version === 'string' && /^\d+\.\d+(\.\d+)?$/.test(c.version) ? { version: c.version } : {}), ...(c.type === 'mqtt-broker' && c.dynsec === true ? { dynsec: true } : {}) });
     if (out.length >= 20) break;
   }
   return out;

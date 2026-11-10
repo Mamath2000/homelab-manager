@@ -1287,6 +1287,9 @@ export interface RoleCandidate {
   scheme: string;
   // loopback only: not reachable from the hub
   local?: boolean;
+  // Mosquitto, read by the agent on the running process: its version, and whether dynamic-security is loaded
+  version?: string;
+  dynsec?: boolean;
 }
 
 export const BROKER_SCHEMES = ['mqtt', 'mqtts', 'ws', 'wss'] as const;

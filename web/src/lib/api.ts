@@ -1654,6 +1654,9 @@ export interface RoleCandidate {
   port: number;
   scheme: string;
   local?: boolean;
+  // Mosquitto: version and dynamic-security loaded in the process (read by the agent)
+  version?: string;
+  dynsec?: boolean;
 }
 
 export interface MqttBrokerView {
