@@ -1320,7 +1320,16 @@ export interface MqttTls {
   clientKeyPem?: string;
 }
 
+// Set while the agent runs dynamic-security on the broker (mqttDynsec.ts): plainPort, where the broker was reached
+// before; enabledAt; clientNotAfter, end of validity of the certificate of the hub.
+export interface MqttDynsec {
+  enabledAt: Date;
+  plainPort: number;
+  clientNotAfter: Date;
+}
+
 export interface MqttBrokerConfig extends MqttTls {
+  dynsec?: MqttDynsec;
   scheme: BrokerScheme;
   port: number;
   address?: string;

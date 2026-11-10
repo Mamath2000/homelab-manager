@@ -184,3 +184,33 @@ export async function issueUiCert(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, sans: s
   });
   return { cert: cert.toString('pem'), key: await keyToPem(keys.privateKey), notAfter: cert.notAfter };
 }
+
+// Certificates of a Mosquitto broker with dynamic-security (mqttDynsec.ts), signed by the same CA: the server one for its
+// TLS listener (names: the IPs of its host), the client one for the account of the hub (the broker takes the CN as the
+// account). The key is generated here and never leaves the hub, except the one of the server that the agent installs.
+export const MQTT_CERT_DAYS = 365;
+
+export async function issueMqttCert(pki: Pick<PkiDoc, 'caCert' | 'caKey'>, kind: 'server' | 'client', cn: string, sans: string[] = []) {
+  const ca = new x509.X509Certificate(pki.caCert);
+  const keys = await newKeys();
+  const now = new Date();
+  const names = sans.map((v) => v.replace(/^\[|\]$/g, '')).filter(Boolean);
+  const cert = await x509.X509CertificateGenerator.create({
+    serialNumber: serial(),
+    subject: `CN=${cn}`,
+    issuer: ca.subject,
+    notBefore: new Date(now.getTime() - 5 * 60_000),
+    notAfter: new Date(now.getTime() + MQTT_CERT_DAYS * DAY),
+    signingAlgorithm: SIGNING,
+    publicKey: keys.publicKey,
+    signingKey: await pemToKey(pki.caKey),
+    extensions: [
+      new x509.BasicConstraintsExtension(false, undefined, true),
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
+      new x509.ExtendedKeyUsageExtension([kind === 'server' ? x509.ExtendedKeyUsage.serverAuth : x509.ExtendedKeyUsage.clientAuth], false),
+      ...(kind === 'server' && names.length ? [new x509.SubjectAlternativeNameExtension(names.map((value) => ({ type: isIP(value) ? ('ip' as const) : ('dns' as const), value })))] : []),
+      await x509.AuthorityKeyIdentifierExtension.create(ca.publicKey),
+    ],
+  });
+  return { cert: cert.toString('pem'), key: await keyToPem(keys.privateKey), notAfter: cert.notAfter };
+}

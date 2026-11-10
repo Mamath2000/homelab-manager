@@ -100,6 +100,8 @@ export const SENSITIVE_ACTIONS = new Set([
   'POST /api/roles',
   'PUT /api/roles/:id',
   'DELETE /api/roles/:id',
+  'POST /api/roles/:id/mqtt-security/enable',
+  'POST /api/roles/:id/mqtt-security/disable',
   // standardisation and access manifest
   'PUT /api/settings/setup',
   'PUT /api/hosts/:id/setup',

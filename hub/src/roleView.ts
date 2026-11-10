@@ -1,3 +1,4 @@
+import { securityOf } from './mqttSecurity.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
 import { bridgeStatusOf } from './homeassistant/bridge.js';
 import { omadaPollOf } from './omadaSync.js';
@@ -11,7 +12,7 @@ const RANK = { connected: 0, connecting: 1, error: 2 } as const;
 const worst = <T extends { state: keyof typeof RANK }>(list: (T | null)[]) =>
   list.reduce<T | null>((a, b) => (!b ? a : !a || RANK[b.state] > RANK[a.state] ? b : a), null);
 
-export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null) {
+export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'roleCandidates'> | null) {
   const base = { id: r._id, type: r.type, name: r.name, carrier: { kind: r.carrier.kind, id: r.carrier.id.toHexString(), name: host?.name ?? '' } };
   switch (r.type) {
     case 'mqtt-broker': {
@@ -21,6 +22,8 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info'> | null
         config: { ...config, address: config.address ?? null },
         hasSecret: !!password,
         hasClientKey: !!clientKeyPem,
+        // the management of the accounts (dynamic-security), as the agent of the host reports it
+        security: securityOf({ config: r.config }, host),
         url: roleUrl(r.config, host?.info?.ips),
         account: r.config.username,
         status: worst([probeEngine()?.pool.status(r._id) ?? null, bridgeStatusOf(r._id)]),

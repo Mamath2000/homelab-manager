@@ -1,9 +1,10 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { agentRequest, isOnline } from '../agents.js';
 import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
@@ -11,16 +12,6 @@ import { roleView } from '../roleView.js';
 import { allRoles, defOf, newRoleId, ROLE_DEFS, ROLE_ID_RE, roleConflict } from '../roles.js';
 import { FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint, SERVER_URL_RE } from '../tlsApi.js';
 import { BROKER_SCHEMES, CARRIER_KINDS, type BrokerScheme, type CarrierKind, type HostDoc, type MqttBrokerConfig, type MqttBrokerRole, type OmadaControllerConfig, type OmadaControllerRole } from '../types.js';
-
-// the report of the agent (agent/dynsec_check.go)
-export interface DynsecReport {
-  eligible: boolean;
-  active: boolean;
-  version?: string;
-  unit?: string;
-  confFile?: string;
-  checks: { id: string; level: 'error' | 'warn' | 'info'; detail: string }[];
-}
 
 // Roles of the hub (roles.ts): read by every account (never a secret), written by the admins (profiles.ts refuses what
 // it does not list): the hub opens connections to what is declared here. The MQTT brokers and the Omada controllers are
@@ -174,6 +165,10 @@ export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): Dec
 
 // An edit that sends the client certificate without its key keeps the stored key (it is never sent back to the UI).
 export function withStoredKey(c: ConfigBody, stored: DeclaredRole | undefined): ConfigBody {
+  // no TLS material sent at all (the form of the role has no field for it): what is stored stays, with a TLS scheme
+  if (stored?.type === 'mqtt-broker' && c.caPem === undefined && c.clientCertPem === undefined && c.clientKeyPem === undefined && (c.scheme === 'mqtts' || c.scheme === 'wss')) {
+    return { ...c, caPem: stored.config.caPem, clientCertPem: stored.config.clientCertPem, clientKeyPem: stored.config.clientKeyPem };
+  }
   if (stored?.type !== 'mqtt-broker' || !c.clientCertPem?.trim() || c.clientKeyPem !== undefined || !stored.config.clientKeyPem) return c;
   return { ...c, clientKeyPem: stored.config.clientKeyPem };
 }
@@ -189,7 +184,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const list = allRoles();
     const ids = list.map((r) => r.carrier.id);
     const [carriers, boxes] = await Promise.all([
-      hosts.find({ _id: { $in: ids } }, { projection: { name: 1, info: 1 } }).toArray(),
+      hosts.find({ _id: { $in: ids } }, { projection: { name: 1, info: 1, roleCandidates: 1 } }).toArray(),
       equipments.find({ _id: { $in: ids } }, { projection: { name: 1, ip: 1 } }).toArray(),
     ]);
     const byId = new Map<string, Pick<HostDoc, 'name' | 'info'>>([...carriers, ...boxes.map((e) => ({ _id: e._id, name: e.name, info: { ips: e.ip ? [e.ip] : [] } as unknown as HostDoc['info'] }))].map((h) => [h._id.toHexString(), h]));
@@ -233,6 +228,8 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!host) return reply.code(404).send({ error: 'host not found' });
     const name = req.body.name.trim();
     const c = toConfig(current.type, body, secret);
+    // set by the activation of dynamic-security, not by a form
+    if (current.type === 'mqtt-broker' && current.config.dynsec && (body.scheme === 'mqtts' || body.scheme === 'wss')) (c as MqttBrokerConfig).dynsec = current.config.dynsec;
     const moved = !host._id.equals(current.carrier.id);
     // what the agent detected is checked again only when it changes: a broker stopped for a while stays editable
     const why =
@@ -278,23 +275,41 @@ export function registerRoleRoutes(app: FastifyInstance) {
     },
   );
 
-  // Read-only checks of the agent before enabling dynamic-security on a Mosquitto broker of a host (dynsec_check.go):
-  // nothing is written. 409: no agent able to tell (offline, too old).
-  app.get<{ Params: { hostId: string }; Querystring: { port: number } }>(
-    '/api/roles/mqtt-dynsec-check/:hostId',
-    { schema: { querystring: { type: 'object', required: ['port'], properties: { port: { type: 'integer', minimum: 1, maximum: 65535 } } } } },
-    async (req, reply) => {
-      const host = await carrierOf({ kind: 'host', id: req.params.hostId });
-      if (!host) return reply.code(404).send({ error: 'host not found' });
-      if (!host.capabilities?.includes('mqtt_dynsec')) return reply.code(409).send({ error: "l'agent de cet hôte ne sait pas contrôler dynamic-security (mise à jour requise)" });
-      if (!isOnline(host._id.toHexString())) return reply.code(409).send({ error: 'agent hors ligne' });
-      try {
-        return await agentRequest<DynsecReport>(host._id.toHexString(), 'mqtt_dynsec_check', { port: req.query.port }, 20_000);
-      } catch (err) {
-        return reply.code(502).send({ error: (err as Error).message });
-      }
-    },
-  );
+  // Management of the accounts of a Mosquitto broker (dynamic-security, run by the agent of its host, mqttDynsec.ts)
+  const brokerRole = (id: string) => {
+    const r = declaredRole(id);
+    return r?.type === 'mqtt-broker' ? r : undefined;
+  };
+  const dynsecFail = (reply: FastifyReply, err: unknown) => {
+    if (err instanceof DynsecError) return reply.code(err.status).send({ error: err.message });
+    throw err;
+  };
+  app.get<{ Params: { id: string } }>('/api/roles/:id/mqtt-security', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    return securityView(role);
+  });
+  app.post<{ Params: { id: string } }>('/api/roles/:id/mqtt-security/enable', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
+    try {
+      return await enableDynsec(role);
+    } catch (err) {
+      return dynsecFail(reply, err);
+    }
+  });
+  app.post<{ Params: { id: string } }>('/api/roles/:id/mqtt-security/disable', async (req, reply) => {
+    const role = brokerRole(req.params.id);
+    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
+    try {
+      await disableDynsec(role);
+      return { ok: true };
+    } catch (err) {
+      return dynsecFail(reply, err);
+    }
+  });
 
   // What an Omada controller answers without any account (/api/info): is something there, and is it a controller. As
   // the test, the fingerprint its certificate presents when it was refused (to pin it).

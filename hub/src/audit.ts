@@ -216,6 +216,8 @@ route('settings', 'settings.pve.delete', 'DELETE /api/settings/pve/clusters/:id'
 route('settings', 'role.create', 'POST /api/roles');
 route('settings', 'role.update', 'PUT /api/roles/:id');
 route('settings', 'role.delete', 'DELETE /api/roles/:id');
+route('settings', 'role.mqtt-security.enable', 'POST /api/roles/:id/mqtt-security/enable');
+route('settings', 'role.mqtt-security.disable', 'POST /api/roles/:id/mqtt-security/disable');
 route('setup', 'setup.standard', 'PUT /api/settings/setup');
 route('setup', 'setup.overrides', 'PUT /api/hosts/:id/setup');
 route('setup', 'setup.keyAck', 'PUT /api/hosts/:id/access-keys/ack');
