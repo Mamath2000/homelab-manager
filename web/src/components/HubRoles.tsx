@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, Radio, Save, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plug, Plus, Radio, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
@@ -16,7 +16,7 @@ import { RemoteModal } from './OffsiteSettings';
 import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
-import { Badge, Button, ConfirmModal, Modal, Panel, ResponsiveList, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
@@ -33,77 +33,133 @@ interface RolePick {
 
 interface Form {
   name: string;
+  port: number;
   scheme: BrokerScheme;
   address: string;
   username: string;
 }
 
-// The brokers the agents found on the hosts. taken: already a role (not the one being edited).
-function candidatesOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | null) {
-  const list = hosts.flatMap((h) =>
-    (h.roleCandidates ?? [])
-      // the other ports of a broker the hub manages (its TLS listener…) are not brokers to declare: not listed at all
-      .filter((c) => c.type === 'mqtt-broker' && !ofManagedBroker(h, c))
-      .map((c) => ({ host: h, c, taken: roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === h.id && r.config.port === c.port) })),
-  );
-  // the carrier of the role edited stays offered, even if its agent no longer reports the service
-  if (editing && !list.some((x) => x.host.id === editing.carrier.id && x.c.port === editing.config.port)) {
-    const host = hosts.find((h) => h.id === editing.carrier.id);
-    if (host) list.unshift({ host, c: { type: editing.type, process: '', port: editing.config.port, scheme: editing.config.scheme }, taken: false });
-  }
-  return list;
+// One broker an agent found: a process of a host and the ports it listens on (1883, 9001…), the TLS listener of the hub
+// left out. taken: already a role (one process, one role), other than the one edited.
+interface BrokerFound {
+  host: Host;
+  process: string;
+  version?: string;
+  dynsec: boolean;
+  listeners: RoleCandidate[];
+  taken: boolean;
 }
 
-// Declares an MQTT broker role, or edits one (choosing another host moves it, its settings kept). Four steps
-// (PbsDialog.tsx): host, broker, account, test; saving needs a successful test and the password is never sent back.
-// preset: the host and port to start from (banner of a host page).
+function brokersOf(hosts: Host[], roles: HubRole[], editing: MqttHubRole | null): BrokerFound[] {
+  const out: BrokerFound[] = [];
+  for (const h of hosts) {
+    for (const c of h.roleCandidates ?? []) {
+      if (c.type !== 'mqtt-broker' || ofManagedBroker(h, c)) continue;
+      let b = out.find((x) => x.host.id === h.id && x.process === c.process);
+      if (!b) {
+        b = { host: h, process: c.process, version: c.version, dynsec: !!c.dynsec, listeners: [], taken: false };
+        out.push(b);
+      }
+      b.listeners.push(c);
+    }
+  }
+  for (const b of out) {
+    b.listeners.sort((x, y) => x.port - y.port);
+    b.taken = roles.some((r) => r.id !== editing?.id && r.type === 'mqtt-broker' && r.carrier.id === b.host.id && b.listeners.some((l) => l.port === r.config.port));
+  }
+  // the broker of the role edited stays offered, even if its agent no longer reports it
+  if (editing && !out.some((b) => b.host.id === editing.carrier.id && b.listeners.some((l) => l.port === editing.config.port))) {
+    const host = hosts.find((h) => h.id === editing.carrier.id);
+    if (host) out.unshift({ host, process: '', dynsec: false, listeners: [{ type: 'mqtt-broker', process: '', port: editing.config.port, scheme: editing.config.scheme }], taken: false });
+  }
+  return out;
+}
+
+const brokerKey = (b: Pick<BrokerFound, 'host' | 'process'>) => `${b.host.id}|${b.process}`;
+// the plain listener first, the way most clients connect
+const defaultListener = (b: BrokerFound) => b.listeners.find((l) => !l.local && l.scheme === 'mqtt') ?? b.listeners.find((l) => !l.local) ?? b.listeners[0];
+
+export function generatePassword() {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const DYNSEC_INFO: Record<'unavailable' | 'available' | 'active', string> = {
+  unavailable: 'gestion des comptes par HLM indisponible',
+  available: 'gestion des comptes par HLM possible (dynamic-security), à activer dans Paramètres › MQTT',
+  active: 'dynamic-security chargé',
+};
+
+// Declares an MQTT broker role, or edits one: the same dialog. Four steps (PbsDialog.tsx): the broker, the connection
+// (name, port, protocol, address), the account, the test; saving needs a successful test and the password is never sent
+// back. When the hub runs the accounts of the broker, the account typed or generated here is made on the broker (or its
+// password changed) when the role is saved. preset: the host and port to start from (banner of a host page).
 export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | null; preset?: RolePick; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: hosts = [] } = useHosts();
   const { data: roles = [] } = useRoles();
   const type = 'mqtt-broker' as const;
-  const [initialPick] = useState<RolePick | null>(() => (role ? { hostId: role.carrier.id, port: role.config.port } : preset ?? null));
-  const [pick, setPick] = useState<RolePick | null>(initialPick);
+  const managed = !!role?.security.managed;
+  const brokers = brokersOf(hosts, roles, role);
+  const start = role ? { hostId: role.carrier.id, port: role.config.port } : preset;
+  const startBroker = start ? brokers.find((b) => b.host.id === start.hostId && b.listeners.some((l) => l.port === start.port)) : undefined;
+  const [initialKey] = useState<string | null>(() => (startBroker ? brokerKey(startBroker) : null));
+  const [key, setKey] = useState<string | null>(initialKey);
   const [initial] = useState<Form>(() => {
-    const c = preset && hosts.find((h) => h.id === preset.hostId)?.roleCandidates?.find((x) => x.type === 'mqtt-broker' && x.port === preset.port);
+    const l = startBroker?.listeners.find((x) => x.port === start?.port);
     return {
       name: role?.name ?? '',
-      scheme: role?.config.scheme ?? (SCHEMES.includes(c?.scheme as BrokerScheme) ? (c!.scheme as BrokerScheme) : 'mqtt'),
+      port: start?.port ?? 0,
+      scheme: role?.config.scheme ?? (SCHEMES.includes(l?.scheme as BrokerScheme) ? (l!.scheme as BrokerScheme) : 'mqtt'),
       address: role?.config.address ?? '',
       username: role?.config.username ?? '',
     };
   });
   const [form, setForm] = useState<Form>(initial);
   const [password, setPassword] = useState('');
+  const [generated, setGenerated] = useState(false);
   const [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
+  const [info, setInfo] = useState<HubRoleTest['dynsec'] | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // any change makes the last test void
   const set = (patch: Partial<Form>) => {
     setForm({ ...form, ...patch });
     setTest(null);
   };
-  const choose = (h: Host, c: RoleCandidate) => {
-    setPick({ hostId: h.id, port: c.port });
-    // a new broker takes the scheme guessed by the agent
-    if (!role && SCHEMES.includes(c.scheme as BrokerScheme)) setForm({ ...form, scheme: c.scheme as BrokerScheme });
+  const broker = brokers.find((b) => brokerKey(b) === key);
+  const listenerOf = (b: BrokerFound | undefined, port: number) => b?.listeners.find((l) => l.port === port);
+  const choose = (b: BrokerFound) => {
+    setKey(brokerKey(b));
+    const l = defaultListener(b);
+    setForm({ ...form, port: l.port, scheme: SCHEMES.includes(l.scheme as BrokerScheme) ? (l.scheme as BrokerScheme) : 'mqtt' });
     setTest(null);
   };
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || JSON.stringify(pick) !== JSON.stringify(initialPick) || !!password || clearPassword;
+  const chooseListener = (port: number) => {
+    const l = listenerOf(broker, port);
+    set({ port, ...(l && SCHEMES.includes(l.scheme as BrokerScheme) ? { scheme: l.scheme as BrokerScheme } : {}) });
+  };
+  const regenerate = () => {
+    setPassword(generatePassword());
+    setGenerated(true);
+    setClearPassword(false);
+    setTest(null);
+  };
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || key !== initialKey || !!password || clearPassword;
   const requestClose = () => {
     if (busy) return;
     if (dirty) setConfirmDiscard(true);
     else onClose();
   };
 
-  const candidates = candidatesOf(hosts, roles, role);
-  const host = pick ? hosts.find((h) => h.id === pick.hostId) : undefined;
-  const carrier = pick ? { kind: 'host' as const, id: pick.hostId } : undefined;
+  const host = broker?.host;
+  const carrier = host ? { kind: 'host' as const, id: host.id } : undefined;
   const config = () => ({
     scheme: form.scheme,
-    port: pick?.port ?? 0,
+    port: form.port,
     ...(form.address.trim() ? { address: form.address.trim() } : {}),
     username: form.username,
     ...(clearPassword ? { password: '' } : password ? { password } : {}),
@@ -114,12 +170,15 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
     setTest(null);
     try {
       const r = await api.testRole({ type, carrier, config: config(), ...(role ? { roleId: role.id } : {}) });
+      setInfo(r.dynsec ?? null);
       setTest(
         !r.ok
           ? { level: 'error', title: 'Échec', detail: r.error ?? 'échec' }
-          : r.anonymous
-            ? { level: 'warn', title: 'Connexion réussie, mais connexions anonymes acceptées', detail: ANONYMOUS_HINT }
-            : { level: 'ok', title: 'Connexion réussie', detail: shown },
+          : r.pending
+            ? { level: 'ok', title: 'Broker joignable', detail: r.detail ?? shown }
+            : r.anonymous
+              ? { level: 'warn', title: 'Connexion réussie, mais connexions anonymes acceptées', detail: ANONYMOUS_HINT }
+              : { level: 'ok', title: 'Connexion réussie', detail: shown },
       );
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
@@ -130,10 +189,10 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const save = async () => {
     setBusy('save');
     try {
-      const moved = role && pick && (pick.hostId !== role.carrier.id || pick.port !== role.config.port);
+      const moved = role && host && host.id !== role.carrier.id;
       if (role) await api.updateRole(role.id, { ...(moved ? { carrier } : {}), name: form.name.trim(), config: config() });
       else await api.createRole({ type, carrier, name: form.name.trim(), config: config() });
-      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers })]);
+      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers }), qc.invalidateQueries({ queryKey: ['mqtt-accounts'] })]);
       toast.success(role ? `Rôle ${form.name.trim()} modifié` : `Rôle ${form.name.trim()} déclaré`);
       onClose();
     } catch (err) {
@@ -145,9 +204,10 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
 
   const nameOk = form.name.trim().length > 0;
   const addressOk = /^[A-Za-z0-9.:_-]*$/.test(form.address);
-  const shown = `${form.scheme}://${form.address.trim() || "IP de l'hôte"}:${pick?.port ?? '?'}`;
-  // the account is optional (anonymous broker): done with the broker
-  const [carried, configured, account, tested] = stepStates([!!pick, nameOk && addressOk, nameOk && addressOk, test?.level === 'ok']);
+  const shown = `${form.scheme}://${form.address.trim() || "IP de l'hôte"}:${form.port || '?'}`;
+  // the account is optional (anonymous broker): done with the connection
+  const [picked, configured, account, tested] = stepStates([!!broker, nameOk && addressOk && !!form.port, nameOk && addressOk && !!form.port, test?.level === 'ok' || test?.level === 'warn']);
+  const dynsecInfo = info ?? (broker?.dynsec ? { state: 'active' as const, managed } : null);
 
   return (
     <>
@@ -162,33 +222,26 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
         footer={
           <>
             <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
-            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || test?.level !== 'ok'} onClick={() => void save()}>Enregistrer</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !test || test.level === 'error'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
       >
-        {role?.security.managed && (
-          <p className="mb-3 rounded-md border border-line bg-raised/40 px-3 py-2 text-xs text-muted">
-            La gestion des comptes (dynamic-security) est active sur ce broker. Le hub l'administre avec sa propre identité (TLS mutuel, port 8883), à part : ce formulaire ne règle que la
-            <b> connexion du rôle</b>, celle des sondes et du pont Home Assistant. Pour lui donner un compte sans passer par ici : <Link className="underline" to="/settings?tab=mqtt">Paramètres › MQTT › Connexion du rôle</Link>.
-          </p>
-        )}
         <Steps fill>
-          <Step n={1} title="Hôte" state={carried} intro={role ? "Choisir un autre hôte déplace le rôle, ses paramètres gardés." : "Les brokers que les agents ont trouvés en écoute sur leur hôte."}>
-            {!candidates.length ? (
+          <Step n={1} title="Broker" state={picked} intro={role ? 'Choisir un autre broker déplace le rôle, ses paramètres gardés.' : 'Les brokers que les agents ont trouvés sur leur hôte.'}>
+            {!brokers.length ? (
               <p className="text-sm text-muted">Aucun broker détecté par les agents. Il faut un agent HLM sur l'hôte du broker.</p>
             ) : (
               <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                {candidates.map(({ host: h, c, taken }) => {
-                  const off = taken || !!c.local;
-                  const on = pick?.hostId === h.id && pick.port === c.port;
+                {brokers.map((b) => {
+                  const off = b.taken || b.listeners.every((l) => l.local) || (managed && b.host.id !== role!.carrier.id);
+                  const on = key === brokerKey(b);
                   return (
-                    <label key={`${h.id}:${c.port}`} className={clsx('block rounded-md border px-3 py-2', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line', off ? 'opacity-50' : 'cursor-pointer hover:bg-raised/40')}>
-                      <input type="radio" name="role-carrier" className="sr-only" checked={on} disabled={off} onChange={() => choose(h, c)} />
-                      <div className="truncate font-medium text-zinc-100">{h.name}</div>
+                    <label key={brokerKey(b)} className={clsx('block rounded-md border px-3 py-2', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line', off ? 'opacity-50' : 'cursor-pointer hover:bg-raised/40')}>
+                      <input type="radio" name="role-broker" className="sr-only" checked={on} disabled={off} onChange={() => choose(b)} />
+                      <div className="flex items-center gap-1.5 truncate font-medium text-zinc-100">{b.host.name}</div>
                       <div className="text-xs text-muted">
-                        {c.process ? `${c.process}${c.version ? ` ${c.version}` : ''} · ` : ''}port {c.port}
-                        {c.dynsec ? ' · dynamic-security chargé' : ''}
-                        {taken ? ' · déjà déclaré' : c.local ? ' · en écoute locale seulement : injoignable par le hub' : ''}
+                        {b.process ? `${b.process}${b.version ? ` ${b.version}` : ''}` : 'broker non détecté actuellement'}
+                        {b.taken ? ' · déjà déclaré' : b.listeners.every((l) => l.local) ? ' · en écoute locale seulement : injoignable par le hub' : ''}
                       </div>
                     </label>
                   );
@@ -196,47 +249,70 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
               </div>
             )}
           </Step>
-          <Step n={2} title="Broker" state={configured} intro="Comment le broker s'appelle dans les sondes, et où le joindre : par défaut, la première IP privée de l'hôte.">
+          <Step n={2} title="Connexion" state={configured} intro="Comment le broker s'appelle dans les sondes, et comment le joindre : par défaut, la première IP privée de l'hôte.">
             <label className="block">
               <span className={field}>Nom</span>
               <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="zigbee2mqtt, esphome…" />
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
+                <span className={field}>Port</span>
+                <select className="input" value={form.port || ''} disabled={!broker} onChange={(e) => chooseListener(Number(e.target.value))}>
+                  {!broker && <option value="">—</option>}
+                  {(broker?.listeners ?? []).map((l) => (
+                    <option key={l.port} value={l.port} disabled={l.local}>
+                      {l.port} · {l.scheme}{l.local ? ' (locale)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
                 <span className={field}>Protocole</span>
                 <select className="input" value={form.scheme} onChange={(e) => set({ scheme: e.target.value as BrokerScheme })}>
                   {SCHEMES.map((x) => <option key={x} value={x}>{x}://</option>)}
                 </select>
               </label>
-              <label className="block">
-                <span className={field}>Port</span>
-                <input className="input" value={pick?.port ?? ''} disabled title="Port détecté par l'agent" readOnly />
-              </label>
             </div>
+            <p className="text-xs text-muted">Les ports sur lesquels le broker écoute, relevés par l'agent ; le protocole est déduit du port choisi.</p>
             <label className="block">
               <span className={field}>Adresse (facultatif)</span>
               <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder="IP de l'hôte" spellCheck={false} />
               <span className="mt-1 block text-xs text-muted">À renseigner si l'IP choisie par défaut n'est pas la bonne, ou pour un nom DNS.</span>
             </label>
           </Step>
-          <Step n={3} title="Compte" state={account} intro="Facultatif : laisser vide pour un broker anonyme.">
+          <Step
+            n={3}
+            title="Compte"
+            state={account}
+            intro={managed ? 'Les comptes de ce broker sont gérés par HLM : le compte est créé, ou son mot de passe changé, sur le broker à l\'enregistrement.' : 'Facultatif : laisser vide pour un broker anonyme. Le compte doit exister sur le broker.'}
+          >
             <label className="block">
               <span className={field}>Utilisateur</span>
               <input className="input" value={form.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" />
             </label>
-            <label className="block">
+            <div className="block">
               <span className={field}>Mot de passe</span>
-              <input
-                className="input"
-                type="password"
-                value={password}
-                disabled={clearPassword}
-                onChange={(e) => (setPassword(e.target.value), setTest(null))}
-                placeholder={role?.hasSecret ? '••••••••' : ''}
-                autoComplete="new-password"
-              />
-              {role?.hasSecret && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
-            </label>
+              <div className="flex gap-1.5">
+                <input
+                  className="input min-w-0 flex-1"
+                  type={generated ? 'text' : 'password'}
+                  value={password}
+                  disabled={clearPassword}
+                  onChange={(e) => (setPassword(e.target.value), setGenerated(false), setTest(null))}
+                  placeholder={role?.hasSecret ? '••••••••' : ''}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+                <Button icon={RefreshCw} aria-label="Générer un mot de passe" title="Générer un mot de passe" disabled={busy !== null} onClick={regenerate} />
+              </div>
+              {role?.hasSecret && !password && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le mot de passe enregistré</span>}
+              {generated && password && (
+                <div className="mt-2 space-y-1">
+                  <CopyField value={password} />
+                  <span className="block text-xs text-muted">{managed ? 'Enregistré sur le broker et dans le rôle à l\'enregistrement.' : 'À reporter sur le broker : HLM ne le connaît que pour ce rôle.'}</span>
+                </div>
+              )}
+            </div>
             {role?.hasSecret && (
               <label className="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" checked={clearPassword} onChange={(e) => (setClearPassword(e.target.checked), setTest(null))} className="accent-emerald-500" />
@@ -250,7 +326,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
             state={tested}
             intro="Le hub se connecte au broker avec ce compte ; l'enregistrement n'est possible qu'après un test réussi."
             footer={
-              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !pick || !nameOk || !addressOk} onClick={() => void runTest()}>
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !broker || !nameOk || !addressOk || !form.port} onClick={() => void runTest()}>
                 {test ? 'Tester à nouveau' : 'Tester la connexion'}
               </Button>
             }
@@ -264,6 +340,15 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
               ]}
             />
             <CheckLine label="Broker MQTT" check={test} idle={shown} />
+            {dynsecInfo && (
+              <p className="flex items-start gap-1.5 text-xs text-muted">
+                <ShieldCheck className={clsx('mt-0.5 h-3.5 w-3.5 shrink-0', dynsecInfo.managed ? 'text-emerald-400' : 'text-zinc-500')} aria-hidden />
+                <span>
+                  Pour info : {dynsecInfo.managed ? 'comptes gérés par HLM (dynamic-security)' : DYNSEC_INFO[dynsecInfo.state]}
+                  {dynsecInfo.state === 'unavailable' && dynsecInfo.reason ? ` (${dynsecInfo.reason})` : ''}.
+                </span>
+              </p>
+            )}
           </Step>
         </Steps>
       </Modal>
@@ -643,6 +728,24 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
 }
 
 // Why a role of this type cannot be declared now (null: it can).
+// The management of the accounts of a broker (dynamic-security), as an icon beside its name: green when HLM runs it, grey
+// when it is only possible (or loaded but run outside HLM); nothing when unavailable.
+function DynsecIcon({ role }: { role: MqttHubRole }) {
+  const s = role.security;
+  if (s.state === 'unavailable') return null;
+  const managed = s.state === 'active' && !!s.managed;
+  const title = managed
+    ? 'Comptes gérés par HLM (dynamic-security) : Paramètres › MQTT'
+    : s.state === 'active'
+      ? 'dynamic-security chargé, mais géré en dehors de HLM'
+      : `Gestion des comptes par HLM possible${s.version ? ` (Mosquitto ${s.version})` : ''} : à activer dans Paramètres › MQTT`;
+  return (
+    <Link to="/settings?tab=mqtt" title={title} aria-label={title} className="shrink-0">
+      <ShieldCheck className={clsx('h-3.5 w-3.5', managed ? 'text-emerald-400' : 'text-zinc-500')} aria-hidden />
+    </Link>
+  );
+}
+
 function notNow(t: HubRoleType, roles: HubRole[]) {
   if (SINGLE_ROLES.includes(t) && roles.some((r) => r.type === t)) return 'déjà déclaré : un seul dans le homelab';
   if (t === 'pbs-offsite' && !roles.some((r) => r.type === 'pbs-primary')) return 'déclarer d’abord le PBS principal';
@@ -785,7 +888,10 @@ export function RolesSettings() {
                 {g.list.map((r) => (
                   <article key={r.id} className="min-w-0 space-y-2 border-t border-line p-4">
                     <div className="flex min-w-0 items-start justify-between gap-3">
-                      <span className="min-w-0 truncate font-medium text-zinc-100">{r.name}</span>
+                      <span className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-100">
+                        <span className="truncate">{r.name}</span>
+                        {r.type === 'mqtt-broker' && <DynsecIcon role={r} />}
+                      </span>
                       <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
                     </div>
                     <p className="break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
@@ -829,22 +935,18 @@ export function RolesSettings() {
                   </tr>
                   {g.list.map((r) => (
                     <tr key={r.id} className="hover:bg-raised/40">
-                      <td className="td truncate font-medium text-zinc-100" title={r.name}>{r.name}</td>
+                      <td className="td truncate font-medium text-zinc-100" title={r.name}>
+                        <span className="inline-flex max-w-full items-center gap-1.5">
+                          <span className="truncate">{r.name}</span>
+                          {r.type === 'mqtt-broker' && <DynsecIcon role={r} />}
+                        </span>
+                      </td>
                       <td className="td truncate">{carrierLink(r)}</td>
                       <td className="td truncate font-mono text-xs text-zinc-300" title={r.url || undefined}>{r.url || 'inconnue'}</td>
                       <td className="td truncate text-muted" title={r.account || undefined}>{r.account || 'anonyme'}</td>
                       <td className="td">
                         <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
                         {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
-                        {r.type === 'mqtt-broker' && (
-                          <p className="mt-0.5 truncate text-xs text-muted" title={r.security.reason}>
-                            Comptes : {r.security.state === 'unavailable' ? 'indisponible' : (
-                              <Link className="underline" to="/settings?tab=mqtt">
-                                {r.security.state === 'active' ? <span className="text-emerald-400">gérés par le hub</span> : 'disponible'}
-                              </Link>
-                            )}
-                          </p>
-                        )}
                         {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-0.5 truncate text-xs text-red-300" title={ANONYMOUS_HINT}>connexions anonymes acceptées</p>}
                       </td>
                       <td className="td truncate text-muted" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</td>

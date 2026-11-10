@@ -62,12 +62,10 @@ test('issueMqttCert: server certificate with the names of the host, client certi
 
 test('adminBroker: the hub administers on the TLS listener with its own certificate, whatever the connection of the role', async () => {
   const { adminBroker } = await import('../src/mqttDynsec.js');
-  const { roleAccountName } = await import('../src/mqttAccounts.js');
   const role = { _id: 'vouille', config: { scheme: 'mqtt', port: 1883, username: 'hlm-vouille', password: 'x', dynsec: { enabledAt: new Date(), clientNotAfter: new Date(), caPem: 'CA', clientCertPem: 'CERT', clientKeyPem: 'KEY' } } } as unknown as MqttBrokerRole;
   const admin = adminBroker(role, ['192.168.100.10'])!;
   assert.equal(admin.url, 'mqtts://192.168.100.10:8883');
   assert.deepEqual([admin.tls?.caPem, admin.tls?.clientCertPem, admin.tls?.clientKeyPem], ['CA', 'CERT', 'KEY']);
   assert.equal(adminBroker({ ...role, config: { ...role.config, dynsec: undefined } } as unknown as MqttBrokerRole, ['192.168.100.10']), null);
   assert.equal(adminBroker(role, []), null);
-  assert.equal(roleAccountName(role), 'hlm-vouille');
 });

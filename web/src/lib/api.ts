@@ -1822,6 +1822,10 @@ export interface HubRoleTest extends Partial<PresentedFingerprint> {
   error?: string;
   detail?: string;
   anonymous?: boolean; // broker: also accepts connections without an account
+  // broker, for information: whether the hub can run its accounts (dynamic-security), managed: it does
+  dynsec?: { state: MqttSecurity['state']; version?: string; reason?: string; managed: boolean };
+  // broker whose accounts the hub runs: the account typed is made (or its password changed) when the role is saved
+  pending?: boolean;
 }
 
 export const api = {
@@ -1911,8 +1915,6 @@ export const api = {
     request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}), ...(clientId ? { clientId } : {}) }),
   setMqttAccountPassword: (roleId: string, username: string, password?: string) =>
     request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`, password ? { password } : {}),
-  // the account of the connection of the role itself (probes, Home Assistant bridge): made on the broker and written into the role
-  setMqttRoleAccount: (roleId: string, password?: string) => request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-role-account`, password ? { password } : {}),
   deleteMqttAccount: (roleId: string, username: string) => request<{ ok: true }>('DELETE', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`),
   mqttAnonymous: (roleId: string) => request<MqttAnonymousState>('GET', `/api/roles/${roleId}/mqtt-anonymous`),
   setMqttAnonymous: (roleId: string, allowed: boolean) => request<MqttAnonymousState>('PUT', `/api/roles/${roleId}/mqtt-anonymous`, { allowed }),

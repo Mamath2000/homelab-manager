@@ -5,10 +5,11 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
-import { createAccount, deleteAccount, listAccounts, roleAccountName, setAccountPassword, setRoleAccount } from '../mqttAccounts.js';
+import { checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, syncAccount } from '../mqttAccounts.js';
 import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
+import { securityOf } from '../mqttSecurity.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
@@ -242,10 +243,30 @@ export function registerRoleRoutes(app: FastifyInstance) {
       // a fingerprint kept as it is stays editable after a renewal of the certificate (the next poll says it changed)
       (moved || ('fingerprint' in current.config && current.config.fingerprint !== (c as OmadaControllerConfig).fingerprint) ? await pinRefused(host, c) : null);
     if (why) return reply.code(409).send({ error: why });
+    // a broker whose accounts the hub runs: the account of the role is made (or its password changed) on the broker first,
+    // then the role must connect with it
+    let account: 'created' | 'password' | undefined;
+    if (current.type === 'mqtt-broker' && current.config.dynsec) {
+      if (moved) return reply.code(409).send({ error: "la gestion des comptes est active sur ce broker : la désactiver avant de déplacer le rôle sur un autre hôte" });
+      const mc = c as MqttBrokerConfig;
+      const typed = typedSecret(current.type, body);
+      if (mc.username && typed) {
+        try {
+          checkName(mc.username);
+          account = await syncAccount(current, mc.username, typed);
+          await testConnection(roleUrl(mc, host.info?.ips), mc.username, typed, tlsOf(mc));
+        } catch (err) {
+          if (err instanceof DynsecError) return dynsecFail(reply, err);
+          return reply.code(502).send({ error: `${account ? 'compte mis à jour sur le broker, mais ' : ''}connexion refusée : ${(err as Error).message}` });
+        }
+      } else if (mc.username && mc.username !== current.config.username) {
+        return reply.code(400).send({ error: 'nouveau compte : saisir ou générer son mot de passe, il sera créé sur le broker' });
+      }
+    }
     await roles.replaceOne({ _id: current._id }, { ...current, name, carrier: { kind: req.body.carrier?.kind ?? current.carrier.kind, id: host._id }, config: c } as DeclaredRole);
     req.auditNote = {
       target: { kind: 'role', id: current._id, name },
-      details: { type: current.type, ...(moved ? { carrier: host.name } : {}), ...(name !== current.name ? { renamed: { from: current.name, to: name } } : {}), ...settingsDiff(current.config, c) },
+      details: { type: current.type, ...(account ? { brokerAccount: account } : {}), ...(moved ? { carrier: host.name } : {}), ...(name !== current.name ? { renamed: { from: current.name, to: name } } : {}), ...settingsDiff(current.config, c) },
     };
     await rolesSaved(moved ? [current.carrier.id, host._id] : [host._id]);
     return { id: current._id };
@@ -284,7 +305,6 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const r = declaredRole(id);
     return r?.type === 'mqtt-broker' ? r : undefined;
   };
-  const accountBody0 = { type: 'object', additionalProperties: false, properties: { password: { type: 'string', maxLength: 256 } } } as const;
   const dynsecFail = (reply: FastifyReply, err: unknown) => {
     if (err instanceof DynsecError) return reply.code(err.status).send({ error: err.message });
     throw err;
@@ -311,19 +331,6 @@ export function registerRoleRoutes(app: FastifyInstance) {
     try {
       await disableDynsec(role);
       return { ok: true };
-    } catch (err) {
-      return dynsecFail(reply, err);
-    }
-  });
-
-  // The account of the connection of the role itself (probes, Home Assistant bridge), made on the broker and written into
-  // the role (mqttAccounts.ts): the password is generated when absent, returned once
-  app.put<{ Params: { id: string }; Body: { password?: string } }>('/api/roles/:id/mqtt-role-account', { schema: { body: accountBody0 } }, async (req, reply) => {
-    const role = brokerRole(req.params.id);
-    if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
-    req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: roleAccountName(role) } };
-    try {
-      return await setRoleAccount(role, req.body.password);
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -474,13 +481,22 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const mqttConfig = toConfig('mqtt-broker', body, secret);
     const url = roleUrl(mqttConfig, host.info?.ips);
     if (!url) return { ok: false, error: "adresse de l'hôte inconnue : la saisir" };
+    // for information: whether the broker can have its accounts managed by the hub (dynamic-security)
+    const security = securityOf({ config: mqttConfig }, host);
+    const dynsec = { state: security.state, ...(security.version ? { version: security.version } : {}), ...(security.reason ? { reason: security.reason } : {}), managed: !!(stored?.type === 'mqtt-broker' && stored.config.dynsec) };
+    // without an account too (no certificate either, the authority only): anyone on the network may publish on it
+    const anonymousToo = () => testConnection(url, '', '', mqttConfig.caPem ? { caPem: mqttConfig.caPem } : undefined).then(() => true, () => false);
     try {
       await testConnection(url, body.username!, secret, tlsOf(mqttConfig));
-      // without an account too (no certificate either, the authority only): anyone on the network may publish on it
-      const anonymous = await testConnection(url, '', '', mqttConfig.caPem ? { caPem: mqttConfig.caPem } : undefined).then(() => true, () => false);
-      return { ok: true, ...(anonymous ? { anonymous: true, detail: 'le broker accepte aussi les connexions anonymes : tout le réseau peut y publier' } : {}) };
+      const anonymous = await anonymousToo();
+      return { ok: true, dynsec, ...(anonymous ? { anonymous: true, detail: 'le broker accepte aussi les connexions anonymes : tout le réseau peut y publier' } : {}) };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      // a managed broker: an account typed in the dialog is made (or its password changed) when the role is saved
+      const typed = typedSecret(type, body);
+      if (dynsec.managed && body.username && typed && /not authori|bad user ?name or password/i.test((err as Error).message)) {
+        return { ok: true, dynsec, pending: true, detail: `le compte ${body.username} sera créé, ou son mot de passe changé, sur le broker à l'enregistrement` };
+      }
+      return { ok: false, dynsec, error: (err as Error).message };
     }
   });
 }

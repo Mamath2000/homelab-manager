@@ -9,15 +9,24 @@ export function lanAddress(ips: string[] | null | undefined) {
   return v4.find((ip) => ip.startsWith('192.168.') || ip.startsWith('10.')) ?? v4.find((ip) => !/^172\.(1[7-9]|2\d|3[01])\./.test(ip)) ?? v4[0] ?? '';
 }
 
-// The other ports of a broker whose accounts the hub manages (the TLS listener of the hub on 8883, 9001…, beside the port
-// of its role): one process, one role. Only the process tells, the agent lists ports.
+// The TLS listener the agent adds for the hub when it runs the accounts of a broker (dynamic-security): the hub
+// administers the broker there with its certificate, it is never the connection of a role.
+export const HUB_TLS_PORT = 8883;
+
+// the process of the broker listening on that port of the host ('' when the agent does not list it)
+export const brokerProcess = (host: Host, port: number) => (host.roleCandidates ?? []).find((x) => x.type === 'mqtt-broker' && x.port === port)?.process ?? '';
+
+// The TLS listener of the hub on a broker whose accounts it manages: not a broker to declare.
 export function ofManagedBroker(host: Host, c: RoleCandidate) {
-  const managed = host.roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker' && !!r.security.managed).map((r) => r.config.port);
-  return c.port !== undefined && !managed.includes(c.port) && (host.roleCandidates ?? []).some((x) => x.type === 'mqtt-broker' && x.process === c.process && managed.includes(x.port));
+  if (c.port !== HUB_TLS_PORT) return false;
+  return host.roles.some((r) => r.type === 'mqtt-broker' && !!r.security.managed && brokerProcess(host, r.config.port) === c.process);
 }
 
+// one process, one role: a broker already declared on one of its listeners is not offered again
 export const offeredCandidates = (host: Host) =>
-  (host.roleCandidates ?? []).filter((c) => c.type === 'mqtt-broker' && !c.local && !host.roles.some((r) => r.type === 'mqtt-broker' && r.config.port === c.port) && !ofManagedBroker(host, c));
+  (host.roleCandidates ?? []).filter(
+    (c) => c.type === 'mqtt-broker' && !c.local && !ofManagedBroker(host, c) && !host.roles.some((r) => r.type === 'mqtt-broker' && (r.config.port === c.port || brokerProcess(host, r.config.port) === c.process)),
+  );
 
 export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'mqtt-broker', label: 'Broker MQTT', hint: 'écouté par les sondes MQTT, et broker de l’intégration Home Assistant' },

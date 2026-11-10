@@ -629,7 +629,7 @@ function HostDetailPage({ id }: { id: string }) {
             <div className="panel mb-5 flex flex-wrap items-center gap-3 border-sky-500/40 bg-sky-500/5 px-4 py-3 text-sm">
               <Radio className="h-4 w-4 text-sky-300" />
               <span className="text-zinc-200">
-                Broker MQTT détecté sur cet hôte (port {offeredCandidates(host).map((c) => c.port).join(', ')}). Le déclarer comme rôle du hub permet aux sondes de l'écouter et à l'intégration Home Assistant d'y publier.
+                Broker MQTT détecté sur cet hôte. Le déclarer comme rôle du hub permet aux sondes de l'écouter et à l'intégration Home Assistant d'y publier.
               </span>
               <span className="ml-auto">
                 <Button size="sm" icon={Settings} onClick={() => setDeclaring({ hostId: host.id, port: offeredCandidates(host)[0].port })}>Déclarer</Button>

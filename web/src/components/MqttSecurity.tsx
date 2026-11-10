@@ -41,10 +41,6 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<'enable' | 'disable' | 'anonymous-off' | 'anonymous-on' | null>(null);
   const [busy, setBusy] = useState(false);
-  // the account of the connection of the role: dialog, password typed, the one made (shown once)
-  const [roleAccount, setRoleAccount] = useState(false);
-  const [roleAccountPassword, setRoleAccountPassword] = useState('');
-  const [roleAccountShown, setRoleAccountShown] = useState<{ username: string; password: string } | null>(null);
   const q = useQuery({ queryKey: ['mqtt-security', role.id], queryFn: () => api.mqttSecurity(role.id), refetchOnWindowFocus: false });
   const v = q.data;
   const state = v?.state ?? role.security.state;
@@ -63,21 +59,6 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
     } catch (err) {
       toast.error((err as Error).message);
       setConfirm(null);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const defineRoleAccount = async () => {
-    setBusy(true);
-    try {
-      const r = await api.setMqttRoleAccount(role.id, roleAccountPassword || undefined);
-      setRoleAccount(false);
-      setRoleAccountPassword('');
-      setRoleAccountShown(r);
-      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers }), qc.invalidateQueries({ queryKey: ['mqtt-accounts', role.id] })]);
-    } catch (err) {
-      toast.error((err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -106,140 +87,112 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
   return (
     <>
       <Panel title={`Sécurité MQTT · ${role.name}`} icon={ShieldCheck}>
-        <div className="space-y-4 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={STATE[state].tone}>{STATE[state].label}</Badge>
-            {(v?.version ?? role.security.version) && <span className="text-xs text-muted">Mosquitto {v?.version ?? role.security.version}</span>}
-            {hubManaged && <span className="text-xs text-muted">activée le {date(v!.enabledAt)} · certificat du hub valable jusqu'au {date(v!.clientNotAfter)}</span>}
-          </div>
-
-          {state === 'unavailable' && <p className="text-muted">{role.security.reason ?? 'La gestion des comptes n\'est pas disponible sur ce broker.'}</p>}
-          {state === 'active' && !hubManaged && !q.isLoading && (
-            <p className="text-muted">Le plugin dynamic-security est chargé mais n'a pas été activé par le hub : il reste géré en dehors de HLM.</p>
-          )}
-          {state === 'active' && hubManaged && (
-            <p className="text-muted">
-              Les comptes se gèrent depuis la fiche de l'hôte <Link className="underline" to={`/hosts/${role.carrier.id}`}>{role.carrier.name}</Link>.{' '}
-              Le hub administre le broker en TLS mutuel (port 8883) avec son propre certificat, sans mot de passe : c'est à part de la connexion du rôle ci-dessous, que les
-              sondes et le pont Home Assistant continuent d'utiliser. Les clients anonymes restent acceptés (rôle <code>legacy</code>) ; un client qui se connecte avec un compte
-              inconnu est refusé.
-            </p>
-          )}
-
-          {state === 'available' && (
-            <div className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
-              <p className="font-medium text-amber-300">À savoir avant d'activer</p>
-              <ul className="list-disc space-y-0.5 pl-4">
-                <li>
-                  <b>Les connexions avec un utilisateur inconnu seront refusées</b> : un appareil configuré avec un identifiant que le broker ne connaît pas ne se connecte plus. Les connexions
-                  anonymes continuent d'être acceptées.
-                </li>
-                <li>Le broker est <b>redémarré</b> : tous les clients sont déconnectés quelques secondes.</li>
-                <li>L'agent ajoute des fichiers (certificats, un fichier de configuration) sans modifier les vôtres ; en cas d'échec il les retire et redémarre.</li>
-              </ul>
+        <div className="grid gap-6 text-sm lg:grid-cols-2">
+          {/* left: the management of the accounts itself (state, checks of the agent, activation) */}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={STATE[state].tone}>{STATE[state].label}</Badge>
+              {(v?.version ?? role.security.version) && <span className="text-xs text-muted">Mosquitto {v?.version ?? role.security.version}</span>}
+              {hubManaged && <span className="text-xs text-muted">activée le {date(v!.enabledAt)} · certificat du hub valable jusqu'au {date(v!.clientNotAfter)}</span>}
             </div>
-          )}
 
-          {(state === 'available' || state === 'active') && (
-            <div>
-              <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Contrôles de l'agent</p>
-              {q.isLoading ? (
-                <Spinner />
-              ) : v?.error ? (
-                <p className="text-xs text-red-400">{v.error}</p>
-              ) : (
-                <ul className="space-y-0.5 text-xs">
-                  {checks.map((c, i) => (
-                    <li key={i} className={c.level === 'error' ? 'text-red-400' : c.level === 'warn' ? 'text-amber-400' : 'text-muted'}>
-                      {c.level === 'error' ? '✗' : c.level === 'warn' ? '!' : '·'} {c.detail}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {manageable && (
-            <div className="space-y-1.5 border-t border-line pt-3">
-              <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Connexion du rôle</p>
-              <p className="text-xs text-muted">
-                Ce que les sondes et le pont Home Assistant utilisent pour joindre ce broker : <code>{role.url}</code>, {role.account ? <>compte <code>{role.account}</code></> : 'sans compte (anonyme)'}.
-                Le compte est créé sur le broker (accès à tous les topics) et écrit dans le rôle, qui n'est pas recréé. Une fois défini, le broker peut refuser les anonymes sans couper les
-                sondes.
-              </p>
-              <Button size="sm" icon={KeyRound} disabled={busy} onClick={() => (setRoleAccountPassword(''), setRoleAccount(true))}>
-                {role.account ? 'Changer le mot de passe du compte' : 'Définir le compte de la connexion'}
-              </Button>
-            </div>
-          )}
-
-          {manageable && (
-            <div className="space-y-1.5 border-t border-line pt-3">
-              <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Clients anonymes</p>
-              <label className="flex items-start gap-2">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 accent-emerald-500"
-                  checked={!!anon.data?.allowed}
-                  disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
-                  onChange={(e) => setConfirm(e.target.checked ? 'anonymous-on' : 'anonymous-off')}
-                />
-                <span>
-                  Accepter les connexions anonymes
-                  <span className="block text-xs text-muted">
-                    Un client sans nom d'utilisateur se connecte avec les droits du rôle <code>legacy</code> (tous les topics). Décoché, le broker <b>refuse</b> la
-                    connexion (« not authorised ») et le client apparaît dans la liste des clients refusés. Le changement redémarre le broker quelques secondes.
-                    État de transition : décocher quand plus aucun appareil n'est anonyme.
-                  </span>
-                </span>
-              </label>
-              {anon.data?.configurable === false && <p className="text-xs text-amber-300">L'agent de l'hôte ne répond pas ou est trop ancien : le changement n'est pas possible pour l'instant.</p>}
-              {anon.error && <p className="text-xs text-red-400">{(anon.error as Error).message}</p>}
-            </div>
-          )}
-
-          <div className="flex flex-wrap gap-2">
-            {state === 'available' && (
-              <Button variant="primary" icon={ShieldCheck} disabled={q.isLoading || blocked || busy} onClick={() => setConfirm('enable')}>
-                Activer la gestion des comptes
-              </Button>
+            {state === 'unavailable' && <p className="text-muted">{role.security.reason ?? 'La gestion des comptes n\'est pas disponible sur ce broker.'}</p>}
+            {state === 'active' && !hubManaged && !q.isLoading && (
+              <p className="text-muted">Le plugin dynamic-security est chargé mais n'a pas été activé par le hub : il reste géré en dehors de HLM.</p>
             )}
             {state === 'active' && hubManaged && (
-              <Button variant="danger" icon={ShieldOff} disabled={busy} onClick={() => setConfirm('disable')}>
-                Désactiver
-              </Button>
+              <p className="text-muted">
+                Les comptes se gèrent depuis la fiche de l'hôte <Link className="underline" to={`/hosts/${role.carrier.id}`}>{role.carrier.name}</Link>.{' '}
+                Le hub administre le broker en TLS mutuel (port 8883) avec son propre certificat, sans mot de passe, à part du rôle : les sondes et le pont Home Assistant
+                utilisent la connexion du rôle (Paramètres › Rôles), dont le compte est créé sur le broker à son enregistrement. Les clients anonymes restent acceptés (rôle <code>legacy</code>) ; un client qui se connecte avec un compte
+                inconnu est refusé.
+              </p>
+            )}
+
+            {state === 'available' && (
+              <div className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+                <p className="font-medium text-amber-300">À savoir avant d'activer</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  <li>
+                    <b>Les connexions avec un utilisateur inconnu seront refusées</b> : un appareil configuré avec un identifiant que le broker ne connaît pas ne se connecte plus. Les connexions
+                    anonymes continuent d'être acceptées.
+                  </li>
+                  <li>Le broker est <b>redémarré</b> : tous les clients sont déconnectés quelques secondes.</li>
+                  <li>L'agent ajoute des fichiers (certificats, un fichier de configuration) sans modifier les vôtres ; en cas d'échec il les retire et redémarre.</li>
+                </ul>
+              </div>
+            )}
+
+            {(state === 'available' || state === 'active') && (
+              <div>
+                <p className="mb-1 text-[11px] font-medium tracking-wide text-muted uppercase">Contrôles de l'agent</p>
+                {q.isLoading ? (
+                  <Spinner />
+                ) : v?.error ? (
+                  <p className="text-xs text-red-400">{v.error}</p>
+                ) : (
+                  <ul className="space-y-0.5 text-xs">
+                    {checks.map((c, i) => (
+                      <li key={i} className={c.level === 'error' ? 'text-red-400' : c.level === 'warn' ? 'text-amber-400' : 'text-muted'}>
+                        {c.level === 'error' ? '✗' : c.level === 'warn' ? '!' : '·'} {c.detail}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {state === 'available' && (
+                <Button variant="primary" icon={ShieldCheck} disabled={q.isLoading || blocked || busy} onClick={() => setConfirm('enable')}>
+                  Activer la gestion des comptes
+                </Button>
+              )}
+              {state === 'active' && hubManaged && (
+                <Button variant="danger" icon={ShieldOff} disabled={busy} onClick={() => setConfirm('disable')}>
+                  Désactiver
+                </Button>
+              )}
+            </div>
+          </div>
+          {/* right: the options of a managed broker */}
+          <div className="space-y-4 lg:border-l lg:border-line lg:pl-6">
+            <p className="text-xs font-medium text-zinc-100">Options</p>
+            {!manageable && <p className="text-xs text-muted">Disponibles une fois la gestion des comptes activée par HLM.</p>}
+            {manageable && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Clients anonymes</p>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-emerald-500"
+                    checked={!!anon.data?.allowed}
+                    disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
+                    onChange={(e) => setConfirm(e.target.checked ? 'anonymous-on' : 'anonymous-off')}
+                  />
+                  <span>
+                    Accepter les connexions anonymes
+                    <span className="block text-xs text-muted">
+                      Un client sans nom d'utilisateur se connecte avec les droits du rôle <code>legacy</code> (tous les topics). Décoché, le broker <b>refuse</b> la
+                      connexion (« not authorised ») et le client apparaît dans la liste des clients refusés. Le changement redémarre le broker quelques secondes.
+                      État de transition : décocher quand plus aucun appareil n'est anonyme.
+                    </span>
+                  </span>
+                </label>
+                {anon.data?.configurable === false && <p className="text-xs text-amber-300">L'agent de l'hôte ne répond pas ou est trop ancien : le changement n'est pas possible pour l'instant.</p>}
+                {anon.error && <p className="text-xs text-red-400">{(anon.error as Error).message}</p>}
+              </div>
+            )}
+
+            {manageable && (
+              <div className="space-y-1.5 border-t border-line pt-3">
+                <p className="text-[11px] font-medium tracking-wide text-muted uppercase">Droits par topic</p>
+                <p className="text-xs text-muted">Pas encore gérés : chaque compte a accès à tous les topics (rôle <code>hlm-full</code>).</p>
+              </div>
             )}
           </div>
         </div>
       </Panel>
-      <Modal
-        open={roleAccount}
-        onClose={() => setRoleAccount(false)}
-        title={`Compte de la connexion · ${role.name}`}
-        footer={
-          <>
-            <Button onClick={() => setRoleAccount(false)}>Annuler</Button>
-            <Button variant="primary" loading={busy} disabled={busy} onClick={() => void defineRoleAccount()}>Enregistrer</Button>
-          </>
-        }
-      >
-        <div className="space-y-2 text-sm">
-          <p className="text-muted">
-            Le compte <code>hlm-{role.id}</code> est créé (ou son mot de passe changé) sur le broker et la connexion du rôle l'utilise aussitôt. Les sondes et le pont Home Assistant
-            se reconnectent d'eux-mêmes.
-          </p>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted">Mot de passe (généré si vide)</span>
-            <input className="input" type="password" value={roleAccountPassword} onChange={(e) => setRoleAccountPassword(e.target.value)} autoComplete="new-password" />
-          </label>
-        </div>
-      </Modal>
-      <Modal open={!!roleAccountShown} onClose={() => setRoleAccountShown(null)} title={`Mot de passe de ${roleAccountShown?.username ?? ''}`} footer={<Button onClick={() => setRoleAccountShown(null)}>Fermer</Button>}>
-        <div className="space-y-2 text-sm">
-          <p className="text-muted">Le rôle l'utilise déjà. À noter si besoin : il n'est affiché qu'une fois.</p>
-          {roleAccountShown && <CopyField value={roleAccountShown.password} />}
-        </div>
-      </Modal>
       <ConfirmModal
         open={confirm === 'anonymous-off'}
         onClose={() => setConfirm(null)}
