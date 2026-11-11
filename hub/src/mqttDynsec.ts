@@ -10,12 +10,14 @@ import { openRole, resealSoon } from './storedSecrets.js';
 import { roleUrl } from './probes.js';
 import { rolesSaved } from './roleEvents.js';
 import { securityOf } from './mqttSecurity.js';
+import { clearRefused } from './refusedLog.js';
 import type { HostDoc, MqttBroker, MqttBrokerRole } from './types.js';
 
 // Dynamic-security on a Mosquitto broker, run by the agent of its host (agent/dynsec_enable.go): the hub only issues the
 // certificates (its CA signs them), asks and checks that it reaches the broker in mutual TLS. Without that check the
 // agent is asked to undo everything. The hub administers the broker with its own identity (config.dynsec, TLS listener);
-// the connection of the role (probes, Home Assistant bridge) is never touched: it stays what the administrator typed.
+// the enabling never touches the connection of the role (probes, Home Assistant bridge): it stays what the administrator
+// typed. The way back is a reset: nothing is kept, on the host or in the hub.
 
 export const DYNSEC_ACCOUNT = 'hlm';
 export const DYNSEC_TLS_PORT = 8883;
@@ -26,6 +28,8 @@ export interface DynsecReport {
   active: boolean;
   // the broker accepts a connection without account (allow_anonymous true in its configuration)
   allowAnonymous?: boolean;
+  // the same without the file added by the enabling: what the broker accepts once reset (absent: agent too old)
+  originAnonymous?: boolean;
   version?: string;
   unit?: string;
   confFile?: string;
@@ -130,7 +134,9 @@ export async function enableDynsec(role: MqttBrokerRole) {
     if (!admin) throw new Error('adresse du broker inconnue');
     await testConnection(admin.url, '', '', admin.tls);
   } catch (err) {
-    await agentRequest(id, 'mqtt_dynsec_disable', { dynsec: { port: plainPort } }, 150_000).catch(() => undefined);
+    // an older agent only knows how to disable (the state put aside)
+    const undo = host.capabilities?.includes('mqtt_dynsec_reset') ? 'mqtt_dynsec_reset' : 'mqtt_dynsec_disable';
+    await agentRequest(id, undo, { dynsec: { port: plainPort } }, 150_000).catch(() => undefined);
     throw new DynsecError(`le hub ne se connecte pas au broker en TLS mutuel (${(err as Error).message}) : activation annulée`, 502);
   }
   await roles.replaceOne({ _id: role._id }, { ...role, config });
@@ -140,18 +146,23 @@ export async function enableDynsec(role: MqttBrokerRole) {
   return { port: DYNSEC_TLS_PORT, notAfter: client.notAfter, validityDays: MQTT_CERT_DAYS };
 }
 
-export async function disableDynsec(role: MqttBrokerRole) {
+// Reset: the broker goes back to its own configuration (anonymous connections as it says, no account, no ACL) and nothing
+// is kept: the agent deletes the state of the plugin, the hub forgets its identity (certificate and key), the account of
+// the role (it connects as anonymous) and the refused clients.
+export async function resetDynsec(role: MqttBrokerRole) {
   const { host, id } = await carrier(role);
   if (!role.config.dynsec) throw new DynsecError("dynamic-security n'a pas été activé par le hub sur ce rôle");
+  if (!host.capabilities?.includes('mqtt_dynsec_reset')) throw new DynsecError("l'agent de cet hôte ne sait pas réinitialiser dynamic-security (mise à jour requise)");
   try {
-    await agentRequest(id, 'mqtt_dynsec_disable', { dynsec: { port: role.config.port } }, 150_000);
+    await agentRequest(id, 'mqtt_dynsec_reset', { dynsec: { port: role.config.port } }, 150_000);
   } catch (err) {
-    throw new DynsecError(`désactivation échouée : ${(err as Error).message}`, 502);
+    throw new DynsecError(`réinitialisation échouée : ${(err as Error).message}`, 502);
   }
-  // the connection of the role is left as it is (the broker accepts accounts again, or anyone, as before)
-  const config = { ...role.config };
+  const config = { ...role.config, username: '', password: '' };
   delete config.dynsec;
   await roles.replaceOne({ _id: role._id }, { ...role, config });
+  resealSoon();
+  clearRefused(role._id);
   await refreshAgent(id, ['info']).catch(() => undefined);
   await rolesSaved([host._id]);
 }

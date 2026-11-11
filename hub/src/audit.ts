@@ -217,7 +217,7 @@ route('settings', 'role.create', 'POST /api/roles');
 route('settings', 'role.update', 'PUT /api/roles/:id');
 route('settings', 'role.delete', 'DELETE /api/roles/:id');
 route('settings', 'role.mqtt-security.enable', 'POST /api/roles/:id/mqtt-security/enable');
-route('settings', 'role.mqtt-security.disable', 'POST /api/roles/:id/mqtt-security/disable');
+route('settings', 'role.mqtt-security.reset', 'POST /api/roles/:id/mqtt-security/reset');
 route('settings', 'role.mqtt-anonymous', 'PUT /api/roles/:id/mqtt-anonymous');
 route('settings', 'role.mqtt-account.create', 'POST /api/roles/:id/mqtt-accounts');
 route('settings', 'role.mqtt-account.password', 'PUT /api/roles/:id/mqtt-accounts/:username');

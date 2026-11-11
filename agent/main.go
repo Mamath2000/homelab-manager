@@ -51,6 +51,8 @@ func platformCapabilities() []string {
 	caps = append(caps, "tls_fingerprint")
 	// read-only checks before enabling dynamic-security on a Mosquitto broker (dynsec_check.go)
 	caps = append(caps, "mqtt_dynsec")
+	// dynamic-security reset: nothing kept on the host (dynsec_enable.go)
+	caps = append(caps, "mqtt_dynsec_reset")
 	// client certificate renewed by the hub (certrenew.go)
 	caps = append(caps, "cert_renew")
 	if _, err := findSmartctl(); err == nil {
@@ -380,7 +382,7 @@ func (s *session) rpc(ctx context.Context, in Inbound) {
 		out.Result, err = checkDynsec(ctx, in.Port)
 	case "mqtt_log_tail":
 		out.Result, err = mqttLogTail(ctx, in.Port)
-	case "mqtt_dynsec_enable", "mqtt_dynsec_disable", "mqtt_anonymous_set":
+	case "mqtt_dynsec_enable", "mqtt_dynsec_reset", "mqtt_anonymous_set":
 		out.Result, err = s.dynsecChange(ctx, in)
 	case "refresh":
 		// reports sent before the answer: the hub has them when the request settles
@@ -698,7 +700,7 @@ func main() {
 	})
 }
 
-// dynsecChange: enables dynamic-security on the Mosquitto broker of the port (certificates from the hub), or disables
+// dynsecChange: enables dynamic-security on the Mosquitto broker of the port (certificates from the hub), or resets
 // it. The checks are made again here: the agent does not trust a report the hub made earlier.
 func (s *session) dynsecChange(ctx context.Context, in Inbound) (any, error) {
 	if in.Dynsec == nil {
@@ -717,8 +719,8 @@ func (s *session) dynsecChange(ctx context.Context, in Inbound) (any, error) {
 		steps, err := setAnonymous(cctx, realDynsecHost(), *rep, *in.Allowed)
 		return map[string][]string{"steps": steps}, err
 	}
-	if in.Op == "mqtt_dynsec_disable" {
-		steps, err := disableDynsec(cctx, realDynsecHost(), rep.IncludeDir, rep.Unit)
+	if in.Op == "mqtt_dynsec_reset" {
+		steps, err := resetDynsec(cctx, realDynsecHost(), rep.IncludeDir, rep.Unit)
 		return map[string][]string{"steps": steps}, err
 	}
 	return enableDynsec(cctx, realDynsecHost(), *rep, *in.Dynsec)

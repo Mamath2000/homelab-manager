@@ -8,7 +8,7 @@ import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated,
 import { checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, syncAccount } from '../mqttAccounts.js';
 import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
-import { DynsecError, disableDynsec, enableDynsec, securityView } from '../mqttDynsec.js';
+import { DynsecError, enableDynsec, resetDynsec, securityView } from '../mqttDynsec.js';
 import { securityOf } from '../mqttSecurity.js';
 import { PEM_MAX, tlsError, tlsOf } from '../mqttTls.js';
 import { roleUrl } from '../probes.js';
@@ -247,7 +247,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     // then the role must connect with it
     let account: 'created' | 'password' | undefined;
     if (current.type === 'mqtt-broker' && current.config.dynsec) {
-      if (moved) return reply.code(409).send({ error: "la gestion des comptes est active sur ce broker : la désactiver avant de déplacer le rôle sur un autre hôte" });
+      if (moved) return reply.code(409).send({ error: "la gestion des comptes est active sur ce broker : la réinitialiser avant de déplacer le rôle sur un autre hôte" });
       const mc = c as MqttBrokerConfig;
       const typed = typedSecret(current.type, body);
       if (mc.username && typed) {
@@ -324,12 +324,12 @@ export function registerRoleRoutes(app: FastifyInstance) {
       return dynsecFail(reply, err);
     }
   });
-  app.post<{ Params: { id: string } }>('/api/roles/:id/mqtt-security/disable', async (req, reply) => {
+  app.post<{ Params: { id: string } }>('/api/roles/:id/mqtt-security/reset', async (req, reply) => {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
     try {
-      await disableDynsec(role);
+      await resetDynsec(role);
       return { ok: true };
     } catch (err) {
       return dynsecFail(reply, err);

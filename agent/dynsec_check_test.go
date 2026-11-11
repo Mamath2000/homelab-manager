@@ -100,6 +100,15 @@ func TestAnalyzeDynsecAlreadyActive(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDynsecOriginAnonymous(t *testing.T) {
+	in := okInputs()
+	in.Conf = append(in.Conf, confLine{"/etc/mosquitto/conf.d/default.conf", "allow_anonymous", "true"},
+		confLine{"/etc/mosquitto/conf.d/" + dynsecConfName, "allow_anonymous", "false"})
+	if r := analyzeDynsec(in); r.AllowAnonymous || !r.OriginAnonymous {
+		t.Fatalf("allow=%v origin=%v", r.AllowAnonymous, r.OriginAnonymous)
+	}
+}
+
 func TestUnitFromCgroup(t *testing.T) {
 	if got := unitFromCgroup("0::/system.slice/mosquitto.service\n"); got != "mosquitto.service" {
 		t.Fatal(got)

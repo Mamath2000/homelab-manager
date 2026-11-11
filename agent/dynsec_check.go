@@ -35,9 +35,11 @@ type DynsecReport struct {
 	// where the enabling puts its file, and the plugin it loads (not shown by the hub)
 	IncludeDir string `json:"includeDir,omitempty"`
 	// the broker accepts a connection without account (allow_anonymous true, the last word of the configuration)
-	AllowAnonymous bool          `json:"allowAnonymous"`
-	Lib            string        `json:"lib,omitempty"`
-	Checks         []DynsecCheck `json:"checks"`
+	AllowAnonymous bool `json:"allowAnonymous"`
+	// the same without the file added by the enabling: what the broker accepts once reset
+	OriginAnonymous bool          `json:"originAnonymous"`
+	Lib             string        `json:"lib,omitempty"`
+	Checks          []DynsecCheck `json:"checks"`
 }
 
 // confLine: one directive of a Mosquitto configuration. A comment only starts a line: Mosquitto keeps what follows
@@ -173,6 +175,13 @@ func analyzeDynsec(in dynsecInputs) DynsecReport {
 	}
 	includeDir, listeners := "", []string{}
 	r.AllowAnonymous = anonymousAllowed(in.Conf)
+	var origin []confLine
+	for _, l := range in.Conf {
+		if path.Base(l.File) != dynsecConfName {
+			origin = append(origin, l)
+		}
+	}
+	r.OriginAnonymous = anonymousAllowed(origin)
 	for _, l := range in.Conf {
 		switch l.Key {
 		case "include_dir":

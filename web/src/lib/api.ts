@@ -1668,6 +1668,8 @@ export interface DynsecCheck {
 export interface DynsecReport {
   eligible: boolean;
   active: boolean;
+  // allow_anonymous of the configuration of the administrator, without the file of HLM: what a reset leaves (absent: agent too old)
+  originAnonymous?: boolean;
   version?: string;
   unit?: string;
   confFile?: string;
@@ -1923,7 +1925,7 @@ export const api = {
   forgetMqttAnonymous: (roleId: string, clientId: string) => request<{ ok: boolean }>('DELETE', `/api/roles/${roleId}/mqtt-anonymous/${encodeURIComponent(clientId)}`),
   mqttSecurity: (roleId: string) => request<MqttSecurityView>('GET', `/api/roles/${roleId}/mqtt-security`),
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
-  disableMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/disable`),
+  resetMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/reset`),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),

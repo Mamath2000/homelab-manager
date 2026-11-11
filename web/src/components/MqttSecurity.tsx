@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, Search, ShieldCheck, ShieldOff, Trash2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type MqttAccount, type MqttAnonymous, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -39,7 +39,7 @@ export function MqttSecuritySettings() {
 function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const [confirm, setConfirm] = useState<'enable' | 'disable' | 'anonymous-off' | 'anonymous-on' | null>(null);
+  const [confirm, setConfirm] = useState<'enable' | 'reset' | 'anonymous-off' | 'anonymous-on' | null>(null);
   const [busy, setBusy] = useState(false);
   const q = useQuery({ queryKey: ['mqtt-security', role.id], queryFn: () => api.mqttSecurity(role.id), refetchOnWindowFocus: false });
   const v = q.data;
@@ -48,12 +48,12 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
   const checks = v?.report?.checks ?? [];
   const blocked = !!v && (!!v.error || !v.report?.eligible);
 
-  const run = async (what: 'enable' | 'disable') => {
+  const run = async (what: 'enable' | 'reset') => {
     setBusy(true);
     try {
       if (what === 'enable') await api.enableMqttSecurity(role.id);
-      else await api.disableMqttSecurity(role.id);
-      toast.success(what === 'enable' ? 'Gestion des comptes activée' : 'Gestion des comptes désactivée');
+      else await api.resetMqttSecurity(role.id);
+      toast.success(what === 'enable' ? 'Gestion des comptes activée' : 'Broker réinitialisé');
       setConfirm(null);
       await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers }), qc.invalidateQueries({ queryKey: ['mqtt-security', role.id] })]);
     } catch (err) {
@@ -149,8 +149,8 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
                 </Button>
               )}
               {state === 'active' && hubManaged && (
-                <Button variant="danger" icon={ShieldOff} disabled={busy} onClick={() => setConfirm('disable')}>
-                  Désactiver
+                <Button variant="danger" icon={RotateCcw} disabled={busy} onClick={() => setConfirm('reset')}>
+                  Réinitialiser
                 </Button>
               )}
             </div>
@@ -241,16 +241,34 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
         les connexions anonymes restent acceptées.
       </ConfirmModal>
       <ConfirmModal
-        open={confirm === 'disable'}
+        open={confirm === 'reset'}
         onClose={() => setConfirm(null)}
-        onConfirm={() => void run('disable')}
-        title="Désactiver la gestion des comptes"
-        confirmLabel="Désactiver et redémarrer le broker"
+        onConfirm={() => void run('reset')}
+        title="Réinitialiser le broker"
+        confirmLabel="Réinitialiser et redémarrer le broker"
         danger
         loading={busy}
       >
-        Le broker <b>{role.name}</b> va être redémarré avec sa configuration d'origine. Les comptes et rôles créés sont mis de côté sur l'hôte (pas supprimés). La connexion
-        du rôle n'est pas modifiée.
+        <p>
+          Le broker <b>{role.name}</b> va être redémarré avec sa configuration d'origine, comme avant l'activation : <b>sans compte ni ACL</b>.
+        </p>
+        {v?.report?.originAnonymous === false ? (
+          <div className="mt-2 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+            Sa configuration d'origine <b>refuse les connexions anonymes</b> (<code>allow_anonymous</code> absent ou <code>false</code>) : sans compte, <b>plus aucun client ne
+            pourra se connecter</b>.
+          </div>
+        ) : (
+          <div className="mt-2 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+            <b>
+              Connexions anonymes acceptées (<code>allow_anonymous true</code>)
+            </b>{' '}
+            : n'importe quel appareil du réseau pourra publier et s'abonner sur tous les topics, y compris les commandes de Home Assistant.
+          </div>
+        )}
+        <p className="mt-2">
+          <b>Rien n'est conservé</b> : les comptes et les rôles du broker, les certificats et la clé du hub, le compte du rôle (qui repasse en anonyme) sont supprimés
+          définitivement. Une nouvelle activation repart de zéro : chaque appareil devra recevoir un nouveau compte.
+        </p>
       </ConfirmModal>
     </>
   );

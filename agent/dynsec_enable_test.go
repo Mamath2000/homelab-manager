@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,15 @@ func (f *fakeHost) host() dynsecHost {
 				}
 			}
 			return false
+		},
+		Glob: func(pattern string) []string {
+			var out []string
+			for k := range f.files {
+				if ok, _ := path.Match(pattern, k); ok {
+					out = append(out, k)
+				}
+			}
+			return out
 		},
 		MkDir: func(p string, _ os.FileMode, _ string) error { return nil },
 		Run: func(_ context.Context, name string, args ...string) (string, error) {
@@ -163,7 +173,7 @@ func TestEnableDynsecRefuses(t *testing.T) {
 	}
 	f := &fakeHost{files: map[string]string{dynsecTLSDir + "/ca.crt": "x"}}
 	if _, err := enableDynsec(context.Background(), f.host(), okReport(), good); err == nil {
-		t.Error("a previous activation must be disabled first")
+		t.Error("a previous activation must be reset first")
 	}
 }
 
@@ -175,14 +185,16 @@ func TestDynsecConfHasNoTrailingComment(t *testing.T) {
 	}
 }
 
-func TestDisableDynsec(t *testing.T) {
+func TestResetDynsec(t *testing.T) {
 	f := &fakeHost{files: map[string]string{
-		"/etc/mosquitto/conf.d/" + dynsecConfName: "x", dynsecTLSDir + "/ca.crt": "x", dynsecState: "{}", "/etc/mosquitto/conf.d/local.conf": "listener 1883",
+		"/etc/mosquitto/conf.d/" + dynsecConfName: "x", dynsecTLSDir + "/ca.crt": "x", dynsecInitPw: "x", dynsecState: "{}",
+		dynsecState + ".disabled-900": "{}", dynsecState + ".before-hlm-800": "{}", "/etc/mosquitto/conf.d/local.conf": "listener 1883",
 	}}
-	if _, err := disableDynsec(context.Background(), f.host(), "/etc/mosquitto/conf.d", "mosquitto.service"); err != nil {
+	if _, err := resetDynsec(context.Background(), f.host(), "/etc/mosquitto/conf.d", "mosquitto.service"); err != nil {
 		t.Fatal(err)
 	}
-	if f.files[dynsecState+".disabled-1000"] != "{}" || f.files["/etc/mosquitto/conf.d/local.conf"] == "" || len(f.files) != 2 || f.restarts != 1 {
+	// what the administrator had before the enabling stays
+	if f.files["/etc/mosquitto/conf.d/local.conf"] == "" || f.files[dynsecState+".before-hlm-800"] == "" || len(f.files) != 2 || f.restarts != 1 {
 		t.Fatalf("files=%v restarts=%d", f.files, f.restarts)
 	}
 }

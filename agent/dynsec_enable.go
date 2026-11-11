@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -53,6 +54,7 @@ type dynsecHost struct {
 	Remove  func(path string) error                                              // missing is not an error
 	Rename  func(from, to string) error
 	Exists  func(path string) bool
+	Glob    func(pattern string) []string
 	Read    func(path string) ([]byte, error)
 	MkDir   func(path string, mode os.FileMode, group string) error
 	Run     func(ctx context.Context, name string, args ...string) (string, error)
@@ -85,6 +87,7 @@ func realDynsecHost() dynsecHost {
 		},
 		Rename: os.Rename,
 		Exists: func(p string) bool { _, err := os.Stat(p); return err == nil },
+		Glob:   func(pattern string) []string { m, _ := filepath.Glob(pattern); return m },
 		Read:   os.ReadFile,
 		MkDir: func(p string, mode os.FileMode, group string) error {
 			if err := os.MkdirAll(p, mode); err != nil {
@@ -196,7 +199,7 @@ func enableDynsec(ctx context.Context, h dynsecHost, rep DynsecReport, req Dynse
 	}
 	confPath := path.Join(rep.IncludeDir, dynsecConfName)
 	if h.Exists(confPath) || h.Exists(dynsecTLSDir) {
-		return nil, fmt.Errorf("des fichiers d'une activation précédente existent : désactiver d'abord")
+		return nil, fmt.Errorf("des fichiers d'une activation précédente existent : réinitialiser d'abord")
 	}
 	res := &DynsecEnableResult{Port: dynsecTLSPort}
 	var undo []func()
@@ -320,7 +323,7 @@ func enableDynsec(ctx context.Context, h dynsecHost, rep DynsecReport, req Dynse
 	step("rôle legacy, groupe anonyme et compte " + req.Admin + " créés")
 
 	// the account of the installation goes away; from here the hub is the only administrator (the way back is a
-	// fresh start of the state, see disableDynsec)
+	// fresh start of the state, see resetDynsec)
 	if _, err := ctrl("deleteClient", "admin"); err != nil {
 		return fail("suppression du compte d'initialisation", err)
 	}
@@ -345,29 +348,34 @@ func ctrlError(out string) string {
 	return ""
 }
 
-// disableDynsec: removes what the enabling added and restarts the broker. The state of the plugin is kept aside
-// (accounts, roles), not deleted; the broker is as it was configured before.
-func disableDynsec(ctx context.Context, h dynsecHost, includeDir, unit string) ([]string, error) {
+// resetDynsec: the broker goes back to its own configuration, as before the enabling, and nothing is kept: what the
+// enabling added is removed, then, the broker restarted without the plugin, its state (accounts, roles) and the states
+// an older agent put aside when it disabled.
+func resetDynsec(ctx context.Context, h dynsecHost, includeDir, unit string) ([]string, error) {
 	var steps []string
 	if includeDir == "" || unit == "" {
 		return nil, fmt.Errorf("répertoire d'inclusion ou unité inconnus")
 	}
-	if err := h.Remove(path.Join(includeDir, dynsecConfName)); err != nil {
-		return nil, err
-	}
-	steps = append(steps, "configuration retirée")
-	_ = h.Remove(dynsecTLSDir)
-	_ = h.Remove(dynsecInitPw)
-	if h.Exists(dynsecState) {
-		if err := h.Rename(dynsecState, dynsecState+".disabled-"+strconv.FormatInt(h.Now().Unix(), 10)); err != nil {
+	for _, p := range []string{path.Join(includeDir, dynsecConfName), dynsecTLSDir, dynsecInitPw} {
+		if err := h.Remove(p); err != nil {
 			return steps, err
 		}
-		steps = append(steps, "état dynamic-security mis de côté")
 	}
-	if err := h.Restart(ctx, unit); err != nil {
-		return steps, fmt.Errorf("redémarrage du broker : %v", err)
+	steps = append(steps, "configuration et certificats retirés")
+	rerr := h.Restart(ctx, unit)
+	if rerr == nil {
+		steps = append(steps, "broker redémarré")
 	}
-	return append(steps, "broker redémarré"), nil
+	for _, p := range append([]string{dynsecState}, h.Glob(dynsecState+".disabled-*")...) {
+		if err := h.Remove(p); err != nil {
+			return steps, err
+		}
+	}
+	steps = append(steps, "état dynamic-security supprimé")
+	if rerr != nil {
+		return steps, fmt.Errorf("redémarrage du broker : %v", rerr)
+	}
+	return steps, nil
 }
 
 // withAnonymous: the file added by the enabling with allow_anonymous false (anonymous connections refused) or without any
