@@ -5,7 +5,7 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
-import { checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, syncAccount } from '../mqttAccounts.js';
+import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, syncAccount } from '../mqttAccounts.js';
 import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, enableDynsec, resetDynsec, securityView } from '../mqttDynsec.js';
@@ -250,17 +250,19 @@ export function registerRoleRoutes(app: FastifyInstance) {
       if (moved) return reply.code(409).send({ error: "la gestion des comptes est active sur ce broker : la réinitialiser avant de déplacer le rôle sur un autre hôte" });
       const mc = c as MqttBrokerConfig;
       const typed = typedSecret(current.type, body);
-      if (mc.username && typed) {
+      // typed (or generated): made or changed on the broker; the stored one: the account is made only when missing
+      const pw = typed || mc.password;
+      if (mc.username && pw) {
         try {
           checkName(mc.username);
-          account = await syncAccount(current, mc.username, typed);
-          await testConnection(roleUrl(mc, host.info?.ips), mc.username, typed, tlsOf(mc));
+          account = await syncAccount(current, mc.username, pw, !typed);
+          await testConnection(roleUrl(mc, host.info?.ips), mc.username, pw, tlsOf(mc));
         } catch (err) {
           if (err instanceof DynsecError) return dynsecFail(reply, err);
-          return reply.code(502).send({ error: `${account ? 'compte mis à jour sur le broker, mais ' : ''}connexion refusée : ${(err as Error).message}` });
+          return reply.code(502).send({ error: `${account ? 'compte mis à jour sur le broker, mais ' : ''}connexion refusée : ${(err as Error).message}${!typed ? " (le compte existe sur le broker avec un autre mot de passe : en saisir ou en générer un)" : ''}` });
         }
-      } else if (mc.username && mc.username !== current.config.username) {
-        return reply.code(400).send({ error: 'nouveau compte : saisir ou générer son mot de passe, il sera créé sur le broker' });
+      } else if (mc.username) {
+        return reply.code(400).send({ error: 'compte sans mot de passe : en saisir ou en générer un, il sera créé sur le broker' });
       }
     }
     await roles.replaceOne({ _id: current._id }, { ...current, name, carrier: { kind: req.body.carrier?.kind ?? current.carrier.kind, id: host._id }, config: c } as DeclaredRole);
@@ -493,8 +495,12 @@ export function registerRoleRoutes(app: FastifyInstance) {
     } catch (err) {
       // a managed broker: an account typed in the dialog is made (or its password changed) when the role is saved
       const typed = typedSecret(type, body);
-      if (dynsec.managed && body.username && typed && /not authori|bad user ?name or password/i.test((err as Error).message)) {
-        return { ok: true, dynsec, pending: true, detail: `le compte ${body.username} sera créé, ou son mot de passe changé, sur le broker à l'enregistrement` };
+      if (dynsec.managed && body.username && secret && /not authori|bad user ?name or password/i.test((err as Error).message)) {
+        if (typed) return { ok: true, dynsec, pending: true, detail: `le compte ${body.username} sera créé, ou son mot de passe changé, sur le broker à l'enregistrement` };
+        // the stored password: a missing account is made at the save, an existing one keeps its own password
+        const exists = await accountExists(stored as MqttBrokerRole, body.username).catch(() => true);
+        if (!exists) return { ok: true, dynsec, pending: true, detail: `le compte ${body.username} sera créé sur le broker à l'enregistrement` };
+        return { ok: false, dynsec, error: `le compte ${body.username} existe sur le broker avec un autre mot de passe : en saisir ou en générer un` };
       }
       return { ok: false, dynsec, error: (err as Error).message };
     }

@@ -124,9 +124,17 @@ export async function setAnonymousAllowed(role: MqttBrokerRole, allowed: boolean
   return now;
 }
 
+export async function accountExists(role: MqttBrokerRole, username: string) {
+  const [r] = await run(role, [{ command: 'getClient', username }]);
+  return !r?.error;
+}
+
 // The account a managed role connects with (probes, Home Assistant bridge), typed or generated in the dialog of the role:
 // made on the broker when it does not exist, else its password changed. The role itself is written by its route.
-export async function syncAccount(role: MqttBrokerRole, username: string, password: string) {
+// keep: the password was not typed (the one stored in the role): an existing account is left as it is (it may be shared
+// with devices), only a missing one is made.
+export async function syncAccount(role: MqttBrokerRole, username: string, password: string, keep = false) {
+  if (keep && (await accountExists(role, username))) return undefined;
   try {
     await createAccount(role, username, password);
     return 'created' as const;
