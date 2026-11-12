@@ -21,6 +21,7 @@ type SettingsId = keyof typeof SETTINGS_SECRETS;
 export const ROLE_SECRETS: Partial<Record<RoleDoc['type'], readonly string[]>> = {
   'mqtt-broker': ['password', 'clientKeyPem', 'dynsec.clientKeyPem'],
   'omada-controller': ['clientSecret'],
+  'log-server': ['password'],
   'pve-cluster': ['tokenSecret'],
 };
 

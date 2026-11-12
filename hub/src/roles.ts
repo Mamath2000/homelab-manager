@@ -80,6 +80,23 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     // nothing yet: the equipment source of the controller (#231) will be its use
     uses: async () => [],
   },
+  // typed by hand (address of the API of VictoriaLogs, where the hosts send): installed outside the hub, its agent only
+  // tells what it sees listening
+  'log-server': {
+    label: 'Serveur de logs',
+    carriers: ['host'],
+    single: false,
+    carrierError: () => null,
+    same: (a, b) => sameUrl(a.url, b.url),
+    // the hosts whose journals are sent to it by the standardisation (standard value, or the own value of a host)
+    uses: async (id) => {
+      const [std, n] = await Promise.all([
+        settings.countDocuments({ _id: 'setup', 'options.log_forward.enabled': true, 'options.log_forward.value.role': id } as never),
+        hosts.countDocuments({ 'setupOverrides.log_forward.mode': 'custom', 'setupOverrides.log_forward.value.role': id }),
+      ]);
+      return [...(std ? ['standardisation (envoi des journaux)'] : []), ...(n ? [`${n} hôte${n > 1 ? 's' : ''} (valeur propre)`] : [])];
+    },
+  },
 };
 
 

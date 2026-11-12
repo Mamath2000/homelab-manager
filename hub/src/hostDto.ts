@@ -10,6 +10,7 @@ import { sessionSummary } from './sessions.js';
 import { hostLevel } from './homeassistant/detail.js';
 import { carriedBy } from './roles.js';
 import { roleView } from './roleView.js';
+import { hostLogs } from './logs.js';
 
 export function summarize(report: AptReport): AptSummary {
   return {
@@ -92,6 +93,8 @@ export function hostDto(h: HostDoc) {
     // roles of the hub this host carries (never a secret), and the services its agent found (null: never reported)
     roles: carriedBy(h._id).map((r) => roleView(r, h)),
     roleCandidates: h.roleCandidates ?? null,
+    // its journals as the log servers last saw them (logs.ts): which server, the last one, the errors over a day; null: none
+    logs: hostLogs(h.info?.hostname),
     // Proxmox VE guest this host is (see pve.ts), and the link set aside when it broke
     pve: h.pve ?? null,
     pveLost: h.pveLost ?? null,

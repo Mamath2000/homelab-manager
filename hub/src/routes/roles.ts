@@ -1,9 +1,11 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from 'fastify';
 import { agentRequest, isOnline } from '../agents.js';
 import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { checkLogServer, LOG_URL_RE, pollLogServers } from '../logs.js';
+import { checkAllHosts } from '../setup.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
 import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, setAccountSys, syncAccount } from '../mqttAccounts.js';
 import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
@@ -16,16 +18,16 @@ import { rolesSaved } from '../roleEvents.js';
 import { roleView } from '../roleView.js';
 import { allRoles, defOf, newRoleId, ROLE_DEFS, ROLE_ID_RE, roleConflict } from '../roles.js';
 import { FINGERPRINT_RE, fetchFingerprint, normalizeFingerprint, SERVER_URL_RE } from '../tlsApi.js';
-import { BROKER_SCHEMES, CARRIER_KINDS, type BrokerScheme, type CarrierKind, type HostDoc, type MqttBrokerConfig, type MqttBrokerRole, type OmadaControllerConfig, type OmadaControllerRole } from '../types.js';
+import { BROKER_SCHEMES, CARRIER_KINDS, LOG_PROTOCOLS, type BrokerScheme, type CarrierKind, type HostDoc, type LogProtocol, type LogServerConfig, type LogServerRole, type MqttBrokerConfig, type MqttBrokerRole, type OmadaControllerConfig, type OmadaControllerRole } from '../types.js';
 
 // Roles of the hub (roles.ts): read by every account (never a secret), written by the admins (profiles.ts refuses what
 // it does not list): the hub opens connections to what is declared here. The MQTT brokers and the Omada controllers are
 // declared here; a Proxmox VE cluster through routes/backups.ts (its token is made by the agent of the
 // node), the PBS by the settings of the backups.
 
-const DECLARED = ['mqtt-broker', 'omada-controller'] as const;
+const DECLARED = ['mqtt-broker', 'omada-controller', 'log-server'] as const;
 type DeclaredType = (typeof DECLARED)[number];
-type DeclaredRole = MqttBrokerRole | OmadaControllerRole;
+type DeclaredRole = MqttBrokerRole | OmadaControllerRole | LogServerRole;
 
 // config of a role, one flat shape for the declared types (an anyOf of closed objects would have the validator strip
 // the fields of the types it tries first): what each type takes is checked by configError
@@ -49,6 +51,11 @@ const config = {
     fingerprint: { type: 'string', maxLength: 128 }, // "": the system CAs
     clientId: { type: 'string', maxLength: 128 },
     clientSecret: { type: 'string', maxLength: 256 }, // absent: unchanged
+    // log-server: url (its query API), address and port (where the hosts send, in syslog), username and password (basic
+    // authentication of the API, optional), and
+    protocol: { enum: LOG_PROTOCOLS },
+    // hours without a journal before a host that sends is a drift (0: not watched)
+    silentHours: { type: 'integer', minimum: 0, maximum: 24 },
   },
 } as const;
 
@@ -92,6 +99,8 @@ export interface ConfigBody {
   fingerprint?: string;
   clientId?: string;
   clientSecret?: string;
+  protocol?: LogProtocol;
+  silentHours?: number;
 }
 interface CarrierBody {
   kind: CarrierKind;
@@ -102,6 +111,7 @@ interface CarrierBody {
 const FIELDS: Record<DeclaredType, { required: (keyof ConfigBody)[]; optional: (keyof ConfigBody)[]; secret: keyof ConfigBody }> = {
   'mqtt-broker': { required: ['scheme', 'port', 'username'], optional: ['address', 'password', 'caPem', 'clientCertPem', 'clientKeyPem'], secret: 'password' },
   'omada-controller': { required: ['url', 'clientId'], optional: ['fingerprint', 'clientSecret'], secret: 'clientSecret' },
+  'log-server': { required: ['url', 'port'], optional: ['address', 'protocol', 'username', 'password', 'silentHours'], secret: 'password' },
 };
 
 // null: the config fits a role of this type, else why not
@@ -116,6 +126,10 @@ export function configError(type: DeclaredType, c: ConfigBody) {
     if (!SERVER_URL_RE.test(c.url!.trim())) return 'URL invalide (https://contrôleur:8043)';
     if (!c.clientId!.trim()) return 'client_id manquant';
     if (c.fingerprint && !FINGERPRINT_RE.test(normalizeFingerprint(c.fingerprint))) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
+  }
+  if (type === 'log-server') {
+    if (!LOG_URL_RE.test(c.url!.trim())) return 'URL invalide (http://serveur:9428)';
+    if (c.password && !c.username) return 'mot de passe sans utilisateur';
   }
   return null;
 }
@@ -153,8 +167,20 @@ async function pinRefused(host: Carrier, c: DeclaredRole['config']) {
 // the config stored for a body checked by configError; secret: the one typed, else the one stored
 export function toConfig(type: 'mqtt-broker', c: ConfigBody, secret: string): MqttBrokerConfig;
 export function toConfig(type: 'omada-controller', c: ConfigBody, secret: string): OmadaControllerConfig;
+export function toConfig(type: 'log-server', c: ConfigBody, secret: string): LogServerConfig;
 export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): DeclaredRole['config'];
 export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): DeclaredRole['config'] {
+  if (type === 'log-server')
+    return {
+      url: c.url!.trim().replace(/\/+$/, ''),
+      ...(c.address ? { address: c.address } : {}),
+      port: c.port!,
+      protocol: c.protocol ?? 'tcp',
+      username: c.username?.trim() ?? '',
+      // no account: no password kept
+      password: c.username?.trim() ? secret : '',
+      silentHours: c.silentHours ?? 6,
+    };
   if (type === 'omada-controller')
     return { url: c.url!.trim().replace(/\/+$/, ''), fingerprint: c.fingerprint ? normalizeFingerprint(c.fingerprint) : '', clientId: c.clientId!.trim(), clientSecret: secret };
   return {
@@ -178,11 +204,19 @@ export function withStoredKey(c: ConfigBody, stored: DeclaredRole | undefined): 
   return { ...c, clientKeyPem: stored.config.clientKeyPem };
 }
 
-const storedSecret = (r: DeclaredRole) => (r.type === 'mqtt-broker' ? r.config.password : r.config.clientSecret);
+const storedSecret = (r: DeclaredRole) => (r.type === 'omada-controller' ? r.config.clientSecret : r.config.password);
 const typedSecret = (type: DeclaredType, c: ConfigBody) => c[FIELDS[type].secret] as string | undefined;
 
 // the role of the route, when it is declared here (the others have their own routes)
 const declaredRole = (id: string) => allRoles().find((r): r is DeclaredRole => r._id === id && (DECLARED as readonly string[]).includes(r.type));
+
+// A log server written: its state is read at once, and the hosts that send to it are checked again (its address is in
+// their configuration).
+function logServerSaved(log: FastifyBaseLogger) {
+  pollLogServers(log)
+    .then(() => checkAllHosts())
+    .catch((err) => log.warn({ err }, 'log server: check after a change failed'));
+}
 
 export function registerRoleRoutes(app: FastifyInstance) {
   app.get('/api/roles', async () => {
@@ -216,6 +250,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     await roles.insertOne({ _id: id, type, name, carrier: { kind: req.body.carrier.kind, id: host._id }, config: c, createdAt: new Date() } as DeclaredRole);
     req.auditNote = { target: { kind: 'role', id, name }, details: { type, carrier: host.name, config: settingsDiff({}, c).values } };
     await rolesSaved([host._id]);
+    if (type === 'log-server') logServerSaved(req.log);
     return reply.code(201).send({ id });
   });
 
@@ -271,6 +306,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
       details: { type: current.type, ...(account ? { brokerAccount: account } : {}), ...(moved ? { carrier: host.name } : {}), ...(name !== current.name ? { renamed: { from: current.name, to: name } } : {}), ...settingsDiff(current.config, c) },
     };
     await rolesSaved(moved ? [current.carrier.id, host._id] : [host._id]);
+    if (current.type === 'log-server') logServerSaved(req.log);
     return { id: current._id };
   });
 
@@ -282,6 +318,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     await roles.deleteOne({ _id: current._id });
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type } };
     await rolesSaved([current.carrier.id]);
+    if (current.type === 'log-server') logServerSaved(req.log);
     return reply.code(204).send();
   });
 
@@ -490,6 +527,15 @@ export function registerRoleRoutes(app: FastifyInstance) {
       } catch (err) {
         const presented = await presentedFingerprint(c, err, localFingerprint(await carrierOf(req.body.carrier)));
         return { ok: false, error: (err as Error).message, ...presented };
+      }
+    }
+    if (type === 'log-server') {
+      const c = toConfig(type, body, secret);
+      try {
+        const r = await checkLogServer(c);
+        return { ok: true, detail: r.senders ? `VictoriaLogs joignable, ${r.senders} émetteur${r.senders > 1 ? 's' : ''} sur 24 h` : "VictoriaLogs joignable, aucun journal reçu pour l'instant" };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
       }
     }
     const host = await carrierOf(req.body.carrier);

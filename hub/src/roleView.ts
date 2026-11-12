@@ -1,6 +1,7 @@
 import { securityOf } from './mqttSecurity.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
 import { bridgeStatusOf } from './homeassistant/bridge.js';
+import { logPollOf, logTarget } from './logs.js';
 import { omadaPollOf } from './omadaSync.js';
 import { probeEngine, roleUrl } from './probes.js';
 import type { HostDoc, RoleDoc } from './types.js';
@@ -88,6 +89,23 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
         account: r.config.clientId,
         status: p?.polledAt ? { state: p.pollError ? ('error' as const) : ('connected' as const), error: p.pollError ?? null } : null,
         summary,
+      };
+    }
+    // the state of its last poll (logs.ts): every 5 minutes, who sent journals over a day
+    case 'log-server': {
+      const { password, ...config } = r.config;
+      const p = logPollOf(r._id);
+      const target = logTarget(r.config, host?.info?.ips);
+      return {
+        ...base,
+        config: { ...config, address: config.address ?? null },
+        hasSecret: !!password,
+        url: r.config.url,
+        account: r.config.username,
+        // where the hosts send their journals ('' while the address of the carrier is unknown)
+        target: target.address ? `${target.protocol}://${target.address.includes(':') ? `[${target.address}]` : target.address}:${target.port}` : '',
+        status: p ? { state: p.pollError ? ('error' as const) : ('connected' as const), error: p.pollError ?? null } : null,
+        summary: p && !p.pollError ? `${p.senders.length} émetteur${p.senders.length > 1 ? 's' : ''} sur 24 h` : null,
       };
     }
   }

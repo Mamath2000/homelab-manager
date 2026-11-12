@@ -4,7 +4,7 @@ import type { UserDoc } from './types.js';
 // Anything not explicitly allowed is refused.
 //   admin     everything (the journal of the key actions is theirs alone)
 //   operator  reads (not the compose files) + runs jobs (updates, cleanup, reboot, lock, agent updates; not shutdown: checked on the job route) (standardisation: checks and applies the values an admin set, never changes them); no hosts, settings or accounts
-//   viewer    reads only (no job output, container logs or compose files)
+//   viewer    reads only (no job output, container logs, journals of the hosts or compose files)
 //   superadmin  accounts only: list, create, reset passwords (first install and recovery)
 export function authorize(profile: UserDoc['profile'], method: string, route: string) {
   const read = method === 'GET' || method === 'HEAD';
@@ -27,6 +27,8 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
   const dbRestoreRead = route.startsWith('/api/db-restore');
   const stackLogs = route === '/api/hosts/:id/stacks/:stack/logs';
   const stackCompose = route === '/api/hosts/:id/stacks/:stack/compose';
+  // the journals of the hosts may hold secrets too: not for read-only accounts (nor for an API key: routes/logs.ts)
+  const hostLogs = route === '/api/logs' || route.startsWith('/api/logs/');
   switch (profile) {
     case 'admin':
       return true;
@@ -46,7 +48,7 @@ export function authorize(profile: UserDoc['profile'], method: string, route: st
             route === '/api/backups/:id/offsite/run'))
       );
     case 'viewer':
-      if (read) return !accounts && !settings && !stackLogs && !stackCompose && !audit && !dbRestoreRead;
+      if (read) return !accounts && !settings && !stackLogs && !stackCompose && !audit && !dbRestoreRead && !hostLogs;
       return ownPassword || ownAccount;
     case 'superadmin':
       return (

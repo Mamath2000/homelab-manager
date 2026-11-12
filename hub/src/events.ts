@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ObjectId } from 'mongodb';
 import { apiKeys, sessions, users } from './db.js';
 import { authorize } from './profiles.js';
@@ -25,6 +25,8 @@ interface Stream {
   // the credential of the request: a session (its id) or an API key
   sessionId?: string;
   apiKeyId?: ObjectId;
+  // the route it was opened on: what the account must still be allowed to read
+  route: string;
 }
 const streams = new Set<Stream>();
 
@@ -50,13 +52,30 @@ async function stillAllowed(s: Stream) {
     : await sessions.findOne({ _id: s.sessionId!, expiresAt: { $gt: new Date() } });
   if (!credential) return false;
   const user = await users.findOne({ _id: s.userId });
-  return !!user && user.profile === s.profile && authorize(user.profile, 'GET', '/api/events');
+  return !!user && user.profile === s.profile && authorize(user.profile, 'GET', s.route);
+}
+
+// A stream opened by a request (the live events, the live tail of the journals): closed with its credential like the
+// others, and checked again while it stays open. Returns what to call when the request closes.
+export function trackStream(req: FastifyRequest, route: string, end: () => void) {
+  const user = req.user!;
+  const stream: Stream = { end, userId: user._id, profile: user.profile, sessionId: req.sessionId, apiKeyId: req.apiKey?.id, route };
+  const revalidate = setInterval(() => {
+    stillAllowed(stream).then(
+      (ok) => ok || stream.end(),
+      (err) => req.log.warn({ err }, 'events: revalidation failed'),
+    );
+  }, REVALIDATE_MS);
+  streams.add(stream);
+  return () => {
+    clearInterval(revalidate);
+    streams.delete(stream);
+  };
 }
 
 // Server-Sent Events stream used by the UI for live updates.
 export function registerEvents(app: FastifyInstance) {
   app.get('/api/events', (req, reply) => {
-    const user = req.user!;
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, {
@@ -71,25 +90,11 @@ export function registerEvents(app: FastifyInstance) {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
     const keepalive = setInterval(() => res.write(': ping\n\n'), 25_000);
-    const stream: Stream = {
-      end: () => res.end(),
-      userId: user._id,
-      profile: user.profile,
-      sessionId: req.sessionId,
-      apiKeyId: req.apiKey?.id,
-    };
-    const revalidate = setInterval(() => {
-      stillAllowed(stream).then(
-        (ok) => ok || stream.end(),
-        (err) => req.log.warn({ err }, 'events: revalidation failed'),
-      );
-    }, REVALIDATE_MS);
-    streams.add(stream);
+    const untrack = trackStream(req, '/api/events', () => res.end());
     listeners.add(listener);
     req.raw.on('close', () => {
       clearInterval(keepalive);
-      clearInterval(revalidate);
-      streams.delete(stream);
+      untrack();
       listeners.delete(listener);
     });
   });

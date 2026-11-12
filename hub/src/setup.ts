@@ -8,6 +8,8 @@ import { parse as parseToml } from 'smol-toml';
 import { DEFAULT_FASTFETCH } from './fastfetch.js';
 import { createJob } from './jobs.js';
 import { DEFAULT_STARSHIP } from './starship.js';
+import { logRole, logTargets, silentReason, type LogTarget } from './logs.js';
+import { ROLE_ID_RE } from './roles.js';
 import {
   ACCESS_OPTIONS,
   LIST_OPTIONS,
@@ -18,6 +20,7 @@ import {
   type JobDoc,
   type ListOption,
   type SetupOption,
+  type SetupCheck,
   type SetupOverrides,
   type SetupProfile,
   type SetupState,
@@ -58,6 +61,7 @@ export const DEFAULT_SETUP: SetupProfile = {
   options: {
     packages: { enabled: true, value: ['net-tools', 'fzf', 'mosquitto-clients', 'git', 'wget', 'htop', 'rsync', 'gnupg2', 'jq', 'curl', 'ethtool', 'bc'] },
     ssh_password: { enabled: false, value: true },
+    log_forward: { enabled: false, value: { role: '' } },
     root_keys: { enabled: false, value: [] },
     root_aliases: { enabled: true, value: DEFAULT_ALIASES },
     root_prompt: { enabled: true, value: 'classic' },
@@ -137,6 +141,9 @@ export function valueError<K extends SetupOption>(k: K, v: SetupValues[K]): stri
   } else if (k === 'user') {
     const name = (v as SetupValues['user']).name;
     if (!USER_RE.test(name) || name === 'root') return "nom d'utilisateur invalide (minuscules, chiffres, _ et -, pas root)";
+  } else if (k === 'log_forward') {
+    const role = (v as SetupValues['log_forward']).role;
+    if (role && !ROLE_ID_RE.test(role)) return 'serveur de logs invalide';
   }
   return null;
 }
@@ -164,6 +171,13 @@ function lockoutError(v: Partial<SetupValues>) {
   if (v.ssh_password !== false) return null;
   const keys = (v.root_keys?.length ?? 0) + (v.user ? (v.user_keys?.length ?? 0) : 0);
   return keys ? null : "interdire le mot de passe SSH demande des clés SSH pour root ou l'utilisateur, sinon l'hôte devient injoignable";
+}
+
+// The journals are sent to a log server that exists; no server ('') only as the own value of a host (it sends nothing).
+function logForwardError(v: SetupValues['log_forward'] | undefined, standard: boolean) {
+  if (!v) return null;
+  if (!v.role) return standard ? "envoi des journaux : choisir un serveur de logs (Paramètres › Rôles)" : null;
+  return logRole(v.role) ? null : "envoi des journaux : ce serveur de logs n'existe plus";
 }
 
 // Values applied to a host: the standard ones, changed by its overrides; options absent are not managed.
@@ -197,7 +211,7 @@ export function profileError(p: SetupProfile): string | null {
   const v = effectiveValues(p);
   if ((v.root_motd === 'fastfetch' || v.user_motd === 'fastfetch') && fastfetchError(p.fastfetch)) return fastfetchError(p.fastfetch);
   if ((v.root_prompt === 'starship' || v.user_prompt === 'starship') && starshipError(p.starship)) return starshipError(p.starship);
-  return lockoutError(v);
+  return logForwardError(v.log_forward, true) ?? lockoutError(v);
 }
 
 // Error message for invalid host overrides, null when they are fine.
@@ -215,7 +229,8 @@ export function overridesError(p: SetupProfile, overrides: SetupOverrides): stri
       if (err) return err;
     }
   }
-  return lockoutError(effectiveValues(p, overrides));
+  const custom = overrides.log_forward?.mode === 'custom' ? overrides.log_forward.value : undefined;
+  return logForwardError(custom, false) ?? lockoutError(effectiveValues(p, overrides));
 }
 
 const accountSpec = (v: Partial<SetupValues>, prefix: 'root' | 'user') => ({
@@ -225,15 +240,32 @@ const accountSpec = (v: Partial<SetupValues>, prefix: 'root' | 'user') => ({
   ...(v[`${prefix}_motd`] ? { motd: v[`${prefix}_motd`] } : {}),
 });
 
+// What a spec depends on outside the profile: what the agent of the host can do, and where each log server receives.
+export interface SpecContext {
+  capabilities?: string[];
+  targets?: Map<string, LogTarget>;
+}
+
+// Why the journals option of a host cannot be sent to its agent (null: it can): the hub then reports it itself.
+export function logForwardSkip(v: Partial<SetupValues>, ctx: SpecContext = {}): Pick<SetupCheck, 'state' | 'detail'> | null {
+  if (!v.log_forward) return null;
+  if (!ctx.capabilities?.includes('log_forward')) return { state: 'na', detail: "agent à mettre à jour (ou hôte sans systemd)" };
+  if (v.log_forward.role && !ctx.targets?.get(v.log_forward.role)?.address) return { state: 'error', detail: 'serveur de logs introuvable, ou sans adresse connue' };
+  return null;
+}
+
 // What the agent receives: the managed options (in SETUP_OPTIONS order, restricted to `only` when
-// given) and their values; the user values travel with any user option (the account name).
-export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: SetupOption[]) {
+// given) and their values; the user values travel with any user option (the account name). The journals option
+// is resolved here: the agent gets the address of the log server, not its role.
+export function buildSpec(p: SetupProfile, overrides?: SetupOverrides, only?: SetupOption[], ctx: SpecContext = {}) {
   const v = effectiveValues(p, overrides);
-  const modules = SETUP_OPTIONS.filter((k) => k in v && (!only || only.includes(k)));
+  const skipLogs = !!logForwardSkip(v, ctx);
+  const modules = SETUP_OPTIONS.filter((k) => k in v && (!only || only.includes(k)) && !(k === 'log_forward' && skipLogs));
   return {
     modules,
     ...(v.packages ? { packages: v.packages } : {}),
     ...(v.ssh_password !== undefined ? { allowPassword: v.ssh_password } : {}),
+    ...(v.log_forward && !skipLogs ? { logForward: v.log_forward.role ? ctx.targets!.get(v.log_forward.role)! : { address: '' } } : {}),
     root: accountSpec(v, 'root'),
     ...(v.user ? { user: { ...v.user, ...accountSpec(v, 'user') } } : {}),
     ...(v.root_motd === 'fastfetch' || v.user_motd === 'fastfetch' ? { fastfetch: p.fastfetch } : {}),
@@ -257,9 +289,29 @@ export async function checkHostSetup(hostId: ObjectId) {
   const host = await hosts.findOne({ _id: hostId });
   if (!host || !canSetup(host) || !isOnline(hostId.toHexString())) return;
   const p = await loadSetupProfile();
-  const state = await agentRequest<SetupState>(hostId.toHexString(), 'setup_check', { setup: buildSpec(p, host.setupOverrides) }, 60_000);
+  const ctx = await specContext(host);
+  const state = await agentRequest<SetupState>(hostId.toHexString(), 'setup_check', { setup: buildSpec(p, host.setupOverrides, undefined, ctx) }, 60_000);
+  state.modules = withLogForward(host, state, effectiveValues(p, host.setupOverrides), ctx);
   const updated = await hosts.findOneAndUpdate({ _id: hostId }, { $set: { setup: state, ...prunedAckedKeys(host.ackedKeys, state.access) } }, { returnDocument: 'after' });
   if (updated) publish('host', hostDto(updated));
+}
+
+export const specContext = async (host: Pick<HostDoc, 'capabilities'>): Promise<SpecContext> => ({ capabilities: host.capabilities, targets: await logTargets() });
+
+// The check of the journals option as the hub completes it: the server the host was told to send to, a silence the
+// server reports (conform on the host, nothing received: logs.ts), or why the option was not sent to the agent.
+export function withLogForward(host: Pick<HostDoc, '_id' | 'info' | 'setup'>, state: SetupState, v: Partial<SetupValues>, ctx: SpecContext): SetupCheck[] {
+  const skip = logForwardSkip(v, ctx);
+  if (skip) return [...state.modules.filter((m) => m.module !== 'log_forward'), { module: 'log_forward', ...skip }];
+  const role = v.log_forward?.role;
+  // a host already silent stays so until the server receives from it again, whatever the date of this check
+  const wasSilent = !!host.setup?.modules.find((m) => m.module === 'log_forward')?.silent;
+  return state.modules.map((m) => {
+    if (m.module !== 'log_forward' || !role) return m;
+    const checked: SetupCheck = { ...m, role };
+    const why = m.state === 'ok' ? silentReason({ ...host, setup: { ...state, modules: [{ ...checked, silent: wasSilent }] } }, role) : null;
+    return why ? { ...checked, state: 'drift' as const, detail: why, silent: true } : checked;
+  });
 }
 
 export function checkAllHosts() {
@@ -272,7 +324,7 @@ export function checkAllHosts() {
 // Applies the values of a host, all its managed options or only some of them (bulk application).
 export async function applySetup(host: HostDoc, trigger: JobDoc['trigger'], only?: SetupOption[]) {
   const p = await loadSetupProfile();
-  return createJob(host, 'setup_apply', [], trigger, { setup: buildSpec(p, host.setupOverrides, only) });
+  return createJob(host, 'setup_apply', [], trigger, { setup: buildSpec(p, host.setupOverrides, only, await specContext(host)) });
 }
 
 // Bulk standardisation: the chosen options go back to the standard on the host (its own values are
@@ -292,7 +344,7 @@ export const resetError = (p: SetupProfile, host: HostDoc, options: SetupOption[
 export async function resetAndApplySetup(p: SetupProfile, host: HostDoc, options: SetupOption[]) {
   const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { setupOverrides: withoutOverrides(host, options) } }, { returnDocument: 'after' }))!;
   publish('host', hostDto(updated));
-  return createJob(updated, 'setup_apply', [], 'manual', { setup: buildSpec(p, updated.setupOverrides, options) });
+  return createJob(updated, 'setup_apply', [], 'manual', { setup: buildSpec(p, updated.setupOverrides, options, await specContext(updated)) });
 }
 
 // First connection of a new host: standard configuration if the profile says so, conformity otherwise.

@@ -18,6 +18,8 @@ const motd = { type: 'string', enum: MOTD_STYLES };
 const valueSchema: Record<SetupOption, object> = {
   packages,
   ssh_password: { type: 'boolean' },
+  // a log-server role of the hub ("": no forwarding)
+  log_forward: { type: 'object', additionalProperties: false, required: ['role'], properties: { role: { type: 'string', maxLength: 32 } } },
   root_keys: keys,
   root_aliases: text,
   root_prompt: prompt,

@@ -438,6 +438,7 @@ export interface HostPveLost {
 export const SETUP_OPTIONS = [
   'packages',
   'ssh_password',
+  'log_forward',
   'root_keys',
   'root_aliases',
   'root_prompt',
@@ -459,6 +460,8 @@ export type MotdStyle = (typeof MOTD_STYLES)[number];
 export interface SetupValues {
   packages: string[];
   ssh_password: boolean; // password logins allowed
+  // log-server role the journals of the host are sent to (rsyslog); "": no forwarding (a host value: this host sends nothing)
+  log_forward: { role: string };
   root_keys: string[];
   root_aliases: string;
   root_prompt: PromptStyle;
@@ -494,6 +497,10 @@ export interface SetupCheck {
   module: SetupOption;
   state: 'ok' | 'drift' | 'na' | 'error';
   detail?: string;
+  // log_forward, set by the hub: the log server the host was told to send to, and whether its drift is a silence (the
+  // file is conform but the server receives nothing, logs.ts)
+  role?: string;
+  silent?: boolean;
 }
 
 // authorized_keys inventory of a host, as reported by its agent
@@ -1283,9 +1290,10 @@ export interface ProbeMeasureDoc {
 // A service found listening on a host, reported by its agent in the hello (agent/roles.go): the administrator
 // activates it as a role of the hub carried by this host.
 export interface RoleCandidate {
-  type: 'mqtt-broker' | 'omada-controller';
+  type: 'mqtt-broker' | 'omada-controller' | 'log-server';
   process: string;
   port: number;
+  // log-server: http (its query API) or syslog (a port it receives on)
   scheme: string;
   // loopback only: not reachable from the hub
   local?: boolean;
@@ -1299,7 +1307,7 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller', 'log-server'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host', 'equipment'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
@@ -1404,6 +1412,32 @@ export interface OmadaControllerRole {
   createdAt: Date;
 }
 
+// log-server: a VictoriaLogs the hosts send their journals to in syslog (option log_forward of the standardisation) and
+// the hub reads through its HTTP API (logs.ts). url: the query API; address (the first private IP of its host when
+// absent), port and protocol: where the hosts send. username / password: basic authentication of the API, when a proxy
+// in front of it asks for one. silentHours: a host that manages the option and sent nothing for that long is a drift
+// (0: not watched).
+export const LOG_PROTOCOLS = ['tcp'] as const;
+export type LogProtocol = (typeof LOG_PROTOCOLS)[number];
+export interface LogServerConfig {
+  url: string;
+  address?: string;
+  port: number;
+  protocol: LogProtocol;
+  username: string;
+  password: string;
+  silentHours: number;
+}
+
+export interface LogServerRole {
+  _id: string;
+  type: 'log-server';
+  name: string;
+  carrier: RoleCarrier;
+  config: LogServerConfig;
+  createdAt: Date;
+}
+
 // What the hub knows of an Omada controller (collection `omada`, one document per omada-controller role, _id = role id):
 // its sites and devices as read at the last poll, and the sites of the homelab the admin matched to the ones of the
 // controller (siteMap: Omada siteId -> site of the homelab).
@@ -1448,9 +1482,9 @@ export interface OmadaStateDoc {
   pollError?: string;
 }
 
-export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole;
+export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole | LogServerRole;
 // the ones of the roles collection
-export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole;
+export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole | LogServerRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {
