@@ -88,6 +88,16 @@ export async function setAccountPassword(role: MqttBrokerRole, username: string,
   return { username, password: pw };
 }
 
+// Reading of the $SYS topics (broker uptime, load...): "#" does not cover them, the built-in role sys-observe does. Off by default.
+export const SYS_ROLE = 'sys-observe';
+
+export async function setAccountSys(role: MqttBrokerRole, username: string, enabled: boolean) {
+  checkName(username);
+  const [r] = await run(role, [enabled ? { command: 'addClientRole', username, rolename: SYS_ROLE, priority: 5 } : { command: 'removeClientRole', username, rolename: SYS_ROLE }]);
+  if (errorOf(r)) throw new DynsecError(errorOf(r)!, 409);
+  return { username, sys: enabled };
+}
+
 export async function deleteAccount(role: MqttBrokerRole, username: string) {
   checkName(username);
   const [r] = await run(role, [{ command: 'deleteClient', username }]);

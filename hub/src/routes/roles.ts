@@ -5,7 +5,7 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
-import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, syncAccount } from '../mqttAccounts.js';
+import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, setAccountSys, syncAccount } from '../mqttAccounts.js';
 import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, enableDynsec, resetDynsec, securityView } from '../mqttDynsec.js';
@@ -420,6 +420,20 @@ export function registerRoleRoutes(app: FastifyInstance) {
       req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.params.username } };
       try {
         return await setAccountPassword(role, req.params.username, req.body.password);
+      } catch (err) {
+        return dynsecFail(reply, err);
+      }
+    },
+  );
+  app.put<{ Params: { id: string; username: string }; Body: { enabled: boolean } }>(
+    '/api/roles/:id/mqtt-accounts/:username/sys',
+    { schema: { body: { type: 'object', additionalProperties: false, required: ['enabled'], properties: { enabled: { type: 'boolean' } } } } },
+    async (req, reply) => {
+      const role = brokerRole(req.params.id);
+      if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+      req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.params.username, sys: req.body.enabled } };
+      try {
+        return await setAccountSys(role, req.params.username, req.body.enabled);
       } catch (err) {
         return dynsecFail(reply, err);
       }

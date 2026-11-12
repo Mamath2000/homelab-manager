@@ -213,16 +213,16 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
               </thead>
               <tbody className="divide-y divide-line">
                 {probes.map((p) => (
-                  <tr key={p.id} className="hover:bg-raised/40">
+                  <tr key={p.id} className="align-top hover:bg-raised/40">
                     <td className="td pl-4">
                       <span className="font-medium text-zinc-100">{p.name}</span>
                       {p.stack && <Badge className="ml-2">{p.stack}</Badge>}
                     </td>
                     <td className="td hidden text-muted 2xl:table-cell">{TYPES.find((t) => t.id === p.target.type)?.label}</td>
-                    <td className="td max-w-[180px] 2xl:max-w-[320px]"><span className="block truncate font-mono text-xs text-zinc-300" title={where(p)}>{where(p)}</span></td>
+                    <td className="td min-w-0 max-w-[180px] 2xl:max-w-[320px]"><span className="block break-all font-mono text-xs text-zinc-300">{where(p)}</span></td>
                     <td className="td">
                       <StateBadge p={p} />
-                      {p.message && p.state !== 'up' && <p className="mt-0.5 max-w-[260px] truncate text-xs text-amber-300" title={p.message}>{p.message}</p>}
+                      {p.message && p.state !== 'up' && <p className="mt-0.5 max-w-[260px] break-words text-xs text-amber-300">{p.message}</p>}
                     </td>
                     <td className="td hidden text-muted 2xl:table-cell">{p.since ? elapsed(p.since) : '—'}</td>
                     <td className="td"><ProbeRecent probeId={p.id} className="w-full min-w-[6rem] max-w-44" /></td>

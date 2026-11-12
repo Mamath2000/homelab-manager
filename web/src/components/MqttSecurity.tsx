@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router';
 import { api, type MqttAccount, type MqttAnonymous, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -457,6 +457,16 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
                           <td className="td">
                             {!a.protected && (
                               <div className="flex justify-end gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant={a.roles.includes('sys-observe') ? 'primary' : 'secondary'}
+                                  icon={Activity}
+                                  aria-pressed={a.roles.includes('sys-observe')}
+                                  aria-label={`Lecture des topics $SYS pour ${a.username}`}
+                                  title={a.roles.includes('sys-observe') ? 'Lecture des topics $SYS activée (cliquer pour retirer)' : 'Autoriser la lecture des topics $SYS (uptime, charge du broker…)'}
+                                  disabled={busy}
+                                  onClick={() => done(() => api.setMqttAccountSys(role.id, a.username, !a.roles.includes('sys-observe')).then(() => undefined))}
+                                />
                                 <Button size="sm" icon={KeyRound} aria-label={`Changer le mot de passe de ${a.username}`} title="Changer le mot de passe" disabled={busy} onClick={() => (setNewPassword(''), setChanging(a))} />
                                 <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer ${a.username}`} title="Supprimer" disabled={busy} onClick={() => setDeleting(a)} />
                               </div>

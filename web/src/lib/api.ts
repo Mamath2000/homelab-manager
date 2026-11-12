@@ -1917,6 +1917,8 @@ export const api = {
     request<{ username: string; password: string }>('POST', `/api/roles/${roleId}/mqtt-accounts`, { username, ...(password ? { password } : {}), ...(clientId ? { clientId } : {}) }),
   setMqttAccountPassword: (roleId: string, username: string, password?: string) =>
     request<{ username: string; password: string }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`, password ? { password } : {}),
+  setMqttAccountSys: (roleId: string, username: string, enabled: boolean) =>
+    request<{ username: string; sys: boolean }>('PUT', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}/sys`, { enabled }),
   deleteMqttAccount: (roleId: string, username: string) => request<{ ok: true }>('DELETE', `/api/roles/${roleId}/mqtt-accounts/${encodeURIComponent(username)}`),
   mqttAnonymous: (roleId: string) => request<MqttAnonymousState>('GET', `/api/roles/${roleId}/mqtt-anonymous`),
   setMqttAnonymous: (roleId: string, allowed: boolean) => request<MqttAnonymousState>('PUT', `/api/roles/${roleId}/mqtt-anonymous`, { allowed }),
