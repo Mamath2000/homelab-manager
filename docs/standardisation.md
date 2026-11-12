@@ -138,6 +138,7 @@ Sur un hôte, **Valeur propre** choisit un autre serveur, ou **Aucun envoi** : l
 
 | État | Cause |
 |---|---|
+| écart « … refused the connection » | le serveur ne reçoit pas sur ce port : l'agent tente une connexion TCP vers la destination à chaque vérification (rsyslog garde les journaux dans sa file en attendant) |
 | écart « aucun journal reçu… » | la configuration est conforme mais le serveur ne reçoit rien de cet hôte ([hôte muet](logs.md#hôte-muet)) : port fermé, mauvais serveur, rsyslog bloqué |
 | sans objet | agent à mettre à jour (capacité `log_forward`), ou hôte sans systemd |
 | erreur « serveur de logs introuvable » | le rôle a été supprimé, ou l'adresse de son hôte est inconnue |

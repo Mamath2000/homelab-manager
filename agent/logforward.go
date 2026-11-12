@@ -4,12 +4,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Option log_forward of the standardisation (setup.go): the journals of the host are sent in syslog to a log server, a
@@ -150,5 +154,24 @@ func checkLogForward(ctx context.Context, s *SetupSpec) (string, string) {
 	if !rsyslogActive(ctx) {
 		return "drift", "rsyslog not running"
 	}
+	// the file is right but the server may not receive there (wrong port, firewall): rsyslog keeps the journals in its
+	// queue and says so in its own journal only
+	if err := dialLogServer(ctx, s.LogForward); err != nil {
+		return "drift", err.Error()
+	}
 	return "ok", ""
+}
+
+// dialLogServer: does the log server accept a connection where the journals are sent.
+func dialLogServer(ctx context.Context, l *LogForwardSpec) error {
+	addr := net.JoinHostPort(l.Address, strconv.Itoa(l.Port))
+	d := net.Dialer{Timeout: 5 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		if errors.Is(err, syscall.ECONNREFUSED) {
+			return fmt.Errorf("%s refused the connection: the log server does not receive on this port", addr)
+		}
+		return fmt.Errorf("%s unreachable: %v", addr, err)
+	}
+	return conn.Close()
 }

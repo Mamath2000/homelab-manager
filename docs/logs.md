@@ -33,12 +33,13 @@ L'onglet apparaît avec un rôle Serveur de logs (administrateurs). Pour chaque 
 | Couleur | État |
 |---|---|
 | vert | des journaux sont arrivés pendant le délai d'alerte du rôle (24 h s'il ne surveille pas les hôtes muets) |
-| orange | installation en cours, ou option à appliquer (le détail le dit) |
+| orange | installation en cours, ou écart de l'option : configuration à appliquer, ou serveur qui refuse la connexion sur le port envoyé (l'agent tente une connexion TCP à chaque vérification) |
 | rouge | rien reçu pendant ce délai, ou l'agent ne peut pas appliquer l'option (agent à mettre à jour…) |
 
 La carte indique aussi le site, « hors ligne », et comment l'hôte envoie : **standard** (valeur standard de la standardisation), **valeur propre**, ou **réglé à la main** (le serveur reçoit de lui sans que la standardisation l'y envoie). États relus toutes les 30 secondes, toutes les 5 secondes pendant une installation.
 
 - **Ajouter un hôte** : liste les hôtes qui n'envoient pas encore ; un clic sur l'un d'eux règle son option « Envoi des journaux » sur ce serveur (la valeur standard si c'est elle, sinon une valeur propre) et l'applique aussitôt : l'agent installe et configure rsyslog. Grisés : hôte hors ligne, agent à mettre à jour, hôte sans standardisation (Windows, HAOS, Unraid), standardisation désactivée sur le hub. Un hôte réglé à la main est proposé avec un avertissement : retirer son réglage manuel, sinon chaque ligne arrive en double.
+- **Réappliquer** (carte en écart, orange ou rouge, hôte en ligne) : pousse de nouveau la configuration rsyslog, par exemple après un changement du port ou de l'adresse du serveur dans le rôle.
 - **Corbeille** d'une carte : arrête l'envoi, après confirmation. L'option de l'hôte devient « aucun envoi » et l'agent retire son fichier (à la prochaine application si l'hôte est hors ligne). Pas de corbeille sur un hôte réglé à la main : son fichier n'est pas celui de l'agent.
 
 Les émetteurs que le hub ne connaît pas sont listés sous les cartes.

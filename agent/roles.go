@@ -133,7 +133,45 @@ func parseRoleCandidates(ssOut string) []RoleCandidate {
 	for _, c := range found {
 		out = append(out, *c)
 	}
+	for k := range found {
+		if k.typ == "log-server" && strings.HasPrefix(k.proc, "docker-proxy") {
+			out = append(out, dockerSyslogPorts(ssOut, k.port)...)
+			break
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Port < out[j].Port })
+	return out
+}
+
+// syslogPorts: the ports a log server usually receives on (syslog TCP and its TLS port, and the ones of the examples).
+var syslogPorts = map[int]bool{514: true, 601: true, 1514: true, 5514: true, 6514: true, 29514: true}
+
+// dockerSyslogPorts: VictoriaLogs in a container is told by its API port only (docker-proxy listens on the host, not
+// its process); the syslog ports docker-proxy publishes next to it are then its inputs.
+func dockerSyslogPorts(ssOut string, apiPort int) []RoleCandidate {
+	seen := map[int]*RoleCandidate{}
+	for _, line := range strings.Split(ssOut, "\n") {
+		m := ssListenRe.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil || !strings.HasPrefix(m[3], "docker-proxy") {
+			continue
+		}
+		port, err := strconv.Atoi(m[2])
+		if err != nil || !syslogPorts[port] || port == apiPort {
+			continue
+		}
+		c, ok := seen[port]
+		if !ok {
+			c = &RoleCandidate{Type: "log-server", Process: m[3], Port: port, Scheme: "syslog", Local: true}
+			seen[port] = c
+		}
+		if !isLoopback(m[1]) {
+			c.Local = false
+		}
+	}
+	out := make([]RoleCandidate, 0, len(seen))
+	for _, c := range seen {
+		out = append(out, *c)
+	}
 	return out
 }
 

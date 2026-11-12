@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Plus, ScrollText, Search, Trash2 } from 'lucide-react';
+import { Plus, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
 import { api, type Host, type LogHost, type LogHubRole } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -33,7 +33,7 @@ function stateText(h: LogHost, silentHours: number) {
     case 'pending':
       return 'installation en cours…';
     case 'drift':
-      return `à appliquer${h.detail ? ` : ${h.detail}` : ''}`;
+      return h.detail ?? 'configuration à appliquer';
     case 'error':
       return h.detail ?? "l'agent ne peut pas l'appliquer";
     case 'silent':
@@ -41,8 +41,10 @@ function stateText(h: LogHost, silentHours: number) {
   }
 }
 
-function HostCard({ h, site, silentHours, onRemove }: { h: LogHost; site?: string; silentHours: number; onRemove: () => void }) {
+function HostCard({ h, site, silentHours, onRemove, onApply, applying }: { h: LogHost; site?: string; silentHours: number; onRemove: () => void; onApply: () => void; applying: boolean }) {
   const meta = STATE[h.state];
+  // pushed again after a change of the server (destination), or when the host does not send
+  const reapply = h.mode !== 'manual' && h.online && !h.running && (h.state === 'drift' || h.state === 'silent' || h.state === 'error');
   return (
     <article className={clsx('min-w-0 rounded-lg border p-3.5', meta.card)}>
       <div className="flex items-start justify-between gap-2">
@@ -59,9 +61,14 @@ function HostCard({ h, site, silentHours, onRemove }: { h: LogHost; site?: strin
       <p className={clsx('mt-1.5 line-clamp-2 text-xs', h.state === 'ok' ? 'text-emerald-300' : h.state === 'silent' || h.state === 'error' ? 'text-red-300' : 'text-amber-300')} title={h.detail ?? undefined}>
         {stateText(h, silentHours)}
       </p>
-      <p className="mt-1 truncate text-[11px] text-muted">
-        {[site, !h.online && 'hors ligne', MODE_LABEL[h.mode]].filter(Boolean).join(' · ')}
-      </p>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <p className="truncate text-[11px] text-muted">{[site, !h.online && 'hors ligne', MODE_LABEL[h.mode]].filter(Boolean).join(' · ')}</p>
+        {reapply && (
+          <Button size="sm" icon={RefreshCw} loading={applying} onClick={onApply} title="Réappliquer la configuration rsyslog sur l'hôte" className="shrink-0">
+            Réappliquer
+          </Button>
+        )}
+      </div>
     </article>
   );
 }
@@ -153,6 +160,19 @@ function ServerPanel({ role }: { role: LogHubRole }) {
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<LogHost | null>(null);
   const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState<string | null>(null);
+  const apply = async (h: LogHost) => {
+    setApplying(h.hostId);
+    try {
+      await api.addLogHost(role.id, h.hostId);
+      await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
+      toast.success(`${h.name} : configuration rsyslog réappliquée`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setApplying(null);
+    }
+  };
   const remove = async () => {
     if (!removing) return;
     setBusy(true);
@@ -190,7 +210,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {list.map((h) => (
-              <HostCard key={h.hostId} h={h} site={sites.find((s) => s.id === h.siteId)?.name} silentHours={data!.silentHours} onRemove={() => setRemoving(h)} />
+              <HostCard key={h.hostId} h={h} site={sites.find((s) => s.id === h.siteId)?.name} silentHours={data!.silentHours} onRemove={() => setRemoving(h)} onApply={() => void apply(h)} applying={applying === h.hostId} />
             ))}
           </div>
         )}

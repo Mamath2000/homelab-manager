@@ -53,7 +53,7 @@ Sur la fiche d'un hôte ou d'un équipement, les rôles qu'il porte s'affichent 
 
 Quatre étapes : **Hôte › API › Configuration › Récapitulatif**.
 
-1. **Hôte** : l'hôte où tourne VictoriaLogs. Seuls ceux dont l'agent le voit en écoute sont proposés (processus `victoria-logs`, ou port 9428 publié par Docker) ; **Choisir un autre hôte** affiche les autres, pour un serveur que la détection ne voit pas (API sur un autre port derrière Docker, ou derrière un proxy).
+1. **Hôte** : l'hôte où tourne VictoriaLogs. Seuls ceux dont l'agent le voit en écoute sont proposés (processus `victoria-logs`, ou port 9428 publié par Docker, avec alors les ports syslog usuels publiés à côté : 514, 601, 1514, 5514, 6514, 29514) ; **Choisir un autre hôte** affiche les autres, pour un serveur que la détection ne voit pas (API sur un autre port derrière Docker, ou derrière un proxy).
 2. **API** : là où le hub lit les journaux (port 9428 par défaut), testée dans l'étape. VictoriaLogs n'a pas d'authentification : un utilisateur et un mot de passe ne se saisissent qu'avec **Derrière un reverse proxy HTTPS**. Le mot de passe n'est jamais renvoyé par l'API.
 3. **Configuration** :
    - **Hôte muet** : délai sans journal au bout duquel un hôte qui envoie ses journaux passe en écart ([hôte muet](logs.md#hôte-muet)), 6 h par défaut, 0 pour ne jamais alerter ;
