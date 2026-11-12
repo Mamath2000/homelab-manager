@@ -6,7 +6,7 @@ import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
 import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, setAccountSys, syncAccount } from '../mqttAccounts.js';
-import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
+import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous, recordAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, enableDynsec, resetDynsec, securityView } from '../mqttDynsec.js';
 import { securityOf } from '../mqttSecurity.js';
@@ -321,7 +321,9 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
     try {
-      return await enableDynsec(role);
+      const r = await enableDynsec(role);
+      void checkBrokersAnonymous().catch(() => undefined);
+      return r;
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -332,6 +334,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
     try {
       await resetDynsec(role);
+      void checkBrokersAnonymous().catch(() => undefined);
       return { ok: true };
     } catch (err) {
       return dynsecFail(reply, err);
@@ -378,7 +381,9 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     try {
-      return await anonymousState(role);
+      const st = await anonymousState(role);
+      recordAnonymous(role._id, st);
+      return st;
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -392,7 +397,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
       req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { anonymous: req.body.allowed } };
       try {
         const state = await setAnonymous(role, req.body.allowed);
-        void checkBrokersAnonymous().catch(() => undefined);
+        recordAnonymous(role._id, state);
         return state;
       } catch (err) {
         return dynsecFail(reply, err);
