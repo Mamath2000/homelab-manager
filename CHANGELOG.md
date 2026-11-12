@@ -10,11 +10,13 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ### Corrigé
 
+- **Jobs APT de l'agent : attente du verrou dpkg** (5 min) au lieu d'un échec immédiat quand `unattended-upgrades` ou `apt-daily` le tient. (homelab#233)
 - **Activer la gestion des comptes MQTT ne casse plus les sondes ni le pont Home Assistant** : l'activation déplaçait le rôle sur le port 8883 avec le certificat du compte `hlm`, qui n'a aucun droit de lecture sur les topics, et réécrivait ses identifiants. L'identité d'administration du hub est maintenant gardée à part (`config.dynsec`) et la connexion du rôle n'est plus modifiée à l'activation. Au démarrage, un rôle déjà activé est remis sur son port d'origine, sans compte, et son identité d'administration est déplacée. (homelab#325)
 - **Sonde MQTT : abonnement refusé signalé** : un abonnement que le broker refuse (code 0x80, compte sans droit de lecture) donne « abonnement refusé par le broker » au lieu de « aucun message ». (homelab#325)
 
 ### Ajouté
 
+- **Mises à jour de sécurité automatiques, hôte par hôte** : une case des options de l'hôte fait installer et configurer `unattended-upgrades` par l'agent (job `apt_auto_set`), limité aux dépôts de sécurité, sans redémarrage automatique ; décochée, la configuration posée par Homelab Manager est retirée. Appliqué à l'enregistrement ou au retour d'un hôte hors ligne. Le panneau Paquets montre l'état réel (icône bouclier, y compris un `unattended-upgrades` activé hors Homelab Manager) et les paquets installés automatiquement sur 30 jours avec leur date (`history.log`). Nécessite l'agent à jour (capacité `apt_auto`). Voir [Créer des éléments](docs/creer-des-elements.md#mises-à-jour-de-sécurité-automatiques). (homelab#233)
 - **Fenêtre du rôle Broker MQTT revue** (même fenêtre en création et en modification) : le **nom du rôle** en tête, puis **Broker** (un par hôte et processus, le port n'est plus dans la liste), **Protocole** (MQTT, seul pour l'instant, présélectionné ; adresse IP et port facultatifs : IP de l'hôte et port relevé par l'agent, sinon 1883), **Identifiants** (icône pour **générer** le mot de passe), **Test** (URL réelle, et pour info si la gestion des comptes est possible). Pour un broker dont HLM gère les comptes, le compte saisi ou généré est créé, ou son mot de passe changé, sur le broker à l'enregistrement. Le listener TLS du hub (8883) n'est plus proposé. (homelab#325)
 - **Liste des rôles** : la gestion des comptes d'un broker est une icône à côté de son nom (verte : gérée par HLM ; grise : possible), avec infobulle. **Paramètres › MQTT** ne traite que de la gestion des comptes, en deux colonnes (état et activation ; options : clients anonymes, droits par topic). (homelab#325)
 

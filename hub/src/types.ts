@@ -28,6 +28,24 @@ export interface AptReport {
   rebootPkgs: string[];
   // absent with agents older than 0.1.1
   autoremovable?: string[];
+  // automatic security updates (agent capability apt_auto): real state, and what unattended-upgrade installed
+  auto?: AptAuto;
+  autoInstalled?: AutoInstalled[];
+}
+
+// unattended-upgrades on the host, whoever configured it
+export interface AptAuto {
+  package: boolean;
+  enabled: boolean; // runs every day
+  managed: boolean; // the file of Homelab Manager is there
+}
+
+// a package upgraded (from set) or installed by unattended-upgrade, at: start of the run (ms)
+export interface AutoInstalled {
+  name: string;
+  from?: string;
+  to: string;
+  at: number;
 }
 
 export interface HostInfo {
@@ -363,6 +381,8 @@ export interface HostDoc {
   roaming?: boolean;
   // an offline host raises a critical alert instead of a warning
   critical?: boolean;
+  // automatic security updates chosen in its options (autoUpgrade.ts)
+  autoSecurityUpdates?: boolean;
   // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
   haExcluded?: boolean;
   // level of detail published to Home Assistant for this host; absent: the global level (see homeassistant/detail.ts)
@@ -543,7 +563,8 @@ export const JOB_ACTIONS = [
 // offsite_run: copy to the secondary PBS, run by the hub (offsite.ts); backupJobName names the backup
 // db_restore: restore of a mounted dump into a new database (dbRestore.ts), launched from its dialog only
 // agent_install: agent installed in a CT by the agent of its node, from the PVE inventory (pveInstallRun.ts), never through the generic job routes
-export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install' | 'db_restore';
+// apt_auto_set: automatic security updates turned on or off, from the options of the host (autoUpgrade.ts)
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install' | 'db_restore' | 'apt_auto_set';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 // What a db_restore job is about, shown in Activité.
@@ -572,6 +593,8 @@ export interface JobDoc {
   backupJobName?: string;
   // backup_install: apt | docker
   method?: 'apt' | 'docker';
+  // apt_auto_set: turned on or off
+  autoEnabled?: boolean;
   // db_restore: what is restored where (never the credentials)
   dbRestore?: DbRestoreInfo;
   // agent_install: the CT and the host it becomes (the enrollment code is never stored)

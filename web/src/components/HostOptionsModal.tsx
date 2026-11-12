@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useUpdateHostCache } from '../lib/queries';
 import { agentRevoked, hasApt, isWindows, needsReinstall, osLabel } from '../lib/status';
 import { backupClient } from '../lib/backups';
+import { canAutoUpgrade } from '../lib/autoUpgrade';
 import { hostSkills } from '../lib/hostSkills';
 import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
@@ -131,6 +132,7 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
   const [tags, setTags] = useState(host.tags);
   const [roaming, setRoaming] = useState(host.roaming);
   const [critical, setCritical] = useState(host.critical);
+  const [autoSecurity, setAutoSecurity] = useState(host.autoSecurityUpdates);
   const [haDetail, setHaDetail] = useState(host.haDetail);
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
@@ -149,7 +151,9 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
     e.preventDefault();
     setBusy(true);
     try {
-      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, haDetail }));
+      // sent only when changed (or chosen and not in place yet): saving it starts the job on the host
+      const autoChanged = autoSecurity !== host.autoSecurityUpdates || (autoSecurity && !host.apt?.auto?.managed);
+      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, haDetail, ...(autoChanged ? { autoSecurityUpdates: autoSecurity } : {}) }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -289,6 +293,37 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
                   </label>
                 </div>
               </section>
+              {hasApt(host) && (
+                <section className="space-y-4 border-t border-line pt-5">
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-100">Mises à jour</h4>
+                    <p className="mt-1 text-xs text-muted">Appliquées par l’hôte lui-même, à l’enregistrement (hors ligne : à son retour).</p>
+                  </div>
+                  {canAutoUpgrade(host) ? (
+                    <label className="flex cursor-pointer items-start gap-2.5">
+                      <span className="mt-0.5"><Checkbox checked={autoSecurity} onChange={setAutoSecurity} /></span>
+                      <span>
+                        <span className="block text-sm text-zinc-200">Mises à jour de sécurité automatiques</span>
+                        <span className="block text-xs text-muted">
+                          unattended-upgrades, dépôts de sécurité seulement, sans redémarrage automatique (l’alerte « redémarrage requis » le signale). Décoché : la
+                          configuration posée par Homelab Manager est retirée.
+                        </span>
+                        {(host.capabilities.includes('pve') || host.capabilities.includes('pbs')) && (
+                          <span className="mt-1 block text-xs text-amber-300">
+                            Nœud Proxmox : seuls les correctifs de sécurité Debian sont concernés (ni le noyau Proxmox ni qemu), mais un paquet de service mis à
+                            jour (ssh…) redémarre ce service.
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="text-zinc-200">Mises à jour de sécurité automatiques</span>
+                      <Badge tone="warn">agent à mettre à jour</Badge>
+                    </div>
+                  )}
+                </section>
+              )}
             </div>
           </form>
 

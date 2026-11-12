@@ -16,6 +16,10 @@ export interface AptReport {
   rebootRequired: boolean;
   rebootPkgs: string[];
   autoremovable?: string[];
+  // automatic security updates (agent capability apt_auto): real state on the host, whoever configured it
+  auto?: { package: boolean; enabled: boolean; managed: boolean };
+  // installed by unattended-upgrade over the last 30 days, newest first (from: absent for a new package)
+  autoInstalled?: { name: string; from?: string; to: string; at: number }[];
 }
 
 export interface HostInfo {
@@ -334,6 +338,8 @@ export interface Host {
   roaming: boolean;
   // offline connectivity is critical for this host
   critical: boolean;
+  // automatic security updates chosen in its options (applied by the agent)
+  autoSecurityUpdates: boolean;
   // not published to Home Assistant
   haExcluded: boolean;
   // level of detail in Home Assistant; null: follows the global level
@@ -493,7 +499,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run' | 'db_restore';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run' | 'db_restore' | 'apt_auto_set';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {
@@ -1873,7 +1879,7 @@ export const api = {
   createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; critical?: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
     request<{ host: Host } & InstallInfo>('POST', '/api/hosts', h),
   // siteId '': no site
-  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
+  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; autoSecurityUpdates?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   setHostsHaDetail: (ids: string[], haDetail: HaHostDetail | null) => request<Host[]>('POST', '/api/hosts/ha-detail', { ids, haDetail }),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),

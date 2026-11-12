@@ -576,10 +576,10 @@ func aptInstall(ctx context.Context, names []string, emit func(string)) error {
 		emit("packages already installed\n")
 		return nil
 	}
-	if code, err := runStreaming(ctx, aptEnv(), emit, "apt-get", "update", "-q"); err != nil || code != 0 {
+	if code, err := runStreaming(ctx, aptEnv(), emit, "apt-get", "-o", aptLockWait, "update", "-q"); err != nil || code != 0 {
 		return fmt.Errorf("apt-get update failed (%d) %v", code, err)
 	}
-	args := append([]string{"install", "-y", "-q", "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"}, missing...)
+	args := append([]string{"install", "-y", "-q", "-o", aptLockWait, "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"}, missing...)
 	if code, err := runStreaming(ctx, aptEnv(), emit, "apt-get", args...); err != nil || code != 0 {
 		return fmt.Errorf("apt-get install %s failed (%d) %v: is it available in the repositories of this distribution?", strings.Join(missing, " "), code, err)
 	}

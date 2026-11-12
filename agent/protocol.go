@@ -21,6 +21,24 @@ type AptReport struct {
 	RebootPkgs     []string  `json:"rebootPkgs"`
 	// packages "apt-get autoremove" would remove (no longer needed dependencies, old kernels)
 	Autoremovable []string `json:"autoremovable"`
+	// automatic security updates (autoupgrade.go): real state, and what unattended-upgrade installed
+	Auto          *AptAuto        `json:"auto,omitempty"`
+	AutoInstalled []AutoInstalled `json:"autoInstalled"`
+}
+
+// AptAuto: unattended-upgrades on this host, whoever configured it.
+type AptAuto struct {
+	Package bool `json:"package"` // unattended-upgrades installed
+	Enabled bool `json:"enabled"` // APT::Periodic::Unattended-Upgrade set: it runs every day
+	Managed bool `json:"managed"` // the file of Homelab Manager is there
+}
+
+// AutoInstalled: a package upgraded (From set) or installed by unattended-upgrade.
+type AutoInstalled struct {
+	Name string `json:"name"`
+	From string `json:"from,omitempty"`
+	To   string `json:"to"`
+	At   int64  `json:"at"` // unix ms, start of the run
 }
 
 // Docker compose stacks, discovered from the labels compose puts on its containers.
@@ -143,6 +161,8 @@ type Inbound struct {
 	Dynsec *DynsecEnable `json:"dynsec,omitempty"`
 	// mqtt_anonymous_set: accept (true) or refuse (false) the connections without account
 	Allowed *bool `json:"allowed,omitempty"`
+	// apt_auto_set: automatic security updates on (true) or off (false)
+	Enabled *bool `json:"enabled,omitempty"`
 	// backup_sync: definition of the backups of this host; backup_run: the job to run
 	Backup    *BackupSpec `json:"backup,omitempty"`
 	BackupJob string      `json:"backupJob,omitempty"`

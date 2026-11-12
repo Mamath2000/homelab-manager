@@ -35,7 +35,21 @@ Les tags se créent dans **Paramètres › Tags** ou sur place, depuis la fiche 
 
 Selon la machine, d'autres onglets proposent la bonne méthode : **Home Assistant OS** (application), **Unraid**, **Windows**, WSL2. Sur Proxmox VE, l'agent peut s'installer dans un CT ou un nœud **depuis l'inventaire**, sans rien copier ([Proxmox VE](proxmox-ve.md#installer-lagent-depuis-linventaire)).
 
-Ensuite, l'engrenage **Options** règle l'identité, l'itinérance (poste qui s'absente), le niveau de détail dans Home Assistant, et propose une nouvelle commande d'installation, la révocation de l'agent et la suppression.
+Ensuite, l'engrenage **Options** règle l'identité, l'itinérance (poste qui s'absente), les mises à jour de sécurité automatiques, le niveau de détail dans Home Assistant, et propose une nouvelle commande d'installation, la révocation de l'agent et la suppression.
+
+### Mises à jour de sécurité automatiques
+
+Case **Mises à jour de sécurité automatiques** des options (section *Identité et comportement*, hôtes Debian / Ubuntu avec un agent à jour, capacité `apt_auto`). Le choix se fait hôte par hôte, décoché par défaut.
+
+| Case | Effet sur l'hôte (job `apt_auto_set`) |
+|---|---|
+| Cochée | installe `unattended-upgrades` s'il manque (sans l'activation de la distribution), puis écrit `/etc/apt/apt.conf.d/52homelab-unattended-upgrades` : dépôts de sécurité seulement (les listes de la distribution, qui comprennent les mises à jour de version mineure sur Debian, sont vidées), passage quotidien, **jamais de redémarrage automatique** |
+| Décochée | retire ce fichier ; l'hôte revient à sa propre configuration |
+
+- Le choix est appliqué à l'enregistrement ; un hôte hors ligne le reçoit à son retour. Le hub compare la case à l'état relevé par l'agent et relance le job si l'hôte s'en écarte. Un essai qui a échoué n'est pas répété tout seul : enregistrer les options à nouveau le relance.
+- Nœuds Proxmox VE / PBS : la case est proposée avec un avertissement. Seuls les correctifs de sécurité Debian sont concernés (ni le noyau Proxmox ni qemu).
+- Un noyau ou une bibliothèque installé automatiquement lève l'alerte **redémarrage requis** habituelle.
+- Panneau **Paquets** de la fiche : une icône bouclier dans le titre donne l'état réel (vert : actif et géré ; gris : `unattended-upgrades` actif hors Homelab Manager, par la configuration de la distribution ; orange : choisi mais pas encore appliqué, ou en cours de retrait). La liste repliée **Installées automatiquement** donne les paquets installés par `unattended-upgrade` sur 30 jours (50 au plus), avec leur version et leur date, lus dans `/var/log/apt/history.log`.
 
 ## Équipement
 
