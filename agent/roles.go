@@ -21,11 +21,11 @@ import (
 
 // RoleCandidate: a service found listening on this host.
 type RoleCandidate struct {
-	Type    string `json:"type"`    // mqtt-broker, omada-controller
+	Type    string `json:"type"`    // mqtt-broker, omada-controller, log-server
 	Process string `json:"process"` // name of the listening process (cut to 15 characters by the kernel)
 	Port    int    `json:"port"`
 	// Scheme guessed from the port (mqtt, mqtts, ws, wss; https for an Omada controller): the TLS settings are not
-	// visible from outside
+	// visible from outside. A log server (VictoriaLogs): http for its query API, syslog for a port it receives on
 	Scheme string `json:"scheme"`
 	// Local: listens on loopback only, so the hub cannot reach it
 	Local bool `json:"local,omitempty"`
@@ -49,6 +49,17 @@ const omadaHTTPSPort = 8043
 // omadaServicePorts: the ports the devices reach (adoption, manager v1 and v2): fixed, not changeable in the
 // controller, so they tell a controller whatever port its web interface was moved to.
 var omadaServicePorts = map[int]bool{8043: true, 29811: true, 29812: true, 29814: true}
+
+// victoriaLogsHTTPPort: the default port of the HTTP API of VictoriaLogs (queries), the one proposed for a log server.
+const victoriaLogsHTTPPort = 9428
+
+// logServerScheme: what a port of a log server is, told by its number (the API on its default port, else a syslog input).
+func logServerScheme(port int) string {
+	if port == victoriaLogsHTTPPort {
+		return "http"
+	}
+	return "syslog"
+}
 
 func mqttScheme(port int) string {
 	switch port {
@@ -96,6 +107,11 @@ func parseRoleCandidates(ssOut string) []RoleCandidate {
 		// candidate carries the default port of its API, one candidate however many of these ports listen
 		if typ == "" && omadaServicePorts[port] {
 			typ, scheme, port = "omada-controller", "https", omadaHTTPSPort
+		}
+		// a log server: the VictoriaLogs process (victoria-logs-prod, cut by the kernel), each of its ports; in a
+		// container whose ports are published, only the default port of its API tells it (docker-proxy listens)
+		if typ == "" && (strings.HasPrefix(proc, "victoria-logs") || (strings.HasPrefix(proc, "docker-proxy") && port == victoriaLogsHTTPPort)) {
+			typ, scheme = "log-server", logServerScheme(port)
 		}
 		if typ == "" {
 			continue

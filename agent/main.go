@@ -70,6 +70,10 @@ func platformCapabilities() []string {
 	// standardisation (setup.go): Debian-like hosts only
 	if _, err := exec.LookPath("useradd"); err == nil && hasApt() {
 		caps = append(caps, "setup")
+		// option log_forward of the standardisation (logforward.go): rsyslog is a systemd service
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			caps = append(caps, "log_forward")
+		}
 	}
 	// AGENT_NO_SELFUPDATE: the binary is updated by its packaging (HAOS add-on image)
 	if os.Getenv("AGENT_NO_SELFUPDATE") == "" {

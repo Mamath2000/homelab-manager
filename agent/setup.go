@@ -30,6 +30,7 @@ var setupModules = []string{
 	"user", "packages",
 	"root_keys", "user_keys", "root_aliases", "user_aliases",
 	"root_prompt", "user_prompt", "root_motd", "user_motd",
+	"log_forward",
 	"ssh_password",
 }
 
@@ -55,6 +56,8 @@ type SetupSpec struct {
 	User          *UserSpec   `json:"user,omitempty"`
 	Fastfetch     string      `json:"fastfetch,omitempty"` // JSON configuration (welcome screen fastfetch)
 	Starship      string      `json:"starship,omitempty"`  // TOML configuration (prompt starship)
+	// option log_forward: the log server the journals are sent to (logforward.go)
+	LogForward *LogForwardSpec `json:"logForward,omitempty"`
 	// keys added earlier by this agent (access.go)
 	access *accessCtx
 }
@@ -129,6 +132,11 @@ func validateSetup(s *SetupSpec) error {
 	}
 	if !validPackages(s.Packages) {
 		return fmt.Errorf("invalid package name")
+	}
+	if s.has("log_forward") || s.LogForward != nil {
+		if err := validateLogForward(s.LogForward); err != nil {
+			return err
+		}
 	}
 	if err := validateAccount(&s.Root); err != nil {
 		return err
@@ -932,6 +940,8 @@ func applySetup(ctx context.Context, s *SetupSpec, emit func(string)) (int, erro
 			err = aptInstall(ctx, s.Packages, emit)
 		case "ssh_password":
 			err = applySSHPassword(ctx, s, emit)
+		case "log_forward":
+			err = applyLogForward(ctx, s, emit)
 		default:
 			err = applyAccountOption(ctx, s, m, emit)
 		}
@@ -1021,6 +1031,8 @@ func checkModule(ctx context.Context, s *SetupSpec, m string) SetupCheck {
 			sort.Strings(miss)
 			set("drift", "missing: "+strings.Join(miss, " "))
 		}
+	case "log_forward":
+		set(checkLogForward(ctx, s))
 	case "ssh_password":
 		sshd := sshdBinary()
 		if sshd == "" {

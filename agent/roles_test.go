@@ -102,3 +102,24 @@ func TestMapsHaveDynsec(t *testing.T) {
 		t.Fatal("maps detection")
 	}
 }
+
+func TestParseRoleCandidatesLogServer(t *testing.T) {
+	// VictoriaLogs on the host: its API and its syslog input; in a container: only the default port of the API tells it
+	out := `LISTEN 0 4096 *:9428 *:* users:(("victoria-logs-p",pid=410,fd=8))
+LISTEN 0 4096 *:29514 *:* users:(("victoria-logs-p",pid=410,fd=9))
+LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=500,fd=7))`
+	got := parseRoleCandidates(out)
+	if len(got) != 2 {
+		t.Fatalf("candidates = %+v, want 2", got)
+	}
+	if c := got[0]; c.Type != "log-server" || c.Port != 9428 || c.Scheme != "http" || c.Local {
+		t.Fatalf("api: %+v", c)
+	}
+	if c := got[1]; c.Type != "log-server" || c.Port != 29514 || c.Scheme != "syslog" {
+		t.Fatalf("syslog: %+v", c)
+	}
+	got = parseRoleCandidates(`LISTEN 0 4096 0.0.0.0:9428 0.0.0.0:* users:(("docker-proxy",pid=500,fd=7))`)
+	if len(got) != 1 || got[0].Type != "log-server" || got[0].Scheme != "http" {
+		t.Fatalf("container: %+v", got)
+	}
+}
