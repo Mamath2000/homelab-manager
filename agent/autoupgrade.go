@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -150,13 +151,23 @@ func parseAutoInstalled(r io.Reader, since time.Time) []AutoInstalled {
 		case strings.HasPrefix(l, "Start-Date: "):
 			at, _ = time.ParseInLocation("2006-01-02  15:04:05", strings.TrimPrefix(l, "Start-Date: "), time.Local)
 		case strings.HasPrefix(l, "Commandline: "):
-			auto = strings.Contains(l, "unattended-upgrade")
+			auto = isUnattendedRun(strings.TrimPrefix(l, "Commandline: "))
 		case strings.HasPrefix(l, "Upgrade: "), strings.HasPrefix(l, "Install: "):
 			lines = append(lines, l)
 		}
 	}
 	flush()
 	return out
+}
+
+// isUnattendedRun: the program run is unattended-upgrade itself (possibly through python3), not a command naming
+// the package, such as the `apt-get install unattended-upgrades` of apt_auto_set.
+func isUnattendedRun(cmdline string) bool {
+	f := strings.Fields(cmdline)
+	if len(f) > 1 && strings.HasPrefix(filepath.Base(f[0]), "python") {
+		f = f[1:]
+	}
+	return len(f) > 0 && filepath.Base(f[0]) == "unattended-upgrade"
 }
 
 // collectAutoInstalled: newest first, from history.log and its last rotations (monthly, gzip).

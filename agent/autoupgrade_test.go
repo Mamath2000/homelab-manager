@@ -25,6 +25,11 @@ Commandline: apt-get -y upgrade --with-new-pkgs
 Upgrade: vim:amd64 (2:9.1-1, 2:9.1-2)
 End-Date: 2026-10-05  10:00:10
 
+Start-Date: 2026-10-07  21:40:30
+Commandline: apt-get install -y -q -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef unattended-upgrades
+Install: python3-distro-info:amd64 (1.13, automatic), unattended-upgrades:amd64 (2.12)
+End-Date: 2026-10-07  21:40:45
+
 Start-Date: 2026-10-08  06:15:11
 Commandline: /usr/bin/unattended-upgrade
 Install: linux-image-6.12.57+deb13-amd64:amd64 (6.12.57-1, automatic)
@@ -36,7 +41,7 @@ func TestParseAutoInstalled(t *testing.T) {
 	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.Local)
 	got := parseAutoInstalled(strings.NewReader(historySample), since)
 	if len(got) != 4 {
-		t.Fatalf("want 4 packages (manual upgrade left out), got %+v", got)
+		t.Fatalf("want 4 packages (manual upgrade and install of the package left out), got %+v", got)
 	}
 	if got[0].Name != "libpng16-16t64" || got[0].From != "1.6.48-1+deb13u5" || got[0].To != "1.6.48-1+deb13u6" {
 		t.Fatalf("upgrade: %+v", got[0])
@@ -70,6 +75,20 @@ func TestCollectAutoInstalledRotations(t *testing.T) {
 	// 30 days: the 2026-10-08 run and the recent one; newest first
 	if len(got) != 4 || got[0].Name != "curl" || got[3].Name != "xz-utils" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestIsUnattendedRun(t *testing.T) {
+	for cmd, want := range map[string]bool{
+		"/usr/bin/unattended-upgrade":                            true,
+		"/usr/bin/python3 /usr/bin/unattended-upgrade -d":        true,
+		"apt-get install -y unattended-upgrades":                 false,
+		"apt-get -y upgrade --with-new-pkgs":                     false,
+		"/usr/bin/unattended-upgrade-shutdown --wait-for-signal": false,
+	} {
+		if isUnattendedRun(cmd) != want {
+			t.Errorf("%q: want %v", cmd, want)
+		}
 	}
 }
 
