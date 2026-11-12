@@ -126,7 +126,7 @@ L'agent ne transporte aucun journal. À l'application, il :
 
 ```text
 # Géré par Homelab Manager (Paramètres > Standardisation) : les modifications locales seront écrasées.
-action(type="omfwd" target="192.168.100.21" port="29514" protocol="tcp"
+action(type="omfwd" target="192.168.100.186" port="514" protocol="tcp"
        template="RSYSLOG_SyslogProtocol23Format"
        queue.type="LinkedList" queue.filename="homelab_fwd" queue.maxDiskSpace="100m"
        queue.saveOnShutdown="on" action.resumeRetryCount="-1")

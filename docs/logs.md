@@ -20,7 +20,7 @@ navigateur ──► hub ──API HTTP de requête─────────�
 ## Mise en place
 
 1. Installer VictoriaLogs sur un hôte (ci-dessous).
-2. **Paramètres › Rôles › Déclarer un rôle › Serveur de logs** : hôte porteur, adresse de l'API, port de réception syslog, test.
+2. **Paramètres › Rôles › Déclarer un rôle › Serveur de logs** : hôte, API (testée), délai d'alerte d'un hôte muet et destination des hôtes.
 3. **Paramètres › Standardisation › Système** : cocher **Envoi des journaux**, choisir le serveur, enregistrer.
 4. Appliquer la standardisation aux hôtes (fiche d'un hôte, ou sélection dans Hôtes). Voir [Standardisation](standardisation.md#envoi-des-journaux).
 
@@ -41,7 +41,7 @@ services:
       - -storageDataPath=/victoria-logs-data
       - -retentionPeriod=30d
       - -httpListenAddr=:9428
-      - -syslog.listenAddr.tcp=:29514
+      - -syslog.listenAddr.tcp=:514
       - -syslog.useRemoteIP.tcp=true
     volumes:
       - ./data:/victoria-logs-data
@@ -50,12 +50,12 @@ services:
 | Réglage | Rôle |
 |---|---|
 | `-httpListenAddr` (9428) | API de requête, lue par le hub |
-| `-syslog.listenAddr.tcp` (29514) | réception des journaux des hôtes, en TCP |
+| `-syslog.listenAddr.tcp` (514) | réception des journaux des hôtes, en TCP ; un port sous 1024 demande que le processus soit root ou ait `CAP_NET_BIND_SERVICE` |
 | `-retentionPeriod` | durée de conservation (7 jours par défaut) ; `-retention.maxDiskSpaceUsageBytes` borne aussi le disque |
 | `-syslog.useRemoteIP.tcp` | garde l'adresse de l'émetteur de chaque journal (champ `remote_ip`) |
 
 :::warning L'API de VictoriaLogs n'a pas de compte
-Qui atteint le port 9428 lit tous les journaux, et peut en écrire. Le limiter au hub : pare-feu de l'hôte, ou écoute sur une adresse interne. Si un proxy avec authentification est placé devant, son compte se saisit dans le rôle (utilisateur et mot de passe, authentification basique).
+Qui atteint le port 9428 lit tous les journaux, et peut en écrire. Le limiter au hub : pare-feu de l'hôte, ou écoute sur une adresse interne. Pour une authentification, placer devant un reverse proxy HTTPS : son compte se saisit dans le rôle (**Derrière un reverse proxy HTTPS**, authentification basique).
 :::
 
 Les journaux voyagent **en clair** (TCP) entre les hôtes et le serveur : réseau local et VPN site à site. Le transport chiffré viendra plus tard.

@@ -51,14 +51,16 @@ Sur la fiche d'un hôte ou d'un équipement, les rôles qu'il porte s'affichent 
 
 ### Serveur de logs
 
-Quatre étapes : **Porteur › Serveur › Réception › Test**.
+Quatre étapes : **Hôte › API › Configuration › Récapitulatif**.
 
-1. **Porteur** : l'hôte où tourne VictoriaLogs. Ceux dont l'agent l'a trouvé viennent en premier, avec les ports relevés.
-2. **Serveur** : le nom du rôle et l'**API** de VictoriaLogs (adresse de l'hôte, port 9428 par défaut), où le hub lit les journaux. Utilisateur et mot de passe seulement si un proxy placé devant en demande (authentification basique) ; le mot de passe n'est jamais renvoyé par l'API.
-3. **Réception** : où les hôtes envoient leurs journaux en syslog (TCP) : adresse (celle de l'hôte par défaut) et port. C'est ce que la standardisation écrit dans le rsyslog des hôtes. **Hôte muet après** : délai sans journal au bout duquel un hôte qui envoie passe en écart ([hôte muet](logs.md#hôte-muet)), 0 pour ne pas surveiller.
-4. **Test** : le hub interroge l'API. La réception syslog n'est pas testée ici.
+1. **Hôte** : l'hôte où tourne VictoriaLogs. Seuls ceux dont l'agent le voit en écoute sont proposés (processus `victoria-logs`, ou port 9428 publié par Docker) ; **Choisir un autre hôte** affiche les autres, pour un serveur que la détection ne voit pas (API sur un autre port derrière Docker, ou derrière un proxy).
+2. **API** : là où le hub lit les journaux (port 9428 par défaut), testée dans l'étape. VictoriaLogs n'a pas d'authentification : un utilisateur et un mot de passe ne se saisissent qu'avec **Derrière un reverse proxy HTTPS**. Le mot de passe n'est jamais renvoyé par l'API.
+3. **Configuration** :
+   - **Hôte muet** : délai sans journal au bout duquel un hôte qui envoie ses journaux passe en écart ([hôte muet](logs.md#hôte-muet)), 6 h par défaut, 0 pour ne jamais alerter ;
+   - **Envoi depuis les hôtes** : la destination que la standardisation écrit dans le rsyslog des hôtes (`tcp://serveur:port`) ; le serveur est l'adresse de l'hôte sauf s'il est joint autrement, le port est celui où VictoriaLogs reçoit (proposé d'après l'agent, sinon 514).
+4. **Récapitulatif** : ce qui sera enregistré ; **Enregistrer** demande un test de l'API réussi.
 
-Dans la liste des rôles, le serveur affiche le nombre d'émetteurs des dernières 24 h (relevé toutes les 5 minutes). Modifier l'adresse, le port ou le porteur fait revérifier les hôtes : ceux qui envoient à l'ancienne adresse passent en écart jusqu'à la prochaine application de la standardisation. La suppression est refusée tant que la standardisation (standard ou valeur propre d'un hôte) l'utilise. Installation du serveur : [Logs](logs.md#installer-victorialogs).
+Dans la liste des rôles, le serveur affiche le nombre d'émetteurs des dernières 24 h (relevé toutes les 5 minutes). Modifier la destination ou l'hôte fait revérifier les hôtes : ceux qui envoient à l'ancienne passent en écart jusqu'à la prochaine application de la standardisation. La suppression est refusée tant que la standardisation (standard ou valeur propre d'un hôte) l'utilise. Installation du serveur : [Logs](logs.md#installer-victorialogs).
 
 ### Empreinte du contrôleur Omada
 
