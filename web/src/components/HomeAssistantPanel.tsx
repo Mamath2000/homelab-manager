@@ -308,7 +308,7 @@ export function HomeAssistantPanel() {
           icon={RefreshCw}
           loading={busy === 'republish'}
           disabled={st.state !== 'connected' || dirty || !!busy}
-          title={dirty ? 'Enregistrer ou annuler le niveau de détail avant de republier' : 'Renvoie toutes les configurations de découverte et tous les états'}
+          title={dirty ? 'Enregistrer ou annuler le niveau de détail avant de republier' : 'Supprime tout ce que le hub a publié dans la découverte (homeassistant/device/homelab/#), puis renvoie configurations et états'}
           onClick={() => void republish()}
         >
           Republier la découverte

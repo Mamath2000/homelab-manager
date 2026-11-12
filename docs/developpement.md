@@ -36,7 +36,7 @@ Cette page s'adresse à celles et ceux qui veulent comprendre le fonctionnement 
 | --- | --- | --- |
 | `GET` | `/api/hosts` | Liste des hôtes avec leur état |
 | `POST` | `/api/hosts` | Crée un hôte et renvoie la commande d'installation (code à usage unique) |
-| `PATCH` / `DELETE` | `/api/hosts/:id` | Modifie / supprime un hôte |
+| `PATCH` / `DELETE` | `/api/hosts/:id` | Modifie / supprime un hôte ; `autoSecurityUpdates` lance aussi le job `apt_auto_set` |
 | `POST` | `/api/hosts/:id/enroll` | Nouvelle commande d'installation (annule la précédente) |
 | `POST` | `/api/hosts/:id/revoke` | Révoque l'agent : déconnexion, certificat refusé |
 | `GET` | `/api/hosts/:id/alerts` | Alertes des 30 derniers jours (APT, Docker, sauvegardes) : pire niveau de chaque jour et raisons |

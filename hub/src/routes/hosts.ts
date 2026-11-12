@@ -17,6 +17,7 @@ import { forgetHost } from '../pbs.js';
 import { equipmentProbes, hostProbes } from '../probes.js';
 import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
+import { canAutoUpgrade, reconcileAutoUpgrade } from '../autoUpgrade.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostDetail, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
 import { haLevelSchema, normalizeHostDetail } from '../homeassistant/detail.js';
 import { carriedBy, carrierDeleteError } from '../roles.js';
@@ -32,6 +33,8 @@ const hostBody = {
     tags: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', maxLength: 24 } },
     roaming: { type: 'boolean' },
     critical: { type: 'boolean' },
+    // automatic security updates (unattended-upgrades), applied by the agent
+    autoSecurityUpdates: { type: 'boolean' },
     haExcluded: { type: 'boolean' },
     // level of detail in Home Assistant; null: the global level
     haDetail: haLevelSchema,
@@ -155,7 +158,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; autoSecurityUpdates?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -164,12 +167,15 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (linkError) return reply.code(400).send({ error: linkError });
       const set: Partial<HostDoc> = {};
       // flags and links: stored only when set
-      const unset: Partial<Record<'roaming' | 'critical' | 'haExcluded' | 'haDetail' | 'siteId', ''>> = {};
+      const unset: Partial<Record<'roaming' | 'critical' | 'autoSecurityUpdates' | 'haExcluded' | 'haDetail' | 'siteId', ''>> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
       if (req.body.siteId) set.siteId = req.body.siteId;
       else if (req.body.siteId === '') unset.siteId = '';
       if (req.body.tags !== undefined) set.tags = req.body.tags;
-      for (const flag of ['roaming', 'critical', 'haExcluded'] as const) {
+      if (req.body.autoSecurityUpdates && _id && !canAutoUpgrade((await hosts.findOne({ _id }, { projection: { capabilities: 1 } })) ?? {})) {
+        return reply.code(400).send({ error: 'mises à jour de sécurité automatiques : agent à mettre à jour (Debian / Ubuntu)' });
+      }
+      for (const flag of ['roaming', 'critical', 'autoSecurityUpdates', 'haExcluded'] as const) {
         if (req.body[flag]) set[flag] = true;
         else if (req.body[flag] === false) unset[flag] = '';
       }
@@ -186,6 +192,8 @@ export function registerHostRoutes(app: FastifyInstance) {
       const update = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
       const host = _id && (await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
+      // saving the choice applies it now (an offline host: at its next report), and tries a failed one again
+      if (req.body.autoSecurityUpdates !== undefined) await reconcileAutoUpgrade(host, 'manual');
       const dto = hostDto(host);
       publish('host', dto);
       return dto;

@@ -63,6 +63,8 @@ func platformCapabilities() []string {
 	}
 	if hasApt() {
 		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
+		// automatic security updates, host by host (autoupgrade.go)
+		caps = append(caps, "apt_auto")
 	}
 	if _, err := exec.LookPath("systemctl"); err == nil && !onWSL {
 		caps = append(caps, "reboot", "shutdown")
@@ -469,13 +471,13 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 	case "apt_report":
 		emit("collecting package state...\n")
 	case "apt_update":
-		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "update")
+		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "-o", aptLockWait, "update")
 	case "apt_upgrade":
 		if !validPackages(in.Packages) {
 			done(-1, fmt.Errorf("invalid package name"))
 			return
 		}
-		args := []string{"-y", "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"}
+		args := []string{"-y", "-o", aptLockWait, "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"}
 		if len(in.Packages) == 0 {
 			// like `apt upgrade`: a kernel update needs to install a new package, plain
 			// `apt-get upgrade` would keep it back
@@ -523,8 +525,14 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			return
 		}
 		code, err = applySetup(jctx, in.Setup, emit)
+	case "apt_auto_set":
+		if in.Enabled == nil {
+			done(-1, fmt.Errorf("missing enabled"))
+			return
+		}
+		code, err = applyAutoUpgrade(jctx, *in.Enabled, emit)
 	case "apt_autoremove":
-		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "-y", "autoremove")
+		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "-y", "-o", aptLockWait, "autoremove")
 	case "docker_check":
 		var upd *DockerUpdates
 		if upd, err = dock.check(jctx, emit); err == nil {

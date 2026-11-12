@@ -22,6 +22,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - **Vue par paquet** : voir sur quels hôtes un paquet est en retard et le mettre à jour partout en un clic.
 - **Vérification planifiée** : `apt-get update` automatique toutes les 12 h.
 - **Nettoyage** : paquets inutiles (anciens noyaux, dépendances orphelines) supprimables via `apt autoremove`.
+- **Mises à jour de sécurité automatiques** (par hôte) : une case des options de l'hôte fait installer et configurer `unattended-upgrades` par l'agent, limité aux dépôts de sécurité et sans redémarrage automatique ; voir [Créer des éléments](creer-des-elements.md#mises-à-jour-de-sécurité-automatiques).
 - **Historique** des tâches et de leurs sorties (90 jours).
 - **Fiche hôte** : bandeau système et frise des alertes des 30 derniers jours (une ligne par domaine que l'hôte fournit : pire situation de chaque jour, détail au clic) en tête de page ; sur grand écran, l'historique et la console en direct restent visibles à droite, et toute tâche lancée depuis la fiche s'y affiche. **Actualiser** demande aussi à l'agent de relire son état local (système, APT, stacks Docker, sauvegardes Home Assistant, onduleur) ; l'agent annonce la capacité `refresh` (requête `refresh` avec des portées facultatives).
 - **Docker** : stacks compose des hôtes, état des conteneurs, images à mettre à jour, démarrer / arrêter / redémarrer / mettre à jour, logs et fichiers compose.

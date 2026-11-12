@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldCheck, ShieldOff, Terminal, X } from 'lucide-react';
 import { FloatingAside } from '../components/FloatingAside';
 import { useAsideDocked } from '../lib/asideDocked';
 import { HostOptionsModal } from '../components/HostOptionsModal';
@@ -10,6 +10,7 @@ import { HostTagList, SiteChip } from '../components/HostTags';
 import { InstallInstructions, WINDOWS_UNINSTALL } from '../components/InstallInstructions';
 import { JobConsole, JobStatusIcon } from '../components/JobConsole';
 import { RebootTag } from '../components/Reboot';
+import { autoUpgradeState } from '../lib/autoUpgrade';
 import { CleanupButton } from '../components/CleanupPanel';
 import { DockerPanel } from '../components/Docker';
 import { UpsPanel } from '../components/UpsPanel';
@@ -91,6 +92,8 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
   // drop selections that are no longer upgradable after a refresh
   const selected = new Set([...picked].filter((n) => pkgs.some((p) => p.name === n)));
   const rebootPkgs = pkgs.filter((p) => p.reboot).map((p) => p.name);
+  const auto = autoUpgradeState(host);
+  const autoInstalled = host.apt?.autoInstalled ?? [];
 
   const all = pkgs.length > 0 && selected.size === pkgs.length;
   const toggle = (n: string, on: boolean) =>
@@ -103,7 +106,17 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
 
   return (
     <Panel
-      title={<>Paquets à mettre à jour <span className="text-muted">({pkgs.length})</span>{installed.length > 0 && <span className="text-muted"> · {installed.length} installé(s) sur 24 h</span>}</>}
+      title={
+        <>
+          Paquets à mettre à jour <span className="text-muted">({pkgs.length})</span>
+          {installed.length > 0 && <span className="text-muted"> · {installed.length} installé(s) sur 24 h</span>}
+          {auto && (
+            <span title={auto.title} aria-label={auto.title} className={clsx('ml-2 inline-flex align-[-3px]', auto.tone === 'ok' ? 'text-emerald-400' : auto.tone === 'warn' ? 'text-amber-300' : 'text-muted')}>
+              <ShieldCheck className="h-4 w-4" />
+            </span>
+          )}
+        </>
+      }
       icon={Package}
       bodyClassName=""
       actions={
@@ -212,6 +225,24 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
             </tbody>
           </table>
         </div>
+      )}
+      {autoInstalled.length > 0 && (
+        <details className="border-t border-line px-4 py-3">
+          <summary className="cursor-pointer text-xs text-muted hover:text-zinc-200">Installées automatiquement sur 30 jours ({autoInstalled.length})</summary>
+          <table className="mt-2 w-full text-sm">
+            <tbody className="divide-y divide-line">
+              {autoInstalled.map((p) => (
+                <tr key={`${p.name}-${p.at}`}>
+                  <td className="py-1.5 pr-3 font-medium text-zinc-300">{p.name}</td>
+                  <td className="max-w-[260px] py-1.5 pr-3 font-mono text-xs">
+                    <span className="block truncate text-emerald-300" title={p.from ? `${p.from} → ${p.to}` : p.to}>{p.from ? `${p.from} → ${p.to}` : `${p.to} (nouveau)`}</span>
+                  </td>
+                  <td className="whitespace-nowrap py-1.5 text-right text-xs text-muted">{dateTime(p.at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
       )}
     </Panel>
   );

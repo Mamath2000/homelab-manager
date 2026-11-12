@@ -50,6 +50,7 @@ export function hostDto(h: HostDoc) {
     online: isOnline(h._id.toHexString()),
     roaming: !!h.roaming,
     critical: !!h.critical,
+    autoSecurityUpdates: !!h.autoSecurityUpdates,
     haExcluded: hostLevel(h) === 'none',
     // null: follows the global level
     haDetail: hostLevel(h),

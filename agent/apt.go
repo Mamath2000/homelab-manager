@@ -27,6 +27,9 @@ func aptEnv() []string {
 	)
 }
 
+// Wait for the dpkg lock (5 min) instead of failing at once: unattended-upgrades or apt-daily may hold it.
+const aptLockWait = "DPkg::Lock::Timeout=300"
+
 func parseUpgradable(out string) []Package {
 	var pkgs []Package
 	sc := bufio.NewScanner(strings.NewReader(out))
@@ -90,6 +93,8 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 		Held:           []string{},
 		RebootPkgs:     []string{},
 		Autoremovable:  []string{},
+		Auto:           collectAutoUpgrade(ctx),
+		AutoInstalled:  collectAutoInstalled(time.Now()),
 	}
 	if r.Upgradable == nil {
 		r.Upgradable = []Package{}

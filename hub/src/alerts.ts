@@ -178,6 +178,7 @@ const actionLabel: Partial<Record<JobDoc['action'], string>> = {
   apt_update: 'recherche de mises à jour',
   apt_upgrade: 'mise à jour',
   apt_autoremove: 'nettoyage des paquets',
+  apt_auto_set: 'mises à jour de sécurité automatiques',
   reboot: 'redémarrage',
   shutdown: 'extinction',
   lock: 'verrouillage',

@@ -10,6 +10,7 @@ import { hostDto, summarize } from './hostDto.js';
 import { maybeAutoUpdate } from './agentUpdate.js';
 import { recentlyInstalled } from './installed.js';
 import { appendJobLog, createJob, failRunningJobs, finishJob, hasRunningJob, replaysJobs } from './jobs.js';
+import { cleanAutoReport, reconcileAutoUpgrade } from './autoUpgrade.js';
 import { checkHostSetup, onAgentHello } from './setup.js';
 import { refreshLinks } from './pve.js';
 import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
@@ -316,20 +317,26 @@ export function registerAgentSocket(app: FastifyInstance) {
             case 'apt_report':
               if (!isReport(msg.report)) return;
               {
+                const report = cleanAutoReport(msg.report);
                 const current = await hosts.findOne({ _id: host._id }, { projection: { apt: 1, recentlyInstalled: 1 } });
                 await hosts.updateOne(
                   { _id: host._id },
                   {
                     $set: {
-                      apt: msg.report,
-                      aptSummary: summarize(msg.report),
-                      recentlyInstalled: recentlyInstalled(current?.apt, msg.report, current?.recentlyInstalled),
+                      apt: report,
+                      aptSummary: summarize(report),
+                      recentlyInstalled: recentlyInstalled(current?.apt, report, current?.recentlyInstalled),
                       lastSeenAt: new Date(),
                     },
                   },
                 );
               }
               await emitHost(host._id);
+              // the choice of its options not in place yet (saved while offline, file changed by hand...)
+              {
+                const fresh = await hosts.findOne({ _id: host._id });
+                if (fresh) reconcileAutoUpgrade(fresh, 'retry').catch((err) => log.warn({ err }, 'automatic security updates not applied'));
+              }
               break;
             case 'docker_report':
               if (!isDockerReport(msg.docker)) return;
