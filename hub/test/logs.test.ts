@@ -187,3 +187,24 @@ test('logs: rows read from the server, newest first; its errors are told', async
   }
   await assert.rejects(queryLogs({ ...c, url: 'http://127.0.0.1:1' }, {}, { start: '1h' }, 10), /injoignable/);
 });
+
+test('log routes: 404 without a log server, never with an API key, filters checked by the schema', async () => {
+  const { default: Fastify } = await import('fastify');
+  const { registerLogRoutes } = await import('../src/routes/logs.js');
+  const app = Fastify();
+  app.addHook('onRequest', async (req) => {
+    if (req.headers['x-key']) req.apiKey = { id: new ObjectId(), name: 'homepage' };
+  });
+  registerLogRoutes(app);
+  await app.ready();
+  for (const url of ['/api/logs', '/api/logs/hits', '/api/logs/fields?field=app', '/api/logs/sources', '/api/logs/context?hostname=h&time=2026-11-12T10:00:00Z', '/api/logs/tail']) {
+    assert.equal((await app.inject({ url })).statusCode, 404, url);
+    assert.equal((await app.inject({ url, headers: { 'x-key': '1' } })).statusCode, 403, url);
+  }
+  assert.equal((await app.inject({ url: '/api/logs?severity=9' })).statusCode, 400);
+  // a parameter the routes do not know (a LogsQL query) is dropped, never passed on
+  assert.equal((await app.inject({ url: '/api/logs?query=*' })).statusCode, 404);
+  assert.equal((await app.inject({ url: '/api/logs/fields?field=_msg' })).statusCode, 400);
+  assert.equal((await app.inject({ url: '/api/logs?limit=5000' })).statusCode, 400);
+  await app.close();
+});
