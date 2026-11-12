@@ -16,7 +16,7 @@ import { TYPES, targetText } from '../lib/probes';
 import { lanAddress } from '../lib/roles';
 import { OptionList } from './OptionList';
 import { VpnProbeModal } from './VpnProbeModal';
-import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, ResponsiveList, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, IconGroup, Modal, Panel, Spinner } from './ui';
 
 const stateMeta: Record<Probe['state'], { label: string; tone: Tone }> = {
   up: { label: 'up', tone: 'ok' },
@@ -180,59 +180,29 @@ export function ProbesPanel({ owner }: { owner: ProbeOwner }) {
       ) : !probes?.length ? (
         <p className="p-4 text-sm text-muted">Aucune sonde. Une sonde vérifie, depuis le hub, que {owner.kind === 'host' ? 'le service rendu par cet hôte' : 'cet équipement'} répond.</p>
       ) : (
-        <>
-          <ResponsiveList mode="mobile">
-            {probes.map((p) => (
-              <article key={p.id} className="min-w-0 space-y-2 p-4">
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <span className="min-w-0 truncate font-medium text-zinc-100" title={p.name}>{p.name}</span>
-                  <StateBadge p={p} />
+        <ul className="@container divide-y divide-line">
+          {probes.map((p) => (
+            // name, type, state and actions on top; below, the target and the last hour side by side (half each) when the
+            // card is wide enough (container query), stacked otherwise
+            <li key={p.id} className="space-y-1.5 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 truncate font-medium text-zinc-100" title={p.name}>{p.name}</span>
+                <StateBadge p={p} />
+                <ProbeTypeLabel type={p.target.type} />
+                {p.stack && <Badge>{p.stack}</Badge>}
+                {canManage && <div className="ml-auto shrink-0"><ProbeActions probe={p} owner={owner} /></div>}
+              </div>
+              <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:gap-6">
+                <div className="min-w-0 @2xl:flex-1 @2xl:basis-0">
+                  <div className="truncate font-mono text-xs text-muted" title={where(p)}>{where(p)}</div>
+                  <div className="text-xs text-muted">{p.since ? `depuis ${elapsed(p.since)}` : 'pas encore mesurée'}</div>
+                  {p.message && p.state !== 'up' && <div className="break-words text-xs text-amber-300">{p.message}</div>}
                 </div>
-                <p className="break-all font-mono text-xs text-muted">{where(p)}</p>
-                <ProbeRecent probeId={p.id} />
-                {p.message && p.state !== 'up' && <p className="break-words text-xs text-amber-300">{p.message}</p>}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-                  <span>{p.stack ? `Stack ${p.stack} · ` : ''}{p.since ? `depuis ${elapsed(p.since)}` : 'pas encore mesurée'}</span>
-                  {canManage && <ProbeActions probe={p} owner={owner} />}
-                </div>
-              </article>
-            ))}
-          </ResponsiveList>
-          <ResponsiveList mode="desktop">
-            <table className="w-full text-sm">
-              <thead className="border-b border-line">
-                <tr>
-                  <th className="th pl-4">Sonde</th>
-                  <th className="th hidden 2xl:table-cell">Type</th>
-                  <th className="th">Cible</th>
-                  <th className="th">État</th>
-                  <th className="th hidden 2xl:table-cell">Depuis</th>
-                  <th className="th">Dernière heure</th>
-                  {canManage && <th className="th pr-4 text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {probes.map((p) => (
-                  <tr key={p.id} className="align-top hover:bg-raised/40">
-                    <td className="td pl-4">
-                      <span className="font-medium text-zinc-100">{p.name}</span>
-                      {p.stack && <Badge className="ml-2">{p.stack}</Badge>}
-                    </td>
-                    <td className="td hidden text-muted 2xl:table-cell">{TYPES.find((t) => t.id === p.target.type)?.label}</td>
-                    <td className="td min-w-0 max-w-[180px] 2xl:max-w-[320px]"><span className="block break-all font-mono text-xs text-zinc-300">{where(p)}</span></td>
-                    <td className="td">
-                      <StateBadge p={p} />
-                      {p.message && p.state !== 'up' && <p className="mt-0.5 max-w-[260px] break-words text-xs text-amber-300">{p.message}</p>}
-                    </td>
-                    <td className="td hidden text-muted 2xl:table-cell">{p.since ? elapsed(p.since) : '—'}</td>
-                    <td className="td"><ProbeRecent probeId={p.id} className="w-full min-w-[6rem] max-w-44" /></td>
-                    {canManage && <td className="td pr-4"><div className="flex justify-end"><ProbeActions probe={p} owner={owner} /></div></td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ResponsiveList>
-        </>
+                <ProbeRecent probeId={p.id} className="w-full @2xl:flex-1 @2xl:basis-0" />
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
       {editing === 'new' && <ProbeModal owner={owner} probe={null} onClose={() => setEditing(null)} />}
     </Panel>
