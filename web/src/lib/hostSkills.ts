@@ -28,6 +28,15 @@ const tint = {
 
 export const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-cluster': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network, 'log-server': ScrollText };
 export const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-cluster': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald, 'log-server': tint.amber };
+// accent of a role card (top edge) and of the rule after its section title, by type
+export const roleAccent: Record<HubRoleType, { edge: string; rule: string }> = {
+  'mqtt-broker': { edge: 'border-t-violet-400', rule: 'from-violet-500/50' },
+  'pve-cluster': { edge: 'border-t-orange-400', rule: 'from-orange-500/50' },
+  'pbs-primary': { edge: 'border-t-sky-400', rule: 'from-sky-500/50' },
+  'pbs-offsite': { edge: 'border-t-sky-400', rule: 'from-sky-500/50' },
+  'omada-controller': { edge: 'border-t-emerald-400', rule: 'from-emerald-500/50' },
+  'log-server': { edge: 'border-t-amber-400', rule: 'from-amber-500/50' },
+};
 
 // jobs: backup view of the host (engines found by its agent, Nextcloud AIO instance), undefined while not loaded
 export function hostSkills(h: Host, jobs?: Pick<HostBackupJobs, 'databases' | 'nextcloudPlugin' | 'nextcloud'>): HostSkill[] {
