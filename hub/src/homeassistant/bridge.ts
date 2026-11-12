@@ -37,6 +37,7 @@ export class HomeAssistantBridge {
   private seen = new Map<string, string | null>(); // discovery configs of the hub found on the broker before the first publication: topic -> device id
   private seenStates = new Set<string>(); // retained states of the hub found on the broker before the first publication
   private watching: NodeJS.Timeout | null = null;
+  private purging: Set<string> | null = null; // retained topics under <prefix>/device/homelab/ found while a republication purges them
   private commands = new Map<string, Command>();
   private timer: NodeJS.Timeout | null = null;
   private debounce: NodeJS.Timeout | null = null;
@@ -154,13 +155,28 @@ export class HomeAssistantBridge {
     if (this.client) this.schedule(0);
   }
 
-  // forgets what was sent: discovery configs and states all go out again, stale configs are removed
+  // removes everything retained under <prefix>/device/homelab/# (whatever it is), then sends all the discovery
+  // configs and states again
   republish() {
-    if (!this.client?.connected || !this.settings) return false;
-    this.log.info('Home Assistant: publishing everything again (requested)');
-    this.sent.clear();
-    this.watchDiscovery(this.settings);
-    this.schedule(0);
+    const client = this.client;
+    const s = this.settings;
+    if (!client?.connected || !s) return false;
+    if (this.purging) return true;
+    this.log.info('Home Assistant: purging then publishing everything again (requested)');
+    const filter = `${s.discoveryPrefix}/device/${NODE_ID}/#`;
+    this.purging = new Set();
+    // subscribing makes the broker send the retained messages: a short burst to collect them
+    client.subscribe(filter);
+    setTimeout(() => {
+      const found = this.purging ?? new Set<string>();
+      this.purging = null;
+      client.unsubscribe(filter);
+      for (const topic of found) client.publish(topic, '', { qos: 1, retain: true });
+      this.log.info({ topics: found.size }, 'Home Assistant: discovery purged');
+      this.sent.clear();
+      this.watchDiscovery(s);
+      this.schedule(1000);
+    }, 2000);
     return true;
   }
 
@@ -201,7 +217,7 @@ export class HomeAssistantBridge {
   }
 
   private schedule(delay: number) {
-    if (this.debounce) return;
+    if (this.debounce || this.purging) return;
     this.debounce = setTimeout(() => {
       this.debounce = null;
       this.render().catch((err) => this.log.error({ err }, 'Home Assistant: publication failed'));
@@ -312,6 +328,10 @@ export class HomeAssistantBridge {
   }
 
   private onMessage(s: HomeAssistantSettings, topic: string, payload: string, retained: boolean) {
+    if (this.purging && retained && topic.startsWith(`${s.discoveryPrefix}/device/${NODE_ID}/`)) {
+      if (payload) this.purging.add(topic);
+      return;
+    }
     const found = parseDiscoveryTopic(s.discoveryPrefix, topic);
     if (found) {
       // an empty payload is a removal; our own publications come back too
