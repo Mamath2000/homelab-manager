@@ -208,3 +208,31 @@ test('log routes: 404 without a log server, never with an API key, filters check
   assert.equal((await app.inject({ url: '/api/logs?limit=5000' })).statusCode, 400);
   await app.close();
 });
+
+test('Paramètres › Logs: how a host sends to a server, and the values that make it send or stop', async () => {
+  const { overridesSending, sendMode } = await import('../src/routes/logs.js');
+  const { config: hubConfig } = await import('../src/config.js');
+  const was = hubConfig.featureStandardisation;
+  hubConfig.featureStandardisation = true;
+  try {
+    const caps = ['setup', 'log_forward'];
+    const std = withLogs('logs');
+    // the standard value: no own value needed, and one to a server or to nothing is replaced
+    assert.deepEqual(overridesSending(std, { packages: { mode: 'off' }, log_forward: { mode: 'custom', value: { role: '' } } }, 'logs'), { packages: { mode: 'off' } });
+    assert.deepEqual(overridesSending(std, {}, 'other'), { log_forward: { mode: 'custom', value: { role: 'other' } } });
+    // without the standard: an own value
+    assert.deepEqual(overridesSending(DEFAULT_SETUP, {}, 'logs'), { log_forward: { mode: 'custom', value: { role: 'logs' } } });
+    // stopping: « no forwarding », the agent removes its file
+    assert.deepEqual(overridesSending(std, {}, ''), { log_forward: { mode: 'custom', value: { role: '' } } });
+    assert.equal(sendMode(std, { capabilities: caps }, 'logs'), 'standard');
+    assert.equal(sendMode(std, { capabilities: caps, setupOverrides: { log_forward: { mode: 'off' } } }, 'logs'), null);
+    assert.equal(sendMode(DEFAULT_SETUP, { capabilities: caps, setupOverrides: { log_forward: { mode: 'custom', value: { role: 'logs' } } } }, 'logs'), 'custom');
+    assert.equal(sendMode(std, { capabilities: caps, setupOverrides: { log_forward: { mode: 'custom', value: { role: '' } } } }, 'logs'), null);
+    // a host without standardisation never sends through it
+    assert.equal(sendMode(std, { capabilities: [] }, 'logs'), null);
+  } finally {
+    hubConfig.featureStandardisation = was;
+  }
+  assert.equal(authorize('operator', 'GET', '/api/settings/logs/:role/hosts'), false);
+  assert.equal(authorize('admin', 'POST', '/api/settings/logs/:role/hosts'), true);
+});

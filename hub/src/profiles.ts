@@ -111,6 +111,8 @@ export const SENSITIVE_ACTIONS = new Set([
   // standardisation and access manifest
   'PUT /api/settings/setup',
   'PUT /api/hosts/:id/setup',
+  'POST /api/settings/logs/:role/hosts',
+  'DELETE /api/settings/logs/:role/hosts/:hostId',
   'PUT /api/hosts/:id/access-keys/ack',
   'POST /api/settings/access/apply',
   // agents: install command (enrollment code), renewal of the certificate, revocation, removal of the host

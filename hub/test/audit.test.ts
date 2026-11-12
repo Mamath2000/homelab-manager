@@ -171,6 +171,7 @@ test('every audited route and every sensitive action exists', async () => {
   const { registerRoleRoutes } = await import('../src/routes/roles.js');
   const { registerSetupRoutes } = await import('../src/routes/setup.js');
   const { registerDbRestoreRoutes } = await import('../src/routes/dbRestore.js');
+  const { registerLogRoutes } = await import('../src/routes/logs.js');
   const { SENSITIVE_ACTIONS } = await import('../src/profiles.js');
   registerAuth(a);
   registerUserRoutes(a);
@@ -183,6 +184,7 @@ test('every audited route and every sensitive action exists', async () => {
   registerRoleRoutes(a);
   registerSetupRoutes(a);
   registerDbRestoreRoutes(a);
+  registerLogRoutes(a);
   await a.ready();
   for (const key of Object.keys(AUDITED_ROUTES)) assert.ok(seen.has(key), `${key} is not a route`);
   for (const key of SENSITIVE_ACTIONS) assert.ok(seen.has(key), `${key} (sensitive) is not a route`);

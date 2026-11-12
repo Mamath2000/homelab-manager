@@ -26,6 +26,23 @@ navigateur ──► hub ──API HTTP de requête─────────�
 
 L'option de standardisation demande `FEATURE_STANDARDISATION=true` ([Configuration](configuration.md)). Le rôle et la page Logs n'en dépendent pas : un appareil configuré à la main pour envoyer en syslog au serveur est lisible aussi.
 
+## Paramètres › Logs
+
+L'onglet apparaît avec un rôle Serveur de logs (administrateurs). Pour chaque serveur, une carte par hôte qui lui envoie ses journaux :
+
+| Couleur | État |
+|---|---|
+| vert | des journaux sont arrivés pendant le délai d'alerte du rôle (24 h s'il ne surveille pas les hôtes muets) |
+| orange | installation en cours, ou option à appliquer (le détail le dit) |
+| rouge | rien reçu pendant ce délai, ou l'agent ne peut pas appliquer l'option (agent à mettre à jour…) |
+
+La carte indique aussi le site, « hors ligne », et comment l'hôte envoie : **standard** (valeur standard de la standardisation), **valeur propre**, ou **réglé à la main** (le serveur reçoit de lui sans que la standardisation l'y envoie). États relus toutes les 30 secondes, toutes les 5 secondes pendant une installation.
+
+- **Ajouter un hôte** : liste les hôtes qui n'envoient pas encore ; un clic sur l'un d'eux règle son option « Envoi des journaux » sur ce serveur (la valeur standard si c'est elle, sinon une valeur propre) et l'applique aussitôt : l'agent installe et configure rsyslog. Grisés : hôte hors ligne, agent à mettre à jour, hôte sans standardisation (Windows, HAOS, Unraid), standardisation désactivée sur le hub. Un hôte réglé à la main est proposé avec un avertissement : retirer son réglage manuel, sinon chaque ligne arrive en double.
+- **Corbeille** d'une carte : arrête l'envoi, après confirmation. L'option de l'hôte devient « aucun envoi » et l'agent retire son fichier (à la prochaine application si l'hôte est hors ligne). Pas de corbeille sur un hôte réglé à la main : son fichier n'est pas celui de l'agent.
+
+Les émetteurs que le hub ne connaît pas sont listés sous les cartes.
+
 ## Installer VictoriaLogs
 
 Exemple en Docker Compose, sur l'hôte qui portera le rôle :
@@ -118,6 +135,9 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
 | `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
+| `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
+| `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |
+| `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte (administrateurs, passkey) |
 
 Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
 

@@ -226,6 +226,8 @@ route('setup', 'setup.standard', 'PUT /api/settings/setup');
 route('setup', 'setup.overrides', 'PUT /api/hosts/:id/setup');
 route('setup', 'setup.keyAck', 'PUT /api/hosts/:id/access-keys/ack');
 route('setup', 'setup.accessApply', 'POST /api/settings/access/apply');
+route('setup', 'setup.logsAdd', 'POST /api/settings/logs/:role/hosts');
+route('setup', 'setup.logsRemove', 'DELETE /api/settings/logs/:role/hosts/:hostId');
 
 const routeKey = (req: FastifyRequest) => `${req.method} ${req.routeOptions.url ?? ''}`;
 

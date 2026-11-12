@@ -54,6 +54,8 @@ const ACTIONS: Record<string, string> = {
   'setup.overrides': "Valeurs propres d'un hôte",
   'setup.keyAck': 'Clé SSH validée ou retirée de la validation',
   'setup.accessApply': 'Accès appliqués aux hôtes',
+  'setup.logsAdd': 'Envoi des journaux ajouté à un hôte',
+  'setup.logsRemove': 'Envoi des journaux retiré d’un hôte',
 };
 
 export const auditActionLabel = (action: string) => ACTIONS[action] ?? action;

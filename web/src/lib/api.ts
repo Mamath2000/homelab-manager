@@ -1874,6 +1874,31 @@ export interface LogSource {
   count: number;
   errors: number;
 }
+// A host that sends its journals to a log server (Paramètres › Logs). mode: through the standard value, its own value,
+// or set by hand on the host (received, not sent by the standardisation). state: ok, received lately; pending, being
+// installed; drift, to apply; error, the agent cannot apply it; silent, nothing received.
+export interface LogHost {
+  hostId: string;
+  name: string;
+  siteId: string | null;
+  online: boolean;
+  mode: 'standard' | 'custom' | 'manual';
+  lastAt: number | null;
+  count: number;
+  state: 'ok' | 'pending' | 'drift' | 'error' | 'silent';
+  detail: string | null;
+  running: boolean;
+}
+export interface LogHosts {
+  role: string;
+  silentHours: number;
+  // the server could not be read: the states are unknown
+  error: string | null;
+  hosts: LogHost[];
+  // senders the hub does not know
+  others: { hostname: string; lastAt: number; count: number }[];
+}
+
 export function logParams(q: LogQuery, extra: Record<string, string | number | undefined> = {}) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries({ ...q, ...extra })) {
@@ -2009,6 +2034,9 @@ export const api = {
   logHits: (q: LogQuery) => request<LogHits>('GET', `/api/logs/hits?${logParams(q)}`),
   logFields: (field: 'app' | 'facility', q: LogQuery) => request<{ values: { value: string; hits: number }[] }>('GET', `/api/logs/fields?${logParams(q, { field })}`),
   logSources: (role?: string) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams({ role })}`),
+  logHosts: (role: string) => request<LogHosts>('GET', `/api/settings/logs/${encodeURIComponent(role)}/hosts`),
+  addLogHost: (role: string, hostId: string) => request<{ jobId: string }>('POST', `/api/settings/logs/${encodeURIComponent(role)}/hosts`, { hostId }),
+  removeLogHost: (role: string, hostId: string) => request<{ jobId: string | null; applied: boolean }>('DELETE', `/api/settings/logs/${encodeURIComponent(role)}/hosts/${hostId}`),
   logContext: (role: string | undefined, hostname: string, time: string) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role }, { hostname, time })}`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
