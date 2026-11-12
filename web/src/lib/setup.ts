@@ -1,4 +1,5 @@
 import { Server, User, UserCog, type LucideIcon } from 'lucide-react';
+import { useLogServers } from './queries';
 import type { Host, SetupOption, SetupOptions, SetupOverrides, SetupValues } from './api';
 
 // Hosts where the standardisation exists, or will once their agent is updated.
@@ -9,7 +10,7 @@ export const sectionIcons: Record<SetupSection, LucideIcon> = { system: Server, 
 
 // Sections of the standardisation, in display order.
 export const setupSections: { id: SetupSection; title: string; hint: string; options: SetupOption[] }[] = [
-  { id: 'system', title: 'Système', hint: "S'applique à la machine.", options: ['packages', 'ssh_password', 'user'] },
+  { id: 'system', title: 'Système', hint: "S'applique à la machine.", options: ['packages', 'ssh_password', 'log_forward', 'user'] },
   { id: 'root', title: 'root', hint: 'Compte root : ses clés, son shell.', options: ['root_keys', 'root_aliases', 'root_prompt', 'root_motd'] },
   {
     id: 'user',
@@ -27,6 +28,7 @@ const motdHint = 'Affiché à la connexion : résumé homelab (instantané) ou f
 export const setupOptionInfo: Record<SetupOption, { label: string; hint: string }> = {
   packages: { label: 'Paquets', hint: 'Installe les paquets manquants de la liste (après un apt-get update).' },
   ssh_password: { label: 'Connexion SSH par mot de passe', hint: 'PasswordAuthentication autorisé ou interdit (sshd_config.d), vérifié par sshd -t avant rechargement.' },
+  log_forward: { label: 'Envoi des journaux', hint: 'Les journaux de l’hôte sont envoyés en syslog à un serveur de logs (rsyslog installé, /etc/rsyslog.d/90-homelab.conf vérifié par rsyslogd -N1) : lisibles dans la page Logs.' },
   root_keys: { label: 'Clés SSH', hint: keysHint },
   root_aliases: { label: 'Alias bash', hint: aliasesHint },
   root_prompt: { label: 'Prompt', hint: promptHint },
@@ -64,12 +66,21 @@ export function describeValue<K extends SetupOption>(k: K, v: SetupValues[K]): s
     case 'root_motd':
     case 'user_motd':
       return motdLabels[v as keyof typeof motdLabels].toLowerCase();
+    case 'log_forward':
+      return (v as SetupValues['log_forward']).role || 'aucun envoi';
     case 'user': {
       const u = v as SetupValues['user'];
       return `${u.name || '?'}${u.sudoNoPassword ? ', sudo sans mot de passe' : ''}`;
     }
   }
   return '';
+}
+
+// The sections as shown: the journals option only exists with a log server to send to (or while it is still set).
+export function useSetupSections(inUse = false) {
+  const { data: servers = [] } = useLogServers();
+  if (servers.length || inUse) return setupSections;
+  return setupSections.map((s) => ({ ...s, options: s.options.filter((k) => k !== 'log_forward') }));
 }
 
 // Whether the user section applies to a host: its "Compte" option, standard or overridden.

@@ -5,7 +5,7 @@ import { KeyRound, RefreshCw, Wand2 } from 'lucide-react';
 import { api, SETUP_OPTIONS, type Host, type SetupOption, type SetupOptions, type SetupOverride, type SetupOverrides, type SetupState } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
-import { describeValue, hasNewSshKey, hostHasUser, isListOption, sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
+import { describeValue, hasNewSshKey, hostHasUser, isListOption, sectionIcons, setupOptionInfo, setupSections, useSetupSections, type SetupSection } from '../lib/setup';
 import { useRunBulk, useUpdateHostCache } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { ListInput, OptionEditor, OptionNotes } from './SetupFields';
@@ -130,6 +130,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   const [draft, setDraft] = useState<SetupOverrides | null>(null);
   const [busy, setBusy] = useState<'apply' | 'check' | null>(null);
   const [tab, setTab] = useState<SetupSection>('system');
+  const sections = useSetupSections(!!host.setupOverrides.log_forward || !!standard?.options.log_forward.enabled);
 
   const close = () => {
     setDraft(null);
@@ -154,7 +155,7 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
     setDraft(next as SetupOverrides);
   };
   const withUser = hostHasUser(standard.options, overrides);
-  const visibleSections = setupSections.filter((x) => x.id !== 'user' || withUser);
+  const visibleSections = sections.filter((x) => x.id !== 'user' || withUser);
 
   // saves the host values when they changed; false on error
   const save = async () => {
@@ -230,9 +231,9 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   const sectionDrift = (sec: (typeof setupSections)[number]) =>
     sec.options.filter((k) => isManaged(standard.options, overrides, k) && ['drift', 'error'].includes(checks.get(k)?.state ?? '')).length;
   const activeTab = tab === 'user' && !withUser ? 'system' : tab;
-  const sec = setupSections.find((x) => x.id === activeTab)!;
+  const sec = sections.find((x) => x.id === activeTab)!;
   // conformity of the host: checked options that are compliant, out of the options managed on the host
-  const managedKeys = setupSections.flatMap((x) => x.options).filter((k) => isManaged(standard.options, overrides, k));
+  const managedKeys = sections.flatMap((x) => x.options).filter((k) => isManaged(standard.options, overrides, k));
   const okCount = managedKeys.filter((k) => checks.get(k)?.state === 'ok').length;
   const checkedCount = managedKeys.filter((k) => checks.has(k)).length;
 

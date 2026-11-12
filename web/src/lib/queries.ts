@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Host, type Job, type JobAction, type ProbeDay, type ProbeMeasure, type ProbeSubjectKind, type SetupOption } from './api';
+import { api, type LogHubRole, type Host, type Job, type JobAction, type ProbeDay, type ProbeMeasure, type ProbeSubjectKind, type SetupOption } from './api';
 import { useToast } from './toast';
 
 export const keys = {
@@ -112,6 +112,11 @@ export function useEquipment(id: string | undefined) {
 
 export function useEquipmentAlerts(id: string) {
   return useQuery({ queryKey: keys.equipmentAlerts(id), queryFn: () => api.equipmentAlerts(id) });
+}
+
+// The log servers of the hub: with one, the Logs page and the journals option of the standardisation exist.
+export function useLogServers(enabled = true) {
+  return useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled, select: (d) => d.roles.filter((r): r is LogHubRole => r.type === 'log-server') });
 }
 
 export function useRoles() {

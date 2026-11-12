@@ -1,7 +1,7 @@
 ---
 id: roles
 title: Rôles du hub
-description: "Ce que le hub peut faire au travers d'un élément du homelab (broker MQTT, cluster Proxmox VE) : déclaration, hôte porteur, test, réaffectation"
+description: "Ce que le hub peut faire au travers d'un élément du homelab (broker MQTT, cluster Proxmox VE, serveur de logs) : déclaration, hôte porteur, test, réaffectation"
 sidebar_position: 3.95
 ---
 
@@ -22,6 +22,7 @@ Les droits d'un compte s'appellent des **profils** (`admin`, `operator`, `viewer
 | **PBS principal** (`pbs-primary`) | l'hôte du Proxmox Backup Server (son agent, PBS installé ou en conteneur) | non, un seul | les [sauvegardes](sauvegardes.md) : groupes relevés, jobs des agents, montages |
 | **PBS hors site** (`pbs-offsite`) | l'hôte du PBS distant | non, un seul, **après** le PBS principal | la [copie déportée](sauvegardes.md) des sauvegardes choisies |
 | **Contrôleur Omada** (`omada-controller`) | un **hôte** (contrôleur en Docker, détecté par l'agent sur ses ports de service) ou un **équipement** avec une adresse IP (contrôleur dédié, OC200…) | oui | Paramètres › Omada : [équipements](equipements.md#omada) synchronisés et [sondes VPN](sondes.md#sondes-vpn) |
+| **Serveur de logs** (`log-server`) | l'hôte d'un VictoriaLogs (installé à la main ; l'agent signale celui qu'il voit en écoute) | oui, un par site si besoin | la page [Logs](logs.md) et l'option **Envoi des journaux** de la [standardisation](standardisation.md#envoi-des-journaux) |
 
 Le contrôleur Omada est le seul rôle qu'un **équipement** peut porter : il passe par une API (adresse, empreinte du certificat épinglée, application Open API en mode client), sans agent. Sans contrôleur déclaré, l'onglet Paramètres › Omada n'apparaît pas et rien n'est relu.
 
@@ -47,6 +48,17 @@ La même fenêtre sert à déclarer et à modifier un broker : d'abord le **nom 
 Dans la liste des rôles, une icône bouclier à côté du nom d'un broker indique la gestion des comptes : **verte** si HLM la gère, **grise** si elle est seulement possible (ou chargée mais gérée hors HLM), absente si indisponible. L'avertissement « connexions anonymes acceptées » reste affiché.
 
 Sur la fiche d'un hôte ou d'un équipement, les rôles qu'il porte s'affichent (lien vers Paramètres › Rôles) ; sur un hôte, et un broker détecté par son agent se déclare d'un clic (**Déclarer**, assistant prérempli).
+
+### Serveur de logs
+
+Quatre étapes : **Porteur › Serveur › Réception › Test**.
+
+1. **Porteur** : l'hôte où tourne VictoriaLogs. Ceux dont l'agent l'a trouvé viennent en premier, avec les ports relevés.
+2. **Serveur** : le nom du rôle et l'**API** de VictoriaLogs (adresse de l'hôte, port 9428 par défaut), où le hub lit les journaux. Utilisateur et mot de passe seulement si un proxy placé devant en demande (authentification basique) ; le mot de passe n'est jamais renvoyé par l'API.
+3. **Réception** : où les hôtes envoient leurs journaux en syslog (TCP) : adresse (celle de l'hôte par défaut) et port. C'est ce que la standardisation écrit dans le rsyslog des hôtes. **Hôte muet après** : délai sans journal au bout duquel un hôte qui envoie passe en écart ([hôte muet](logs.md#hôte-muet)), 0 pour ne pas surveiller.
+4. **Test** : le hub interroge l'API. La réception syslog n'est pas testée ici.
+
+Dans la liste des rôles, le serveur affiche le nombre d'émetteurs des dernières 24 h (relevé toutes les 5 minutes). Modifier l'adresse, le port ou le porteur fait revérifier les hôtes : ceux qui envoient à l'ancienne adresse passent en écart jusqu'à la prochaine application de la standardisation. La suppression est refusée tant que la standardisation (standard ou valeur propre d'un hôte) l'utilise. Installation du serveur : [Logs](logs.md#installer-victorialogs).
 
 ### Empreinte du contrôleur Omada
 

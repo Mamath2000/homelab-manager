@@ -15,6 +15,7 @@ curl -H "Authorization: Bearer hm_…" http://HUB:PORT/api/summary
 
 - Sans clé valable : `401`. Hors des droits du profil du compte : `403`.
 - Un compte `viewer` suffit pour la lecture ; il n'accède ni aux logs des conteneurs ni aux fichiers compose.
+- Les [journaux des hôtes](logs.md#api) ne sont jamais lisibles avec une clé d'API, quel que soit le profil.
 
 ## `GET /api/summary`
 

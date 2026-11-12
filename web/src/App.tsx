@@ -22,6 +22,7 @@ const Equipments = page(() => import('./pages/Equipments'), 'Equipments');
 const HostDetail = page(() => import('./pages/HostDetail'), 'HostDetail');
 const Hosts = page(() => import('./pages/Hosts'), 'Hosts');
 const Health = page(() => import('./pages/Health'), 'Health');
+const Logs = page(() => import('./pages/Logs'), 'Logs');
 const Probes = page(() => import('./pages/Probes'), 'Probes');
 const JobDetail = page(() => import('./pages/JobDetail'), 'JobDetail');
 const Settings = page(() => import('./pages/Settings'), 'Settings');
@@ -115,6 +116,7 @@ export default function App() {
                 <Route path="docker/:hostId/:stack" element={<Stack />} />
                 <Route path="backups" element={<Backups />} />
                 <Route path="activity" element={<Activity />} />
+                {me.canLogs && <Route path="logs" element={<Logs />} />}
                 <Route path="jobs/:id" element={<JobDetail />} />
                 {me.canAccounts && <Route path="accounts" element={<Accounts />} />}
                 {me.canSettings && <Route path="settings" element={<Settings />} />}

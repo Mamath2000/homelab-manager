@@ -11,6 +11,8 @@ export function rights(me: Me) {
     // add / edit / delete hosts, agent tokens
     canManage: me.profile === 'admin',
     canSettings: me.profile === 'admin',
+    // journals of the hosts (they may hold secrets): not for read-only accounts
+    canLogs: me.profile === 'admin' || me.profile === 'operator',
     canAccounts: me.profile === 'admin' || me.profile === 'superadmin',
   };
 }

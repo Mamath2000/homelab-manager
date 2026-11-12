@@ -18,6 +18,7 @@ Désactivée par défaut : il faut `FEATURE_STANDARDISATION=true` sur le hub (vo
 |---|---|---|---|
 | Système | Paquets | `apt-get update` puis installation des paquets manquants de la liste | paquets absents |
 | Système | Connexion SSH par mot de passe | `PasswordAuthentication` dans `/etc/ssh/sshd_config.d/00-homelab.conf`, validé par `sshd -t` puis pris en compte par sshd (voir Garde-fous SSH) | valeur effective (`sshd -T`) |
+| Système | Envoi des journaux | installe `rsyslog` et écrit `/etc/rsyslog.d/90-homelab.conf`, validé par `rsyslogd -N1` (voir Envoi des journaux) | paquet, contenu du fichier, service actif, journaux reçus par le serveur |
 | root, Utilisateur | Clés SSH | clés ajoutées à `~/.ssh/authorized_keys` du compte ; une clé posée par Homelab Manager puis retirée de la configuration est enlevée, les autres clés sont gardées | clés absentes, clés à retirer |
 | root, Utilisateur | Alias bash | `~/.host_aliases` du compte ; `~/.bash_aliases` n'est pas touché | contenu du fichier |
 | root, Utilisateur | Prompt | classique coloré (rouge pour root, branche git) ou [Starship](https://starship.rs) | script du style, paquet, bloc `~/.bashrc` |
@@ -111,6 +112,37 @@ Les mises à jour et les conteneurs viennent de l'agent, qui tient `/etc/homelab
 **fastfetch** se lance avec `/etc/homelab/fastfetch.jsonc`. La configuration par défaut est générique : la ligne Klipper n'apparaît que si le service existe (une commande qui échoue ou n'affiche rien masque sa ligne), l'adresse affichée est celle de l'interface de la route par défaut, `/boot/firmware` n'apparaît que sur un Raspberry Pi.
 
 **Starship** et **fastfetch** s'installent par APT : Debian 13 ou Ubuntu 24.04 et plus récents. Ni Debian 12 ni ses backports ne les ont : l'option y échoue avec un message clair, la mettre en « Non géré » sur ces hôtes. Starship a besoin d'une police Nerd Font côté terminal pour ses icônes.
+
+## Envoi des journaux
+
+L'option n'apparaît que si un rôle [Serveur de logs](roles.md#serveur-de-logs) est déclaré. Sa valeur est ce serveur : les journaux de l'hôte lui sont envoyés en syslog et se lisent dans la page [Logs](logs.md).
+
+L'agent ne transporte aucun journal. À l'application, il :
+
+1. installe le paquet `rsyslog` s'il manque (Debian 12 et plus ne l'ont plus par défaut ; journald lui transmet les journaux) ;
+2. écrit `/etc/rsyslog.d/90-homelab.conf` : envoi en TCP au format RFC 5424, avec une file d'attente sur disque (100 Mo au plus) qui garde les journaux pendant une coupure du serveur et les envoie à son retour ;
+3. valide la configuration par `rsyslogd -N1` : en cas de refus, l'ancien fichier est remis en place et rsyslog n'est pas redémarré ;
+4. active et redémarre le service `rsyslog`.
+
+```text
+# Géré par Homelab Manager (Paramètres > Standardisation) : les modifications locales seront écrasées.
+action(type="omfwd" target="192.168.100.21" port="29514" protocol="tcp"
+       template="RSYSLOG_SyslogProtocol23Format"
+       queue.type="LinkedList" queue.filename="homelab_fwd" queue.maxDiskSpace="100m"
+       queue.saveOnShutdown="on" action.resumeRetryCount="-1")
+```
+
+Le hub envoie à l'agent une adresse, un port et un protocole, que l'agent vérifie de nouveau.
+
+Sur un hôte, **Valeur propre** choisit un autre serveur, ou **Aucun envoi** : l'agent retire alors le fichier et redémarre rsyslog (le paquet reste installé). **Non géré** ne touche à rien : un fichier déjà posé continue d'envoyer.
+
+| État | Cause |
+|---|---|
+| écart « aucun journal reçu… » | la configuration est conforme mais le serveur ne reçoit rien de cet hôte ([hôte muet](logs.md#hôte-muet)) : port fermé, mauvais serveur, rsyslog bloqué |
+| sans objet | agent à mettre à jour (capacité `log_forward`), ou hôte sans systemd |
+| erreur « serveur de logs introuvable » | le rôle a été supprimé, ou l'adresse de son hôte est inconnue |
+
+L'hôte qui porte le serveur de logs envoie ses journaux comme les autres, à sa propre adresse.
 
 ## Clés SSH hors configuration
 

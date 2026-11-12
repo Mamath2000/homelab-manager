@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Monitor, Settings2, Terminal, Wand2, type LucideIcon } from 'lucide-react';
 import { api, type SetupOption, type SetupProfile, type SetupValues } from '../lib/api';
-import { sectionIcons, setupOptionInfo, setupSections, type SetupSection } from '../lib/setup';
+import { sectionIcons, setupOptionInfo, useSetupSections, type SetupSection } from '../lib/setup';
 import { useToast } from '../lib/toast';
 import { OptionEditor, OptionNotes, textarea } from './SetupFields';
 import { ApplyAccess } from './SetupAccess';
@@ -25,6 +25,7 @@ export function SetupSettings() {
   const [tab, setTab] = useState<Tab>('general');
 
   const form = draft ?? data;
+  const sections = useSetupSections(!!form?.options.log_forward.enabled);
   const dirty = !!form && !!draft && JSON.stringify(draft) !== JSON.stringify(data);
   const discard = () => setForm(null);
 
@@ -79,7 +80,7 @@ export function SetupSettings() {
 
   const tabs: { id: Tab; label: string; icon: LucideIcon; count?: string }[] = [
     { id: 'general', label: 'Général', icon: Settings2 },
-    ...setupSections.filter((sec) => sec.id !== 'user' || opts.user.enabled).map((sec) => ({
+    ...sections.filter((sec) => sec.id !== 'user' || opts.user.enabled).map((sec) => ({
       id: sec.id,
       label: sec.title,
       icon: sectionIcons[sec.id],
@@ -90,7 +91,7 @@ export function SetupSettings() {
   ];
   // a configuration tab disappears when its style is no longer used
   const current = tabs.some((t) => t.id === tab) ? tab : 'general';
-  const section = setupSections.find((sec) => sec.id === current);
+  const section = sections.find((sec) => sec.id === current);
 
   return (
     <Panel title="Configuration standard" icon={Wand2} bodyClassName="">

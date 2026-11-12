@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { SetupOption, SetupValues } from '../lib/api';
+import { useLogServers } from '../lib/queries';
 import { motdLabels, promptLabels } from '../lib/setup';
 
 export function Choice<T extends string>({ value, onChange, options, disabled }: { value: T; onChange: (v: T) => void; options: { id: T; label: string }[]; disabled?: boolean }) {
@@ -42,6 +43,24 @@ export function ListInput({ value, onChange, lines, placeholder, disabled }: { v
   );
 }
 
+// The log server the journals go to; none: the host sends nothing (its file is removed).
+function LogServerSelect({ value, onChange, disabled }: { value: string; onChange: (role: string) => void; disabled?: boolean }) {
+  const { data: servers = [] } = useLogServers();
+  const known = servers.some((r) => r.id === value);
+  return (
+    <div className="space-y-1">
+      <select className="input max-w-sm" value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Aucun envoi</option>
+        {value && !known && <option value={value}>{value} (rôle supprimé)</option>}
+        {servers.map((r) => (
+          <option key={r.id} value={r.id}>{r.name} ({r.target || 'adresse inconnue'})</option>
+        ))}
+      </select>
+      {!servers.length && <p className="text-xs text-amber-300">Aucun serveur de logs déclaré (Paramètres › Rôles).</p>}
+    </div>
+  );
+}
+
 const promptOptions = (['classic', 'starship', 'none'] as const).map((id) => ({ id, label: promptLabels[id] }));
 const motdOptions = (['homelab', 'fastfetch', 'none'] as const).map((id) => ({ id, label: motdLabels[id] }));
 
@@ -54,6 +73,8 @@ export function OptionEditor<K extends SetupOption>({ option, value, onChange, d
     case 'root_keys':
     case 'user_keys':
       return <ListInput value={value as string[]} onChange={set} lines placeholder="ssh-ed25519 AAAA… mamath@pc (une clé publique par ligne)" disabled={disabled} />;
+    case 'log_forward':
+      return <LogServerSelect value={(value as SetupValues['log_forward']).role} onChange={(role) => set({ role })} disabled={disabled} />;
     case 'ssh_password':
       return (
         <Choice
@@ -108,6 +129,9 @@ export function OptionNotes<K extends SetupOption>({ option, value }: { option: 
   }
   if (value === 'starship' || value === 'fastfetch') {
     return <p className="mt-2 text-xs text-amber-300">{value === 'starship' ? 'Starship' : 'fastfetch'} s'installe par APT : Debian 13 ou Ubuntu 24.04 et plus récents.</p>;
+  }
+  if (option === 'log_forward' && (value as SetupValues['log_forward']).role) {
+    return <p className="mt-2 text-xs text-muted">Les journaux peuvent contenir des données sensibles : ils voyagent en clair (TCP) jusqu'au serveur, à réserver au réseau local et aux VPN.</p>;
   }
   if (option === 'ssh_password' && value === false) {
     return <p className="mt-2 text-xs text-amber-300">L'agent refuse d'interdire le mot de passe tant qu'aucune clé SSH n'est installée pour root ou l'utilisateur.</p>;

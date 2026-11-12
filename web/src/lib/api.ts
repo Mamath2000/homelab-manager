@@ -380,6 +380,8 @@ export interface Host {
   // roles declared on this host, and the services its agent found (null: never reported)
   roles: HubRole[];
   roleCandidates: RoleCandidate[] | null;
+  // its journals as the log servers last saw them: the server, the last one received, the errors over a day (null: none)
+  logs: { roleId: string; lastAt: number; errors: number } | null;
   // OS of the agent (windows: presence, info and sessions only)
   osFamily: 'linux' | 'windows';
   // Windows: path of the backup CLI set in the options (checked by the agent: capability backup:cli)
@@ -426,6 +428,7 @@ export interface HostPveLost {
 export const SETUP_OPTIONS = [
   'packages',
   'ssh_password',
+  'log_forward',
   'root_keys',
   'root_aliases',
   'root_prompt',
@@ -443,6 +446,8 @@ export type MotdStyle = 'none' | 'homelab' | 'fastfetch';
 export interface SetupValues {
   packages: string[];
   ssh_password: boolean;
+  // log server role the journals are sent to; "": no forwarding
+  log_forward: { role: string };
   root_keys: string[];
   root_aliases: string;
   root_prompt: PromptStyle;
@@ -479,7 +484,8 @@ export interface AccessReport {
 export interface SetupState {
   checkedAt: number;
   user: string;
-  modules: { module: SetupOption; state: 'ok' | 'drift' | 'na' | 'error'; detail?: string }[];
+  // log_forward: role, the log server the host sends to; silent, conform on the host but the server receives nothing
+  modules: { module: SetupOption; state: 'ok' | 'drift' | 'na' | 'error'; detail?: string; role?: string; silent?: boolean }[];
   // options that differ from the values of the host
   drift: number;
   access?: AccessReport;
@@ -1649,7 +1655,7 @@ export type BrokerScheme = 'mqtt' | 'mqtts' | 'ws' | 'wss';
 
 // Service found listening on a host by its agent (agent/roles.go); local: loopback only, not reachable by the hub
 export interface RoleCandidate {
-  type: 'mqtt-broker' | 'omada-controller';
+  type: 'mqtt-broker' | 'omada-controller' | 'log-server';
   process: string;
   port: number;
   scheme: string;
@@ -1773,7 +1779,7 @@ export interface EquipmentInput {
 // A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
 // hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
 // role in use is not deleted (absent from the roles of a host).
-export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller';
+export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller' | 'log-server';
 interface HubRoleBase {
   id: string;
   name: string;
@@ -1793,11 +1799,15 @@ export type HubRole =
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
   | (HubRoleBase & { type: 'pbs-offsite'; config: { url: string; tailscaleUrl: string; store: string; startTime: string } })
   // fingerprint: SHA-256 of its certificate, pinned ("": the system CAs)
-  | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } });
+  | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } })
+  // a VictoriaLogs: url, its query API; address (null: the one of its host), port and protocol, where the hosts send their
+  // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
+  | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number }; target: string });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
+export type LogHubRole = Extract<HubRole, { type: 'log-server' }>;
 
 // a broker or an Omada controller (a Proxmox VE cluster has its own routes, see createPveToken); the secret
 // (password, clientSecret): absent keeps the stored one, "" clears it (a controller needs one); carrier on an edit:
@@ -1806,7 +1816,66 @@ export type HubRoleCarrier = { kind: 'host' | 'equipment'; id: string };
 export type HubRoleInput = { carrier?: HubRoleCarrier; name: string } & (
   | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string } }
   | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string } }
+  | { type: 'log-server'; config: { url: string; address?: string; port: number; protocol: 'tcp'; username: string; password?: string; silentHours: number } }
 );
+
+// Journals of the hosts, read on a log server (hub/src/routes/logs.ts). severity: 0 emerg … 7 debug.
+export const LOG_LEVELS = ['emerg', 'alert', 'crit', 'error', 'warning', 'notice', 'info', 'debug'] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+export interface LogRow {
+  // RFC 3339 with the precision of the server: also the cursor of the next page
+  time: string;
+  hostname: string;
+  // host of the hub that sent it (null: a sender the hub does not know), and the name shown
+  hostId: string | null;
+  hostName: string;
+  severity: number;
+  level: LogLevel;
+  facility: string;
+  app: string;
+  pid: string;
+  message: string;
+  remoteIp?: string;
+  fields?: Record<string, string>;
+}
+// what a page of journals is filtered by; lists are sent separated by commas
+export interface LogQuery {
+  role?: string;
+  host?: string[];
+  hostname?: string[];
+  site?: string;
+  tag?: string;
+  severity?: number;
+  app?: string[];
+  facility?: string[];
+  q?: string;
+  notApp?: string[];
+  notHostname?: string[];
+  // a date (ISO) or a time back from now ("15m", "1h", "7d")
+  from?: string;
+  to?: string;
+}
+export interface LogHits {
+  step: string;
+  timestamps: string[];
+  series: { level: LogLevel; severity: number; values: number[]; total: number }[];
+}
+export interface LogSource {
+  hostname: string;
+  hostId: string | null;
+  hostName: string;
+  lastAt: number;
+  count: number;
+  errors: number;
+}
+export function logParams(q: LogQuery, extra: Record<string, string | number | undefined> = {}) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...q, ...extra })) {
+    if (v === undefined || v === '' || (Array.isArray(v) && !v.length)) continue;
+    p.set(k, Array.isArray(v) ? v.join(',') : String(v));
+  }
+  return p.toString();
+}
 // The fingerprint a controller presents, checked against the one the agent of its carrier reads on the host (homelab#300).
 // agent: the same, nobody in between swapped it; mismatch: another one (agentFingerprint), never pinned; network: nothing
 // to compare it to (equipment, agent too old or offline, or its read failed: agentError), the admin compares it.
@@ -1929,6 +1998,12 @@ export const api = {
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
   resetMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/reset`),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
+  // journals of the hosts (admins and operators)
+  logs: (q: LogQuery, limit: number, before?: string) => request<{ role: string; rows: LogRow[]; more: boolean }>('GET', `/api/logs?${logParams(q, { limit, before })}`),
+  logHits: (q: LogQuery) => request<LogHits>('GET', `/api/logs/hits?${logParams(q)}`),
+  logFields: (field: 'app' | 'facility', q: LogQuery) => request<{ values: { value: string; hits: number }[] }>('GET', `/api/logs/fields?${logParams(q, { field })}`),
+  logSources: (role?: string) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams({ role })}`),
+  logContext: (role: string | undefined, hostname: string, time: string) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role }, { hostname, time })}`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),

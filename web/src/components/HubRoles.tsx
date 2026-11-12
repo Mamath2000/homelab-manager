@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { KeyRound, Pencil, Plug, Plus, Radio, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleIcon, roleTint } from '../lib/hostSkills';
@@ -738,6 +738,253 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   );
 }
 
+interface LogForm {
+  name: string;
+  // the query API of VictoriaLogs
+  apiAddress: string;
+  apiPort: string;
+  https: boolean;
+  username: string;
+  // where the hosts send their journals: '' is the address of the carrier
+  address: string;
+  port: string;
+  silentHours: string;
+}
+
+const LOG_API_PORT = 9428;
+const LOG_SYSLOG_PORT = 29514;
+const logUrl = (f: Pick<LogForm, 'apiAddress' | 'apiPort' | 'https'>) => `${f.https ? 'https' : 'http'}://${f.apiAddress.includes(':') && !f.apiAddress.startsWith('[') ? `[${f.apiAddress}]` : f.apiAddress}:${f.apiPort}`;
+
+function splitLogUrl(url: string) {
+  try {
+    const u = new URL(url);
+    return { apiAddress: u.hostname.replace(/^\[|\]$/g, ''), apiPort: u.port || (u.protocol === 'https:' ? '443' : '80'), https: u.protocol === 'https:' };
+  } catch {
+    return { apiAddress: '', apiPort: String(LOG_API_PORT), https: false };
+  }
+}
+
+// Declares a log server role, or edits one (another carrier moves it). Four steps like the other roles: carrier, server
+// (the query API of a VictoriaLogs installed by hand: the hub reads the journals there), reception (where the hosts send
+// in syslog: what the standardisation writes in their rsyslog), test. The hosts whose agent sees a VictoriaLogs come
+// first, with the ports it found. Saving needs a successful test; the password is never sent back.
+export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: hosts = [] } = useHosts();
+  const type = 'log-server' as const;
+  const [initialCarrier] = useState<string | null>(() => role?.carrier.id ?? null);
+  const [carrier, setCarrier] = useState<string | null>(initialCarrier);
+  const [initial] = useState<LogForm>(() => ({
+    name: role?.name ?? '',
+    ...(role ? splitLogUrl(role.config.url) : { apiAddress: '', apiPort: String(LOG_API_PORT), https: false }),
+    username: role?.config.username ?? '',
+    address: role?.config.address ?? '',
+    port: String(role?.config.port ?? LOG_SYSLOG_PORT),
+    silentHours: String(role?.config.silentHours ?? 6),
+  }));
+  const [form, setForm] = useState<LogForm>(initial);
+  const [secret, setSecret] = useState('');
+  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
+  const [test, setTest] = useState<CheckState>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const set = (patch: Partial<LogForm>) => {
+    setForm({ ...form, ...patch });
+    setTest(null);
+  };
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || carrier !== initialCarrier || !!secret;
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  // the hosts whose agent sees a VictoriaLogs first: its API port and the ports it receives on
+  const found = (h: Host) => (h.roleCandidates ?? []).filter((c) => c.type === 'log-server' && !c.local);
+  const detected = hosts.filter((h) => found(h).length);
+  const others = hosts.filter((h) => !found(h).length);
+  const host = hosts.find((h) => h.id === carrier);
+  const pickHost = (h: Host) => {
+    const c = found(h);
+    setCarrier(h.id);
+    setForm({
+      ...form,
+      name: form.name || `Logs ${h.name}`,
+      apiAddress: lanAddress(h.info?.ips),
+      apiPort: String(c.find((x) => x.scheme === 'http')?.port ?? LOG_API_PORT),
+      port: String(c.find((x) => x.scheme === 'syslog')?.port ?? (form.port || LOG_SYSLOG_PORT)),
+    });
+    setTest(null);
+  };
+  const syslogPorts = host ? found(host).filter((c) => c.scheme === 'syslog').map((c) => c.port) : [];
+
+  const url = logUrl(form);
+  const sendAddress = form.address.trim() || lanAddress(host?.info?.ips);
+  const config = () => ({
+    url,
+    ...(form.address.trim() ? { address: form.address.trim() } : {}),
+    port: +form.port,
+    protocol: 'tcp' as const,
+    username: form.username.trim(),
+    ...(secret ? { password: secret } : {}),
+    silentHours: +form.silentHours,
+  });
+  const runTest = async () => {
+    setBusy('test');
+    setTest(null);
+    try {
+      const r = await api.testRole({ type, carrier: { kind: 'host', id: carrier! }, config: config(), ...(role ? { roleId: role.id } : {}) });
+      setTest(r.ok ? { level: 'ok', title: 'Connexion réussie', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+    } catch (err) {
+      setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const save = async () => {
+    setBusy('save');
+    try {
+      const moved = role && carrier !== role.carrier.id;
+      if (role) await api.updateRole(role.id, { ...(moved ? { carrier: { kind: 'host', id: carrier! } } : {}), name: form.name.trim(), config: config() });
+      else await api.createRole({ type, carrier: { kind: 'host', id: carrier! }, name: form.name.trim(), config: config() });
+      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: ['logs'] })]);
+      toast.success(role ? `Rôle ${form.name.trim()} modifié` : `Rôle ${form.name.trim()} déclaré : la page Logs est ouverte`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const nameOk = form.name.trim().length > 0;
+  const apiOk = ADDRESS_RE.test(form.apiAddress.trim()) && portValid(form.apiPort);
+  const serverOk = nameOk && apiOk && (!secret || !!form.username.trim());
+  const silentOk = /^\d{1,2}$/.test(form.silentHours) && +form.silentHours <= 24;
+  const receptionOk = portValid(form.port) && (!form.address.trim() || ADDRESS_RE.test(form.address.trim())) && silentOk;
+  const [carried, configured, reception, tested] = stepStates([!!carrier, serverOk, receptionOk, test?.level === 'ok']);
+
+  return (
+    <>
+      <Modal
+        open
+        onClose={requestClose}
+        dismissable={false}
+        wide="screen"
+        wider
+        fixed
+        title={role ? `Serveur de logs · ${role.name}` : 'Nouveau rôle Serveur de logs'}
+        footer={
+          <>
+            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || test?.level !== 'ok'} onClick={() => void save()}>Enregistrer</Button>
+          </>
+        }
+      >
+        <Steps fill>
+          <Step n={1} title="Porteur" state={carried} intro={role ? 'Choisir un autre hôte déplace le rôle, ses paramètres gardés.' : "L'hôte où tourne VictoriaLogs (installé à la main, voir la documentation) : ceux dont l'agent l'a trouvé d'abord."}>
+            {!hosts.length ? (
+              <p className="text-sm text-muted">Aucun hôte.</p>
+            ) : (
+              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                {detected.length > 0 && <div className={listHead}>Détectés par les agents</div>}
+                {detected.map((h) => (
+                  <CarrierRow key={h.id} on={carrier === h.id} onPick={() => pickHost(h)} title={h.name}>
+                    VictoriaLogs · ports {found(h).map((c) => c.port).join(', ')} · {h.info?.ips?.join(', ') || 'adresse inconnue'}
+                  </CarrierRow>
+                ))}
+                {others.length > 0 && <div className={listHead}>Autres hôtes</div>}
+                {others.map((h) => (
+                  <CarrierRow key={h.id} on={carrier === h.id} onPick={() => pickHost(h)} title={h.name}>
+                    {h.info?.ips?.join(', ') || 'adresse inconnue'}
+                  </CarrierRow>
+                ))}
+              </div>
+            )}
+          </Step>
+          <Step n={2} title="Serveur" state={configured} intro="L'API de VictoriaLogs, où le hub lit les journaux (9428 par défaut). Elle n'a pas de compte : n'en saisir un que si un proxy placé devant en demande un.">
+            <label className="block">
+              <span className={field}>Nom</span>
+              <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Logs Vouillé…" />
+            </label>
+            <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+              <label className="block">
+                <span className={field}>Adresse de l'API</span>
+                <input className="input font-mono text-xs" value={form.apiAddress} onChange={(e) => set({ apiAddress: e.target.value.trim() })} placeholder={carrier ? 'adresse inconnue' : '—'} spellCheck={false} />
+              </label>
+              <label className="block">
+                <span className={field}>Port</span>
+                <input className="input font-mono text-xs" inputMode="numeric" value={form.apiPort} onChange={(e) => set({ apiPort: e.target.value.trim() })} />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-zinc-300">
+              <input type="checkbox" className="h-4 w-4 accent-emerald-500" checked={form.https} onChange={(e) => set({ https: e.target.checked })} />
+              HTTPS (derrière un proxy)
+            </label>
+            {carrier && !apiOk && <span className="block text-xs text-amber-300">Adresse ou port invalide</span>}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className={field}>Utilisateur (facultatif)</span>
+                <input className="input" value={form.username} onChange={(e) => set({ username: e.target.value })} autoComplete="off" spellCheck={false} />
+              </label>
+              <label className="block">
+                <span className={field}>Mot de passe</span>
+                <input className="input" type="password" value={secret} onChange={(e) => (setSecret(e.target.value), setTest(null))} placeholder={role?.hasSecret ? '••••••••' : ''} autoComplete="new-password" />
+              </label>
+            </div>
+            {secret && !form.username.trim() && <span className="block text-xs text-amber-300">Mot de passe sans utilisateur</span>}
+          </Step>
+          <Step n={3} title="Réception" state={reception} intro="Où les hôtes envoient leurs journaux en syslog : ce que la standardisation écrit dans leur rsyslog. TCP, en clair : réseau local et VPN.">
+            <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+              <label className="block">
+                <span className={field}>Adresse (facultatif)</span>
+                <input className="input font-mono text-xs" value={form.address} onChange={(e) => set({ address: e.target.value.trim() })} placeholder={lanAddress(host?.info?.ips) || "celle de l'hôte"} spellCheck={false} />
+              </label>
+              <label className="block">
+                <span className={field}>Port syslog</span>
+                <input className="input font-mono text-xs" inputMode="numeric" value={form.port} onChange={(e) => set({ port: e.target.value.trim() })} />
+              </label>
+            </div>
+            {syslogPorts.length > 0 && !syslogPorts.includes(+form.port) && <span className="block text-xs text-amber-300">L'agent voit VictoriaLogs en écoute sur {syslogPorts.join(', ')}, pas sur ce port</span>}
+            {!portValid(form.port) && <span className="block text-xs text-amber-300">Port invalide (1 à 65535)</span>}
+            <label className="block">
+              <span className={field}>Hôte muet après (heures)</span>
+              <input className="input max-w-[6rem] font-mono text-xs" inputMode="numeric" value={form.silentHours} onChange={(e) => set({ silentHours: e.target.value.trim() })} />
+              <span className="mt-1 block text-xs text-muted">Un hôte qui envoie ses journaux et dont le serveur ne reçoit plus rien pendant ce temps passe en écart. 0 : non surveillé.</span>
+            </label>
+            {!silentOk && <span className="block text-xs text-amber-300">De 0 à 24 heures</span>}
+          </Step>
+          <Step
+            n={4}
+            title="Test de connexion"
+            state={tested}
+            intro="Le hub interroge l'API du serveur ; l'enregistrement n'est possible qu'après un test réussi. La réception syslog n'est pas testée ici : elle l'est par le premier hôte qui envoie."
+            footer={
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !carrier || !serverOk || !receptionOk} onClick={() => void runTest()}>
+                {test ? 'Tester à nouveau' : 'Tester la connexion'}
+              </Button>
+            }
+          >
+            <DetectedRows
+              rows={[
+                { label: 'Nom', value: form.name, empty: 'non renseigné' },
+                { label: 'Porteur', value: host?.name, empty: 'non choisi' },
+                { label: 'API', value: apiOk ? url : '', empty: 'non renseignée' },
+                { label: 'Compte', value: form.username, empty: 'aucun' },
+                { label: 'Envoi des hôtes', value: sendAddress && portValid(form.port) ? `tcp://${sendAddress}:${form.port}` : '', empty: 'adresse inconnue' },
+              ]}
+            />
+            <CheckLine label="Serveur de logs" check={test} idle={apiOk ? url : undefined} />
+          </Step>
+        </Steps>
+      </Modal>
+      <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
+        Les paramètres du rôle modifiés ne seront pas enregistrés.
+      </ConfirmModal>
+    </>
+  );
+}
+
 // Why a role of this type cannot be declared now (null: it can).
 // The management of the accounts of a broker (dynamic-security), as an icon beside its name: green when HLM runs it, grey
 // when it is only possible (or loaded but run outside HLM); nothing when unavailable.
@@ -786,6 +1033,7 @@ type Editing =
   | { type: 'mqtt-broker'; role: MqttHubRole | null }
   | { type: 'pve-cluster'; role: PveHubRole | null }
   | { type: 'omada-controller'; role: OmadaHubRole | null }
+  | { type: 'log-server'; role: LogHubRole | null }
   | { type: 'pbs-primary' | 'pbs-offsite' };
 
 // Paramètres › Rôles: every role of the hub, declared, edited and removed here.
@@ -829,7 +1077,7 @@ export function RolesSettings() {
     }
   };
   const edit = (r: HubRole) =>
-    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : { type: r.type });
+    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -864,7 +1112,7 @@ export function RolesSettings() {
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
         Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
         cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
-        PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site. Un rôle utilisé ne peut pas être
+        PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur de logs reçoit les journaux des hôtes et ouvre la page Logs. Un rôle utilisé ne peut pas être
         supprimé, ni l'hôte ou l'équipement qui le porte.
       </p>
       {!!pbs?.pinRefused?.length && (
@@ -984,6 +1232,7 @@ export function RolesSettings() {
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
+      {editing?.type === 'log-server' && <LogServerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-cluster' && (!editing.role || cluster) && (
         <ClusterModal
           key={editing.role?.id ?? 'new'}
@@ -1003,6 +1252,11 @@ export function RolesSettings() {
           <>
             Le rôle <b>{removing.name}</b> est retiré du hub, qui oublie l'application et son secret. Rien n'est changé sur le contrôleur : l'application de sa
             plateforme d'intégration reste à supprimer à la main.
+          </>
+        ) : removing?.type === 'log-server' ? (
+          <>
+            Le rôle <b>{removing.name}</b> est retiré du hub : ses journaux ne sont plus lisibles dans la page Logs. Rien n'est changé sur le serveur, qui garde
+            ce qu'il a reçu.
           </>
         ) : (
           <>Le rôle <b>{removing?.name}</b> est retiré du hub : le broker n'est plus écouté.</>

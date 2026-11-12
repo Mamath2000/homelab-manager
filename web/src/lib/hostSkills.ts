@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, BatteryCharging, Cloud, Container, Database, HardDrive, Home, Layers, Network, Radio, Server, type LucideIcon } from 'lucide-react';
+import { Archive, ArchiveRestore, ScrollText, BatteryCharging, Cloud, Container, Database, HardDrive, Home, Layers, Network, Radio, Server, type LucideIcon } from 'lucide-react';
 import type { Host, HostBackupJobs, HubRoleType } from './api';
 import { backupClient, databaseKindLabel } from './backups';
 import { roleTypeLabel } from './roles';
@@ -26,8 +26,8 @@ const tint = {
   cyan: 'bg-cyan-500/15 text-cyan-300 ring-cyan-500/30',
 };
 
-export const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-cluster': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network };
-export const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-cluster': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald };
+export const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-cluster': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network, 'log-server': ScrollText };
+export const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-cluster': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald, 'log-server': tint.amber };
 
 // jobs: backup view of the host (engines found by its agent, Nextcloud AIO instance), undefined while not loaded
 export function hostSkills(h: Host, jobs?: Pick<HostBackupJobs, 'databases' | 'nextcloudPlugin' | 'nextcloud'>): HostSkill[] {

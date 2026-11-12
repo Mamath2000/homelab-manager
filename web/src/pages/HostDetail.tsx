@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldOff, Terminal, X } from 'lucide-react';
 import { FloatingAside } from '../components/FloatingAside';
 import { useAsideDocked } from '../lib/asideDocked';
 import { HostOptionsModal } from '../components/HostOptionsModal';
@@ -36,6 +36,8 @@ import { agentRevoked, connection, hasApt, connectionMeta, isHaos, isWindows, li
 import { useAgentTls } from '../lib/agentTls';
 import { useMe } from '../lib/auth';
 import { StripItem } from '../components/StripItem';
+import { HostLogsStatus } from '../components/HostLogs';
+import { hostLogsPath, useHostLogs } from '../lib/hostLogs';
 
 // One fact of the system strip: label above, value below; `grow` takes the rest of the line (IP list).
 // Colour of the hostname in the system strip, by connection state
@@ -250,6 +252,7 @@ function HostDetailPage({ id }: { id: string }) {
     try { localStorage.setItem(brokerKey, brokerPorts); } catch { /* private mode: hidden until reload */ }
   };
   const [setupOpen, setSetupOpen] = useState(false);
+  const hostLogs = useHostLogs(host);
   const backupsData = useBackups().data;
   // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
   const backupsOn = !!backupsData && (backupsData.connected || backupsData.groups.length > 0 || backupsData.clusters.length > 0);
@@ -559,6 +562,7 @@ function HostDetailPage({ id }: { id: string }) {
             <StripItem label="Vu">{host.online ? 'connecté' : timeAgo(host.lastSeenAt)}</StripItem>
             {!isWindows(host) && <StripItem label="Listes apt">{host.apt ? dateTime(host.apt.listsUpdatedAt) : '—'}</StripItem>}
             {features.standardisation && showSetup(host) && <StripItem label="Standard"><SetupStatus host={host} onOpen={() => setSetupOpen(true)} /></StripItem>}
+            {hostLogs && <StripItem label="Journaux"><HostLogsStatus host={host} /></StripItem>}
             {(() => {
               const { lan, tailscale } = groupIps(host.info?.ips);
               return (
@@ -571,6 +575,9 @@ function HostDetailPage({ id }: { id: string }) {
             {host.tags.length > 0 && <StripItem label="Tags" plain><HostTagList host={host} /></StripItem>}
             {(canWrite || canManage) && (
               <div className="flex shrink-0 items-center gap-2 self-center px-4 py-2.5">
+                {hostLogs?.canLogs && (
+                  <Button icon={ScrollText} title="Logs : les journaux de cet hôte" aria-label="Logs" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => navigate(hostLogsPath(host.id))} />
+                )}
                 {canWrite && (
                   <Button
                     icon={RefreshCw}

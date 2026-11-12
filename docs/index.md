@@ -49,6 +49,7 @@ Interface unique pour administrer les serveurs, VM et LXC du homelab. Un **hub**
 - [Docker](docker.md) : stacks compose, mises à jour des images, actions, logs.
 - [Onduleur](onduleur.md) : suivi d'un onduleur via NUT, fin de vie de la batterie, alertes.
 - [Rôles du hub](roles.md) : brokers MQTT et clusters Proxmox VE, hôte porteur, test, réaffectation.
+- [Logs](logs.md) : journaux des hôtes centralisés sur un serveur de logs, page Logs, suivi en direct.
 - [Sondes de service](sondes.md) : MQTT, ping, TCP et HTTP depuis le hub, brokers MQTT, états et alertes.
 - [Équipements](equipements.md) : matériel suivi sans agent, sources automatiques, sondes, tableau de bord.
 - [Alertes et statuts](alertes.md) : domaines, éléments suivis, agrégation hôte → site, hôte hors ligne ou itinérant.

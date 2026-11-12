@@ -3,9 +3,10 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
+import { useLogServers } from '../lib/queries';
 import { AddHostModal } from './AddHostModal';
 import { AccountDialog } from './AccountDialog';
 import { HostQuickSwitch } from './HostQuickSwitch';
@@ -147,8 +148,13 @@ function UserMenu({ collapsed, onAccount, onLogout }: { collapsed?: boolean; onA
   );
 }
 
+// Entries that exist only with what they show: the journals of the hosts need a log server role, and the right to read them.
+const logsItem: NavItem = { to: '/logs', label: 'Logs', icon: ScrollText };
+
 function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onAccount: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const me = useMe();
+  const { data: logServers = [] } = useLogServers(!me.isSuperAdmin && me.canLogs);
+  const withLogs = logServers.length > 0;
   return (
     <nav className={clsx('flex h-full flex-col gap-1', collapsed ? 'p-2' : 'p-4')}>
       {!me.isSuperAdmin && sections.map((s, i) => (
@@ -161,7 +167,7 @@ function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onN
               <span className="h-px flex-1 bg-line" />
             </div>
           )}
-          {s.items.map((item) => (
+          {[...s.items, ...(withLogs && s.title === 'Historique' ? [logsItem] : [])].map((item) => (
             <SideLink key={item.to} item={item} onClick={onNavigate} collapsed={collapsed} />
           ))}
         </div>

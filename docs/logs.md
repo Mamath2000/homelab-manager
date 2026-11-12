@@ -1,0 +1,124 @@
+---
+title: Logs
+description: Journaux des hôtes centralisés sur un serveur de logs (VictoriaLogs), envoyés en syslog par la standardisation et lus dans la page Logs
+sidebar_position: 3.6
+---
+
+# Logs
+
+Les journaux des hôtes sont centralisés sur un **serveur de logs** et lus dans la page **Logs** de Homelab Manager.
+
+```
+hôtes (rsyslog, posé par la standardisation) ──syslog TCP──► serveur de logs (VictoriaLogs)
+navigateur ──► hub ──API HTTP de requête─────────────────────►
+```
+
+- **Les agents ne transportent aucun journal.** L'agent d'un hôte installe rsyslog et écrit sa configuration ; c'est rsyslog qui envoie, directement au serveur.
+- Le serveur de logs est un [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) installé à la main sur un hôte, déclaré comme [rôle du hub](roles.md#serveur-de-logs).
+- Le hub est le seul à interroger le serveur. L'entrée **Logs** du menu n'apparaît qu'avec un rôle **Serveur de logs**.
+
+## Mise en place
+
+1. Installer VictoriaLogs sur un hôte (ci-dessous).
+2. **Paramètres › Rôles › Déclarer un rôle › Serveur de logs** : hôte porteur, adresse de l'API, port de réception syslog, test.
+3. **Paramètres › Standardisation › Système** : cocher **Envoi des journaux**, choisir le serveur, enregistrer.
+4. Appliquer la standardisation aux hôtes (fiche d'un hôte, ou sélection dans Hôtes). Voir [Standardisation](standardisation.md#envoi-des-journaux).
+
+L'option de standardisation demande `FEATURE_STANDARDISATION=true` ([Configuration](configuration.md)). Le rôle et la page Logs n'en dépendent pas : un appareil configuré à la main pour envoyer en syslog au serveur est lisible aussi.
+
+## Installer VictoriaLogs
+
+Exemple en Docker Compose, sur l'hôte qui portera le rôle :
+
+```yaml
+services:
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.53.0
+    restart: unless-stopped
+    # réseau de l'hôte : le serveur voit l'adresse réelle de chaque émetteur
+    network_mode: host
+    command:
+      - -storageDataPath=/victoria-logs-data
+      - -retentionPeriod=30d
+      - -httpListenAddr=:9428
+      - -syslog.listenAddr.tcp=:29514
+      - -syslog.useRemoteIP.tcp=true
+    volumes:
+      - ./data:/victoria-logs-data
+```
+
+| Réglage | Rôle |
+|---|---|
+| `-httpListenAddr` (9428) | API de requête, lue par le hub |
+| `-syslog.listenAddr.tcp` (29514) | réception des journaux des hôtes, en TCP |
+| `-retentionPeriod` | durée de conservation (7 jours par défaut) ; `-retention.maxDiskSpaceUsageBytes` borne aussi le disque |
+| `-syslog.useRemoteIP.tcp` | garde l'adresse de l'émetteur de chaque journal (champ `remote_ip`) |
+
+:::warning L'API de VictoriaLogs n'a pas de compte
+Qui atteint le port 9428 lit tous les journaux, et peut en écrire. Le limiter au hub : pare-feu de l'hôte, ou écoute sur une adresse interne. Si un proxy avec authentification est placé devant, son compte se saisit dans le rôle (utilisateur et mot de passe, authentification basique).
+:::
+
+Les journaux voyagent **en clair** (TCP) entre les hôtes et le serveur : réseau local et VPN site à site. Le transport chiffré viendra plus tard.
+
+L'agent de l'hôte signale un VictoriaLogs qu'il voit en écoute (processus `victoria-logs`, ou port 9428 publié par Docker) : l'hôte apparaît alors en tête dans la fenêtre du rôle, avec ses ports.
+
+## La page Logs
+
+Réservée aux profils `admin` et `operator` : un journal peut contenir un secret. Elle n'est pas lisible avec une clé d'API.
+
+| Filtre | Effet |
+|---|---|
+| Hôte | un hôte du hub, ou un émetteur que le hub ne connaît pas (« Autres émetteurs ») ; « aucun journal » : rien reçu depuis 24 h |
+| Site, Tag | les hôtes du site ou du tag |
+| Application | le programme qui a écrit la ligne (`sshd`, `systemd`, `CRON`…), parmi ceux de la période |
+| Période | 15 min, 1 h (par défaut), 6 h, 24 h, 7 j, ou personnalisée (du… au…) |
+| Texte du message | une suite de caractères du message, sans tenir compte de la casse (`err` trouve `error`) ; Entrée pour appliquer |
+| Criticité minimale | Erreurs · Avertissements (par défaut) · Notices · Infos · Tout : chaque choix inclut les niveaux plus graves |
+
+- **Histogramme** : nombre de lignes par tranche de temps, empilées par criticité. Cliquer sur une barre, ou glisser sur plusieurs, zoome sur cette période.
+- **Liste** : heure, criticité, hôte, application, message, de la plus récente à la plus ancienne. **Charger plus ancien** continue la lecture.
+- **Une ligne dépliée** montre le message entier et ses champs (facility, PID, adresse d'origine…), avec :
+  - **Voir le contexte** : les 20 lignes d'avant et d'après sur le même hôte, toutes applications et criticités confondues ;
+  - **Cet hôte**, **Cette application**, **Exclure** l'application : ajoute le filtre ;
+  - **Copier**, et le lien vers la fiche de l'hôte.
+- Les filtres sont dans l'adresse de la page : elle se partage et se retrouve avec le retour arrière du navigateur.
+
+Un hôte est reconnu par le **nom d'hôte** de ses journaux, comparé à celui que son agent remonte (sans le domaine, sans la casse).
+
+### Suivi en direct
+
+**Direct** affiche les nouvelles lignes au fil de l'eau, en haut de la liste, avec les mêmes filtres (la période est ignorée, l'histogramme masqué). Descendre dans la liste met l'affichage en pause ; un bouton indique le nombre de nouvelles lignes et y revient. La liste garde 1000 lignes. Huit suivis au plus sont ouverts en même temps sur le hub.
+
+## Sur la fiche d'un hôte
+
+- Le bouton **Logs** de l'en-tête ouvre la page filtrée sur l'hôte.
+- La ligne **Journaux** indique le dernier journal reçu et le nombre d'erreurs sur 24 h (lien vers ces erreurs). Ces valeurs sont relevées toutes les 5 minutes.
+
+### Hôte muet
+
+Un hôte dont l'option **Envoi des journaux** est conforme, en ligne, et dont le serveur n'a rien reçu depuis le délai réglé dans le rôle (**Hôte muet après**, 6 h par défaut, 0 pour ne pas surveiller) passe en **écart** sur cette option : « aucun journal reçu par … depuis N h ». L'écart se lève au premier journal reçu.
+
+Les erreurs présentes dans les journaux ne changent pas l'état d'un hôte : seul le silence est signalé.
+
+## Limites
+
+- **Conteneurs Docker** : leurs journaux ne passent pas par journald (pilote `json-file`), ils ne sont donc pas envoyés.
+- **Home Assistant OS, Windows, Unraid** : pas de standardisation ; l'envoi se règle à la main quand le système le permet.
+- **Équipements sans agent** : un appareil réglé pour envoyer en syslog au serveur apparaît dans « Autres émetteurs » ; il n'est pas encore rattaché à sa fiche.
+
+## API
+
+Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans rôle Serveur de logs.
+
+| Route | Rôle de la route |
+|---|---|
+| `GET /api/logs` | lignes de la période, les plus récentes d'abord ; `limit` (200, 1000 au plus), `before` : heure de la dernière ligne de la page précédente |
+| `GET /api/logs/hits` | nombre de lignes par tranche de temps et par criticité |
+| `GET /api/logs/fields?field=app\|facility` | valeurs d'un champ sur la période, les plus fréquentes d'abord |
+| `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
+| `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
+| `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
+
+Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
+
+Le hub construit lui-même la requête envoyée au serveur : aucune requête LogsQL n'est acceptée du navigateur.

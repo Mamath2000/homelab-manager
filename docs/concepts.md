@@ -23,7 +23,7 @@ Homelab Manager a peu de concepts, mais certains mots ont un sens précis (« r�
 
 | Notion | C'est… |
 |---|---|
-| **Rôle** | ce que le hub fait **au travers d'un hôte** : écouter un broker MQTT, relever un cluster Proxmox VE, suivre le PBS principal ou hors site, synchroniser un contrôleur Omada. Déclaré dans Paramètres › Rôles ([Rôles du hub](roles.md)). |
+| **Rôle** | ce que le hub fait **au travers d'un hôte** : écouter un broker MQTT, relever un cluster Proxmox VE, suivre le PBS principal ou hors site, synchroniser un contrôleur Omada, lire les journaux d'un serveur de logs. Déclaré dans Paramètres › Rôles ([Rôles du hub](roles.md)). |
 | **Sonde** | une vérification faite de l'extérieur : ping, port TCP, page HTTP, message MQTT, tunnel VPN ([Sondes](sondes.md)). |
 | **Sauvegarde** | une ligne suivie dans la page Sauvegardes : un groupe du PBS, un job vzdump, une sauvegarde de Home Assistant. Rattachée à un hôte, elle a une planification, un retard, une frise ([Suivi des sauvegardes](suivi-des-sauvegardes.md)). |
 
@@ -51,6 +51,7 @@ Le tableau de bord, la fiche hôte, la frise de 30 jours, les compteurs et Home 
 navigateur ──► hub ◄── agents (hôtes)
                 │
                 ├──► API Proxmox VE, PBS, Omada, brokers MQTT (via un rôle)
+                ├──► serveur de logs ◄── journaux des hôtes (syslog)
                 ├──► sondes ping / TCP / HTTP / MQTT
                 └──► MQTT ──► Home Assistant (option)
 ```
