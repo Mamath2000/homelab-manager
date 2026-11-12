@@ -1928,6 +1928,8 @@ export interface HubRoleTest extends Partial<PresentedFingerprint> {
   dynsec?: { state: MqttSecurity['state']; version?: string; reason?: string; managed: boolean };
   // broker whose accounts the hub runs: the account typed is made (or its password changed) when the role is saved
   pending?: boolean;
+  // log server: the ports it receives syslog on, read on it (its flags)
+  syslog?: { tcp: number[]; udp: number[] };
 }
 
 export const api = {

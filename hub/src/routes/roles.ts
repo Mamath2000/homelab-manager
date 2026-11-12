@@ -538,7 +538,11 @@ export function registerRoleRoutes(app: FastifyInstance) {
       const c = toConfig(type, body, secret);
       try {
         const r = await checkLogServer(c);
-        return { ok: true, detail: r.senders ? `VictoriaLogs joignable, ${r.senders} émetteur${r.senders > 1 ? 's' : ''} sur 24 h` : "VictoriaLogs joignable, aucun journal reçu pour l'instant" };
+        const received = r.senders ? `${r.senders} émetteur${r.senders > 1 ? 's' : ''} sur 24 h` : "aucun journal reçu pour l'instant";
+        const tcp = r.syslog?.tcp ?? [];
+        const input = !r.syslog ? 'configuration syslog non lisible' : tcp.length ? `reçoit le syslog TCP sur ${tcp.join(', ')}` : 'ne reçoit pas de syslog en TCP (-syslog.listenAddr.tcp absent)';
+        // syslog: the ports read on the server, proposed as where the hosts send
+        return { ok: true, detail: `VictoriaLogs joignable, ${input}, ${received}`, ...(r.syslog ? { syslog: r.syslog } : {}) };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }

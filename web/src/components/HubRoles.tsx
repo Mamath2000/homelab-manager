@@ -790,6 +790,10 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   // the test of the API (step 2): made void by any change of what it reached
   const [test, setTest] = useState<CheckState>(null);
+  // the ports VictoriaLogs receives syslog on, read on it at the test of its API (null: not read)
+  const [serverPorts, setServerPorts] = useState<number[] | null>(null);
+  // the port of the destination typed by the admin: no longer replaced by what the test reads
+  const [portTyped, setPortTyped] = useState(!!role);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const setApi = (patch: Partial<LogForm>) => {
     setForm({ ...form, ...patch });
@@ -818,11 +822,17 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       name: form.name || `Logs ${h.name}`,
       apiAddress: lanAddress(h.info?.ips),
       apiPort: String(c.find((x) => x.scheme === 'http')?.port ?? LOG_API_PORT),
-      port: String(c.find((x) => x.scheme === 'syslog')?.port ?? (form.port || LOG_SYSLOG_PORT)),
+      ...(portTyped ? {} : { port: String(c.find((x) => x.scheme === 'syslog')?.port ?? LOG_SYSLOG_PORT) }),
     });
     setTest(null);
+    setServerPorts(null);
   };
+  // published by Docker (seen by the agent) or read on the server: a port published is the one the hosts reach, the
+  // server one is its port inside the container when they differ
   const syslogPorts = host ? found(host).filter((c) => c.scheme === 'syslog').map((c) => c.port) : [];
+  const proposed = syslogPorts.find((p) => serverPorts?.includes(p)) ?? syslogPorts[0] ?? serverPorts?.[0];
+  const portSource = proposed === undefined ? null : syslogPorts.includes(proposed) ? 'agent' : 'server';
+  const known = [...new Set([...syslogPorts, ...(serverPorts ?? [])])];
 
   const url = logUrl(form);
   const sendAddress = form.address.trim() || lanAddress(host?.info?.ips);
@@ -842,6 +852,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
     try {
       const r = await api.testRole({ type, carrier: { kind: 'host', id: carrier! }, config: config(), ...(role ? { roleId: role.id } : {}) });
       setTest(r.ok ? { level: 'ok', title: 'API joignable', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
+      const tcp = r.ok && r.syslog ? r.syslog.tcp : null;
+      setServerPorts(tcp);
+      // the port it really receives on, unless the admin typed one
+      if (tcp?.length && !portTyped) {
+        const published = syslogPorts.find((p) => tcp.includes(p)) ?? syslogPorts[0] ?? tcp[0];
+        setForm((f) => ({ ...f, port: String(published) }));
+      }
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
     } finally {
@@ -995,11 +1012,23 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
                 </label>
                 <label className="block">
                   <span className={field}>Port syslog</span>
-                  <input className="input font-mono text-xs" inputMode="numeric" value={form.port} onChange={(e) => setConf({ port: e.target.value.trim() })} />
+                  <input className="input font-mono text-xs" inputMode="numeric" value={form.port} onChange={(e) => (setPortTyped(true), setConf({ port: e.target.value.trim() }))} />
                 </label>
               </div>
               <p className="text-xs text-muted">Vide : l'adresse de l'hôte. À changer seulement si les hôtes le joignent par un autre nom ou une autre IP.</p>
-              {syslogPorts.length > 0 && !syslogPorts.includes(+form.port) && <p className="text-xs text-amber-300">L'agent voit VictoriaLogs recevoir sur le port {syslogPorts.join(', ')}, pas sur celui-ci</p>}
+              {proposed !== undefined && +form.port === proposed && (
+                <p className="text-xs text-emerald-300">
+                  {portSource === 'agent' ? `Port ${proposed} publié par Docker, relevé par l'agent de ${host?.name}.` : `Port ${proposed} lu dans la configuration de VictoriaLogs (-syslog.listenAddr.tcp).`}
+                </p>
+              )}
+              {known.length > 0 && !known.includes(+form.port) && (
+                <p className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
+                  VictoriaLogs reçoit sur {known.join(', ')}, pas sur ce port : les journaux n'arriveraient pas.
+                  {proposed !== undefined && <Button size="sm" onClick={() => setConf({ port: String(proposed) })}>Utiliser {proposed}</Button>}
+                </p>
+              )}
+              {serverPorts?.length === 0 && <p className="text-xs text-red-300">VictoriaLogs ne reçoit pas de syslog en TCP : ajouter <code>-syslog.listenAddr.tcp=:514</code> à son lancement.</p>}
+              {serverPorts === null && proposed === undefined && <p className="text-xs text-muted">Port de réception pas encore connu : le test de l'API (étape 2) le lit sur le serveur.</p>}
               {!portValid(form.port) && <p className="text-xs text-amber-300">Port invalide (1 à 65535)</p>}
             </section>
           </Step>

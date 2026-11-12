@@ -234,8 +234,28 @@ export async function checkLogServer(c: Server) {
   });
   if (health.status === 401 || health.status === 403) throw new LogServerError('le serveur de logs refuse ce compte');
   if (!health.ok) throw new LogServerError(`${c.url} répond ${health.status} : pas l'API d'un VictoriaLogs ?`);
-  const senders = await querySenders(c, '1d');
-  return { senders: senders.length };
+  const [senders, syslog] = await Promise.all([querySenders(c, '1d'), syslogInputs(c)]);
+  return { senders: senders.length, syslog };
+}
+
+// The ports VictoriaLogs receives syslog on, as its own flags say (/flags lists the ones set): what the hosts must send
+// to. null: the flags cannot be read (proxy, older server). In a container they are the ports inside it.
+export function parseSyslogFlags(flags: string) {
+  const ports = (proto: 'tcp' | 'udp') => {
+    const m = new RegExp(`^-syslog\\.listenAddr\\.${proto}="([^"]*)"`, 'm').exec(flags);
+    if (!m) return [];
+    return [...new Set(m[1].split(',').map((a) => Number(/:(\d{1,5})$/.exec(a.trim())?.[1])).filter((p) => p > 0 && p < 65536))].sort((a, b) => a - b);
+  };
+  return { tcp: ports('tcp'), udp: ports('udp') };
+}
+
+async function syslogInputs(c: Server) {
+  try {
+    const res = await fetch(`${c.url.replace(/\/+$/, '')}/flags`, { headers: headersOf(c), signal: AbortSignal.timeout(5000) });
+    return res.ok ? parseSyslogFlags(await res.text()) : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface LogSender {

@@ -236,3 +236,10 @@ test('Paramètres › Logs: how a host sends to a server, and the values that ma
   assert.equal(authorize('operator', 'GET', '/api/settings/logs/:role/hosts'), false);
   assert.equal(authorize('admin', 'POST', '/api/settings/logs/:role/hosts'), true);
 });
+
+test('log server: the syslog ports read in its flags', async () => {
+  const { parseSyslogFlags } = await import('../src/logs.js');
+  assert.deepEqual(parseSyslogFlags('-httpListenAddr=":9428"\n-syslog.listenAddr.tcp=":514"\n-syslog.listenAddr.udp=":514"\n-syslog.timezone="Europe/Paris"'), { tcp: [514], udp: [514] });
+  assert.deepEqual(parseSyslogFlags('-syslog.listenAddr.tcp="0.0.0.0:1514,:514,[::]:6514"'), { tcp: [514, 1514, 6514], udp: [] });
+  assert.deepEqual(parseSyslogFlags('-retentionPeriod="30d"'), { tcp: [], udp: [] });
+});
