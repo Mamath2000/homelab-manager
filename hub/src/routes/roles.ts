@@ -4,7 +4,7 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
-import { checkLogServer, LOG_URL_RE, pollLogServers } from '../logs.js';
+import { checkLogServer, LOG_URL_RE, logTarget, pollLogServers, testReception } from '../logs.js';
 import { checkAllHosts } from '../setup.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
 import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, setAccountSys, syncAccount } from '../mqttAccounts.js';
@@ -516,6 +516,33 @@ export function registerRoleRoutes(app: FastifyInstance) {
 
   // connection test of a role being declared or edited. omada-controller: fingerprint, the one its certificate presents
   // when it was refused, and its source (to pin it or not, checkedFingerprint); detail: what the controller answered
+  // Reception test of a log server being declared or edited: a syslog line sent where the hosts will send, then read
+  // back through its API.
+  app.post<{ Body: { carrier: CarrierBody; config: ConfigBody; roleId?: string } }>(
+    '/api/roles/log-reception',
+    { schema: { body: { type: 'object', required: ['carrier', 'config'], additionalProperties: false, properties: { carrier, config, roleId: { type: 'string', maxLength: 32 } } } } },
+    async (req, reply) => {
+      const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;
+      const bad = configError('log-server', req.body.config);
+      if (bad) return reply.code(400).send({ error: bad });
+      const secret = typedSecret('log-server', req.body.config) ?? (stored?.type === 'log-server' ? storedSecret(stored) : '');
+      const c = toConfig('log-server', req.body.config, secret);
+      const host = await carrierOf(req.body.carrier);
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      const target = logTarget(c, host.info?.ips);
+      if (!target.address) return { ok: false, error: "adresse de l'hôte inconnue : la saisir" };
+      const dest = `${target.address}:${target.port}`;
+      try {
+        const r = await testReception(c, target.address, target.port);
+        return r.received
+          ? { ok: true, detail: `ligne de test envoyée à ${dest} et retrouvée par l'API` }
+          : { ok: false, error: `${dest} accepte la connexion, mais la ligne de test n'est pas arrivée dans VictoriaLogs : ce port n'est pas son entrée syslog ?` };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+  );
+
   app.post<{ Body: { type: DeclaredType; carrier: CarrierBody; config: ConfigBody; roleId?: string } }>('/api/roles/test', { schema: { body: testBody } }, async (req, reply) => {
     const { type } = req.body;
     const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;

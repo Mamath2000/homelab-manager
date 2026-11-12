@@ -2031,6 +2031,7 @@ export const api = {
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
   resetMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/reset`),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
+  testLogReception: (r: { carrier: HubRoleCarrier; config: Extract<HubRoleInput, { type: 'log-server' }>['config']; roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/log-reception', r),
   // journals of the hosts (admins and operators)
   logs: (q: LogQuery, limit: number, before?: string) => request<{ role: string; rows: LogRow[]; more: boolean }>('GET', `/api/logs?${logParams(q, { limit, before })}`),
   logHits: (q: LogQuery) => request<LogHits>('GET', `/api/logs/hits?${logParams(q)}`),

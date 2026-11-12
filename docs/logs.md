@@ -136,6 +136,7 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
 | `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
+| `POST /api/roles/log-reception` | test de réception d'un serveur en cours de déclaration : ligne syslog de test envoyée, puis cherchée par l'API (administrateurs) |
 | `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
 | `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |
 | `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte (administrateurs, passkey) |

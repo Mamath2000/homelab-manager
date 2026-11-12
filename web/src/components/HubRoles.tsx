@@ -787,19 +787,25 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   }));
   const [form, setForm] = useState<LogForm>(initial);
   const [secret, setSecret] = useState('');
-  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'test' | 'reception' | null>(null);
   // the test of the API (step 2): made void by any change of what it reached
   const [test, setTest] = useState<CheckState>(null);
   // the ports VictoriaLogs receives syslog on, read on it at the test of its API (null: not read)
   const [serverPorts, setServerPorts] = useState<number[] | null>(null);
   // the port of the destination typed by the admin: no longer replaced by what the test reads
   const [portTyped, setPortTyped] = useState(!!role);
+  // the test of the reception (step 3): a syslog line sent to the destination, then read back through the API
+  const [reception, setReception] = useState<CheckState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const setApi = (patch: Partial<LogForm>) => {
     setForm({ ...form, ...patch });
     setTest(null);
+    setReception(null);
   };
-  const setConf = (patch: Partial<LogForm>) => setForm({ ...form, ...patch });
+  const setConf = (patch: Partial<LogForm>) => {
+    setForm({ ...form, ...patch });
+    if ('address' in patch || 'port' in patch) setReception(null);
+  };
   const dirty = JSON.stringify(form) !== JSON.stringify(initial) || carrier !== initialCarrier || !!secret;
   const requestClose = () => {
     if (busy) return;
@@ -865,6 +871,18 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       setBusy(null);
     }
   };
+  const runReception = async () => {
+    setBusy('reception');
+    setReception(null);
+    try {
+      const r = await api.testLogReception({ carrier: { kind: 'host', id: carrier! }, config: config(), ...(role ? { roleId: role.id } : {}) });
+      setReception(r.ok ? { level: 'ok', title: 'Journal de test reçu', detail: r.detail ?? destination } : { level: 'error', title: 'Non reçu', detail: r.error ?? 'échec' });
+    } catch (err) {
+      setReception({ level: 'error', title: 'Échec', detail: (err as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  };
   const save = async () => {
     setBusy('save');
     try {
@@ -888,7 +906,9 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const destinationOk = portValid(form.port) && (!form.address.trim() || ADDRESS_RE.test(form.address.trim())) && !!sendAddress;
   const configOk = silentOk && destinationOk;
   const tested = test?.level === 'ok';
-  const [carried, reached, configured, summary] = stepStates([!!carrier, apiOk && tested, configOk, false]);
+  // the reception test guides (the step is done once it passed) without stopping the save: the hub may not see the server as
+  // the hosts do
+  const [carried, reached, configured, summary] = stepStates([!!carrier, apiOk && tested, configOk && reception?.level === 'ok', false]);
   const destination = sendAddress && portValid(form.port) ? `tcp://${bracket(sendAddress)}:${form.port}` : '';
   const sub = 'text-xs font-medium uppercase tracking-wide text-muted';
 
@@ -990,7 +1010,16 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
             {!accountOk && <span className="block text-xs text-amber-300">Mot de passe sans utilisateur</span>}
             <CheckLine label="API" check={test} idle={apiOk ? url : undefined} />
           </Step>
-          <Step n={3} title="Configuration" state={configured}>
+          <Step
+            n={3}
+            title="Configuration"
+            state={configured}
+            footer={
+              <Button className="w-full" variant={configured === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'reception'} disabled={busy !== null || !carrier || !apiOk || !tested || !destinationOk} onClick={() => void runReception()}>
+                {reception ? 'Tester la réception à nouveau' : 'Tester la réception'}
+              </Button>
+            }
+          >
             <section className="space-y-2">
               <h4 className={sub}>Hôte muet</h4>
               <label className="flex flex-wrap items-center gap-2 text-sm text-zinc-200">
@@ -1029,6 +1058,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
               )}
               {serverPorts?.length === 0 && <p className="text-xs text-red-300">VictoriaLogs ne reçoit pas de syslog en TCP : ajouter <code>-syslog.listenAddr.tcp=:514</code> à son lancement.</p>}
               {serverPorts === null && proposed === undefined && <p className="text-xs text-muted">Port de réception pas encore connu : le test de l'API (étape 2) le lit sur le serveur.</p>}
+              <CheckLine label="Réception syslog" check={reception} idle={destination ? `le hub envoie une ligne de test à ${destination}, puis la cherche par l'API` : undefined} />
               {!portValid(form.port) && <p className="text-xs text-amber-300">Port invalide (1 à 65535)</p>}
             </section>
           </Step>
@@ -1040,7 +1070,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
                 { label: 'API', value: apiOk ? url : '', empty: 'non renseignée', hint: tested ? 'testée' : "à tester (étape 2)" },
                 ...(form.https ? [{ label: 'Compte du proxy', value: form.username, empty: 'aucun' }] : []),
                 { label: 'Hôte muet', value: silentOk ? (+form.silentHours ? `alerte après ${form.silentHours} h` : 'pas d’alerte') : '', empty: 'à corriger (étape 3)' },
-                { label: 'Envoi des hôtes', value: destinationOk ? destination : '', empty: 'à compléter (étape 3)' },
+                { label: 'Envoi des hôtes', value: destinationOk ? destination : '', empty: 'à compléter (étape 3)', hint: reception?.level === 'ok' ? 'réception testée' : reception ? 'réception en échec (étape 3)' : 'réception non testée (étape 3)' },
               ]}
             />
             {!tested && <p className="text-xs text-amber-300">L'enregistrement demande un test de l'API réussi (étape 2).</p>}

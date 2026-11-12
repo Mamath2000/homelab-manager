@@ -243,3 +243,32 @@ test('log server: the syslog ports read in its flags', async () => {
   assert.deepEqual(parseSyslogFlags('-syslog.listenAddr.tcp="0.0.0.0:1514,:514,[::]:6514"'), { tcp: [514, 1514, 6514], udp: [] });
   assert.deepEqual(parseSyslogFlags('-retentionPeriod="30d"'), { tcp: [], udp: [] });
 });
+
+test('log server: the reception test sends a syslog line and finds it through the API', async () => {
+  const { testReception } = await import('../src/logs.js');
+  const net = await import('node:net');
+  // a syslog input that hands what it receives to the API
+  const received: string[] = [];
+  const input = net.createServer((s) => s.on('data', (d) => received.push(String(d))));
+  await new Promise<void>((r) => input.listen(0, '127.0.0.1', r));
+  const api = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const q = new URLSearchParams(body).get('query') ?? '';
+      const nonce = /test de réception ([0-9a-f]+)/.exec(q)?.[1];
+      res.end(nonce && received.some((l) => l.includes(nonce)) ? '{"_msg":"ok"}\n' : '');
+    });
+  });
+  await new Promise<void>((r) => api.listen(0, '127.0.0.1', r));
+  const c = { ...server(`http://127.0.0.1:${(api.address() as AddressInfo).port}`) };
+  try {
+    assert.deepEqual(await testReception(c, '127.0.0.1', (input.address() as AddressInfo).port), { received: true });
+    assert.match(received.join(''), /^<14>1 \S+ homelab-manager hlm-reception-test - - - test de réception [0-9a-f]+\n$/);
+    // a port where nothing listens: refused, said as such
+    await assert.rejects(testReception(c, '127.0.0.1', 1), /refuse la connexion/);
+  } finally {
+    input.close();
+    api.close();
+  }
+});
