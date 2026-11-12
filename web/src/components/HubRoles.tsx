@@ -6,7 +6,7 @@ import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
-import { roleIcon, roleTint } from '../lib/hostSkills';
+import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
@@ -16,7 +16,7 @@ import { RemoteModal } from './OffsiteSettings';
 import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
-import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, ResponsiveList, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
@@ -1133,16 +1133,53 @@ export function RolesSettings() {
   );
   // the carrier, a host or an equipment (an Omada controller)
   const carrierLink = (r: HubRole) => <Link className="underline" to={r.carrier.kind === 'equipment' ? `/equipments/${r.carrier.id}` : `/hosts/${r.carrier.id}`}>{r.carrier.name || 'porteur introuvable'}</Link>;
-  // by type, in the order of the catalog of the types
-  const groups = ROLE_TYPES.map((t) => ({ type: t.id, label: t.label, list: (roles ?? []).filter((r) => r.type === t.id) })).filter((g) => g.list.length);
-  const groupTitle = (g: (typeof groups)[number]) => {
+  // by type, in the order of the catalog of the types; the two PBS (main and off-site) share one section
+  const sections = ROLE_TYPES.filter((t) => t.id !== 'pbs-offsite')
+    .map((t) => {
+      const pbs = t.id === 'pbs-primary';
+      return { type: t.id, label: pbs ? 'Proxmox Backup Server' : t.label, list: (roles ?? []).filter((r) => r.type === t.id || (pbs && r.type === 'pbs-offsite')) };
+    })
+    .filter((g) => g.list.length);
+  const sectionTitle = (g: (typeof sections)[number]) => {
     const Icon = roleIcon[g.type];
     return (
-      <span className="flex items-center gap-2">
-        <span className={clsx('inline-flex h-6 w-6 items-center justify-center rounded-md ring-1 ring-inset', roleTint[g.type])}><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-        <span className="font-medium text-zinc-100">{g.label}</span>
-        <span className="text-xs text-muted">{g.list.length}</span>
-      </span>
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className={clsx('inline-flex h-7 w-7 items-center justify-center rounded-md ring-1 ring-inset', roleTint[g.type])}><Icon className="h-4 w-4" aria-hidden /></span>
+        <h3 className="font-medium text-zinc-100">{g.label}</h3>
+        <span className="rounded-full bg-raised px-2 text-xs text-muted">{g.list.length}</span>
+        <span className={clsx('h-px flex-1 bg-gradient-to-r to-transparent', roleAccent[g.type].rule)} aria-hidden />
+      </div>
+    );
+  };
+  const dot: Record<string, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', info: 'bg-sky-500', neutral: 'bg-zinc-500' };
+  // one card per role: the ones of a row share its width, a lone one takes all of it
+  const roleCard = (r: HubRole) => {
+    const st = roleStatus(r);
+    return (
+      <article key={r.id} className={clsx('min-w-0 flex-[1_1_20rem] rounded-lg border border-t-[3px] border-line bg-raised/40 px-3.5 py-3', roleAccent[r.type].edge)}>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={clsx('h-2 w-2 shrink-0 rounded-full', dot[st.tone] ?? dot.neutral)} aria-hidden />
+          <span className="truncate font-medium text-zinc-100" title={r.name}>{r.name}</span>
+          {r.type === 'mqtt-broker' && <DynsecIcon role={r} />}
+          {r.type === 'pbs-primary' && <Badge tone="info">Principal</Badge>}
+          {r.type === 'pbs-offsite' && <Badge tone="info">Hors site</Badge>}
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            <Badge tone={st.tone}>{st.label}</Badge>
+            {actions(r)}
+          </span>
+        </div>
+        <p className="mt-1.5 break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
+        <dl className="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+          <dt className="text-muted">Porteur</dt>
+          <dd className="truncate">{carrierLink(r)}</dd>
+          <dt className="text-muted">Compte</dt>
+          <dd className="truncate" title={r.account || undefined}>{r.account || 'anonyme'}</dd>
+          <dt className="text-muted">Utilisé par</dt>
+          <dd className="truncate" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</dd>
+        </dl>
+        {r.status?.error && <p className="mt-1 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
+        {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-1 text-xs text-red-300" title={ANONYMOUS_HINT}>Connexions anonymes acceptées : {ANONYMOUS_HINT}</p>}
+      </article>
     );
   };
   const cluster = editing?.type === 'pve-cluster' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
@@ -1179,84 +1216,15 @@ export function RolesSettings() {
       ) : !roles?.length ? (
         <p className="p-4 text-sm text-muted">Aucun rôle : pas de sauvegarde, de sonde MQTT, d'intégration Home Assistant ni d'inventaire Proxmox VE.</p>
       ) : (
-        <>
-          <ResponsiveList mode="mobile">
-            {groups.map((g) => (
-              <section key={g.type}>
-                <div className="bg-raised/30 px-4 py-2">{groupTitle(g)}</div>
-                {g.list.map((r) => (
-                  <article key={r.id} className="min-w-0 space-y-2 border-t border-line p-4">
-                    <div className="flex min-w-0 items-start justify-between gap-3">
-                      <span className="flex min-w-0 items-center gap-1.5 font-medium text-zinc-100">
-                        <span className="truncate">{r.name}</span>
-                        {r.type === 'mqtt-broker' && <DynsecIcon role={r} />}
-                      </span>
-                      <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
-                    </div>
-                    <p className="break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
-                    {r.type === 'mqtt-broker' && r.anonymous && <p className="text-xs text-red-300">Connexions anonymes acceptées : {ANONYMOUS_HINT}</p>}
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-muted">{carrierLink(r)} · {uses(r).join(', ') || r.summary || 'inutilisé'}</p>
-                      {actions(r)}
-                    </div>
-                  </article>
-                ))}
-              </section>
-            ))}
-          </ResponsiveList>
-          <ResponsiveList mode="desktop">
-            {/* fixed widths: the groups, one under the other, keep the same columns */}
-            <table className="w-full table-fixed text-sm">
-              <colgroup>
-                <col className="w-[16%]" />
-                <col className="w-[13%]" />
-                <col className="w-[22%]" />
-                <col className="w-[14%]" />
-                <col className="w-[13%]" />
-                <col />
-                <col className="w-32" />
-              </colgroup>
-              <thead className="border-b border-line">
-                <tr>
-                  <th className="th">Nom</th>
-                  <th className="th">Porteur</th>
-                  <th className="th">Adresse</th>
-                  <th className="th">Compte</th>
-                  <th className="th">Connexion</th>
-                  <th className="th">Utilisé par</th>
-                  <th className="th" />
-                </tr>
-              </thead>
-              {groups.map((g) => (
-                <tbody key={g.type} className="divide-y divide-line border-b border-line last:border-b-0">
-                  <tr className="bg-raised/30">
-                    <th colSpan={7} className="px-4 py-2 text-left font-normal">{groupTitle(g)}</th>
-                  </tr>
-                  {g.list.map((r) => (
-                    <tr key={r.id} className="hover:bg-raised/40">
-                      <td className="td truncate font-medium text-zinc-100" title={r.name}>
-                        <span className="inline-flex max-w-full items-center gap-1.5">
-                          <span className="truncate">{r.name}</span>
-                          {r.type === 'mqtt-broker' && <DynsecIcon role={r} />}
-                        </span>
-                      </td>
-                      <td className="td truncate">{carrierLink(r)}</td>
-                      <td className="td truncate font-mono text-xs text-zinc-300" title={r.url || undefined}>{r.url || 'inconnue'}</td>
-                      <td className="td truncate text-muted" title={r.account || undefined}>{r.account || 'anonyme'}</td>
-                      <td className="td">
-                        <Badge tone={roleStatus(r).tone}>{roleStatus(r).label}</Badge>
-                        {r.status?.error && <p className="mt-0.5 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
-                        {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-0.5 truncate text-xs text-red-300" title={ANONYMOUS_HINT}>connexions anonymes acceptées</p>}
-                      </td>
-                      <td className="td truncate text-muted" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</td>
-                      <td className="td"><div className="flex justify-end">{actions(r)}</div></td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
-            </table>
-          </ResponsiveList>
-        </>
+        // two columns of sections on a wide screen, one below; a section is never split
+        <div className="gap-x-8 p-4 2xl:columns-2">
+          {sections.map((g) => (
+            <section key={g.type} className="mb-5 break-inside-avoid">
+              {sectionTitle(g)}
+              <div className="flex flex-wrap gap-3">{g.list.map(roleCard)}</div>
+            </section>
+          ))}
+        </div>
       )}
       {picking && (
         <TypePicker
