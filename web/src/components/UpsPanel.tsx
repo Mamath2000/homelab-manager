@@ -12,6 +12,8 @@ const testFailed = (t?: string) => !!t && /(error|fail|warning)/i.test(t) && !/p
 
 // Same threshold as the hub (UPS_STALE_MS): the agent reports at least every 5 minutes.
 const UPS_STALE_MS = 10 * 60 * 1000;
+// Unseen for that long, the last values mean nothing: state badges and measures are hidden.
+const UPS_LOST_MS = 48 * 3600 * 1000;
 
 const flags = (status: string) => new Set(status.split(/\s+/).filter(Boolean));
 
@@ -55,12 +57,11 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
   const [busy, setBusy] = useState<UpsCommand | null>(null);
   const [confirmTest, setConfirmTest] = useState(false);
   const [staleAt, setStaleAt] = useState<number | null>(null);
+  const [lostAt, setLostAt] = useState<number | null>(null);
   useEffect(() => {
-    const timeout = window.setTimeout(
-      () => setStaleAt(ups.checkedAt),
-      Math.max(0, ups.checkedAt + UPS_STALE_MS - Date.now() + 1),
-    );
-    return () => window.clearTimeout(timeout);
+    const after = (ms: number, set: (v: number) => void) => window.setTimeout(() => set(ups.checkedAt), Math.max(0, ups.checkedAt + ms - Date.now() + 1));
+    const timeouts = [after(UPS_STALE_MS, setStaleAt), after(UPS_LOST_MS, setLostAt)];
+    return () => timeouts.forEach(window.clearTimeout);
   }, [ups.checkedAt]);
   const run = async (command: UpsCommand, done: string) => {
     setBusy(command);
@@ -90,6 +91,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
   const failedTest = testFailed(ups.testResult);
   // silent UPS (unplugged, driver down): the values below are the last ones known, not the current state
   const stale = staleAt === ups.checkedAt;
+  const lost = lostAt === ups.checkedAt;
 
   return (
     <Panel
@@ -144,9 +146,13 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
         </div>
         <div className="flex flex-wrap gap-1.5">
           {stale && <Badge tone="warn">Injoignable</Badge>}
-          {onBattery ? <Badge tone="bad">Sur batterie</Badge> : f.has('OL') ? <Badge tone={stale ? 'warn' : 'ok'}>Sur secteur</Badge> : <Badge tone="warn">{ups.status}</Badge>}
-          {replace ? <Badge tone="bad">Batterie à remplacer</Badge> : lowBattery ? <Badge tone="bad">Batterie faible</Badge> : <Badge tone={stale ? 'warn' : 'ok'}>Batterie OK</Badge>}
-          {alarm && <Badge tone="bad">Alarme</Badge>}
+          {!lost && (
+            <>
+              {onBattery ? <Badge tone="bad">Sur batterie</Badge> : f.has('OL') ? <Badge tone={stale ? 'warn' : 'ok'}>Sur secteur</Badge> : <Badge tone="warn">{ups.status}</Badge>}
+              {replace ? <Badge tone="bad">Batterie à remplacer</Badge> : lowBattery ? <Badge tone="bad">Batterie faible</Badge> : <Badge tone={stale ? 'warn' : 'ok'}>Batterie OK</Badge>}
+              {alarm && <Badge tone="bad">Alarme</Badge>}
+            </>
+          )}
         </div>
       </div>
 
@@ -176,7 +182,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-5">
+      {!lost && <div className="grid grid-cols-2 gap-x-5 gap-y-4 md:grid-cols-5">
         <Metric label="Charge batterie" value={ups.charge !== undefined ? fr(ups.charge) : null} unit="%">
           {ups.charge !== undefined && <Gauge pct={ups.charge} tone={chargeTone} mark={ups.chargeWarning} />}
         </Metric>
@@ -188,7 +194,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
         </Metric>
         <Metric label="Tension d'entrée" value={ups.inputVoltage !== undefined ? fr(ups.inputVoltage) : null} unit="V" hint={ups.inputNominal !== undefined ? `nominale ${fr(ups.inputNominal)} V` : undefined} />
         <Metric label="Tension batterie" value={ups.batteryVoltage !== undefined ? fr(ups.batteryVoltage) : null} unit="V" hint={ups.batteryNominal !== undefined ? `nominale ${fr(ups.batteryNominal)} V` : undefined} />
-      </div>
+      </div>}
 
       {(ups.testResult || ups.beeper) && (
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
