@@ -745,9 +745,8 @@ interface LogForm {
   apiPort: string;
   https: boolean;
   username: string;
-  // where the hosts send their journals: '' is the address of the carrier
-  address: string;
-  port: string;
+  // where the hosts send their journals, as rsyslog reads it: tcp://server:port
+  destination: string;
   silentHours: string;
 }
 
@@ -756,6 +755,14 @@ const LOG_API_PORT = 9428;
 const LOG_SYSLOG_PORT = 514;
 const bracket = (a: string) => (a.includes(':') && !a.startsWith('[') ? `[${a}]` : a);
 const logUrl = (f: Pick<LogForm, 'apiAddress' | 'apiPort' | 'https'>) => `${f.https ? 'https' : 'http'}://${bracket(f.apiAddress)}:${f.apiPort}`;
+const tcpUrl = (address: string, port: number) => `tcp://${bracket(address)}:${port}`;
+
+// the server and the port of a destination typed as tcp://server:port, null when it is not one
+function parseDestination(d: string) {
+  const m = /^tcp:\/\/(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9._-]+):(\d{1,5})\/?$/.exec(d.trim());
+  if (!m || !portValid(m[2])) return null;
+  return { address: m[1].replace(/^\[|\]$/g, ''), port: +m[2] };
+}
 
 function splitLogUrl(url: string) {
   try {
@@ -781,8 +788,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
     name: role?.name ?? '',
     ...(role ? splitLogUrl(role.config.url) : { apiAddress: '', apiPort: String(LOG_API_PORT), https: false }),
     username: role?.config.username ?? '',
-    address: role?.config.address ?? '',
-    port: String(role?.config.port ?? LOG_SYSLOG_PORT),
+    destination: role?.target ?? '',
     silentHours: String(role?.config.silentHours ?? 6),
   }));
   const [form, setForm] = useState<LogForm>(initial);
@@ -790,10 +796,6 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const [busy, setBusy] = useState<'save' | 'test' | 'reception' | null>(null);
   // the test of the API (step 2): made void by any change of what it reached
   const [test, setTest] = useState<CheckState>(null);
-  // the ports VictoriaLogs receives syslog on, read on it at the test of its API (null: not read)
-  const [serverPorts, setServerPorts] = useState<number[] | null>(null);
-  // the port of the destination typed by the admin: no longer replaced by what the test reads
-  const [portTyped, setPortTyped] = useState(!!role);
   // the test of the reception (step 3): a syslog line sent to the destination, then read back through the API
   const [reception, setReception] = useState<CheckState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -804,7 +806,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   };
   const setConf = (patch: Partial<LogForm>) => {
     setForm({ ...form, ...patch });
-    if ('address' in patch || 'port' in patch) setReception(null);
+    if ('destination' in patch) setReception(null);
   };
   const dirty = JSON.stringify(form) !== JSON.stringify(initial) || carrier !== initialCarrier || !!secret;
   const requestClose = () => {
@@ -822,31 +824,29 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const host = hosts.find((h) => h.id === carrier);
   const pickHost = (h: Host) => {
     const c = found(h);
+    const lan = lanAddress(h.info?.ips);
     setCarrier(h.id);
     setForm({
       ...form,
       name: form.name || `Logs ${h.name}`,
-      apiAddress: lanAddress(h.info?.ips),
+      apiAddress: lan,
       apiPort: String(c.find((x) => x.scheme === 'http')?.port ?? LOG_API_PORT),
-      ...(portTyped ? {} : { port: String(c.find((x) => x.scheme === 'syslog')?.port ?? LOG_SYSLOG_PORT) }),
+      destination: lan ? tcpUrl(lan, c.find((x) => x.scheme === 'syslog')?.port ?? LOG_SYSLOG_PORT) : '',
     });
     setTest(null);
-    setServerPorts(null);
+    setReception(null);
   };
-  // published by Docker (seen by the agent) or read on the server: a port published is the one the hosts reach, the
-  // server one is its port inside the container when they differ
+  // the syslog ports Docker publishes, seen by the agent: the ones the hosts reach when they differ from the server's own
   const syslogPorts = host ? found(host).filter((c) => c.scheme === 'syslog').map((c) => c.port) : [];
-  const proposed = syslogPorts.find((p) => serverPorts?.includes(p)) ?? syslogPorts[0] ?? serverPorts?.[0];
-  const portSource = proposed === undefined ? null : syslogPorts.includes(proposed) ? 'agent' : 'server';
-  const known = [...new Set([...syslogPorts, ...(serverPorts ?? [])])];
 
   const url = logUrl(form);
-  const sendAddress = form.address.trim() || lanAddress(host?.info?.ips);
+  const dest = parseDestination(form.destination);
   const config = () => ({
     url,
-    ...(form.address.trim() ? { address: form.address.trim() } : {}),
-    // the test reaches the API only: a port being typed does not stop it
-    port: portValid(form.port) ? +form.port : LOG_SYSLOG_PORT,
+    // the address of the carrier is the default: stored only when it is another one
+    ...(dest && dest.address !== lanAddress(host?.info?.ips) ? { address: dest.address } : {}),
+    // the test of the API does not need the destination: one being typed does not stop it
+    port: dest?.port ?? LOG_SYSLOG_PORT,
     protocol: 'tcp' as const,
     username: form.https ? form.username.trim() : '',
     ...(form.https && secret ? { password: secret } : {}),
@@ -858,12 +858,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
     try {
       const r = await api.testRole({ type, carrier: { kind: 'host', id: carrier! }, config: config(), ...(role ? { roleId: role.id } : {}) });
       setTest(r.ok ? { level: 'ok', title: 'API joignable', detail: r.detail ?? url } : { level: 'error', title: 'Échec', detail: r.error ?? 'échec' });
-      const tcp = r.ok && r.syslog ? r.syslog.tcp : null;
-      setServerPorts(tcp);
-      // the port it really receives on, unless the admin typed one
-      if (tcp?.length && !portTyped) {
-        const published = syslogPorts.find((p) => tcp.includes(p)) ?? syslogPorts[0] ?? tcp[0];
-        setForm((f) => ({ ...f, port: String(published) }));
+      // the destination of the hosts follows what the test read: the server reached, on the port VictoriaLogs receives on
+      // (published by Docker when the agent sees it, else read in its flags)
+      const tcp = r.ok ? (r.syslog?.tcp ?? []) : [];
+      const port = syslogPorts.find((p) => tcp.includes(p)) ?? syslogPorts[0] ?? tcp[0];
+      if (r.ok && port) {
+        setForm((f) => ({ ...f, destination: tcpUrl(f.apiAddress, port) }));
+        setReception(null);
       }
     } catch (err) {
       setTest({ level: 'error', title: 'Échec', detail: (err as Error).message });
@@ -903,13 +904,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const accountOk = !form.https || !secret || !!form.username.trim();
   const apiOk = nameOk && ADDRESS_RE.test(form.apiAddress.trim()) && portValid(form.apiPort) && accountOk;
   const silentOk = /^\d{1,2}$/.test(form.silentHours) && +form.silentHours <= 24;
-  const destinationOk = portValid(form.port) && (!form.address.trim() || ADDRESS_RE.test(form.address.trim())) && !!sendAddress;
+  const destinationOk = !!dest;
   const configOk = silentOk && destinationOk;
   const tested = test?.level === 'ok';
   // the reception test guides (the step is done once it passed) without stopping the save: the hub may not see the server as
   // the hosts do
   const [carried, reached, configured, summary] = stepStates([!!carrier, apiOk && tested, configOk && reception?.level === 'ok', false]);
-  const destination = sendAddress && portValid(form.port) ? `tcp://${bracket(sendAddress)}:${form.port}` : '';
+  const destination = dest ? tcpUrl(dest.address, dest.port) : '';
   const sub = 'text-xs font-medium uppercase tracking-wide text-muted';
 
   return (
@@ -978,7 +979,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
               <span className={field}>Nom du rôle</span>
               <input className="input" maxLength={64} value={form.name} onChange={(e) => setApi({ name: e.target.value })} placeholder="Logs Vouillé…" />
             </label>
-            <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_4.5rem] gap-3">
               <label className="block">
                 <span className={field}>Serveur (nom ou IP)</span>
                 <input className="input font-mono text-xs" value={form.apiAddress} onChange={(e) => setApi({ apiAddress: e.target.value.trim() })} placeholder={carrier ? 'inconnu' : '—'} spellCheck={false} />
@@ -1032,34 +1033,16 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
             </section>
             <section className="space-y-2 border-t border-line pt-3">
               <h4 className={sub}>Envoi depuis les hôtes</h4>
-              <p className="text-xs text-muted">La standardisation règle rsyslog sur chaque hôte pour envoyer ses journaux, en TCP, vers :</p>
-              <p className="rounded-md border border-line bg-black/30 px-3 py-2 font-mono text-sm text-zinc-100">{destination || 'à compléter'}</p>
-              <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
-                <label className="block">
-                  <span className={field}>Serveur vu des hôtes</span>
-                  <input className="input font-mono text-xs" value={form.address} onChange={(e) => setConf({ address: e.target.value.trim() })} placeholder={lanAddress(host?.info?.ips) || 'nom ou IP'} spellCheck={false} />
-                </label>
-                <label className="block">
-                  <span className={field}>Port syslog</span>
-                  <input className="input font-mono text-xs" inputMode="numeric" value={form.port} onChange={(e) => (setPortTyped(true), setConf({ port: e.target.value.trim() }))} />
-                </label>
-              </div>
-              <p className="text-xs text-muted">Vide : l'adresse de l'hôte. À changer seulement si les hôtes le joignent par un autre nom ou une autre IP.</p>
-              {proposed !== undefined && +form.port === proposed && (
-                <p className="text-xs text-emerald-300">
-                  {portSource === 'agent' ? `Port ${proposed} publié par Docker, relevé par l'agent de ${host?.name}.` : `Port ${proposed} lu dans la configuration de VictoriaLogs (-syslog.listenAddr.tcp).`}
-                </p>
-              )}
-              {known.length > 0 && !known.includes(+form.port) && (
-                <p className="flex flex-wrap items-center gap-2 text-xs text-amber-300">
-                  VictoriaLogs reçoit sur {known.join(', ')}, pas sur ce port : les journaux n'arriveraient pas.
-                  {proposed !== undefined && <Button size="sm" onClick={() => setConf({ port: String(proposed) })}>Utiliser {proposed}</Button>}
-                </p>
-              )}
-              {serverPorts?.length === 0 && <p className="text-xs text-red-300">VictoriaLogs ne reçoit pas de syslog en TCP : ajouter <code>-syslog.listenAddr.tcp=:514</code> à son lancement.</p>}
-              {serverPorts === null && proposed === undefined && <p className="text-xs text-muted">Port de réception pas encore connu : le test de l'API (étape 2) le lit sur le serveur.</p>}
+              <label className="block">
+                <span className={field}>Destination des journaux</span>
+                <input className="input font-mono text-xs" value={form.destination} onChange={(e) => setConf({ destination: e.target.value.trim() })} placeholder="tcp://serveur:514" spellCheck={false} />
+              </label>
+              <p className="text-xs text-muted">
+                Où rsyslog envoie les journaux de chaque hôte, en TCP. Remplie par le test de l'API (étape 2) avec le port où VictoriaLogs reçoit ; à changer
+                seulement si les hôtes le joignent autrement.
+              </p>
+              {form.destination && !dest && <p className="text-xs text-amber-300">Format attendu : tcp://serveur:port</p>}
               <CheckLine label="Réception syslog" check={reception} idle={destination ? `le hub envoie une ligne de test à ${destination}, puis la cherche par l'API` : undefined} />
-              {!portValid(form.port) && <p className="text-xs text-amber-300">Port invalide (1 à 65535)</p>}
             </section>
           </Step>
           <Step n={4} title="Récapitulatif" state={summary}>

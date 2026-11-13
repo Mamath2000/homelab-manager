@@ -9,7 +9,7 @@ import { timeAgo } from '../lib/format';
 import { lanAddress } from '../lib/roles';
 import { useHosts, useLogServers, useSites } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { Button, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot } from './ui';
+import { Button, Checkbox, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot } from './ui';
 import type { Tone } from '../lib/status';
 
 // Paramètres › Logs: the hosts that send their journals to each log server, one card per host, green while journals
@@ -82,40 +82,77 @@ function cannotSend(h: Host, standardisation: boolean) {
   return null;
 }
 
-// The hosts that do not send yet: a click installs and configures rsyslog on the one chosen.
+// The hosts that do not send yet, several chosen at once: rsyslog is installed and configured on each of them (one job per
+// host, the hosts listed being the preview of the targets).
 function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: LogHost[]; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { features } = useMe();
   const { data: hosts = [] } = useHosts();
   const [q, setQ] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
   const sending = new Set(listed.filter((h) => h.mode !== 'manual').map((h) => h.hostId));
   const manual = new Set(listed.filter((h) => h.mode === 'manual').map((h) => h.hostId));
-  const list = hosts
-    .filter((h) => !sending.has(h.id) && (!q || h.name.toLowerCase().includes(q.toLowerCase())))
+  const all = hosts
+    .filter((h) => !sending.has(h.id))
     .map((h) => ({ h, why: cannotSend(h, features.standardisation) }))
     .sort((a, b) => Number(!!a.why) - Number(!!b.why) || a.h.name.localeCompare(b.h.name, 'fr'));
-  const add = async (h: Host) => {
-    setBusy(h.id);
-    try {
-      await api.addLogHost(role.id, h.id);
-      await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
-      toast.success(`${h.name} : installation de l'envoi des journaux lancée`);
-      onClose();
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setBusy(null);
+  const list = all.filter(({ h }) => !q || h.name.toLowerCase().includes(q.toLowerCase()));
+  const selectable = list.filter((x) => !x.why).map((x) => x.h.id);
+  const toggle = (id: string, on: boolean) => {
+    const next = new Set(picked);
+    if (on) next.add(id);
+    else next.delete(id);
+    setPicked(next);
+  };
+  const allPicked = selectable.length > 0 && selectable.every((id) => picked.has(id));
+  const add = async () => {
+    setBusy(true);
+    const targets = all.filter(({ h }) => picked.has(h.id)).map(({ h }) => h);
+    const failed: string[] = [];
+    for (const h of targets) {
+      try {
+        await api.addLogHost(role.id, h.id);
+      } catch (err) {
+        failed.push(`${h.name} : ${(err as Error).message}`);
+      }
     }
+    await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
+    const started = targets.length - failed.length;
+    if (started) toast.success(`Envoi des journaux en cours d'installation sur ${started} hôte${started > 1 ? 's' : ''}`);
+    for (const f of failed) toast.error(f);
+    setBusy(false);
+    if (!failed.length) onClose();
+    else setPicked(new Set(targets.filter((h) => failed.some((f) => f.startsWith(`${h.name} :`))).map((h) => h.id)));
   };
   return (
-    <Modal open onClose={onClose} title={`Ajouter un hôte · ${role.name}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Ajouter des hôtes · ${role.name}`}
+      footer={
+        <>
+          <Button disabled={busy} onClick={onClose}>Annuler</Button>
+          <Button variant="primary" icon={Plus} loading={busy} disabled={!picked.size} onClick={() => void add()}>
+            {picked.size ? `Ajouter ${picked.size} hôte${picked.size > 1 ? 's' : ''}` : 'Ajouter'}
+          </Button>
+        </>
+      }
+    >
       <div className="space-y-3 text-sm">
-        <p className="text-xs text-muted">Choisir un hôte installe rsyslog et le règle pour envoyer ses journaux vers <span className="font-mono">{role.target || role.name}</span>.</p>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-          <input className="input pl-8" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" autoFocus />
+        <p className="text-xs text-muted">Les hôtes cochés reçoivent rsyslog, réglé pour envoyer leurs journaux vers <span className="font-mono">{role.target || role.name}</span>.</p>
+        <div className="flex items-center gap-3">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            <input className="input pl-8" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un hôte" autoFocus />
+          </div>
+          {selectable.length > 1 && (
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-zinc-300">
+              <Checkbox checked={allPicked} indeterminate={selectable.some((id) => picked.has(id))} onChange={(on) => setPicked(on ? new Set([...picked, ...selectable]) : new Set([...picked].filter((id) => !selectable.includes(id))))} label="Tout cocher" />
+              Tout cocher
+            </label>
+          )}
         </div>
         {!list.length ? (
           <p className="py-4 text-center text-xs text-muted">Aucun autre hôte.</p>
@@ -123,12 +160,8 @@ function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: Log
           <ul className="max-h-[55vh] space-y-1.5 overflow-y-auto">
             {list.map(({ h, why }) => (
               <li key={h.id}>
-                <button
-                  type="button"
-                  disabled={!!why || busy !== null}
-                  onClick={() => void add(h)}
-                  className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-left transition enabled:hover:border-emerald-500/60 enabled:hover:bg-raised/40 disabled:opacity-50"
-                >
+                <label className={clsx('flex items-center gap-3 rounded-md border px-3 py-2 transition', why ? 'border-line opacity-50' : 'cursor-pointer hover:bg-raised/40', picked.has(h.id) ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line')}>
+                  {why ? <span className="h-4 w-4 shrink-0" /> : <Checkbox checked={picked.has(h.id)} onChange={(on) => toggle(h.id, on)} label={h.name} />}
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-zinc-100">{h.name}</span>
                     <span className="block text-xs text-muted">
@@ -136,8 +169,7 @@ function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: Log
                       {manual.has(h.id) && !why && <span className="text-amber-300"> · envoie déjà, réglé à la main : retirer ce réglage, sinon chaque ligne arrivera en double</span>}
                     </span>
                   </span>
-                  {busy === h.id ? <Spinner className="h-4 w-4" /> : !why && <Plus className="h-4 w-4 shrink-0 text-emerald-400" />}
-                </button>
+                </label>
               </li>
             ))}
           </ul>
@@ -193,7 +225,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
     <Panel
       title={role.name}
       icon={ScrollText}
-      actions={<Button size="sm" icon={Plus} onClick={() => setAdding(true)} disabled={!data}>Ajouter un hôte</Button>}
+      actions={<Button size="sm" icon={Plus} onClick={() => setAdding(true)} disabled={!data}>Ajouter des hôtes</Button>}
     >
       <div className="space-y-3 text-sm">
         <p className="text-xs text-muted">
@@ -206,7 +238,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         ) : error ? (
           <p className="text-red-400">{(error as Error).message}</p>
         ) : !list.length ? (
-          <Empty icon={ScrollText} title="Aucun hôte n'envoie ses journaux">« Ajouter un hôte » installe rsyslog sur l'hôte choisi et le règle pour envoyer ses journaux à ce serveur.</Empty>
+          <Empty icon={ScrollText} title="Aucun hôte n'envoie ses journaux">« Ajouter des hôtes » installe rsyslog sur les hôtes choisis et le règle pour envoyer ses journaux à ce serveur.</Empty>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {list.map((h) => (
