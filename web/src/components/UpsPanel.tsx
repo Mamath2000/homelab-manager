@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { BatteryCharging, Bell, BellOff, TriangleAlert, VolumeX } from 'lucide-react';
 import { api, type UpsCommand, type UpsReport } from '../lib/api';
@@ -54,6 +54,14 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
   const toast = useToast();
   const [busy, setBusy] = useState<UpsCommand | null>(null);
   const [confirmTest, setConfirmTest] = useState(false);
+  const [staleAt, setStaleAt] = useState<number | null>(null);
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setStaleAt(ups.checkedAt),
+      Math.max(0, ups.checkedAt + UPS_STALE_MS - Date.now() + 1),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [ups.checkedAt]);
   const run = async (command: UpsCommand, done: string) => {
     setBusy(command);
     try {
@@ -81,7 +89,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
   const runtimeMark = ups.runtimeLow !== undefined ? (ups.runtimeLow / 1800) * 100 : undefined;
   const failedTest = testFailed(ups.testResult);
   // silent UPS (unplugged, driver down): the values below are the last ones known, not the current state
-  const stale = Date.now() - ups.checkedAt > UPS_STALE_MS;
+  const stale = staleAt === ups.checkedAt;
 
   return (
     <Panel
