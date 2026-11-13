@@ -26,20 +26,21 @@ const upsGoneAfter = 3
 func (s *session) upsLoop(ctx context.Context) {
 	var lastKey string
 	var lastSent time.Time
-	reported := false
+	goneSent := false // the hub was told, in this session, that there is no UPS
 	missed := 0
 	poll := func() {
 		r := collectUps(ctx)
 		if r == nil {
-			// a few polls in a row, not one NUT hiccup, before the hub is told the UPS is gone
-			if missed++; reported && missed >= upsGoneAfter {
+			// a few polls in a row, not one NUT hiccup, before the hub is told the UPS is gone; asked even
+			// when this session never saw one: the hub may still hold a report from before a restart
+			if missed++; !goneSent && missed >= upsGoneAfter {
 				if s.send(ctx, Outbound{Type: "ups_report", UpsGone: true}) == nil {
-					reported, lastKey = false, ""
+					goneSent, lastKey = true, ""
 				}
 			}
 			return
 		}
-		missed = 0
+		missed, goneSent = 0, false
 		at := r.CheckedAt
 		r.CheckedAt = 0
 		b, _ := json.Marshal(r)
@@ -49,7 +50,6 @@ func (s *session) upsLoop(ctx context.Context) {
 		}
 		if s.send(ctx, Outbound{Type: "ups_report", Ups: r}) == nil {
 			lastKey, lastSent = string(b), time.Now()
-			reported = true
 		}
 	}
 	poll()

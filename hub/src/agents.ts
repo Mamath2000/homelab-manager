@@ -371,8 +371,9 @@ export function registerAgentSocket(app: FastifyInstance) {
               break;
             case 'ups_report':
               if (msg.upsGone === true) {
-                await hosts.updateOne({ _id: host._id }, { $unset: { ups: '' }, $set: { lastSeenAt: new Date() } });
-                await emitHost(host._id);
+                // sent by every agent without a UPS after a connection: only a host that holds a report changes
+                const gone = await hosts.updateOne({ _id: host._id, ups: { $exists: true } }, { $unset: { ups: '' } });
+                if (gone.modifiedCount) await emitHost(host._id);
                 return;
               }
               if (!isUpsReport(msg.ups)) return;
