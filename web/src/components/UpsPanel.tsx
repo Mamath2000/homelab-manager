@@ -10,6 +10,9 @@ import { Badge, ConfirmModal, IconGroup, Panel } from './ui';
 // Failed self-test: same rule as the hub (alerts of the UPS domain).
 const testFailed = (t?: string) => !!t && /(error|fail|warning)/i.test(t) && !/passed/i.test(t);
 
+// Same threshold as the hub (UPS_STALE_MS): the agent reports at least every 5 minutes.
+const UPS_STALE_MS = 10 * 60 * 1000;
+
 const flags = (status: string) => new Set(status.split(/\s+/).filter(Boolean));
 
 // mm:ss under an hour, h mm above
@@ -77,6 +80,8 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
   const runtimePct = ups.runtime !== undefined ? (ups.runtime / 1800) * 100 : 0;
   const runtimeMark = ups.runtimeLow !== undefined ? (ups.runtimeLow / 1800) * 100 : undefined;
   const failedTest = testFailed(ups.testResult);
+  // silent UPS (unplugged, driver down): the values below are the last ones known, not the current state
+  const stale = Date.now() - ups.checkedAt > UPS_STALE_MS;
 
   return (
     <Panel
@@ -117,7 +122,7 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
           <span className="text-xs text-muted" title={`driver ${ups.driver}`}>NUT · {timeAgo(ups.checkedAt)}</span>
         </>
       }
-      className={clsx(crit && 'border-red-500/50')}
+      className={clsx(crit ? 'border-red-500/50' : stale && 'border-amber-500/50')}
       bodyClassName="flex flex-col gap-4 p-4"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -130,11 +135,22 @@ export function UpsPanel({ hostId, ups, canControl }: { hostId: string; ups: Ups
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {onBattery ? <Badge tone="bad">Sur batterie</Badge> : f.has('OL') ? <Badge tone="ok">Sur secteur</Badge> : <Badge tone="warn">{ups.status}</Badge>}
-          {replace ? <Badge tone="bad">Batterie à remplacer</Badge> : lowBattery ? <Badge tone="bad">Batterie faible</Badge> : <Badge tone="ok">Batterie OK</Badge>}
+          {stale && <Badge tone="warn">Injoignable</Badge>}
+          {onBattery ? <Badge tone="bad">Sur batterie</Badge> : f.has('OL') ? <Badge tone={stale ? 'warn' : 'ok'}>Sur secteur</Badge> : <Badge tone="warn">{ups.status}</Badge>}
+          {replace ? <Badge tone="bad">Batterie à remplacer</Badge> : lowBattery ? <Badge tone="bad">Batterie faible</Badge> : <Badge tone={stale ? 'warn' : 'ok'}>Batterie OK</Badge>}
           {alarm && <Badge tone="bad">Alarme</Badge>}
         </div>
       </div>
+
+      {stale && (
+        <div className="flex gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-sm leading-relaxed text-zinc-200">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+          <div>
+            <span className="font-semibold text-amber-400">Onduleur injoignable.</span> Dernier relevé {timeAgo(ups.checkedAt)} : les valeurs ci-dessous ne sont plus à jour.
+            Onduleur débranché ou driver NUT arrêté ; s'il est retiré pour de bon, désinstaller NUT sur l'hôte fait disparaître cette carte.
+          </div>
+        </div>
+      )}
 
       {replace && (
         <div className="flex gap-2.5 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm leading-relaxed text-zinc-200">
