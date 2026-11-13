@@ -18,16 +18,28 @@ func (s *session) sendUps(ctx context.Context) {
 	}
 }
 
+// upsGoneAfter: consecutive failed polls (one per minute) after which the UPS is declared gone.
+const upsGoneAfter = 3
+
 // upsLoop polls every minute; a report goes to the hub when something changed, and at least every
 // 5 minutes.
 func (s *session) upsLoop(ctx context.Context) {
 	var lastKey string
 	var lastSent time.Time
+	reported := false
+	missed := 0
 	poll := func() {
 		r := collectUps(ctx)
 		if r == nil {
+			// a few polls in a row, not one NUT hiccup, before the hub is told the UPS is gone
+			if missed++; reported && missed >= upsGoneAfter {
+				if s.send(ctx, Outbound{Type: "ups_report", UpsGone: true}) == nil {
+					reported, lastKey = false, ""
+				}
+			}
 			return
 		}
+		missed = 0
 		at := r.CheckedAt
 		r.CheckedAt = 0
 		b, _ := json.Marshal(r)
@@ -37,6 +49,7 @@ func (s *session) upsLoop(ctx context.Context) {
 		}
 		if s.send(ctx, Outbound{Type: "ups_report", Ups: r}) == nil {
 			lastKey, lastSent = string(b), time.Now()
+			reported = true
 		}
 	}
 	poll()

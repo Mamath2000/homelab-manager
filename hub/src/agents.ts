@@ -206,6 +206,7 @@ interface AgentMessage {
   haBackups?: unknown;
   offsite?: unknown;
   ups?: unknown;
+  upsGone?: unknown;
   sessions?: unknown;
   healthSystem?: unknown;
   healthDisks?: unknown;
@@ -369,6 +370,11 @@ export function registerAgentSocket(app: FastifyInstance) {
               await emitHost(host._id);
               break;
             case 'ups_report':
+              if (msg.upsGone === true) {
+                await hosts.updateOne({ _id: host._id }, { $unset: { ups: '' }, $set: { lastSeenAt: new Date() } });
+                await emitHost(host._id);
+                return;
+              }
               if (!isUpsReport(msg.ups)) return;
               await hosts.updateOne({ _id: host._id }, { $set: { ups: msg.ups, lastSeenAt: new Date() } });
               await emitHost(host._id);

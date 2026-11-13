@@ -116,6 +116,7 @@ type Outbound struct {
 	Updates      *DockerUpdates  `json:"updates,omitempty"`
 	HaBackups    *HaBackupReport `json:"haBackups,omitempty"`
 	Ups          *UpsReport      `json:"ups,omitempty"`
+	UpsGone      bool            `json:"upsGone,omitempty"` // ups_report: the UPS is no longer there, the hub forgets it
 	HealthSystem *HealthSystem   `json:"healthSystem,omitempty"`
 	HealthDisks  *HealthDisks    `json:"healthDisks,omitempty"`
 	HealthSmart  *HealthSmart    `json:"healthSmart,omitempty"`

@@ -10,6 +10,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ### Corrigé
 
+- **Onduleur : carte figée et verte quand l'onduleur est débranché** : le hub passe l'onduleur en avertissement « injoignable » quand son dernier relevé a plus de 10 minutes, et l'agent signale (`upsGone`) la disparition de l'onduleur après 3 relevés ratés d'affilée : le hub l'oublie et la carte disparaît. Le second point nécessite l'agent à jour. (homelab#343)
 - **Jobs APT de l'agent : attente du verrou dpkg** (5 min) au lieu d'un échec immédiat quand `unattended-upgrades` ou `apt-daily` le tient. (homelab#233)
 - **Activer la gestion des comptes MQTT ne casse plus les sondes ni le pont Home Assistant** : l'activation déplaçait le rôle sur le port 8883 avec le certificat du compte `hlm`, qui n'a aucun droit de lecture sur les topics, et réécrivait ses identifiants. L'identité d'administration du hub est maintenant gardée à part (`config.dynsec`) et la connexion du rôle n'est plus modifiée à l'activation. Au démarrage, un rôle déjà activé est remis sur son port d'origine, sans compte, et son identité d'administration est déplacée. (homelab#325)
 - **Sonde MQTT : abonnement refusé signalé** : un abonnement que le broker refuse (code 0x80, compte sans droit de lecture) donne « abonnement refusé par le broker » au lieu de « aucun message ». (homelab#325)

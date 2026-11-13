@@ -38,6 +38,7 @@ type Outbound struct {
 	MinVersion   string         `json:"minVersion,omitempty"` // hello: version floor of the updates (signature.go)
 	Sessions     *SessionReport `json:"sessions,omitempty"`
 	Ups          *UpsReport     `json:"ups,omitempty"`
+	UpsGone      bool           `json:"upsGone,omitempty"` // ups_report: the UPS is no longer there, the hub forgets it
 	HealthSystem *HealthSystem  `json:"healthSystem,omitempty"`
 	HealthDisks  *HealthDisks   `json:"healthDisks,omitempty"`
 	HealthSmart  *HealthSmart   `json:"healthSmart,omitempty"`
