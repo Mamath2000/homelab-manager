@@ -303,6 +303,48 @@ test('log server: the syslog ports read in its flags', async () => {
   assert.deepEqual(parseSyslogFlags('-retentionPeriod="30d"'), { tcp: [], udp: [] });
 });
 
+test('log server: the listeners and their source, as VictoriaLogs prints them in /flags', async () => {
+  const { parseSyslogListeners } = await import('../src/logs.js');
+  // as read on vouille/ct-172 (homelab#345)
+  const flags = [
+    '-syslog.extraFields.tcp="\\"{\\\\\\"source\\\\\\":\\\\\\"host\\\\\\"}\\",\\"{\\\\\\"source\\\\\\":\\\\\\"docker\\\\\\"}\\""',
+    '-syslog.extraFields.udp="\\"{\\\\\\"source\\\\\\":\\\\\\"host\\\\\\"}\\",\\"{\\\\\\"source\\\\\\":\\\\\\"esphome\\\\\\"}\\""',
+    '-syslog.listenAddr.tcp=":514,:517"',
+    '-syslog.listenAddr.udp=":514,:515"',
+  ].join('\n');
+  assert.deepEqual(parseSyslogListeners(flags), {
+    tcp: [{ port: 514, source: 'host' }, { port: 517, source: 'docker' }],
+    udp: [{ port: 514, source: 'host' }, { port: 515, source: 'esphome' }],
+  });
+  // a single value is printed without the inner quotes
+  assert.deepEqual(parseSyslogListeners('-syslog.listenAddr.tcp=":514"\n-syslog.extraFields.tcp="{\\"source\\":\\"docker\\"}"').tcp, [{ port: 514, source: 'docker' }]);
+  // no extraFields: no source; unreadable: listeners kept, without source
+  assert.deepEqual(parseSyslogListeners('-syslog.listenAddr.tcp=":514"').tcp, [{ port: 514, source: null }]);
+  assert.deepEqual(parseSyslogListeners('-syslog.listenAddr.tcp=":514"\n-syslog.extraFields.tcp="{oops"').tcp, [{ port: 514, source: null }]);
+});
+
+test('log server: the port of the containers, set in the role or read in the flags', async () => {
+  const { dockerLogPort } = await import('../src/logs.js');
+  const base = { username: '', password: '' };
+  assert.equal(await dockerLogPort({ ...base, url: 'http://127.0.0.1:1', dockerPort: 1517 }), 1517);
+  const flags = '-syslog.listenAddr.tcp=":514,:517"\n-syslog.extraFields.tcp="\\"{\\\\\\"source\\\\\\":\\\\\\"host\\\\\\"}\\",\\"{\\\\\\"source\\\\\\":\\\\\\"docker\\\\\\"}\\""';
+  const srv = createServer((req, res) => res.end(req.url === '/flags' ? flags : ''));
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+  try {
+    assert.equal(await dockerLogPort({ ...base, url }), 517);
+  } finally {
+    srv.close();
+  }
+  const none = createServer((_req, res) => res.end('-syslog.listenAddr.tcp=":514"'));
+  await new Promise<void>((r) => none.listen(0, '127.0.0.1', r));
+  try {
+    await assert.rejects(dockerLogPort({ ...base, url: `http://127.0.0.1:${(none.address() as AddressInfo).port}` }), /source=docker/);
+  } finally {
+    none.close();
+  }
+});
+
 test('log server: the reception test sends a syslog line and finds it through the API', async () => {
   const { testReception } = await import('../src/logs.js');
   const net = await import('node:net');

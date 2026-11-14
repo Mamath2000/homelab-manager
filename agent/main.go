@@ -131,6 +131,10 @@ func (s *session) hello(ctx context.Context) error {
 	caps := platformCapabilities()
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
+		// journals of the containers (logcollect.go): Docker is restarted through systemd (not on Unraid yet)
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			caps = append(caps, "docker_log_collect")
+		}
 	}
 	// Proxmox Backup Server administration (pbs.go): installed here, or in a running container
 	if _, err := exec.LookPath("proxmox-backup-manager"); err == nil || pbsContainerRunning(ctx) {
@@ -542,6 +546,8 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		}
 	case "docker_up", "docker_stop", "docker_restart", "docker_update":
 		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
+	case "docker_log_collect":
+		code, err = dock.applyLogCollect(jctx, in.LogCollect, emit)
 	case "agent_install":
 		code, err = installAgent(jctx, runStreamingIn, nodeInstallSource(s.hub, agentDir), installTarget(pveExec), in.Install, emit)
 	case "backup_install":

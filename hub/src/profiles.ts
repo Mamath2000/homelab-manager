@@ -113,6 +113,8 @@ export const SENSITIVE_ACTIONS = new Set([
   'PUT /api/hosts/:id/setup',
   'POST /api/settings/logs/:role/hosts',
   'DELETE /api/settings/logs/:role/hosts/:hostId',
+  // journals of the containers of a host: restarts Docker there, sends them elsewhere (homelab#346)
+  'PUT /api/hosts/:id/docker-logs',
   'PUT /api/hosts/:id/access-keys/ack',
   'POST /api/settings/access/apply',
   // agents: install command (enrollment code), renewal of the certificate, revocation, removal of the host

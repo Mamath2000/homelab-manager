@@ -262,6 +262,10 @@ func (d *dockerModule) collect(ctx context.Context) (*DockerReport, error) {
 		}
 	}
 	stacks := d.store.merge(buildStacks(cs, refs))
+	logCollect := d.logCollectState(ctx)
+	if logCollect != nil {
+		d.markLogFollowed(ctx, stacks)
+	}
 
 	images := []DockerImage{}
 	seen := map[string]bool{}
@@ -286,11 +290,12 @@ func (d *dockerModule) collect(ctx context.Context) (*DockerReport, error) {
 		}
 	}
 	return &DockerReport{
-		CheckedAt: time.Now().UnixMilli(),
-		Engine:    engine,
-		Compose:   compose,
-		Stacks:    stacks,
-		Images:    images,
+		CheckedAt:  time.Now().UnixMilli(),
+		Engine:     engine,
+		Compose:    compose,
+		Stacks:     stacks,
+		Images:     images,
+		LogCollect: logCollect,
 	}, nil
 }
 

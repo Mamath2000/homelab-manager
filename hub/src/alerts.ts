@@ -187,6 +187,7 @@ const actionLabel: Partial<Record<JobDoc['action'], string>> = {
   docker_stop: 'arrêt',
   docker_restart: 'redémarrage',
   docker_update: 'mise à jour',
+  docker_log_collect: 'journaux des conteneurs',
   backup_run: 'sauvegarde',
   backup_install: 'installation du client PBS',
   offsite_run: 'copie déportée',

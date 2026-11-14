@@ -45,6 +45,7 @@ export function jobDto(j: JobDoc, withLog = false) {
     backupJobName: j.backupJobName ?? null,
     method: j.method ?? null,
     autoEnabled: j.autoEnabled ?? null,
+    logCollect: j.logCollect ?? null,
     dbRestore: j.dbRestore ?? null,
     installTarget: j.installTarget ? { cluster: j.installTarget.cluster, vmid: j.installTarget.vmid, node: j.installTarget.node ?? null, hostId: j.installTarget.hostId.toHexString() } : null,
     trigger: j.trigger,
@@ -77,6 +78,9 @@ export interface JobTarget {
   method?: 'apt' | 'docker';
   // apt_auto_set: automatic security updates on or off
   enabled?: boolean;
+  // docker_log_collect: what the job is about (info, stored) and where the collector sends (sent; address "": removed)
+  logCollectInfo?: NonNullable<JobDoc['logCollect']>;
+  logCollect?: { address: string; port?: number; protocol?: 'tcp' };
   // agent_install: what the agent runs (holds the enrollment code: only sent, never stored) and what the job is about
   install?: { kind: 'lxc' | 'node'; vmid?: number; node?: string; code: string; installCurl: boolean };
   installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };
@@ -108,6 +112,7 @@ function auditJob(job: JobDoc) {
       ...(job.modules ? { modules: job.modules } : {}),
       ...(job.backupJobName ? { backupJob: job.backupJobName } : {}),
       ...(job.autoEnabled !== undefined ? { enabled: job.autoEnabled } : {}),
+      ...(job.logCollect ? { logCollect: job.logCollect } : {}),
       ...(job.dbRestore ? { dbRestore: { source: job.dbRestore.source, target: job.dbRestore.target } } : {}),
       ...(job.installTarget ? { install: { cluster: job.installTarget.cluster, vmid: job.installTarget.vmid, node: job.installTarget.node } } : {}),
     },
@@ -131,6 +136,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
     ...(target.backupJob ? { backupJobId: new ObjectId(target.backupJob), backupJobName: target.backupJobName } : {}),
     ...(target.method ? { method: target.method } : {}),
     ...(target.enabled !== undefined ? { autoEnabled: target.enabled } : {}),
+    ...(target.logCollectInfo ? { logCollect: target.logCollectInfo } : {}),
     ...(target.installTarget ? { installTarget: target.installTarget } : {}),
     ...(target.dbRestoreInfo ? { dbRestore: target.dbRestoreInfo } : {}),
     trigger,
@@ -161,6 +167,7 @@ export async function createJob(host: HostDoc, action: JobAction, packages: stri
       ...(target.backupJob ? { backupJob: target.backupJob } : {}),
       ...(target.method ? { method: target.method } : {}),
       ...(target.enabled !== undefined ? { enabled: target.enabled } : {}),
+      ...(target.logCollect ? { logCollect: target.logCollect } : {}),
       ...(target.install ? { install: target.install } : {}),
       ...(target.dbRestore ? { dbRestore: target.dbRestore } : {}),
       ...(bin ? { sha256: bin.sha256 } : {}),

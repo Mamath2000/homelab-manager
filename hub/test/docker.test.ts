@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, staleRegistryCheck, updatableStacks } from '../src/docker.js';
+import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, stackLogs, staleRegistryCheck, updatableStacks } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -157,6 +157,30 @@ test('malformed reports are refused', () => {
   assert.ok(!isDockerReport({ checkedAt: 1, stacks: [{ name: 'x' }], images: [] }));
   assert.ok(!isDockerReport({ stacks: [], images: [] }));
   assert.ok(!isDockerReport(null));
+});
+
+test('journals of the containers: followed, to recreate, or nothing while the collector is not set up', () => {
+  const st = (marks: (boolean | undefined)[]) => ({ services: [{ name: 'app', image: 'app', containers: marks.map((m, i) => ({ id: `c${i}`, name: `c${i}`, state: 'running', status: '', imageId: 'x', ...(m === undefined ? {} : { logFollowed: m }) })) }] });
+  assert.equal(stackLogs(st([true, true]), true), 'followed');
+  assert.equal(stackLogs(st([true, false]), true), 'recreate');
+  // a stack without container (down) or not inspected: no state
+  assert.equal(stackLogs(st([]), true), null);
+  assert.equal(stackLogs(st([undefined]), true), null);
+  assert.equal(stackLogs(st([true]), false), null);
+
+  const state = { address: '192.168.100.172', port: 517, daemon: 'ok' as const, collector: 'running' as const };
+  const h = dockerHost({ stacks: [stack('web', 'running', [['app', 'app:1', 'running']])], logCollect: state });
+  h.capabilities = ['docker', 'docker_log_collect'];
+  h.docker!.stacks[0].services[0].containers[0].logFollowed = false;
+  h.dockerLogs = { role: 'logs' };
+  const v = dockerView(h)!;
+  assert.deepEqual(v.logs, { available: true, role: 'logs', state });
+  assert.equal(v.stacks[0].logs, 'recreate');
+  // not set up, agent without the capability
+  assert.deepEqual(dockerView(dockerHost({}))!.logs, { available: false, role: null, state: null });
+
+  assert.ok(isDockerReport({ checkedAt: 1, engine: '', compose: '', stacks: [], images: [], logCollect: state }));
+  assert.ok(!isDockerReport({ checkedAt: 1, engine: '', compose: '', stacks: [], images: [], logCollect: { address: 1 } }));
 });
 
 test('registry check stale after a local image change', () => {

@@ -49,6 +49,8 @@ type DockerContainer struct {
 	Status  string `json:"status"` // "Up 3 hours (healthy)"
 	Health  string `json:"health,omitempty"`
 	ImageID string `json:"imageId"`
+	// collector of the journals set up on the host (logcollect.go): created with its log settings, so its lines are sent
+	LogFollowed *bool `json:"logFollowed,omitempty"`
 }
 
 type DockerService struct {
@@ -85,6 +87,8 @@ type DockerReport struct {
 	Compose   string        `json:"compose"`
 	Stacks    []DockerStack `json:"stacks"`
 	Images    []DockerImage `json:"images"`
+	// collector of the journals of the containers, while it is set up on the host (logcollect.go)
+	LogCollect *LogCollectState `json:"logCollect,omitempty"`
 }
 
 // Result of a registry check: digest the tag points to on the registry.
@@ -158,6 +162,8 @@ type Inbound struct {
 	UpsCmd string `json:"upsCmd,omitempty"`
 	// setup_apply / setup_check: modules of the standardisation and their parameters
 	Setup *SetupSpec `json:"setup,omitempty"`
+	// docker_log_collect: where the journals of the containers go (address "": collector removed, logcollect.go)
+	LogCollect *LogCollectSpec `json:"logCollect,omitempty"`
 	// mqtt_dynsec_enable / mqtt_dynsec_reset: the broker and, to enable, the certificates (dynsec_enable.go)
 	Dynsec *DynsecEnable `json:"dynsec,omitempty"`
 	// mqtt_anonymous_set: accept (true) or refuse (false) the connections without account

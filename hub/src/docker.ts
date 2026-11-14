@@ -1,4 +1,4 @@
-import type { DockerReport, DockerService, DockerStack, DockerUpdates, HostDoc } from './types.js';
+import type { DockerReport, DockerService, DockerStack, DockerUpdates, HostDoc, LogCollectState } from './types.js';
 
 // Same rules as the agent (agent/stacks.go): compose project and service names.
 export const STACK_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -11,7 +11,8 @@ export function isDockerReport(r: unknown): r is DockerReport {
     typeof x.checkedAt === 'number' &&
     Array.isArray(x.images) &&
     Array.isArray(x.stacks) &&
-    x.stacks.every((s) => typeof s?.name === 'string' && Array.isArray(s.services) && s.services.every((v) => Array.isArray(v?.containers)))
+    x.stacks.every((s) => typeof s?.name === 'string' && Array.isArray(s.services) && s.services.every((v) => Array.isArray(v?.containers))) &&
+    (x.logCollect === undefined || (typeof x.logCollect?.address === 'string' && typeof x.logCollect.port === 'number' && typeof x.logCollect.daemon === 'string' && typeof x.logCollect.collector === 'string'))
   );
 }
 
@@ -43,6 +44,19 @@ export interface StackView extends Omit<DockerStack, 'services'> {
   updates: number;
   // what needs attention: partial stack, unhealthy or restarting container
   problems: string[];
+  // journals of the containers, while the collector is set up on the host (homelab#346): followed, every container sends;
+  // recreate, a container created before the log settings sends nothing until recreated; null: not set up, or no container
+  logs: StackLogs;
+}
+
+export type StackLogs = 'followed' | 'recreate' | null;
+
+// Journals of the containers of the host (homelab#346): the log server chosen for it (null: none), and the collector as
+// the agent found it (null: not set up on the host). available: the agent can set it up.
+export interface DockerLogsView {
+  available: boolean;
+  role: string | null;
+  state: LogCollectState | null;
 }
 
 export interface DockerView {
@@ -51,6 +65,15 @@ export interface DockerView {
   checkedAt: number;
   updatesCheckedAt: number | null;
   stacks: StackView[];
+  logs: DockerLogsView;
+}
+
+// A stack sends its journals once every container of it was created with the log settings of the collector.
+export function stackLogs(st: Pick<DockerStack, 'services'>, collecting: boolean): StackLogs {
+  if (!collecting) return null;
+  const marks = st.services.flatMap((s) => s.containers.map((c) => c.logFollowed)).filter((m) => m !== undefined);
+  if (!marks.length) return null;
+  return marks.every(Boolean) ? 'followed' : 'recreate';
 }
 
 function serviceUpdate(svc: DockerService, report: DockerReport, updates?: DockerUpdates): Omit<ServiceView, keyof DockerService> {
@@ -100,6 +123,7 @@ export const isUnmanaged = (h: Pick<HostDoc, 'unmanagedStacks'>, stack: string) 
 export function dockerView(h: HostDoc): DockerView | null {
   const r = h.docker;
   if (!r || !h.capabilities?.includes('docker')) return null;
+  const collecting = !!r.logCollect;
   const stacks = r.stacks.map((st): StackView => {
     const services = st.services.map((svc) => ({ ...svc, ...serviceUpdate(svc, r, h.dockerUpdates) }));
     const has = (u: ImageUpdate) => services.some((s) => s.update === u);
@@ -107,7 +131,7 @@ export function dockerView(h: HostDoc): DockerView | null {
     const updates = services.filter((s) => s.update === 'available' || s.update === 'recreate').length;
     // unmanaged: only the image updates (for information), nothing of the containers' state
     if (isUnmanaged(h, st.name)) {
-      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, updates, problems: [] };
+      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, updates, problems: [], logs: stackLogs(st, collecting) };
     }
     const containers = services.flatMap((s) => s.containers);
     const running = containers.filter((c) => c.state === 'running').length;
@@ -120,6 +144,7 @@ export function dockerView(h: HostDoc): DockerView | null {
       update,
       updates,
       problems: [] as string[],
+      logs: stackLogs(st, collecting),
     };
     view.problems = stackProblems(view);
     return view;
@@ -130,6 +155,7 @@ export function dockerView(h: HostDoc): DockerView | null {
     checkedAt: r.checkedAt,
     updatesCheckedAt: h.dockerUpdates?.checkedAt ?? null,
     stacks,
+    logs: { available: !!h.capabilities?.includes('docker_log_collect'), role: h.dockerLogs?.role ?? null, state: r.logCollect ?? null },
   };
 }
 

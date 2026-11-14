@@ -56,6 +56,8 @@ const config = {
     protocol: { enum: LOG_PROTOCOLS },
     // hours without a journal before a host that sends is a drift (0: not watched)
     silentHours: { type: 'integer', minimum: 0, maximum: 24 },
+    // where the collectors of the containers send (syslog TCP); absent: the listener tagged source=docker
+    dockerPort: { type: 'integer', minimum: 1, maximum: 65535 },
   },
 } as const;
 
@@ -101,6 +103,7 @@ export interface ConfigBody {
   clientSecret?: string;
   protocol?: LogProtocol;
   silentHours?: number;
+  dockerPort?: number;
 }
 interface CarrierBody {
   kind: CarrierKind;
@@ -111,7 +114,7 @@ interface CarrierBody {
 const FIELDS: Record<DeclaredType, { required: (keyof ConfigBody)[]; optional: (keyof ConfigBody)[]; secret: keyof ConfigBody }> = {
   'mqtt-broker': { required: ['scheme', 'port', 'username'], optional: ['address', 'password', 'caPem', 'clientCertPem', 'clientKeyPem'], secret: 'password' },
   'omada-controller': { required: ['url', 'clientId'], optional: ['fingerprint', 'clientSecret'], secret: 'clientSecret' },
-  'log-server': { required: ['url', 'port'], optional: ['address', 'protocol', 'username', 'password', 'silentHours'], secret: 'password' },
+  'log-server': { required: ['url', 'port'], optional: ['address', 'protocol', 'username', 'password', 'silentHours', 'dockerPort'], secret: 'password' },
 };
 
 // null: the config fits a role of this type, else why not
@@ -180,6 +183,7 @@ export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): Dec
       // no account: no password kept
       password: c.username?.trim() ? secret : '',
       silentHours: c.silentHours ?? 6,
+      ...(c.dockerPort ? { dockerPort: c.dockerPort } : {}),
     };
   if (type === 'omada-controller')
     return { url: c.url!.trim().replace(/\/+$/, ''), fingerprint: c.fingerprint ? normalizeFingerprint(c.fingerprint) : '', clientId: c.clientId!.trim(), clientSecret: secret };

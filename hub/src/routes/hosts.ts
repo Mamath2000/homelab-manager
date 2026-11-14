@@ -12,7 +12,9 @@ import { hostDto } from '../hostDto.js';
 import { isVirtualizedHealthHost } from '../health.js';
 import { agentCommands } from '../hubUrl.js';
 import { loadAgentSettings } from '../agentUpdate.js';
-import { createJob, jobDto, validPackages } from '../jobs.js';
+import { createJob, hasRunningJob, jobDto, validPackages } from '../jobs.js';
+import { canCollectDockerLogs, setDockerLogs } from '../dockerLogs.js';
+import { LogServerError } from '../logs.js';
 import { forgetHost } from '../pbs.js';
 import { equipmentProbes, hostProbes } from '../probes.js';
 import { checkHostLinks } from '../catalog.js';
@@ -375,6 +377,34 @@ export function registerHostRoutes(app: FastifyInstance) {
       const job = await createJob(host, action, packages, 'manual', { stack, service, sessionId });
       reply.code(202);
       return jobDto(job);
+    },
+  );
+
+  // Journals of the containers of the host (homelab#346): sent to a log server (role), or no longer (null). Admins only
+  // (profiles.ts), with a passkey: turning it on restarts Docker on the host when its daemon.json changes. Containers
+  // created before are sent once recreated (the Docker block offers it).
+  app.put<{ Params: { id: string }; Body: { role: string | null } }>(
+    '/api/hosts/:id/docker-logs',
+    { schema: { body: { type: 'object', required: ['role'], additionalProperties: false, properties: { role: { type: ['string', 'null'], maxLength: 32 } } } } },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!canCollectDockerLogs(host)) return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas envoyer les journaux des conteneurs : mets-le à jour (Docker et systemd requis)" });
+      if (!isOnline(req.params.id)) return reply.code(409).send({ error: `${host.name} est hors ligne` });
+      if (hasRunningJob(req.params.id)) return reply.code(409).send({ error: `${host.name} : une tâche est déjà en cours` });
+      if (req.body.role === null && !host.dockerLogs && !host.docker?.logCollect) return reply.code(409).send({ error: "les journaux des conteneurs de cet hôte ne sont pas envoyés" });
+      try {
+        const job = await setDockerLogs(host, req.body.role);
+        req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: { role: req.body.role } };
+        const updated = await hosts.findOne({ _id: host._id });
+        if (updated) publish('host', hostDto(updated));
+        reply.code(202);
+        return { jobId: job._id.toHexString() };
+      } catch (err) {
+        if (err instanceof LogServerError) return reply.code(err.status).send({ error: err.message });
+        throw err;
+      }
     },
   );
 

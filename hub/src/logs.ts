@@ -286,6 +286,49 @@ export function parseSyslogFlags(flags: string) {
   return { tcp: ports('tcp'), udp: ports('udp') };
 }
 
+// The syslog listeners in their order, each with the source its extraFields tag its lines with (homelab#340): the
+// n-th -syslog.extraFields goes with the n-th -syslog.listenAddr. /flags quotes a list whose values hold quotes or
+// commas: -syslog.extraFields.tcp="\"{\\\"source\\\":\\\"host\\\"}\",\"{…}\"".
+export function parseSyslogListeners(flags: string) {
+  const listeners = (proto: 'tcp' | 'udp') => {
+    const addrs = new RegExp(`^-syslog\\.listenAddr\\.${proto}="([^"]*)"`, 'm').exec(flags)?.[1].split(',') ?? [];
+    const raw = new RegExp(`^-syslog\\.extraFields\\.${proto}=(".*")$`, 'm').exec(flags)?.[1];
+    let fields: unknown[] = [];
+    try {
+      const value = raw ? (JSON.parse(raw) as string) : '';
+      const items = value.startsWith('"') ? (JSON.parse(`[${value}]`) as string[]) : value ? [value] : [];
+      fields = items.map((s) => (s ? JSON.parse(s) : null));
+    } catch {
+      fields = [];
+    }
+    return addrs.flatMap((a, i) => {
+      const port = Number(/:(\d{1,5})$/.exec(a.trim())?.[1]);
+      if (!(port > 0 && port < 65536)) return [];
+      const f = fields[i] as Record<string, unknown> | null | undefined;
+      return [{ port, source: typeof f?.source === 'string' ? f.source : null }];
+    });
+  };
+  return { tcp: listeners('tcp'), udp: listeners('udp') };
+}
+
+// The port the collectors of the containers send to (syslog TCP): the one set in the role, else the TCP listener of the
+// server that tags its lines source=docker. In a container, a published port that differs from the one inside must be set
+// in the role.
+export async function dockerLogPort(c: Server & Pick<LogServerConfig, 'dockerPort'>): Promise<number> {
+  if (c.dockerPort) return c.dockerPort;
+  let flags: string;
+  try {
+    const res = await fetch(`${c.url.replace(/\/+$/, '')}/flags`, { headers: headersOf(c), signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    flags = await res.text();
+  } catch (err) {
+    throw new LogServerError(`réglages du serveur de logs illisibles (${(err as Error).message}) : indique le port des conteneurs dans le rôle`);
+  }
+  const port = parseSyslogListeners(flags).tcp.find((l) => l.source === 'docker')?.port;
+  if (!port) throw new LogServerError("le serveur de logs n'a pas de listener syslog TCP étiqueté source=docker (-syslog.extraFields.tcp)");
+  return port;
+}
+
 async function syslogInputs(c: Server) {
   try {
     const res = await fetch(`${c.url.replace(/\/+$/, '')}/flags`, { headers: headersOf(c), signal: AbortSignal.timeout(5000) });

@@ -262,6 +262,8 @@ export interface DockerContainer {
   status: string;
   health?: string; // healthy, unhealthy, starting
   imageId: string;
+  // journals of the containers collected on the host (homelab#346): created with the log settings, its lines are sent
+  logFollowed?: boolean;
 }
 
 export interface DockerService {
@@ -297,6 +299,20 @@ export interface DockerReport {
   compose: string;
   stacks: DockerStack[];
   images: DockerImage[];
+  // collector of the journals of the containers, while it is set up on the host (agent/logcollect.go)
+  logCollect?: LogCollectState;
+}
+
+// The collector of the journals of the containers as the agent finds it (capability docker_log_collect, homelab#346).
+export interface LogCollectState {
+  address: string;
+  port: number;
+  // ok: daemon.json writes json-file with the compose labels, and Docker was restarted since
+  daemon: 'ok' | 'drift';
+  daemonDetail?: string;
+  collector: 'running' | 'stopped' | 'absent';
+  // the log server refuses the connection where the collector sends
+  unreachable?: string;
 }
 
 // Last registry check (docker_check): digest of each tag on its registry.
@@ -383,6 +399,8 @@ export interface HostDoc {
   critical?: boolean;
   // automatic security updates chosen in its options (autoUpgrade.ts)
   autoSecurityUpdates?: boolean;
+  // journals of the containers sent to this log server (role id), chosen from the Docker block of the host (homelab#346)
+  dockerLogs?: { role: string };
   // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
   haExcluded?: boolean;
   // level of detail published to Home Assistant for this host; absent: the global level (see homeassistant/detail.ts)
@@ -571,7 +589,8 @@ export const JOB_ACTIONS = [
 // db_restore: restore of a mounted dump into a new database (dbRestore.ts), launched from its dialog only
 // agent_install: agent installed in a CT by the agent of its node, from the PVE inventory (pveInstallRun.ts), never through the generic job routes
 // apt_auto_set: automatic security updates turned on or off, from the options of the host (autoUpgrade.ts)
-export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install' | 'db_restore' | 'apt_auto_set';
+// docker_log_collect: collector of the journals of the containers set up or removed, from the Docker block (dockerLogs.ts)
+export type JobAction = (typeof JOB_ACTIONS)[number] | 'backup_run' | 'backup_install' | 'offsite_run' | 'agent_install' | 'db_restore' | 'apt_auto_set' | 'docker_log_collect';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 // What a db_restore job is about, shown in Activité.
@@ -602,6 +621,8 @@ export interface JobDoc {
   method?: 'apt' | 'docker';
   // apt_auto_set: turned on or off
   autoEnabled?: boolean;
+  // docker_log_collect: the log server and where the collector sends (role null: collector removed)
+  logCollect?: { role: string | null; address?: string; port?: number };
   // db_restore: what is restored where (never the credentials)
   dbRestore?: DbRestoreInfo;
   // agent_install: the CT and the host it becomes (the enrollment code is never stored)
@@ -1439,7 +1460,8 @@ export interface OmadaControllerRole {
 // the hub reads through its HTTP API (logs.ts). url: the query API; address (the first private IP of its host when
 // absent), port and protocol: where the hosts send. username / password: basic authentication of the API, when a proxy
 // in front of it asks for one. silentHours: a host that manages the option and sent nothing for that long is a drift
-// (0: not watched).
+// (0: not watched). dockerPort: where the collectors of the containers send, in syslog TCP (homelab#346); absent: the
+// TCP listener of the server that tags its lines source=docker (read in its flags).
 export const LOG_PROTOCOLS = ['tcp'] as const;
 export type LogProtocol = (typeof LOG_PROTOCOLS)[number];
 export interface LogServerConfig {
@@ -1450,6 +1472,7 @@ export interface LogServerConfig {
   username: string;
   password: string;
   silentHours: number;
+  dockerPort?: number;
 }
 
 export interface LogServerRole {
