@@ -81,7 +81,8 @@ function useLogFilters() {
       role: params.get('role') ?? '',
       host: params.get('host') ?? '',
       hostname: params.get('hostname') ?? '',
-      site: list(params.get('site')),
+      // one site or none (every site)
+      site: list(params.get('site')).slice(0, 1),
       tag: params.get('tag') ?? '',
       severity: sev !== null && /^[0-7]$/.test(sev) ? +sev : DEFAULT_SEVERITY,
       // a level of the matrix (a row or a cell): its severities only, over the severity above
@@ -199,15 +200,15 @@ const NO_SOURCE = '_none';
 const NO_SENDER = { host: '', hostname: '' };
 const SOURCE_LABEL: Record<string, string> = { host: 'hôtes', esphome: 'ESPHome', omada: 'Omada', docker: 'Docker', [NO_SOURCE]: 'sans source' };
 
-// The sites as blocks to pick: a click selects the site, a second one lets it go, several can be held, none is every site.
-// It narrows the matrix, the senders and the list.
+// The sites as blocks to pick: a click selects the site (one at most), a second one lets it go, none is every site. It
+// narrows the matrix, the senders and the list.
 function SiteBlocks({ sites, selected, onSite }: { sites: { id: string; name: string }[]; selected: string[]; onSite: (id: string) => void }) {
   return (
     <div className="flex shrink-0 flex-col justify-center gap-1" role="group" aria-label="Sites">
       {sites.map((s) => {
         const on = selected.includes(s.id);
         return (
-          <button key={s.id} type="button" aria-pressed={on} title={on ? 'Ne plus filtrer' : `Ajouter ${s.name}`} onClick={() => onSite(s.id)} className={clsx('panel truncate px-3 py-1.5 text-left text-xs font-semibold text-muted hover:text-zinc-200', on && 'bg-emerald-500/10 !text-zinc-100 ring-1 ring-emerald-500')}>
+          <button key={s.id} type="button" aria-pressed={on} title={on ? 'Tous les sites' : `Seulement ${s.name}`} onClick={() => onSite(s.id)} className={clsx('panel truncate px-3 py-1.5 text-left text-xs font-semibold text-muted hover:text-zinc-200', on && 'bg-emerald-500/10 !text-zinc-100 ring-1 ring-emerald-500')}>
             {s.name}
           </button>
         );
@@ -521,7 +522,7 @@ export function Logs() {
 
       <div className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)]">
         <div className="flex min-w-0 gap-3">
-          {sites.length > 0 && <SiteBlocks sites={sites} selected={f.site} onSite={(id) => set({ site: f.site.includes(id) ? f.site.filter((x) => x !== id) : [...f.site, id], ...NO_SENDER })} />}
+          {sites.length > 0 && <SiteBlocks sites={sites} selected={f.site} onSite={(id) => set({ site: f.site.includes(id) ? [] : [id], ...NO_SENDER })} />}
           <div className={clsx('min-w-0 flex-1', matrix.isPlaceholderData && 'opacity-60')}>
             <Matrix
               matrix={{ sources: [...new Set([...(matrix.data?.sources ?? []), ...f.source])], cells: matrix.data?.cells ?? [] }}
