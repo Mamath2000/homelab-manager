@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { hosts, parseId } from '../db.js';
 import { trackStream } from '../events.js';
-import { hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, querySenders, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
+import { hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
 import type { LogServerRole } from '../types.js';
 
 // Journals of the hosts, read on a log server (logs.ts). Admins and operators (profiles.ts), never an API key: a journal
@@ -25,6 +25,7 @@ const filterProps = {
   severity: { type: 'integer', minimum: 0, maximum: 7 },
   app: list,
   facility: list,
+  source: list,
   q: { type: 'string', maxLength: 512 },
   notApp: list,
   notHostname: list,
@@ -40,6 +41,7 @@ interface FilterQuery {
   severity?: number;
   app?: string;
   facility?: string;
+  source?: string;
   q?: string;
   notApp?: string;
   notHostname?: string;
@@ -102,6 +104,7 @@ export function filtersOf(q: FilterQuery, known: KnownHost[]): LogFilters | null
     ...(q.severity !== undefined ? { maxSeverity: q.severity } : {}),
     ...(q.app ? { apps: split(q.app) } : {}),
     ...(q.facility ? { facilities: split(q.facility) } : {}),
+    ...(q.source ? { sources: split(q.source) } : {}),
     ...(q.q?.trim() ? { text: q.q.trim() } : {}),
     ...(q.notApp || q.notHostname ? { not: { apps: split(q.notApp), hostnames: split(q.notHostname) } } : {}),
   };
@@ -176,6 +179,25 @@ export function registerLogRoutes(app: FastifyInstance) {
         const filters = filtersOf(req.query, await knownHosts());
         if (!filters) return { step, timestamps: [], series: [] };
         return { step, ...(await queryHits(role.config, filters, { start: range.start, end: range.end }, step)) };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
+
+  // Number of journals per source and per severity, over the range. The severity filter is left out: the matrix shows
+  // every level, so that a cell can be picked.
+  app.get<{ Querystring: FilterQuery & RangeQuery }>(
+    '/api/logs/matrix',
+    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { ...filterProps, ...rangeProps } } } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.query.role);
+      if (!role) return reply;
+      try {
+        const range = rangeOf(req.query);
+        const filters = filtersOf({ ...req.query, severity: undefined }, await knownHosts());
+        if (!filters) return { sources: [], cells: [] };
+        return await queryMatrix(role.config, filters, { start: range.start, end: range.end });
       } catch (err) {
         return fail(reply, err);
       }

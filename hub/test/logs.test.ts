@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
 import { cleanCandidates } from '../src/agents.js';
-import { filterQuery, hostKey, LOG_URL_RE, logTarget, queryHits, queryLogs, LogServerError, toRow } from '../src/logs.js';
+import { filterQuery, hostKey, LOG_URL_RE, logTarget, NO_SOURCE, queryHits, queryLogs, queryMatrix, LogServerError, toRow } from '../src/logs.js';
 import { authorize } from '../src/profiles.js';
 import { ROLE_DEFS, roleConflict } from '../src/roles.js';
 import { roleView } from '../src/roleView.js';
@@ -23,6 +23,12 @@ test('logs: the filters become a LogsQL query, every value quoted', () => {
   assert.equal(filterQuery({ maxSeverity: 7 }), '*');
   assert.equal(filterQuery({ apps: ['sshd'], facilities: ['auth', 'authpriv'] }), 'app_name:="sshd" facility_keyword:in("auth","authpriv")');
   assert.equal(filterQuery({ not: { apps: ['cron'], hostnames: [] } }), '!app_name:="cron"');
+  // the source of a journal; NO_SOURCE: the ones that have none (alone, or with named ones)
+  assert.equal(filterQuery({ sources: ['esphome'] }), 'source:="esphome"');
+  assert.equal(filterQuery({ sources: ['host', 'omada'] }), 'source:in("host","omada")');
+  assert.equal(filterQuery({ sources: [NO_SOURCE] }), 'source:""');
+  assert.equal(filterQuery({ sources: ['host', NO_SOURCE] }), '(source:="host" or source:"")');
+  assert.equal(filterQuery({ sources: ['x" | delete'] }), 'source:="x\\" | delete"');
 });
 
 test('logs: nothing typed in a filter is read as LogsQL', () => {
@@ -158,7 +164,9 @@ test('logs: rows read from the server, newest first; its errors are told', async
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       seen.push({ path: req.url!, body: new URLSearchParams(body), auth: req.headers.authorization });
-      if (req.url === '/select/logsql/hits') {
+      if (new URLSearchParams(body).get('query')?.endsWith('| stats by (source, severity) count() n')) {
+        res.end(['{"source":"zeta","severity":"6","n":"1"}', '{"source":"","severity":"6","n":"7"}', '{"source":"esphome","severity":"4","n":"14"}', '{"source":"host","severity":"3","n":"2"}', '{"source":"host","severity":"6","n":"30"}', '{"source":"host","severity":"9","n":"4"}', '{"source":"omada","severity":"6","n":"0"}'].join('\n'));
+      } else if (req.url === '/select/logsql/hits') {
         res.end(JSON.stringify({ hits: [{ fields: { severity: '6' }, timestamps: ['t1', 't2'], values: [1, 2], total: 3 }, { fields: { severity: '3' }, timestamps: ['t2'], values: [5], total: 5 }] }));
       } else if (new URLSearchParams(body).get('query') === 'hostname:="bad"') {
         res.statusCode = 400;
@@ -182,6 +190,13 @@ test('logs: rows read from the server, newest first; its errors are told', async
     assert.deepEqual(hits.timestamps, ['t1', 't2']);
     assert.deepEqual(hits.series.map((s) => [s.level, s.values, s.total]), [['error', [0, 5], 5], ['info', [1, 2], 3]]);
     await assert.rejects(queryLogs(c, { hostnames: ['bad'] }, { start: '1h' }, 10), LogServerError);
+    // the matrix: the columns in the order of the categories, journals without a source last
+    const matrix = await queryMatrix(c, { hostnames: ['h'] }, { start: '1h' });
+    assert.equal(seen[seen.length - 1].body.get('query'), 'hostname:="h" | stats by (source, severity) count() n');
+    assert.deepEqual(matrix.sources, ['host', 'esphome', 'zeta', NO_SOURCE]);
+    assert.deepEqual(matrix.cells.find((x) => x.source === 'esphome'), { source: 'esphome', severity: 4, count: 14 });
+    // a row without a count or with a severity out of range is dropped
+    assert.equal(matrix.cells.length, 5);
   } finally {
     srv.close();
   }
@@ -197,7 +212,7 @@ test('log routes: 404 without a log server, never with an API key, filters check
   });
   registerLogRoutes(app);
   await app.ready();
-  for (const url of ['/api/logs', '/api/logs/hits', '/api/logs/fields?field=app', '/api/logs/sources', '/api/logs/context?hostname=h&time=2026-11-12T10:00:00Z', '/api/logs/tail']) {
+  for (const url of ['/api/logs', '/api/logs/hits', '/api/logs/matrix', '/api/logs/fields?field=app', '/api/logs/sources', '/api/logs/context?hostname=h&time=2026-11-12T10:00:00Z', '/api/logs/tail']) {
     assert.equal((await app.inject({ url })).statusCode, 404, url);
     assert.equal((await app.inject({ url, headers: { 'x-key': '1' } })).statusCode, 403, url);
   }

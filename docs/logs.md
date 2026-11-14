@@ -74,8 +74,10 @@ Réservée aux profils `admin` et `operator` : un journal peut contenir un secre
 | Période | 15 min, 1 h (par défaut), 6 h, 24 h, 7 j, ou personnalisée (du… au…) |
 | Texte du message | une suite de caractères du message, sans tenir compte de la casse (`err` trouve `error`) ; Entrée pour appliquer |
 | Criticité minimale | Erreurs · Avertissements (par défaut) · Notices · Infos · Tout : chaque choix inclut les niveaux plus graves |
+| Source | la catégorie sous laquelle le serveur a reçu la ligne (champ `source`) : choisie en cliquant la matrice, retirée par sa pastille |
 
-- **Histogramme** : nombre de lignes par tranche de temps, empilées par criticité. Cliquer sur une barre, ou glisser sur plusieurs, zoome sur cette période.
+- **Matrice** (à gauche, au-dessus de la liste) : le nombre de lignes de la période, une colonne par **source** (hôtes, ESPHome, Omada, Docker, et « sans source » pour les lignes reçues avant que le serveur ne les étiquette) et une ligne par criticité (critique regroupe les trois niveaux les plus graves). Elle montre **tous les niveaux**, quel que soit le filtre de criticité, et suit les autres filtres (hôte, site, tag, application, période, texte). Cliquer l'en-tête d'une colonne filtre sur la source ; cliquer une cellule filtre sur la source **et** règle la criticité minimale sur sa ligne (les niveaux plus graves sont inclus). Masquée en direct.
+- **Histogramme** (à droite de la matrice) : nombre de lignes par tranche de temps, empilées par criticité. Cliquer sur une barre, ou glisser sur plusieurs, zoome sur cette période.
 - **Liste** : heure, criticité, hôte, application, message, de la plus récente à la plus ancienne. **Charger plus ancien** continue la lecture.
 - **Une ligne dépliée** montre le message entier et ses champs (facility, PID, adresse d'origine…), avec :
   - **Voir le contexte** : les 20 lignes d'avant et d'après sur le même hôte, toutes applications et criticités confondues ;
@@ -114,11 +116,12 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 |---|---|
 | `GET /api/logs` | lignes de la période, les plus récentes d'abord ; `limit` (200, 1000 au plus), `before` : heure de la dernière ligne de la page précédente |
 | `GET /api/logs/hits` | nombre de lignes par tranche de temps et par criticité |
+| `GET /api/logs/matrix` | nombre de lignes par source et par criticité (le filtre `severity` est ignoré : tous les niveaux) |
 | `GET /api/logs/fields?field=app\|facility` | valeurs d'un champ sur la période, les plus fréquentes d'abord |
 | `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
 | `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
 
-Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
+Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
 
 Le hub construit lui-même la requête envoyée au serveur : aucune requête LogsQL n'est acceptée du navigateur.

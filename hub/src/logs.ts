@@ -52,6 +52,8 @@ export interface LogFilters {
   maxSeverity?: number;
   apps?: string[];
   facilities?: string[];
+  // the category a journal was received as (field `source`, set by the listener of the log server); NO_SOURCE: none
+  sources?: string[];
   // words or a phrase looked for in the message, whatever the case
   text?: string;
   // excluded values, by field
@@ -60,6 +62,16 @@ export interface LogFilters {
 
 const anyOf = (field: string, values: string[]) => (values.length === 1 ? `${field}:=${quote(values[0])}` : `${field}:in(${values.map(quote).join(',')})`);
 
+// What the filter and the matrix call a journal without a `source`: received before the log server tagged its listeners,
+// or on a listener without a tag.
+export const NO_SOURCE = '_none';
+
+const sourceCondition = (values: string[]) => {
+  const named = values.filter((v) => v !== NO_SOURCE);
+  if (!values.includes(NO_SOURCE)) return anyOf('source', named);
+  return named.length ? `(${anyOf('source', named)} or source:"")` : 'source:""';
+};
+
 // The filter part of a query: every condition must hold. '*' when there is none.
 export function filterQuery(f: LogFilters) {
   const parts: string[] = [];
@@ -67,6 +79,7 @@ export function filterQuery(f: LogFilters) {
   if (f.maxSeverity !== undefined && f.maxSeverity < 7) parts.push(`severity:<=${Math.max(0, Math.trunc(f.maxSeverity))}`);
   if (f.apps?.length) parts.push(anyOf('app_name', f.apps));
   if (f.facilities?.length) parts.push(anyOf('facility_keyword', f.facilities));
+  if (f.sources?.length) parts.push(sourceCondition(f.sources));
   if (f.not?.hostnames?.length) parts.push(`!${anyOf('hostname', f.not.hostnames)}`);
   if (f.not?.apps?.length) parts.push(`!${anyOf('app_name', f.not.apps)}`);
   const text = f.text?.trim();
@@ -203,6 +216,25 @@ export async function queryHits(c: Server, f: LogFilters, range: LogRange, step:
     })
     .sort((a, b) => a.severity - b.severity);
   return { timestamps, series };
+}
+
+export interface LogMatrix {
+  // the columns: the known categories first (SOURCE_ORDER), the others by name, NO_SOURCE last
+  sources: string[];
+  cells: { source: string; severity: number; count: number }[];
+}
+
+const SOURCE_ORDER = ['host', 'esphome', 'omada', 'docker'];
+const sourceRank = (s: string) => (s === NO_SOURCE ? Infinity : SOURCE_ORDER.includes(s) ? SOURCE_ORDER.indexOf(s) : SOURCE_ORDER.length);
+
+// Number of journals per source and per severity, over the range (the matrix of the page).
+export async function queryMatrix(c: Server, f: LogFilters, range: LogRange): Promise<LogMatrix> {
+  const res = await call(c, '/select/logsql/query', { query: `${filterQuery(f)} | stats by (source, severity) count() n`, start: range.start, end: range.end, timeout: `${QUERY_TIMEOUT_MS / 1000}s` }, QUERY_TIMEOUT_MS + 2000);
+  const cells = jsonLines(await res.text())
+    .map((o) => ({ source: o.source || NO_SOURCE, severity: Number(o.severity), count: Number(o.n) || 0 }))
+    .filter((c) => Number.isInteger(c.severity) && c.severity >= 0 && c.severity <= 7 && c.count > 0);
+  const sources = [...new Set(cells.map((c) => c.source))].sort((a, b) => sourceRank(a) - sourceRank(b) || a.localeCompare(b));
+  return { sources, cells };
 }
 
 export const LOG_FIELDS = { app: 'app_name', facility: 'facility_keyword', hostname: 'hostname' } as const;

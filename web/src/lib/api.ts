@@ -1854,6 +1854,8 @@ export interface LogQuery {
   severity?: number;
   app?: string[];
   facility?: string[];
+  // the category a journal was received as (esphome, host…); '_none': without one
+  source?: string[];
   q?: string;
   notApp?: string[];
   notHostname?: string[];
@@ -1865,6 +1867,11 @@ export interface LogHits {
   step: string;
   timestamps: string[];
   series: { level: LogLevel; severity: number; values: number[]; total: number }[];
+}
+// journals per source (the columns) and per severity (the rows), every severity whatever the filter
+export interface LogMatrix {
+  sources: string[];
+  cells: { source: string; severity: number; count: number }[];
 }
 export interface LogSource {
   hostname: string;
@@ -2007,6 +2014,7 @@ export const api = {
   // journals of the hosts (admins and operators)
   logs: (q: LogQuery, limit: number, before?: string) => request<{ role: string; rows: LogRow[]; more: boolean }>('GET', `/api/logs?${logParams(q, { limit, before })}`),
   logHits: (q: LogQuery) => request<LogHits>('GET', `/api/logs/hits?${logParams(q)}`),
+  logMatrix: (q: LogQuery) => request<LogMatrix>('GET', `/api/logs/matrix?${logParams(q)}`),
   logFields: (field: 'app' | 'facility', q: LogQuery) => request<{ values: { value: string; hits: number }[] }>('GET', `/api/logs/fields?${logParams(q, { field })}`),
   logSources: (role?: string) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams({ role })}`),
   logContext: (role: string | undefined, hostname: string, time: string) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role }, { hostname, time })}`),

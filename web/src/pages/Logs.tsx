@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { ArrowUp, ChevronDown, ChevronRight, Copy, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, Modal, Segmented, Spinner } from '../components/ui';
-import { api, logParams, type LogHits, type LogLevel, type LogQuery, type LogRow } from '../lib/api';
+import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useHosts, useLogServers, useSites, useTags } from '../lib/queries';
 import { useToast } from '../lib/toast';
@@ -84,6 +84,7 @@ function useLogFilters() {
       severity: sev !== null && /^[0-7]$/.test(sev) ? +sev : DEFAULT_SEVERITY,
       app: list(params.get('app')),
       notApp: list(params.get('notApp')),
+      source: list(params.get('source')),
       q: params.get('q') ?? '',
       from: params.get('from') ?? DEFAULT_PERIOD,
       to: params.get('to') ?? '',
@@ -114,6 +115,7 @@ const toQuery = (f: Filters): LogQuery => ({
   severity: f.severity,
   ...(f.app.length ? { app: f.app } : {}),
   ...(f.notApp.length ? { notApp: f.notApp } : {}),
+  ...(f.source.length ? { source: f.source } : {}),
   ...(f.q ? { q: f.q } : {}),
 });
 
@@ -166,6 +168,75 @@ function Histogram({ hits, onZoom }: { hits: LogHits; onZoom: (from: string, to:
           <span>{barLabel(new Date(Date.parse(hits.timestamps[n - 1]) + step).toISOString(), long)}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// The rows of the matrix: the three worst severities together, then one row per level. A click on a cell keeps the
+// journals of its source up to its row (the severity filter keeps "up to").
+const MATRIX_ROWS: { level: LogLevel; max: number; severities: number[] }[] = [
+  { level: 'crit', max: 2, severities: [0, 1, 2] },
+  { level: 'error', max: 3, severities: [3] },
+  { level: 'warning', max: 4, severities: [4] },
+  { level: 'notice', max: 5, severities: [5] },
+  { level: 'info', max: 6, severities: [6] },
+  { level: 'debug', max: 7, severities: [7] },
+];
+const NO_SOURCE = '_none';
+const SOURCE_LABEL: Record<string, string> = { host: 'hôtes', esphome: 'ESPHome', omada: 'Omada', docker: 'Docker', [NO_SOURCE]: 'sans source' };
+
+// Journals per source (columns) and per severity (rows) over the range, whatever the severity filter: a click on a column
+// or on a cell filters on the source.
+function Matrix({ matrix, active, severity, onPick }: { matrix: LogMatrix; active: string[]; severity: number; onPick: (source: string, severity?: number) => void }) {
+  const count = (source: string, severities: number[]) => matrix.cells.filter((c) => c.source === source && severities.includes(c.severity)).reduce((sum, c) => sum + c.count, 0);
+  const totals = matrix.sources.map((s) => count(s, [0, 1, 2, 3, 4, 5, 6, 7]));
+  return (
+    <div className="panel overflow-x-auto p-3">
+      <table className="w-full border-separate border-spacing-0 text-xs">
+        <thead>
+          <tr>
+            <th className="pb-1.5 pr-3 text-left font-normal text-muted">Criticité</th>
+            {matrix.sources.map((s) => (
+              <th key={s} className="pb-1.5 text-right font-normal">
+                <button type="button" title={`Seulement ${SOURCE_LABEL[s] ?? s}`} onClick={() => onPick(s)} className={clsx('rounded px-2 py-0.5 hover:bg-raised', active.includes(s) ? 'bg-emerald-500/15 text-emerald-300' : 'text-zinc-300')}>
+                  {SOURCE_LABEL[s] ?? s}
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {MATRIX_ROWS.map((row) => (
+            <tr key={row.level}>
+              <td className={clsx('border-t border-line/60 py-1 pr-3', LEVEL_META[row.level].text)}>{LEVEL_META[row.level].label}</td>
+              {matrix.sources.map((s) => {
+                const n = count(s, row.severities);
+                const current = active.includes(s) && severity === row.max;
+                return (
+                  <td key={s} className="border-t border-line/60 py-1 text-right font-mono">
+                    {n ? (
+                      <button type="button" title={`${SOURCE_LABEL[s] ?? s} · jusqu'à ${LEVEL_META[row.level].label}`} onClick={() => onPick(s, row.max)} className={clsx('rounded px-2 py-0.5 hover:bg-raised', LEVEL_META[row.level].text, current && 'bg-emerald-500/15')}>
+                        {n.toLocaleString('fr-FR')}
+                      </button>
+                    ) : (
+                      <span className="px-2 text-zinc-600">—</span>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td className="border-t border-line pt-1 pr-3 text-muted">Total</td>
+            {totals.map((n, i) => (
+              <td key={matrix.sources[i]} className="border-t border-line px-2 pt-1 text-right font-mono text-zinc-300">{n.toLocaleString('fr-FR')}</td>
+            ))}
+          </tr>
+        </tfoot>
+      </table>
+      <p className="mt-2 text-[10px] text-muted">Tous les niveaux, quel que soit le filtre de criticité. Cliquer une colonne ou une cellule filtre sur la source.</p>
     </div>
   );
 }
@@ -344,6 +415,7 @@ export function Logs() {
 
   const sources = useQuery({ queryKey: ['logs', 'sources', f.role], queryFn: () => api.logSources(f.role || undefined), enabled: hasServer, staleTime: 60_000 });
   const apps = useQuery({ queryKey: ['logs', 'apps', query, range], queryFn: () => api.logFields('app', { ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData, staleTime: 30_000 });
+  const matrix = useQuery({ queryKey: ['logs', 'matrix', { ...query, severity: undefined }, range], queryFn: () => api.logMatrix({ ...query, severity: undefined, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const hits = useQuery({ queryKey: ['logs', 'hits', query, range], queryFn: () => api.logHits({ ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const rows = useInfiniteQuery({
     queryKey: ['logs', 'rows', query, range],
@@ -376,7 +448,7 @@ export function Logs() {
   const known = [...hosts].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const unknown = senders.filter((s) => !s.hostId);
   const noSender = sources.isSuccess && !senders.length;
-  const filtered = !!(f.host || f.hostname || f.site || f.tag || f.app.length || f.notApp.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
+  const filtered = !!(f.host || f.hostname || f.site || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
 
   const field = 'mb-1 block text-xs text-muted';
@@ -487,6 +559,11 @@ export function Logs() {
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmented label="Criticité minimale" options={SEVERITY_CHOICES} value={String(Math.max(3, f.severity))} onChange={(v) => set({ severity: +v })} />
+        {f.source.map((s) => (
+          <button key={s} type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus filtrer" onClick={() => set({ source: f.source.filter((x) => x !== s) })}>
+            {SOURCE_LABEL[s] ?? s} <X className="h-3 w-3" />
+          </button>
+        ))}
         {f.notApp.map((a) => (
           <button key={a} type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus exclure" onClick={() => set({ notApp: f.notApp.filter((x) => x !== a) })}>
             sans {a} <X className="h-3 w-3" />
@@ -510,9 +587,10 @@ export function Logs() {
         </div>
       ) : (
         <>
-          {!f.live && hits.data && hits.data.timestamps.length > 0 && (
-            <div className="mb-3">
-              <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} />
+          {!f.live && ((matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
+            <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+              <div>{matrix.data && matrix.data.sources.length > 0 && <Matrix matrix={matrix.data} active={f.source} severity={f.severity} onPick={(source, severity) => set({ source: [source], ...(severity !== undefined ? { severity } : {}) })} />}</div>
+              <div>{hits.data && hits.data.timestamps.length > 0 && <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} />}</div>
             </div>
           )}
           {f.live && (
