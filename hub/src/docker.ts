@@ -68,10 +68,14 @@ export interface DockerView {
   logs: DockerLogsView;
 }
 
-// A stack sends its journals once every container of it was created with the log settings of the collector.
+// containers that write journals: a stopped one sends nothing, followed or not
+const LOGGING_STATES = new Set(['running', 'restarting', 'paused']);
+
+// A stack sends its journals once every container of it that runs was created with the log settings of the collector. A
+// stopped stack has no state: recreating it would start it; started again as it is (up -d), it shows to recreate.
 export function stackLogs(st: Pick<DockerStack, 'services'>, collecting: boolean): StackLogs {
   if (!collecting) return null;
-  const marks = st.services.flatMap((s) => s.containers.map((c) => c.logFollowed)).filter((m) => m !== undefined);
+  const marks = st.services.flatMap((s) => s.containers.filter((c) => LOGGING_STATES.has(c.state)).map((c) => c.logFollowed)).filter((m) => m !== undefined);
   if (!marks.length) return null;
   return marks.every(Boolean) ? 'followed' : 'recreate';
 }

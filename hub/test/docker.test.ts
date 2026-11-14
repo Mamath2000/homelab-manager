@@ -167,6 +167,11 @@ test('journals of the containers: followed, to recreate, or nothing while the co
   assert.equal(stackLogs(st([]), true), null);
   assert.equal(stackLogs(st([undefined]), true), null);
   assert.equal(stackLogs(st([true]), false), null);
+  // a stopped container sends nothing: it does not count (a stopped stack has no state)
+  const stopped = (marks: boolean[]) => ({ services: [{ name: 'app', image: 'app', containers: marks.map((m, i) => ({ id: `c${i}`, name: `c${i}`, state: i === 0 ? 'exited' : 'running', status: '', imageId: 'x', logFollowed: m })) }] });
+  assert.equal(stackLogs(stopped([false]), true), null);
+  assert.equal(stackLogs(stopped([false, true]), true), 'followed');
+  assert.equal(stackLogs(stopped([true, false]), true), 'recreate');
 
   const state = { address: '192.168.100.172', port: 517, daemon: 'ok' as const, collector: 'running' as const };
   const h = dockerHost({ stacks: [stack('web', 'running', [['app', 'app:1', 'running']])], logCollect: state });
