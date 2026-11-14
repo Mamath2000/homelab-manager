@@ -4,7 +4,7 @@ import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@t
 import clsx from 'clsx';
 import { ArrowUp, ChevronDown, ChevronRight, Copy, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { Badge, Button, Empty, Modal, Segmented, Spinner } from '../components/ui';
+import { Badge, Button, Empty, Modal, Spinner } from '../components/ui';
 import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { useHosts, useLogServers, useSites, useTags } from '../lib/queries';
@@ -27,6 +27,7 @@ const PERIODS = [
 ] as const;
 const DEFAULT_PERIOD = '1h';
 const DEFAULT_SEVERITY = 4;
+const ALL_SEVERITIES = 7; // debug and worse: every journal
 
 // the worst severity kept, as a choice: each one includes the ones before it
 const SEVERITY_CHOICES = [
@@ -186,6 +187,19 @@ const MATRIX_ROWS: { level: LogLevel; max: number; severities: number[]; tone: T
 ];
 const NO_SOURCE = '_none';
 const SOURCE_LABEL: Record<string, string> = { host: 'hôtes', esphome: 'ESPHome', omada: 'Omada', docker: 'Docker', [NO_SOURCE]: 'sans source' };
+
+// The sites as blocks to pick: a click selects the site, a second one lets it go, none selected is every site. It narrows the matrix.
+function SiteBlocks({ sites, site, onSite }: { sites: { id: string; name: string }[]; site: string; onSite: (id: string) => void }) {
+  return (
+    <div className="flex shrink-0 flex-col justify-center gap-1" role="group" aria-label="Sites">
+      {sites.map((s) => (
+        <button key={s.id} type="button" aria-pressed={site === s.id} title={site === s.id ? 'Ne plus filtrer' : `Seulement ${s.name}`} onClick={() => onSite(s.id)} className={clsx('panel truncate px-3 py-1.5 text-left text-xs font-semibold text-muted hover:text-zinc-200', site === s.id && 'bg-emerald-500/10 !text-zinc-100 ring-1 ring-emerald-500')}>
+          {s.name}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 // Journals per source (columns) and per criticity (rows) over the period, whatever the other filters.
 function Matrix({ matrix, source, severity, onSource, onSeverity, onCell }: { matrix: LogMatrix; source: string[]; severity: number; onSource: (s: string) => void; onSeverity: (max: number) => void; onCell: (s: string, max: number) => void }) {
@@ -407,7 +421,7 @@ export function Logs() {
 
   const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source, f.from], queryFn: () => api.logSources(f.role || undefined, f.source, f.from), enabled: hasServer, staleTime: 60_000 });
   const apps = useQuery({ queryKey: ['logs', 'apps', query, range], queryFn: () => api.logFields('app', { ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData, staleTime: 30_000 });
-  const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
+  const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, f.site, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...(f.site ? { site: f.site } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const hits = useQuery({ queryKey: ['logs', 'hits', query, range], queryFn: () => api.logHits({ ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const rows = useInfiniteQuery({
     queryKey: ['logs', 'rows', query, range],
@@ -451,19 +465,25 @@ export function Logs() {
         {servers.length === 1 && <span className="truncate text-xs text-muted">{servers[0].name}</span>}
       </HeaderTitle>
 
-      {!f.live && !failure && !noSender && ((matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
+      {!f.live && !failure && !noSender && (f.site !== '' || (matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
         <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-          {matrix.data && matrix.data.sources.length > 0 ? <Matrix
+          <div className="flex min-w-0 gap-3">
+            {sites.length > 1 && <SiteBlocks sites={sites} site={f.site} onSite={(id) => set({ site: f.site === id ? '' : id })} />}
+            <div className="min-w-0 flex-1">{matrix.data && matrix.data.sources.length > 0 ? <Matrix
             matrix={matrix.data}
             source={f.source}
             severity={f.severity}
-            onSource={(s) => set({ source: f.source.includes(s) ? [] : [s] })}
+            onSource={(s) => {
+              const same = f.source.includes(s);
+              set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : ALL_SEVERITIES });
+            }}
             onSeverity={(max) => set({ severity: f.severity === max ? DEFAULT_SEVERITY : max })}
             onCell={(s, max) => {
               const same = f.source.includes(s) && f.severity === max;
               set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : max });
             }}
-          /> : <div />}
+          /> : <div className="panel flex h-full items-center justify-center p-4 text-xs text-muted">Aucun journal sur la période{f.site ? ' pour ce site' : ''}.</div>}</div>
+          </div>
           {hits.data && hits.data.timestamps.length > 0 ? <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} /> : <div />}
         </div>
       )}
@@ -483,15 +503,6 @@ export function Logs() {
             {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
-        {sites.length > 1 && (
-          <label className="min-w-0">
-            <span className={field}>Site</span>
-            <select className="input w-full" value={f.site} onChange={(e) => set({ site: e.target.value })}>
-              <option value="">Tous</option>
-              {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </label>
-        )}
         {tags.length > 0 && (
           <label className="min-w-0">
             <span className={field}>Tag</span>
@@ -555,7 +566,6 @@ export function Logs() {
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Segmented label="Criticité minimale" options={SEVERITY_CHOICES} value={String(Math.max(3, f.severity))} onChange={(v) => set({ severity: +v })} />
         {f.source.map((s) => (
           <button key={s} type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus filtrer" onClick={() => set({ source: f.source.filter((x) => x !== s) })}>
             {SOURCE_LABEL[s] ?? s} <X className="h-3 w-3" />
