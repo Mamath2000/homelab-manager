@@ -228,6 +228,7 @@ export interface LogMatrix {
 
 const SOURCE_ORDER = ['host', 'esphome', 'omada', 'docker'];
 const sourceRank = (s: string) => (s === NO_SOURCE ? Infinity : SOURCE_ORDER.includes(s) ? SOURCE_ORDER.indexOf(s) : SOURCE_ORDER.length);
+const sortSources = (list: string[]) => [...new Set(list)].sort((a, b) => sourceRank(a) - sourceRank(b) || a.localeCompare(b));
 
 // Number of journals per source and per severity, over the range (the matrix of the page).
 export async function queryMatrix(c: Server, f: LogFilters, range: LogRange): Promise<LogMatrix> {
@@ -235,8 +236,7 @@ export async function queryMatrix(c: Server, f: LogFilters, range: LogRange): Pr
   const cells = jsonLines(await res.text())
     .map((o) => ({ source: o.source || NO_SOURCE, severity: Number(o.severity), count: Number(o.n) || 0 }))
     .filter((c) => Number.isInteger(c.severity) && c.severity >= 0 && c.severity <= 7 && c.count > 0);
-  const sources = [...new Set(cells.map((c) => c.source))].sort((a, b) => sourceRank(a) - sourceRank(b) || a.localeCompare(b));
-  return { sources, cells };
+  return { sources: sortSources(cells.map((c) => c.source)), cells };
 }
 
 export const LOG_FIELDS = { app: 'app_name', facility: 'facility_keyword', hostname: 'hostname' } as const;
@@ -331,15 +331,31 @@ export interface LogSender {
   lastAt: number;
   count: number;
   errors: number;
+  // the address it sends from, as the server recorded it (useRemoteIP): a sender the hub does not know by its name may
+  // be known by it
+  ip?: string;
 }
 
-// Who sent journals in the range: the last one of each, how many, and how many errors (severity err and worse).
-export async function querySenders(c: Server, start: string, sources?: string[]): Promise<LogSender[]> {
-  const only = sources?.length ? `${sourceCondition(sources)} ` : '';
-  const res = await call(c, '/select/logsql/query', { query: `${only}!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors`, start, timeout: '15s' }, 17_000);
+// Who sent journals in the range (and matches the filters): the last one of each, how many, and how many errors
+// (severity err and worse).
+export async function querySenders(c: Server, start: string, f: LogFilters = {}, end?: string): Promise<LogSender[]> {
+  const only = filterQuery(f);
+  const res = await call(
+    c,
+    '/select/logsql/query',
+    { query: `${only === '*' ? '' : `${only} `}!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors, max(remote_ip) ip`, start, end, timeout: '15s' },
+    17_000,
+  );
   return jsonLines(await res.text())
     .filter((o) => o.hostname)
-    .map((o) => ({ hostname: o.hostname, lastAt: Date.parse(o.last) || 0, count: Number(o.n) || 0, errors: Number(o.errors) || 0 }));
+    .map((o) => ({ hostname: o.hostname, lastAt: Date.parse(o.last) || 0, count: Number(o.n) || 0, errors: Number(o.errors) || 0, ...(o.ip ? { ip: o.ip } : {}) }));
+}
+
+// The categories the server received over the range, whatever the other filters: the columns of the matrix, the same
+// for every site.
+export async function querySources(c: Server, range: LogRange): Promise<string[]> {
+  const res = await call(c, '/select/logsql/query', { query: `* | stats by (source) count() n`, start: range.start, end: range.end, timeout: `${QUERY_TIMEOUT_MS / 1000}s` }, QUERY_TIMEOUT_MS + 2000);
+  return sortSources(jsonLines(await res.text()).filter((o) => Number(o.n) > 0).map((o) => o.source || NO_SOURCE));
 }
 
 // Live tail: every journal that matches, as it comes, until the signal aborts. A row the server cannot give is skipped.

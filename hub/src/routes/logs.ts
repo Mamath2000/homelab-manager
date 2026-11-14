@@ -1,13 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { isOnline } from '../agents.js';
 import { config } from '../config.js';
-import { hosts, parseId } from '../db.js';
+import { loadSites } from '../catalog.js';
+import { equipments, hosts, parseId } from '../db.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { hasRunningJob } from '../jobs.js';
 import { applySetup, canSetup, effectiveValues, loadSetupProfile, overridesError } from '../setup.js';
 import { trackStream } from '../events.js';
-import { hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
+import { hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, querySources, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
 import type { HostDoc, LogServerRole, SetupOverrides, SetupProfile } from '../types.js';
 
 // Journals of the hosts, read on a log server (logs.ts). Admins and operators (profiles.ts), never an API key: a journal
@@ -81,17 +82,63 @@ const STEPS: [number, string][] = [
 ];
 export const stepOf = (spanMs: number) => (STEPS.find(([ms]) => spanMs / ms <= 60) ?? STEPS[STEPS.length - 1])[1];
 
-type KnownHost = { id: string; name: string; hostname: string; siteId?: string; tags?: string[] };
+type KnownHost = { id: string; name: string; hostname: string; siteId?: string; tags?: string[]; ips?: string[] };
 
 // The hosts of the hub by the name their journals carry.
 async function knownHosts(): Promise<KnownHost[]> {
-  const docs = await hosts.find({}, { projection: { name: 1, 'info.hostname': 1, siteId: 1, tags: 1 } }).toArray();
-  return docs.map((h) => ({ id: h._id.toHexString(), name: h.name, hostname: h.info?.hostname ?? '', siteId: h.siteId?.toString(), tags: h.tags }));
+  const docs = await hosts.find({}, { projection: { name: 1, 'info.hostname': 1, 'info.ips': 1, siteId: 1, tags: 1 } }).toArray();
+  return docs.map((h) => ({ id: h._id.toHexString(), name: h.name, hostname: h.info?.hostname ?? '', siteId: h.siteId?.toString(), tags: h.tags, ips: h.info?.ips ?? [] }));
+}
+
+type KnownEquipment = { name: string; ip?: string; siteId?: string };
+type Located = { hostname: string; siteId: string };
+
+// The site of each sender of the journals: the host of the hub of that name; else the host or the equipment (an Omada
+// one carries its site) at the address it sends from or that it names itself by; else the main site. An ESPHome cannot
+// say its site in its syslog: it gets the main one unless it is an equipment.
+export function locateSenders(senders: { hostname: string; ip?: string }[], known: KnownHost[], equip: KnownEquipment[], mainSite: string | undefined): Located[] {
+  const byName = new Map(known.filter((h) => h.hostname && h.siteId).map((h) => [hostKey(h.hostname), h.siteId!]));
+  const byIp = new Map<string, string>();
+  for (const h of known) if (h.siteId) for (const ip of h.ips ?? []) byIp.set(ip.split('/')[0], h.siteId);
+  const equipByName = new Map<string, string>();
+  for (const e of equip) {
+    if (!e.siteId) continue;
+    if (e.ip) byIp.set(e.ip, e.siteId);
+    equipByName.set(hostKey(e.name), e.siteId);
+  }
+  return senders.flatMap((s) => {
+    const siteId = byName.get(hostKey(s.hostname)) ?? byIp.get(s.hostname) ?? equipByName.get(hostKey(s.hostname)) ?? (s.ip ? byIp.get(s.ip) : undefined) ?? mainSite;
+    return siteId ? [{ hostname: s.hostname, siteId }] : [];
+  });
+}
+
+// The senders of a range with their site, kept a little: every panel of the page asks for them at once.
+const LOCATE_MS = 30_000;
+const located = new Map<string, { at: number; list: Promise<Located[]> }>();
+function locatedSenders(role: LogServerRole, range: LogRange, key: string, known: KnownHost[]): Promise<Located[]> {
+  const k = `${role._id}|${key}`;
+  const now = Date.now();
+  for (const [x, v] of located) if (now - v.at > LOCATE_MS) located.delete(x);
+  const hit = located.get(k);
+  if (hit) return hit.list;
+  const list = (async () => {
+    const [senders, equip, sites] = await Promise.all([
+      querySenders(role.config, range.start, {}, range.end),
+      equipments.find({}, { projection: { name: 1, ip: 1, siteId: 1 } }).toArray(),
+      loadSites(),
+    ]);
+    const main = sites.find((s) => s.kind === 'main')?.id ?? sites[0]?.id;
+    return locateSenders(senders, known, equip.map((e) => ({ name: e.name, ip: e.ip, siteId: e.siteId })), main);
+  })();
+  list.catch(() => located.delete(k));
+  located.set(k, { at: now, list });
+  return list;
 }
 
 // The filters of a request as the server takes them. The hosts of the hub are named by their id, a site or a tag is
-// the hosts it holds; null: the selection holds no host that can send (nothing to return).
-export function filtersOf(q: FilterQuery, known: KnownHost[]): LogFilters | null {
+// the hosts it holds (a site also the senders located there, locateSenders); null: the selection holds no host that can
+// send (nothing to return).
+export function filtersOf(q: FilterQuery, known: KnownHost[], senders: Located[] = []): LogFilters | null {
   const names = new Set(split(q.hostname));
   let narrowed = false;
   const ids = split(q.host);
@@ -105,6 +152,11 @@ export function filtersOf(q: FilterQuery, known: KnownHost[]): LogFilters | null
       if (q.tag && !h.tags?.includes(q.tag)) continue;
       names.add(h.hostname);
     }
+    // a sender the hub does not know has no tag and is no host of it
+    if (sites.length && !ids.length && !q.tag) {
+      const own = new Set(known.filter((h) => h.hostname).map((h) => hostKey(h.hostname)));
+      for (const s of senders) if (sites.includes(s.siteId) && !own.has(hostKey(s.hostname))) names.add(s.hostname);
+    }
   }
   if (narrowed && !names.size) return null;
   return {
@@ -116,6 +168,12 @@ export function filtersOf(q: FilterQuery, known: KnownHost[]): LogFilters | null
     ...(q.q?.trim() ? { text: q.q.trim() } : {}),
     ...(q.notApp || q.notHostname ? { not: { apps: split(q.notApp), hostnames: split(q.notHostname) } } : {}),
   };
+}
+
+// The filters of a request, the senders of its range located when it names a site.
+async function resolveFilters(role: LogServerRole, q: FilterQuery & RangeQuery, known: KnownHost[], range: LogRange) {
+  const senders = split(q.site).length ? await locatedSenders(role, range, `${q.from ?? '1h'}|${q.to ?? ''}`, known) : [];
+  return filtersOf(q, known, senders);
 }
 
 // Each row with the host of the hub that sent it (null: a sender the hub does not know).
@@ -195,7 +253,7 @@ export function registerLogRoutes(app: FastifyInstance) {
         if (req.query.before !== undefined && !TIME_RE.test(req.query.before)) throw new BadRequest('before invalide');
         const range = rangeOf(req.query);
         const known = await knownHosts();
-        const filters = filtersOf(req.query, known);
+        const filters = await resolveFilters(role, req.query, known, range);
         const limit = req.query.limit ?? 200;
         if (!filters) return { role: role._id, rows: [], more: false };
         // one more row tells whether a next page exists
@@ -217,7 +275,7 @@ export function registerLogRoutes(app: FastifyInstance) {
       try {
         const range = rangeOf(req.query);
         const step = stepOf(range.endMs - range.startMs);
-        const filters = filtersOf(req.query, await knownHosts());
+        const filters = await resolveFilters(role, req.query, await knownHosts(), range);
         if (!filters) return { step, timestamps: [], series: [] };
         return { step, ...(await queryHits(role.config, filters, { start: range.start, end: range.end }, step)) };
       } catch (err) {
@@ -236,9 +294,11 @@ export function registerLogRoutes(app: FastifyInstance) {
       if (!role) return reply;
       try {
         const range = rangeOf(req.query);
-        const filters = filtersOf({ ...req.query, severity: undefined }, await knownHosts());
-        if (!filters) return { sources: [], cells: [] };
-        return await queryMatrix(role.config, filters, { start: range.start, end: range.end });
+        const at = { start: range.start, end: range.end };
+        const [filters, sources] = await Promise.all([resolveFilters(role, { ...req.query, severity: undefined }, await knownHosts(), range), querySources(role.config, at)]);
+        // the columns are the sources of the whole server: a site that has none of them shows an empty matrix
+        const cells = filters ? (await queryMatrix(role.config, filters, at)).cells : [];
+        return { sources, cells };
       } catch (err) {
         return fail(reply, err);
       }
@@ -257,7 +317,7 @@ export function registerLogRoutes(app: FastifyInstance) {
         const range = rangeOf(req.query);
         const { field } = req.query;
         const q = { ...req.query, ...(field === 'app' ? { app: undefined, notApp: undefined } : field === 'facility' ? { facility: undefined } : {}) };
-        const filters = filtersOf(q, await knownHosts());
+        const filters = await resolveFilters(role, q, await knownHosts(), range);
         if (!filters) return { values: [] };
         return { values: await queryFieldValues(role.config, field, filters, { start: range.start, end: range.end }) };
       } catch (err) {
@@ -266,28 +326,25 @@ export function registerLogRoutes(app: FastifyInstance) {
     },
   );
 
-  // Who sent journals over the range: the hosts of the hub and the senders it does not know, with their last journal.
-  app.get<{ Querystring: { role?: string; from?: string; source?: string; site?: string } }>(
+  // Who sent journals over the range and matches the filters (the page sends the ones of its head: sites, source,
+  // severity): the hosts of the hub and the senders it does not know, with their last journal and their errors.
+  app.get<{ Querystring: FilterQuery & RangeQuery }>(
     '/api/logs/sources',
-    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { role: filterProps.role, from: rangeProps.from, source: filterProps.source, site: filterProps.site } } } },
+    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { ...filterProps, ...rangeProps } } } },
     async (req, reply) => {
       const role = serverOf(req, reply, req.query.role);
       if (!role) return reply;
       try {
-        const range = rangeOf({ from: req.query.from ?? '1d' });
-        const [senders, known] = await Promise.all([querySenders(role.config, range.start, split(req.query.source)), knownHosts()]);
+        const range = rangeOf(req.query);
+        const known = await knownHosts();
+        const filters = await resolveFilters(role, req.query, known, range);
+        if (!filters) return { role: role._id, sources: [] };
+        const senders = await querySenders(role.config, range.start, filters, range.end);
         const byKey = new Map(known.filter((h) => h.hostname).map((h) => [hostKey(h.hostname), h]));
-        // like the other filters, a site keeps the hosts it holds: a sender the hub does not know has none
-        const sites = split(req.query.site);
-        const inSites = (hostname: string) => {
-          const h = byKey.get(hostKey(hostname));
-          return !sites.length || !!(h?.siteId && sites.includes(h.siteId));
-        };
         return {
           role: role._id,
           sources: senders
-            .filter((s) => inSites(s.hostname))
-            .map((s) => ({ ...s, hostId: byKey.get(hostKey(s.hostname))?.id ?? null, hostName: byKey.get(hostKey(s.hostname))?.name ?? s.hostname }))
+            .map(({ ip: _ip, ...s }) => ({ ...s, hostId: byKey.get(hostKey(s.hostname))?.id ?? null, hostName: byKey.get(hostKey(s.hostname))?.name ?? s.hostname }))
             .sort((a, b) => a.hostName.localeCompare(b.hostName)),
         };
       } catch (err) {
@@ -423,7 +480,13 @@ export function registerLogRoutes(app: FastifyInstance) {
       const role = serverOf(req, reply, req.query.role);
       if (!role) return reply;
       const known = await knownHosts();
-      const filters = filtersOf(req.query, known);
+      let filters: LogFilters | null;
+      try {
+        // the senders of the last day give the site of the ones the hub does not know
+        filters = await resolveFilters(role, { ...req.query, from: '1d' }, known, rangeOf({ from: '1d' }));
+      } catch (err) {
+        return fail(reply, err);
+      }
       if (tails >= MAX_TAILS) return reply.code(429).send({ error: 'trop de suivis en direct ouverts : en fermer un' });
       tails++;
       reply.hijack();

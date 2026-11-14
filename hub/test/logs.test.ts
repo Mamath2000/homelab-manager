@@ -8,7 +8,7 @@ import { filterQuery, hostKey, LOG_URL_RE, logTarget, NO_SOURCE, queryHits, quer
 import { authorize } from '../src/profiles.js';
 import { ROLE_DEFS, roleConflict } from '../src/roles.js';
 import { roleView } from '../src/roleView.js';
-import { filtersOf, rangeOf, stepOf } from '../src/routes/logs.js';
+import { filtersOf, locateSenders, rangeOf, stepOf } from '../src/routes/logs.js';
 import { configError, toConfig } from '../src/routes/roles.js';
 import { DEFAULT_SETUP, buildSpec, logForwardSkip, withLogForward } from '../src/setup.js';
 import type { LogServerConfig, RoleDoc, SetupProfile, SetupState } from '../src/types.js';
@@ -81,6 +81,44 @@ test('logs: hosts, sites and tags of the hub become the names the journals carry
   assert.equal(filtersOf({ host: 'zzz' }, known), null);
   assert.deepEqual(filtersOf({}, known), {});
   assert.equal(hostKey('PVE1.lan'), hostKey('pve1'));
+});
+
+test('logs: a sender the hub does not know is located by an equipment, the address it sends from, else the main site', () => {
+  const known = [
+    { id: 'a', name: 'PVE 1', hostname: 'pve1', siteId: 's1', ips: ['192.168.100.241/24'] },
+    { id: 'r', name: 'pje1', hostname: 'pje1', siteId: 's2', ips: ['192.168.10.241'] },
+  ];
+  const equip = [
+    { name: 'ER707-M2', ip: '192.168.100.1', siteId: 's1' },
+    { name: 'svlb-06', ip: '192.168.90.165', siteId: 's2' },
+    { name: 'no site', ip: '192.168.90.9' },
+  ];
+  const located = locateSenders(
+    [
+      { hostname: 'pve1', ip: '192.168.10.241' }, // the host of the hub wins over the address
+      { hostname: '192.168.100.1', ip: '192.168.100.1' }, // Omada names itself by its address
+      { hostname: 'SVLB-06', ip: '192.168.90.165' },
+      { hostname: 'general', ip: '192.168.10.241' }, // relayed by a host of the hub
+      { hostname: 'air-sensor', ip: '192.168.90.25' }, // an ESPHome: the main site
+    ],
+    known,
+    equip,
+    's9',
+  );
+  assert.deepEqual(located, [
+    { hostname: 'pve1', siteId: 's1' },
+    { hostname: '192.168.100.1', siteId: 's1' },
+    { hostname: 'SVLB-06', siteId: 's2' },
+    { hostname: 'general', siteId: 's2' },
+    { hostname: 'air-sensor', siteId: 's9' },
+  ]);
+  // a site holds its hosts and the senders located there; a host of the hub keeps its own site
+  assert.deepEqual(filtersOf({ site: 's9' }, known, located), { hostnames: ['air-sensor'] });
+  assert.deepEqual(filtersOf({ site: 's2' }, known, located), { hostnames: ['pje1', 'SVLB-06', 'general'] });
+  // a site without any sender returns nothing
+  assert.equal(filtersOf({ site: 's7' }, known, located), null);
+  // a tag never takes a sender the hub does not know
+  assert.equal(filtersOf({ site: 's9', tag: 'prod' }, known, located), null);
 });
 
 test('logs: read by admins and operators only', () => {

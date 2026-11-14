@@ -138,8 +138,9 @@ function Histogram({ hits, onZoom }: { hits: LogHits; onZoom: (from: string, to:
   };
   // the worst severities at the bottom of each bar
   const series = [...hits.series].sort((a, b) => a.severity - b.severity);
+  if (!n) return <div className="panel flex h-full min-h-[8rem] items-center justify-center p-3 text-xs text-muted">Aucun journal pour cette sélection.</div>;
   return (
-    <div className="panel flex h-full flex-col p-3">
+    <div className="panel flex min-h-[8rem] flex-1 flex-col p-3">
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         <span className="text-zinc-300">{totals.reduce((a, b) => a + b, 0).toLocaleString('fr-FR')} lignes</span>
         {series.map((s) => (
@@ -186,6 +187,8 @@ const MATRIX_ROWS: { level: LogLevel; max: number; severities: number[]; tone: T
   { level: 'debug', max: 7, severities: [7], tone: 'neutral' },
 ];
 const NO_SOURCE = '_none';
+// a click upstream (a site, the matrix) lets the sender picked go: it may not be in the new selection
+const NO_SENDER = { host: '', hostname: '' };
 const SOURCE_LABEL: Record<string, string> = { host: 'hôtes', esphome: 'ESPHome', omada: 'Omada', docker: 'Docker', [NO_SOURCE]: 'sans source' };
 
 // The sites as blocks to pick: a click selects the site, a second one lets it go, several can be held, none is every site.
@@ -212,6 +215,7 @@ function SenderCloud({ senders, current, onPick }: { senders: { key: string; lab
   const top = Math.log1p(Math.max(0, ...sorted.map((x) => x.errors)));
   return (
     <div className="panel flex h-full max-h-56 min-w-0 flex-wrap content-start items-center gap-1.5 overflow-auto px-3 py-2.5" role="group" aria-label="Émetteurs, les plus en difficulté en premier">
+      {!sorted.length && <span className="m-auto text-xs text-muted">Aucun émetteur pour cette sélection.</span>}
       {sorted.map((x) => {
         const on = current === x.key;
         const size = top > 0 ? 0.7 + 0.6 * (Math.log1p(x.errors) / top) : 0.75;
@@ -234,16 +238,18 @@ function SenderCloud({ senders, current, onPick }: { senders: { key: string; lab
   );
 }
 
-// Journals per source (columns) and per criticity (rows) over the period, whatever the other filters.
+// Journals per source (columns) and per criticity (rows) over the period, for the selected sites only. Fixed: every source
+// of the server is a column, every level a row, an empty cell shows "-".
 function Matrix({ matrix, source, severity, onSource, onSeverity, onCell }: { matrix: LogMatrix; source: string[]; severity: number; onSource: (s: string) => void; onSeverity: (max: number) => void; onCell: (s: string, max: number) => void }) {
   const count = (src: string, severities: number[]) => matrix.cells.filter((c) => c.source === src && severities.includes(c.severity)).reduce((sum, c) => sum + c.count, 0);
   const all = [0, 1, 2, 3, 4, 5, 6, 7];
-  const cols = `minmax(4.5rem,1.3fr) repeat(${matrix.sources.length}, minmax(3rem,1fr)) minmax(3rem,.8fr)`;
+  const cols = `minmax(4.5rem,1.3fr) ${matrix.sources.length ? `repeat(${matrix.sources.length}, minmax(3rem,1fr)) ` : ''}minmax(3rem,.8fr)`;
   const head = 'flex h-5 items-center justify-center truncate rounded-sm px-1 text-[11px] font-semibold text-muted';
   const cell = 'flex h-[22px] items-center justify-center rounded-sm text-xs font-semibold tabular-nums';
-  const fmt = (n: number) => n.toLocaleString('fr-FR');
-  // the severity filter is "on" only when it is not the default one
-  const rowOn = (max: number) => severity === max && severity !== DEFAULT_SEVERITY;
+  const fmt = (n: number) => (n ? n.toLocaleString('fr-FR') : '-');
+  // the severity filter is "on" only when it is not the default one, nor every severity (a column alone: "up to debug" is
+  // every journal, never shown as the debug row)
+  const rowOn = (max: number) => severity === max && severity !== DEFAULT_SEVERITY && severity !== ALL_SEVERITIES;
   return (
     <div className="panel flex h-full min-w-0 flex-col justify-center px-4 py-2.5">
       <div className="grid gap-0.5" style={{ gridTemplateColumns: cols }} role="grid" aria-label="Journaux par source et par criticité, la couleur est la criticité">
@@ -261,8 +267,8 @@ function Matrix({ matrix, source, severity, onSource, onSeverity, onCell }: { ma
             </button>
             {matrix.sources.map((src) => {
               const n = count(src, row.severities);
-              if (!n) return <span key={src} className={clsx(cell, 'font-normal text-zinc-600')}>·</span>;
-              const active = source.includes(src) && severity === row.max;
+              const active = source.includes(src) && severity === row.max && severity !== ALL_SEVERITIES;
+              if (!n) return <span key={src} className={clsx(cell, 'font-normal text-zinc-600', active && 'ring-2 ring-inset ring-zinc-100')}>-</span>;
               return (
                 <button key={src} type="button" aria-pressed={active} title={`${SOURCE_LABEL[src] ?? src} · jusqu'à ${LEVEL_META[row.level].label}`} onClick={() => onCell(src, row.max)} className={clsx(cell, 'ring-1 ring-inset transition hover:brightness-125', toneBadge[row.tone], active && 'ring-2 !ring-zinc-100')}>
                   {fmt(n)}
@@ -452,10 +458,16 @@ export function Logs() {
   const hasServer = servers.length > 0;
   const absolute = !/^\d+[mhd]$/.test(f.from);
 
-  const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source, f.from, f.site], queryFn: () => api.logSources(f.role || undefined, f.source, f.from, f.site), enabled: hasServer, staleTime: 60_000 });
+  // The head of the page cascades, the period over all of it: the sites narrow the matrix, the sites and the matrix (source,
+  // criticity) the senders, the sites, the matrix and the sender the histogram. The filters above the list touch the list
+  // only.
+  const head: LogQuery = { ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...range };
+  const picked: LogQuery = { ...head, ...(f.source.length ? { source: f.source } : {}), ...(f.severity !== DEFAULT_SEVERITY ? { severity: f.severity } : {}) };
+  const sender: LogQuery = { ...picked, severity: f.severity, ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}) };
+  const matrix = useQuery({ queryKey: ['logs', 'matrix', head], queryFn: () => api.logMatrix(head), enabled: hasServer, placeholderData: keepPreviousData });
+  const sources = useQuery({ queryKey: ['logs', 'sources', picked], queryFn: () => api.logSources(picked), enabled: hasServer, placeholderData: keepPreviousData });
+  const hits = useQuery({ queryKey: ['logs', 'hits', sender], queryFn: () => api.logHits(sender), enabled: hasServer, placeholderData: keepPreviousData });
   const apps = useQuery({ queryKey: ['logs', 'apps', query, range], queryFn: () => api.logFields('app', { ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData, staleTime: 30_000 });
-  const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, f.site, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
-  const hits = useQuery({ queryKey: ['logs', 'hits', query, range], queryFn: () => api.logHits({ ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const rows = useInfiniteQuery({
     queryKey: ['logs', 'rows', query, range],
     queryFn: ({ pageParam }) => api.logs({ ...query, ...range }, PAGE, pageParam),
@@ -477,20 +489,22 @@ export function Logs() {
   }
 
   const shown = f.live ? live.rows : (rows.data?.pages.flatMap((p) => p.rows) ?? []);
-  const failure = (f.live ? null : (rows.error ?? hits.error)) as Error | null;
+  const failure = (matrix.error ?? (f.live ? null : rows.error)) as Error | null;
   const refresh = () => qc.invalidateQueries({ queryKey: ['logs'] });
   const rowKey = (r: LogRow, i: number) => `${r.time}|${r.hostname}|${i}`;
 
-  // the distinct senders of the period (narrowed by the source), a host of the hub keeping the name it has there
+  // the senders of the selection, a host of the hub keeping the name it has there; the one picked stays shown
   const senders = sources.data?.sources ?? [];
   const current = f.host ? `h:${f.host}` : f.hostname ? `n:${f.hostname}` : '';
   const cloud = senders.map((x) => ({ key: x.hostId ? `h:${x.hostId}` : `n:${x.hostname}`, label: x.hostName, count: x.count, errors: x.errors }));
   if (current && sources.isSuccess && !cloud.some((o) => o.key === current)) cloud.push({ key: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname, count: 0, errors: 0 });
-  const noSender = sources.isSuccess && !senders.length;
+  // the server received nothing at all over the period, whatever the sites
+  const nothing = matrix.isSuccess && !matrix.data.sources.length;
   const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
 
   const field = 'mb-1 block text-xs text-muted';
+  const small = 'input h-7 py-0 text-xs';
 
   return (
     <>
@@ -498,31 +512,69 @@ export function Logs() {
         {servers.length === 1 && <span className="truncate text-xs text-muted">{servers[0].name}</span>}
       </HeaderTitle>
 
-      {!f.live && !failure && !noSender && (f.site.length > 0 || (matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
-        <div className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)]">
-          <div className="flex min-w-0 gap-3">
-            {sites.length > 1 && <SiteBlocks sites={sites} selected={f.site} onSite={(id) => set({ site: f.site.includes(id) ? f.site.filter((x) => x !== id) : [...f.site, id] })} />}
-            <div className="min-w-0 flex-1">{matrix.data && matrix.data.sources.length > 0 ? <Matrix
-            matrix={matrix.data}
-            source={f.source}
-            severity={f.severity}
-            onSource={(s) => {
-              const same = f.source.includes(s);
-              set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : ALL_SEVERITIES });
-            }}
-            onSeverity={(max) => set({ severity: f.severity === max ? DEFAULT_SEVERITY : max })}
-            onCell={(s, max) => {
-              const same = f.source.includes(s) && f.severity === max;
-              set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : max });
-            }}
-          /> : <div className="panel flex h-full items-center justify-center p-4 text-xs text-muted">Aucun journal sur la période{f.site.length ? ' pour ces sites' : ''}.</div>}</div>
+      <div className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)]">
+        <div className="flex min-w-0 gap-3">
+          {sites.length > 0 && <SiteBlocks sites={sites} selected={f.site} onSite={(id) => set({ site: f.site.includes(id) ? f.site.filter((x) => x !== id) : [...f.site, id], ...NO_SENDER })} />}
+          <div className={clsx('min-w-0 flex-1', matrix.isPlaceholderData && 'opacity-60')}>
+            <Matrix
+              matrix={{ sources: [...new Set([...(matrix.data?.sources ?? []), ...f.source])], cells: matrix.data?.cells ?? [] }}
+              source={f.source}
+              severity={f.severity}
+              onSource={(s) => {
+                const same = f.source.includes(s);
+                set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : ALL_SEVERITIES, ...NO_SENDER });
+              }}
+              onSeverity={(max) => set({ severity: f.severity === max ? DEFAULT_SEVERITY : max, ...NO_SENDER })}
+              onCell={(s, max) => {
+                const same = f.source.includes(s) && f.severity === max;
+                set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : max, ...NO_SENDER });
+              }}
+            />
           </div>
-          {cloud.length > 0 ? <SenderCloud senders={cloud} current={current} onPick={(k) => set({ host: k.startsWith('h:') && k !== current ? k.slice(2) : '', hostname: k.startsWith('n:') && k !== current ? k.slice(2) : '' })} /> : <div />}
-          {hits.data && hits.data.timestamps.length > 0 ? <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} /> : <div />}
         </div>
-      )}
+        <div className={clsx('min-w-0', sources.isPlaceholderData && 'opacity-60')}>
+          <SenderCloud senders={cloud} current={current} onPick={(k) => set({ host: k.startsWith('h:') && k !== current ? k.slice(2) : '', hostname: k.startsWith('n:') && k !== current ? k.slice(2) : '' })} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className={clsx('flex min-h-0 flex-1 flex-col', hits.isPlaceholderData && 'opacity-60')}>
+            <Histogram hits={hits.data ?? { step: '1m', timestamps: [], series: [] }} onZoom={(from, to) => (setCustom(false), set({ from, to }))} />
+          </div>
+          {/* what the whole page is read over, and the way back to nothing picked: not a filter of the list */}
+          <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-muted">
+            {(absolute || custom) && (
+              <>
+                <input
+                  type="datetime-local"
+                  aria-label="Du"
+                  className={small}
+                  value={absolute ? toLocalInput(f.from) : ''}
+                  onChange={(e) => e.target.value && set({ from: new Date(e.target.value).toISOString(), to: f.to || new Date().toISOString() })}
+                />
+                <span>→</span>
+                <input type="datetime-local" aria-label="Au" className={small} value={f.to ? toLocalInput(f.to) : ''} disabled={!absolute} onChange={(e) => e.target.value && set({ to: new Date(e.target.value).toISOString() })} />
+              </>
+            )}
+            <label className="inline-flex items-center gap-1.5">
+              Période
+              <select
+                className={small}
+                value={absolute || custom ? 'custom' : f.from}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') return setCustom(true);
+                  setCustom(false);
+                  set({ from: e.target.value, to: '' });
+                }}
+              >
+                {PERIODS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                <option value="custom">Personnalisée…</option>
+              </select>
+            </label>
+            <Button size="sm" icon={FilterX} disabled={!filtered} onClick={() => (setCustom(false), clear())}>Tout effacer</Button>
+          </div>
+        </div>
+      </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         {tags.length > 0 && (
           <label className="min-w-0">
             <span className={field}>Tag</span>
@@ -539,22 +591,6 @@ export function Logs() {
             {appChoices.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
         </label>
-        <label className="min-w-0">
-          <span className={field}>Période</span>
-          <select
-            className="input w-full"
-            disabled={f.live}
-            value={absolute || custom ? 'custom' : f.from}
-            onChange={(e) => {
-              if (e.target.value === 'custom') return setCustom(true);
-              setCustom(false);
-              set({ from: e.target.value, to: '' });
-            }}
-          >
-            {PERIODS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-            <option value="custom">Personnalisée…</option>
-          </select>
-        </label>
         {servers.length > 1 && (
           <label className="min-w-0">
             <span className={field}>Serveur</span>
@@ -565,25 +601,6 @@ export function Logs() {
         )}
         <SearchBox key={f.q} initial={f.q} onApply={(q) => set({ q })} />
       </div>
-
-      {(absolute || custom) && !f.live && (
-        <div className="mb-3 flex flex-wrap items-end gap-3">
-          <label>
-            <span className={field}>Du</span>
-            <input
-              type="datetime-local"
-              className="input"
-              value={absolute ? toLocalInput(f.from) : ''}
-              onChange={(e) => e.target.value && set({ from: new Date(e.target.value).toISOString(), to: f.to || new Date().toISOString() })}
-            />
-          </label>
-          <label>
-            <span className={field}>Au</span>
-            <input type="datetime-local" className="input" value={f.to ? toLocalInput(f.to) : ''} disabled={!absolute} onChange={(e) => e.target.value && set({ to: new Date(e.target.value).toISOString() })} />
-          </label>
-          <Button size="sm" icon={X} onClick={() => (setCustom(false), set({ from: DEFAULT_PERIOD, to: '' }))}>Revenir à 1 h</Button>
-        </div>
-      )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {current && (
@@ -601,7 +618,6 @@ export function Logs() {
             sans {a} <X className="h-3 w-3" />
           </button>
         ))}
-        {filtered && <Button size="sm" icon={FilterX} onClick={clear}>Tout effacer</Button>}
         <div className="ml-auto flex items-center gap-2">
           {!f.live && <Button size="sm" icon={RefreshCw} loading={rows.isRefetching || hits.isRefetching} onClick={() => void refresh()}>Actualiser</Button>}
           <Button size="sm" variant={f.live ? 'primary' : 'secondary'} icon={f.live ? Pause : Radio} onClick={() => set({ live: !f.live })}>{f.live ? 'Arrêter le direct' : 'Direct'}</Button>
@@ -610,10 +626,10 @@ export function Logs() {
 
       {failure ? (
         <div className="panel p-4 text-sm text-red-400">{failure.message}</div>
-      ) : noSender ? (
+      ) : nothing && !f.live ? (
         <div className="panel">
           <Empty icon={ScrollText} title="Aucun journal reçu">
-            Le serveur de logs n'a rien reçu depuis 24 h. Activer l'option « Envoi des journaux » dans Paramètres › Standardisation (ou sur la fiche d'un hôte),
+            Le serveur de logs n'a rien reçu sur la période. Activer l'option « Envoi des journaux » dans Paramètres › Standardisation (ou sur la fiche d'un hôte),
             puis l'appliquer : rsyslog est installé sur l'hôte et envoie ses journaux vers {servers[0].target || 'le serveur'}.
           </Empty>
         </div>

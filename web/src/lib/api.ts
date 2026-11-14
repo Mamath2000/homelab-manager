@@ -1868,7 +1868,8 @@ export interface LogHits {
   timestamps: string[];
   series: { level: LogLevel; severity: number; values: number[]; total: number }[];
 }
-// journals per source (the columns) and per severity (the rows), every severity whatever the filter
+// journals per source and per severity (the rows), every severity whatever the filter; sources: the columns, every
+// source of the server over the range whatever the sites
 export interface LogMatrix {
   sources: string[];
   cells: { source: string; severity: number; count: number }[];
@@ -2044,7 +2045,7 @@ export const api = {
   logHits: (q: LogQuery) => request<LogHits>('GET', `/api/logs/hits?${logParams(q)}`),
   logMatrix: (q: LogQuery) => request<LogMatrix>('GET', `/api/logs/matrix?${logParams(q)}`),
   logFields: (field: 'app' | 'facility', q: LogQuery) => request<{ values: { value: string; hits: number }[] }>('GET', `/api/logs/fields?${logParams(q, { field })}`),
-  logSources: (role?: string, source?: string[], from?: string, site?: string[]) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams({ role, source, from, site })}`),
+  logSources: (q: LogQuery) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams(q)}`),
   logHosts: (role: string) => request<LogHosts>('GET', `/api/settings/logs/${encodeURIComponent(role)}/hosts`),
   addLogHost: (role: string, hostId: string) => request<{ jobId: string }>('POST', `/api/settings/logs/${encodeURIComponent(role)}/hosts`, { hostId }),
   removeLogHost: (role: string, hostId: string) => request<{ jobId: string | null; applied: boolean }>('DELETE', `/api/settings/logs/${encodeURIComponent(role)}/hosts/${hostId}`),
