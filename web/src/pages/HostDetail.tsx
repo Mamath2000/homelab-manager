@@ -578,7 +578,7 @@ function HostDetailPage({ id }: { id: string }) {
         className={clsx('2xl:sticky 2xl:top-14 2xl:z-20 2xl:-mt-6 2xl:bg-bg 2xl:pt-6', scrolled ? 'pb-3 shadow-[0_14px_18px_-12px_rgb(0_0_0/0.7)]' : 'pb-5')}
       >
           <section className="panel">
-          <dl className="flex flex-wrap lg:flex-nowrap">
+          <dl className="flex flex-wrap">
             <StripItem label="Hostname"><span className={clsx('font-medium', nameTone[connectionMeta(host).tone])}>{host.info?.hostname ?? '—'}</span></StripItem>
             <StripItem label="OS">{osLabel(host) ?? '—'}</StripItem>
             <StripItem label={isWindows(host) ? 'Version' : 'Noyau'}><span className="font-mono text-xs">{host.info?.kernel ?? '—'}</span></StripItem>

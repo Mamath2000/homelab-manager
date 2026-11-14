@@ -6,7 +6,7 @@ import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { useRunJob } from '../lib/queries';
 import { imageUpdateMeta, stackMeta, stackPath } from '../lib/status';
-import { Badge, Button, ConfirmModal, IconGroup, Panel, ResponsiveList, Tag } from './ui';
+import { Badge, Button, ConfirmModal, IconGroup, Panel, Tag } from './ui';
 
 export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed' | 'status' | 'running' | 'total'> }) {
   if (!stack.managed) {
@@ -171,12 +171,12 @@ export function CheckImagesButton({ host, disabled, onStarted }: { host: Host; d
 // Service chips of a stack, capped so a big stack doesn't widen its table column.
 const MAX_SERVICE_TAGS = 4;
 
-export function ServiceTags({ services }: { services: { name: string }[] }) {
+export function ServiceTags({ services, wrap = false }: { services: { name: string }[]; wrap?: boolean }) {
   const shown = services.slice(0, MAX_SERVICE_TAGS);
   const hidden = services.slice(MAX_SERVICE_TAGS);
   return (
-    <div className="flex max-w-xs flex-nowrap gap-1 overflow-x-auto">
-      {shown.map((s) => <Tag key={s.name}>{s.name}</Tag>)}
+    <div className={wrap ? 'flex max-w-full flex-wrap gap-1' : 'flex max-w-xs flex-nowrap gap-1 overflow-x-auto'}>
+      {shown.map((s) => <Tag key={s.name} wrap={wrap}>{s.name}</Tag>)}
       {hidden.length > 0 && (
         <span title={hidden.map((s) => s.name).join(', ')} className="cursor-help">
           <Tag>+{hidden.length}…</Tag>
@@ -196,13 +196,14 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
       title="Docker"
       icon={Container}
       bodyClassName=""
+      className="@container"
       actions={<CheckImagesButton host={host} disabled={running} onStarted={onStarted} />}
     >
       {d.stacks.length === 0 ? (
         <p className="p-4 text-sm text-muted">Aucune stack compose sur cet hôte.</p>
       ) : (
         <div>
-          <ResponsiveList mode="mobile">
+          <div className="divide-y divide-line @2xl:hidden">
             {d.stacks.map((st) => (
               <article key={st.name} className="min-w-0 space-y-3 p-4">
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -220,11 +221,11 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                   {st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}
                 </div>
                 {st.problems.length > 0 && <p className="break-words text-xs text-amber-300">{st.problems.join(' · ')}</p>}
-                {st.services.length > 0 && <ServiceTags services={st.services} />}
+                {st.services.length > 0 && <ServiceTags services={st.services} wrap />}
               </article>
             ))}
-          </ResponsiveList>
-          <ResponsiveList mode="desktop">
+          </div>
+          <div className="hidden overflow-x-auto @2xl:block">
           <table className="w-full text-sm">
             <thead className="border-b border-line">
               <tr>
@@ -258,7 +259,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
               ))}
             </tbody>
           </table>
-          </ResponsiveList>
+          </div>
         </div>
       )}
       <p className="border-t border-line px-4 py-2 text-xs text-muted">
