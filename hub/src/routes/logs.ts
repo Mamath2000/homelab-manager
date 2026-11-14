@@ -31,6 +31,8 @@ const filterProps = {
   tag: { type: 'string', maxLength: 24 },
   // worst severity kept (0 emerg … 7 debug)
   severity: { type: 'integer', minimum: 0, maximum: 7 },
+  // worse severities left out (with severity: one level, 4 and 4 keep the warnings only)
+  minSeverity: { type: 'integer', minimum: 0, maximum: 7 },
   app: list,
   facility: list,
   source: list,
@@ -47,6 +49,7 @@ interface FilterQuery {
   site?: string;
   tag?: string;
   severity?: number;
+  minSeverity?: number;
   app?: string;
   facility?: string;
   source?: string;
@@ -162,6 +165,7 @@ export function filtersOf(q: FilterQuery, known: KnownHost[], senders: Located[]
   return {
     ...(names.size ? { hostnames: [...names] } : {}),
     ...(q.severity !== undefined ? { maxSeverity: q.severity } : {}),
+    ...(q.minSeverity !== undefined ? { minSeverity: q.minSeverity } : {}),
     ...(q.app ? { apps: split(q.app) } : {}),
     ...(q.facility ? { facilities: split(q.facility) } : {}),
     ...(q.source ? { sources: split(q.source) } : {}),
@@ -295,7 +299,7 @@ export function registerLogRoutes(app: FastifyInstance) {
       try {
         const range = rangeOf(req.query);
         const at = { start: range.start, end: range.end };
-        const [filters, sources] = await Promise.all([resolveFilters(role, { ...req.query, severity: undefined }, await knownHosts(), range), querySources(role.config, at)]);
+        const [filters, sources] = await Promise.all([resolveFilters(role, { ...req.query, severity: undefined, minSeverity: undefined }, await knownHosts(), range), querySources(role.config, at)]);
         // the columns are the sources of the whole server: a site that has none of them shows an empty matrix
         const cells = filters ? (await queryMatrix(role.config, filters, at)).cells : [];
         return { sources, cells };

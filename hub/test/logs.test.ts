@@ -21,6 +21,9 @@ test('logs: the filters become a LogsQL query, every value quoted', () => {
   assert.equal(filterQuery({ hostnames: ['pve1', 'pve2'], maxSeverity: 4 }), 'hostname:in("pve1","pve2") severity:<=4');
   // debug and worse is every journal: no condition
   assert.equal(filterQuery({ maxSeverity: 7 }), '*');
+  // one level of the matrix
+  assert.equal(filterQuery({ maxSeverity: 4, minSeverity: 4 }), 'severity:<=4 severity:>=4');
+  assert.equal(filterQuery({ maxSeverity: 2, minSeverity: 0 }), 'severity:<=2');
   assert.equal(filterQuery({ apps: ['sshd'], facilities: ['auth', 'authpriv'] }), 'app_name:="sshd" facility_keyword:in("auth","authpriv")');
   assert.equal(filterQuery({ not: { apps: ['cron'], hostnames: [] } }), '!app_name:="cron"');
   // the source of a journal; NO_SOURCE: the ones that have none (alone, or with named ones)

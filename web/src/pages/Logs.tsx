@@ -84,6 +84,8 @@ function useLogFilters() {
       site: list(params.get('site')),
       tag: params.get('tag') ?? '',
       severity: sev !== null && /^[0-7]$/.test(sev) ? +sev : DEFAULT_SEVERITY,
+      // a level of the matrix (a row or a cell): its severities only, over the severity above
+      level: MATRIX_ROWS.find((r) => r.level === params.get('level'))?.level ?? '',
       app: list(params.get('app')),
       notApp: list(params.get('notApp')),
       source: list(params.get('source')),
@@ -108,13 +110,19 @@ function useLogFilters() {
 }
 type Filters = ReturnType<typeof useLogFilters>[0];
 
+// The severities kept: a level of the matrix alone, else the given one and worse.
+const severityOf = (f: Filters): Pick<LogQuery, 'severity' | 'minSeverity'> => {
+  const row = MATRIX_ROWS.find((r) => r.level === f.level);
+  return row ? { severity: row.max, minSeverity: row.min } : { severity: f.severity };
+};
+
 const toQuery = (f: Filters): LogQuery => ({
   ...(f.role ? { role: f.role } : {}),
   ...(f.host ? { host: [f.host] } : {}),
   ...(f.hostname ? { hostname: [f.hostname] } : {}),
   ...(f.site.length ? { site: f.site } : {}),
   ...(f.tag ? { tag: f.tag } : {}),
-  severity: f.severity,
+  ...severityOf(f),
   ...(f.app.length ? { app: f.app } : {}),
   ...(f.notApp.length ? { notApp: f.notApp } : {}),
   ...(f.source.length ? { source: f.source } : {}),
@@ -175,16 +183,16 @@ function Histogram({ hits, onZoom }: { hits: LogHits; onZoom: (from: string, to:
   );
 }
 
-// The rows of the matrix: the three worst severities together, then one row per level. Like the matrix of the hosts, it is
-// not filtered by the page: it filters it. A cell keeps the journals of its source up to its row (the severity filter keeps
-// "up to"); a second click on it, on a column or on a row takes the filter off.
-const MATRIX_ROWS: { level: LogLevel; max: number; severities: number[]; tone: Tone }[] = [
-  { level: 'crit', max: 2, severities: [0, 1, 2], tone: 'bad' },
-  { level: 'error', max: 3, severities: [3], tone: 'bad' },
-  { level: 'warning', max: 4, severities: [4], tone: 'warn' },
-  { level: 'notice', max: 5, severities: [5], tone: 'info' },
-  { level: 'info', max: 6, severities: [6], tone: 'neutral' },
-  { level: 'debug', max: 7, severities: [7], tone: 'neutral' },
+// The rows of the matrix: the three worst severities together, then one row per level. It filters the page below it. A
+// row keeps its level only, a column its source at every level, a cell its source at its level; a second click on it
+// takes the filter off.
+const MATRIX_ROWS: { level: LogLevel; min: number; max: number; severities: number[]; tone: Tone }[] = [
+  { level: 'crit', min: 0, max: 2, severities: [0, 1, 2], tone: 'bad' },
+  { level: 'error', min: 3, max: 3, severities: [3], tone: 'bad' },
+  { level: 'warning', min: 4, max: 4, severities: [4], tone: 'warn' },
+  { level: 'notice', min: 5, max: 5, severities: [5], tone: 'info' },
+  { level: 'info', min: 6, max: 6, severities: [6], tone: 'neutral' },
+  { level: 'debug', min: 7, max: 7, severities: [7], tone: 'neutral' },
 ];
 const NO_SOURCE = '_none';
 // a click upstream (a site, the matrix) lets the sender picked go: it may not be in the new selection
@@ -240,37 +248,36 @@ function SenderCloud({ senders, current, onPick }: { senders: { key: string; lab
 
 // Journals per source (columns) and per criticity (rows) over the period, for the selected sites only. Fixed: every source
 // of the server is a column, every level a row, an empty cell shows "-".
-function Matrix({ matrix, source, severity, onSource, onSeverity, onCell }: { matrix: LogMatrix; source: string[]; severity: number; onSource: (s: string) => void; onSeverity: (max: number) => void; onCell: (s: string, max: number) => void }) {
+function Matrix({ matrix, source, level, onSource, onLevel, onCell }: { matrix: LogMatrix; source: string[]; level: string; onSource: (s: string) => void; onLevel: (l: LogLevel) => void; onCell: (s: string, l: LogLevel) => void }) {
   const count = (src: string, severities: number[]) => matrix.cells.filter((c) => c.source === src && severities.includes(c.severity)).reduce((sum, c) => sum + c.count, 0);
   const all = [0, 1, 2, 3, 4, 5, 6, 7];
   const cols = `minmax(4.5rem,1.3fr) ${matrix.sources.length ? `repeat(${matrix.sources.length}, minmax(3rem,1fr)) ` : ''}minmax(3rem,.8fr)`;
   const head = 'flex h-5 items-center justify-center truncate rounded-sm px-1 text-[11px] font-semibold text-muted';
   const cell = 'flex h-[22px] items-center justify-center rounded-sm text-xs font-semibold tabular-nums';
   const fmt = (n: number) => (n ? n.toLocaleString('fr-FR') : '-');
-  // the severity filter is "on" only when it is not the default one, nor every severity (a column alone: "up to debug" is
-  // every journal, never shown as the debug row)
-  const rowOn = (max: number) => severity === max && severity !== DEFAULT_SEVERITY && severity !== ALL_SEVERITIES;
+  // a column alone (every level) selects no row
+  const rowOn = (l: LogLevel) => level === l;
   return (
     <div className="panel flex h-full min-w-0 flex-col justify-center px-4 py-2.5">
       <div className="grid gap-0.5" style={{ gridTemplateColumns: cols }} role="grid" aria-label="Journaux par source et par criticité, la couleur est la criticité">
         <span />
         {matrix.sources.map((src) => (
-          <button key={src} type="button" title={`Seulement ${SOURCE_LABEL[src] ?? src}`} aria-pressed={source.includes(src)} onClick={() => onSource(src)} className={clsx(head, 'hover:bg-raised hover:text-zinc-200', source.includes(src) && 'bg-emerald-500/10 text-zinc-100 ring-1 ring-emerald-500')}>
+          <button key={src} type="button" title={`Tout ${SOURCE_LABEL[src] ?? src}`} aria-pressed={source.includes(src)} onClick={() => onSource(src)} className={clsx(head, 'hover:bg-raised hover:text-zinc-200', source.includes(src) && 'bg-emerald-500/10 text-zinc-100 ring-1 ring-emerald-500')}>
             {SOURCE_LABEL[src] ?? src}
           </button>
         ))}
         <span className={head}>Total</span>
         {MATRIX_ROWS.map((row) => (
           <Fragment key={row.level}>
-            <button type="button" title={`Jusqu'à ${LEVEL_META[row.level].label}`} aria-pressed={rowOn(row.max)} onClick={() => onSeverity(row.max)} className={clsx('flex h-[22px] min-w-0 items-center truncate rounded-sm px-1.5 text-left text-[13px] hover:bg-raised', LEVEL_META[row.level].text, rowOn(row.max) && 'bg-emerald-500/10 ring-1 ring-emerald-500')}>
+            <button type="button" title={`Seulement ${LEVEL_META[row.level].label}`} aria-pressed={rowOn(row.level)} onClick={() => onLevel(row.level)} className={clsx('flex h-[22px] min-w-0 items-center truncate rounded-sm px-1.5 text-left text-[13px] hover:bg-raised', LEVEL_META[row.level].text, rowOn(row.level) && 'bg-emerald-500/10 ring-1 ring-emerald-500')}>
               <span className="truncate">{LEVEL_META[row.level].label}</span>
             </button>
             {matrix.sources.map((src) => {
               const n = count(src, row.severities);
-              const active = source.includes(src) && severity === row.max && severity !== ALL_SEVERITIES;
+              const active = source.includes(src) && rowOn(row.level);
               if (!n) return <span key={src} className={clsx(cell, 'font-normal text-zinc-600', active && 'ring-2 ring-inset ring-zinc-100')}>-</span>;
               return (
-                <button key={src} type="button" aria-pressed={active} title={`${SOURCE_LABEL[src] ?? src} · jusqu'à ${LEVEL_META[row.level].label}`} onClick={() => onCell(src, row.max)} className={clsx(cell, 'ring-1 ring-inset transition hover:brightness-125', toneBadge[row.tone], active && 'ring-2 !ring-zinc-100')}>
+                <button key={src} type="button" aria-pressed={active} title={`${SOURCE_LABEL[src] ?? src} · ${LEVEL_META[row.level].label}`} onClick={() => onCell(src, row.level)} className={clsx(cell, 'ring-1 ring-inset transition hover:brightness-125', toneBadge[row.tone], active && 'ring-2 !ring-zinc-100')}>
                   {fmt(n)}
                 </button>
               );
@@ -462,8 +469,8 @@ export function Logs() {
   // criticity) the senders, the sites, the matrix and the sender the histogram. The filters above the list touch the list
   // only.
   const head: LogQuery = { ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...range };
-  const picked: LogQuery = { ...head, ...(f.source.length ? { source: f.source } : {}), ...(f.severity !== DEFAULT_SEVERITY ? { severity: f.severity } : {}) };
-  const sender: LogQuery = { ...picked, severity: f.severity, ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}) };
+  const picked: LogQuery = { ...head, ...(f.source.length ? { source: f.source } : {}), ...(f.level || f.severity !== DEFAULT_SEVERITY ? severityOf(f) : {}) };
+  const sender: LogQuery = { ...picked, ...severityOf(f), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}) };
   const matrix = useQuery({ queryKey: ['logs', 'matrix', head], queryFn: () => api.logMatrix(head), enabled: hasServer, placeholderData: keepPreviousData });
   const sources = useQuery({ queryKey: ['logs', 'sources', picked], queryFn: () => api.logSources(picked), enabled: hasServer, placeholderData: keepPreviousData });
   const hits = useQuery({ queryKey: ['logs', 'hits', sender], queryFn: () => api.logHits(sender), enabled: hasServer, placeholderData: keepPreviousData });
@@ -500,7 +507,7 @@ export function Logs() {
   if (current && sources.isSuccess && !cloud.some((o) => o.key === current)) cloud.push({ key: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname, count: 0, errors: 0 });
   // the server received nothing at all over the period, whatever the sites
   const nothing = matrix.isSuccess && !matrix.data.sources.length;
-  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
+  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.level || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
 
   const field = 'mb-1 block text-xs text-muted';
@@ -519,15 +526,16 @@ export function Logs() {
             <Matrix
               matrix={{ sources: [...new Set([...(matrix.data?.sources ?? []), ...f.source])], cells: matrix.data?.cells ?? [] }}
               source={f.source}
-              severity={f.severity}
+              level={f.level}
               onSource={(s) => {
-                const same = f.source.includes(s);
-                set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : ALL_SEVERITIES, ...NO_SENDER });
+                // the whole column; from one of its cells, the whole column too
+                const same = f.source.includes(s) && !f.level;
+                set({ source: same ? [] : [s], level: '', severity: same ? DEFAULT_SEVERITY : ALL_SEVERITIES, ...NO_SENDER });
               }}
-              onSeverity={(max) => set({ severity: f.severity === max ? DEFAULT_SEVERITY : max, ...NO_SENDER })}
-              onCell={(s, max) => {
-                const same = f.source.includes(s) && f.severity === max;
-                set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : max, ...NO_SENDER });
+              onLevel={(l) => set({ level: f.level === l ? '' : l, ...NO_SENDER })}
+              onCell={(s, l) => {
+                const same = f.source.includes(s) && f.level === l;
+                set({ source: same ? [] : [s], level: same ? '' : l, severity: DEFAULT_SEVERITY, ...NO_SENDER });
               }}
             />
           </div>
@@ -652,7 +660,7 @@ export function Logs() {
               <div className="flex justify-center p-10"><Spinner /></div>
             ) : !shown.length ? (
               <Empty icon={ScrollText} title={f.live ? 'En attente de journaux…' : 'Aucune ligne pour ces filtres'}>
-                {!f.live && f.severity < 7 && <>Seules les lignes de criticité « {SEVERITY_CHOICES.find((c) => +c.id === Math.max(3, f.severity))?.label.toLowerCase()} » ou pire sont affichées : élargir la criticité ou la période.</>}
+                {!f.live && f.level ? <>Seules les lignes de niveau « {LEVEL_META[f.level as LogLevel].label} » sont affichées : choisir une autre case de la matrice ou élargir la période.</> : !f.live && f.severity < 7 && <>Seules les lignes de criticité « {SEVERITY_CHOICES.find((c) => +c.id === Math.max(3, f.severity))?.label.toLowerCase()} » ou pire sont affichées : élargir la criticité ou la période.</>}
               </Empty>
             ) : (
               <ul>

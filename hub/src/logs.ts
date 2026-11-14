@@ -52,6 +52,8 @@ export interface LogFilters {
   hostnames?: string[];
   // worst severity kept: 4 keeps emerg to warning
   maxSeverity?: number;
+  // worse severities left out: 4 keeps warning to debug; with maxSeverity, one level of the matrix (4 and 4: warning only)
+  minSeverity?: number;
   apps?: string[];
   facilities?: string[];
   // the category a journal was received as (field `source`, set by the listener of the log server); NO_SOURCE: none
@@ -79,6 +81,7 @@ export function filterQuery(f: LogFilters) {
   const parts: string[] = [];
   if (f.hostnames?.length) parts.push(anyOf('hostname', f.hostnames));
   if (f.maxSeverity !== undefined && f.maxSeverity < 7) parts.push(`severity:<=${Math.max(0, Math.trunc(f.maxSeverity))}`);
+  if (f.minSeverity !== undefined && f.minSeverity > 0) parts.push(`severity:>=${Math.min(7, Math.trunc(f.minSeverity))}`);
   if (f.apps?.length) parts.push(anyOf('app_name', f.apps));
   if (f.facilities?.length) parts.push(anyOf('facility_keyword', f.facilities));
   if (f.sources?.length) parts.push(sourceCondition(f.sources));

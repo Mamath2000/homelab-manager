@@ -1852,6 +1852,8 @@ export interface LogQuery {
   site?: string[];
   tag?: string;
   severity?: number;
+  // worse severities left out: with severity, one level (4 and 4: the warnings only)
+  minSeverity?: number;
   app?: string[];
   facility?: string[];
   // the category a journal was received as (esphome, host…); '_none': without one
