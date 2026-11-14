@@ -94,7 +94,7 @@ Réservée aux profils `admin` et `operator` : un journal peut contenir un secre
 | Criticité minimale | Erreurs · Avertissements (par défaut) · Notices · Infos · Tout : chaque choix inclut les niveaux plus graves |
 | Source | la catégorie sous laquelle le serveur a reçu la ligne (champ `source`) : choisie en cliquant la matrice, retirée par sa pastille |
 
-- **Matrice** (à gauche, au-dessus de la liste) : le nombre de lignes de la période, une colonne par **source** (hôtes, ESPHome, Omada, Docker, et « sans source » pour les lignes reçues avant que le serveur ne les étiquette) et une ligne par criticité (critique regroupe les trois niveaux les plus graves). Elle montre **tous les niveaux**, quel que soit le filtre de criticité, et suit les autres filtres (hôte, site, tag, application, période, texte). Cliquer l'en-tête d'une colonne filtre sur la source ; cliquer une cellule filtre sur la source **et** règle la criticité minimale sur sa ligne (les niveaux plus graves sont inclus). Masquée en direct.
+- **Matrice** (à gauche, au-dessus des filtres) : comme la matrice de la page Hôtes, elle **filtre la page** et n'est pas filtrée par elle : elle compte les lignes de la **période** (et du serveur choisi), quels que soient l'hôte, le site, l'application, la source ou la criticité retenus. Une colonne par **source** (hôtes, ESPHome, Omada, Docker, et « sans source » pour les lignes reçues avant que le serveur ne les étiquette), une ligne par criticité (critique regroupe les trois niveaux les plus graves), la couleur de la case est sa criticité. Cliquer l'en-tête d'une colonne filtre sur la source, celui d'une ligne règle la criticité minimale, une case fait les deux (les niveaux plus graves sont inclus) ; un second clic retire le filtre. La source ou la case active est cerclée. Masquée en direct.
 - **Histogramme** (à droite de la matrice) : nombre de lignes par tranche de temps, empilées par criticité. Cliquer sur une barre, ou glisser sur plusieurs, zoome sur cette période.
 - **Liste** : heure, criticité, hôte, application, message, de la plus récente à la plus ancienne. **Charger plus ancien** continue la lecture.
 - **Une ligne dépliée** montre le message entier et ses champs (facility, PID, adresse d'origine…), avec :
@@ -134,7 +134,7 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 |---|---|
 | `GET /api/logs` | lignes de la période, les plus récentes d'abord ; `limit` (200, 1000 au plus), `before` : heure de la dernière ligne de la page précédente |
 | `GET /api/logs/hits` | nombre de lignes par tranche de temps et par criticité |
-| `GET /api/logs/matrix` | nombre de lignes par source et par criticité (le filtre `severity` est ignoré : tous les niveaux) |
+| `GET /api/logs/matrix` | nombre de lignes par source et par criticité, tous niveaux ; la page ne lui passe que la période et le serveur, les autres filtres sont acceptés |
 | `GET /api/logs/fields?field=app\|facility` | valeurs d'un champ sur la période, les plus fréquentes d'abord |
 | `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
