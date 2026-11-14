@@ -405,7 +405,7 @@ export function Logs() {
   const hasServer = servers.length > 0;
   const absolute = !/^\d+[mhd]$/.test(f.from);
 
-  const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source], queryFn: () => api.logSources(f.role || undefined, f.source), enabled: hasServer, staleTime: 60_000 });
+  const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source, f.from], queryFn: () => api.logSources(f.role || undefined, f.source, f.from), enabled: hasServer, staleTime: 60_000 });
   const apps = useQuery({ queryKey: ['logs', 'apps', query, range], queryFn: () => api.logFields('app', { ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData, staleTime: 30_000 });
   const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const hits = useQuery({ queryKey: ['logs', 'hits', query, range], queryFn: () => api.logHits({ ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
@@ -434,12 +434,11 @@ export function Logs() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['logs'] });
   const rowKey = (r: LogRow, i: number) => `${r.time}|${r.hostname}|${i}`;
 
-  // the hosts of the hub that sent something, then the ones that did not, then the senders the hub does not know
+  // the distinct senders of the period (narrowed by the source), a host of the hub keeping the name it has there
   const senders = sources.data?.sources ?? [];
-  const sending = new Set(senders.filter((s) => s.hostId).map((s) => s.hostId!));
-  const narrowed = f.source.length > 0;
-  const known = (narrowed ? hosts.filter((h) => sending.has(h.id)) : [...hosts]).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-  const unknown = senders.filter((s) => !s.hostId);
+  const current = f.host ? `h:${f.host}` : f.hostname ? `n:${f.hostname}` : '';
+  const options = senders.map((s) => ({ value: s.hostId ? `h:${s.hostId}` : `n:${s.hostname}`, label: s.hostName }));
+  if (current && sources.isSuccess && !options.some((o) => o.value === current)) options.push({ value: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname });
   const noSender = sources.isSuccess && !senders.length;
   const filtered = !!(f.host || f.hostname || f.site || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
@@ -471,29 +470,17 @@ export function Logs() {
 
       <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <label className="col-span-2 min-w-0 md:col-span-1">
-          <span className={field}>Hôte</span>
+          <span className={field}>Émetteur</span>
           <select
             className="input w-full"
-            value={f.host ? `h:${f.host}` : f.hostname ? `n:${f.hostname}` : ''}
+            value={current}
             onChange={(e) => {
               const v = e.target.value;
               set({ host: v.startsWith('h:') ? v.slice(2) : '', hostname: v.startsWith('n:') ? v.slice(2) : '' });
             }}
           >
             <option value="">Tous</option>
-            <optgroup label="Hôtes">
-              {known.map((h) => (
-                <option key={h.id} value={`h:${h.id}`}>{h.name}{sources.isSuccess && !narrowed && !sending.has(h.id) ? ' (aucun journal)' : ''}</option>
-              ))}
-            </optgroup>
-            {(unknown.length > 0 || f.hostname) && (
-              <optgroup label="Autres émetteurs">
-                {f.hostname && !unknown.some((s) => s.hostname === f.hostname) && <option value={`n:${f.hostname}`}>{f.hostname}</option>}
-                {unknown.map((s) => (
-                  <option key={s.hostname} value={`n:${s.hostname}`}>{s.hostname}</option>
-                ))}
-              </optgroup>
-            )}
+            {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
         {sites.length > 1 && (
