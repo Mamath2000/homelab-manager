@@ -81,7 +81,7 @@ function useLogFilters() {
       role: params.get('role') ?? '',
       host: params.get('host') ?? '',
       hostname: params.get('hostname') ?? '',
-      site: params.get('site') ?? '',
+      site: list(params.get('site')),
       tag: params.get('tag') ?? '',
       severity: sev !== null && /^[0-7]$/.test(sev) ? +sev : DEFAULT_SEVERITY,
       app: list(params.get('app')),
@@ -112,7 +112,7 @@ const toQuery = (f: Filters): LogQuery => ({
   ...(f.role ? { role: f.role } : {}),
   ...(f.host ? { host: [f.host] } : {}),
   ...(f.hostname ? { hostname: [f.hostname] } : {}),
-  ...(f.site ? { site: f.site } : {}),
+  ...(f.site.length ? { site: f.site } : {}),
   ...(f.tag ? { tag: f.tag } : {}),
   severity: f.severity,
   ...(f.app.length ? { app: f.app } : {}),
@@ -188,15 +188,48 @@ const MATRIX_ROWS: { level: LogLevel; max: number; severities: number[]; tone: T
 const NO_SOURCE = '_none';
 const SOURCE_LABEL: Record<string, string> = { host: 'hôtes', esphome: 'ESPHome', omada: 'Omada', docker: 'Docker', [NO_SOURCE]: 'sans source' };
 
-// The sites as blocks to pick: a click selects the site, a second one lets it go, none selected is every site. It narrows the matrix.
-function SiteBlocks({ sites, site, onSite }: { sites: { id: string; name: string }[]; site: string; onSite: (id: string) => void }) {
+// The sites as blocks to pick: a click selects the site, a second one lets it go, several can be held, none is every site.
+// It narrows the matrix, the senders and the list.
+function SiteBlocks({ sites, selected, onSite }: { sites: { id: string; name: string }[]; selected: string[]; onSite: (id: string) => void }) {
   return (
     <div className="flex shrink-0 flex-col justify-center gap-1" role="group" aria-label="Sites">
-      {sites.map((s) => (
-        <button key={s.id} type="button" aria-pressed={site === s.id} title={site === s.id ? 'Ne plus filtrer' : `Seulement ${s.name}`} onClick={() => onSite(s.id)} className={clsx('panel truncate px-3 py-1.5 text-left text-xs font-semibold text-muted hover:text-zinc-200', site === s.id && 'bg-emerald-500/10 !text-zinc-100 ring-1 ring-emerald-500')}>
-          {s.name}
-        </button>
-      ))}
+      {sites.map((s) => {
+        const on = selected.includes(s.id);
+        return (
+          <button key={s.id} type="button" aria-pressed={on} title={on ? 'Ne plus filtrer' : `Ajouter ${s.name}`} onClick={() => onSite(s.id)} className={clsx('panel truncate px-3 py-1.5 text-left text-xs font-semibold text-muted hover:text-zinc-200', on && 'bg-emerald-500/10 !text-zinc-100 ring-1 ring-emerald-500')}>
+            {s.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// The senders of the period as a cloud of buttons: the more problems (error or worse) a sender has, the bigger and the
+// earlier it is. A click keeps its journals only, a second one lets it go.
+function SenderCloud({ senders, current, onPick }: { senders: { key: string; label: string; count: number; errors: number }[]; current: string; onPick: (key: string) => void }) {
+  const sorted = [...senders].sort((a, b) => b.errors - a.errors || b.count - a.count || a.label.localeCompare(b.label, 'fr'));
+  const top = Math.log1p(Math.max(0, ...sorted.map((x) => x.errors)));
+  return (
+    <div className="panel flex h-full max-h-56 min-w-0 flex-wrap content-start items-center gap-1.5 overflow-auto px-3 py-2.5" role="group" aria-label="Émetteurs, les plus en difficulté en premier">
+      {sorted.map((x) => {
+        const on = current === x.key;
+        const size = top > 0 ? 0.7 + 0.6 * (Math.log1p(x.errors) / top) : 0.75;
+        return (
+          <button
+            key={x.key}
+            type="button"
+            aria-pressed={on}
+            style={{ fontSize: `${size}rem` }}
+            title={`${x.label} · ${x.count.toLocaleString('fr-FR')} journaux, ${x.errors.toLocaleString('fr-FR')} erreur${x.errors > 1 ? 's' : ''} ou pire`}
+            onClick={() => onPick(x.key)}
+            className={clsx('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-medium leading-tight hover:brightness-125', x.errors > 0 ? 'border-red-500/40 bg-red-500/10 text-red-300' : 'border-line bg-raised text-muted', on && '!border-emerald-500 !bg-emerald-500/10 !text-zinc-100 ring-1 ring-emerald-500')}
+          >
+            {x.label}
+            {x.errors > 0 && <span className="text-[0.7em] tabular-nums opacity-80">{x.errors.toLocaleString('fr-FR')}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -419,9 +452,9 @@ export function Logs() {
   const hasServer = servers.length > 0;
   const absolute = !/^\d+[mhd]$/.test(f.from);
 
-  const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source, f.from], queryFn: () => api.logSources(f.role || undefined, f.source, f.from), enabled: hasServer, staleTime: 60_000 });
+  const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source, f.from, f.site], queryFn: () => api.logSources(f.role || undefined, f.source, f.from, f.site), enabled: hasServer, staleTime: 60_000 });
   const apps = useQuery({ queryKey: ['logs', 'apps', query, range], queryFn: () => api.logFields('app', { ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData, staleTime: 30_000 });
-  const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, f.site, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...(f.site ? { site: f.site } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
+  const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, f.site, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const hits = useQuery({ queryKey: ['logs', 'hits', query, range], queryFn: () => api.logHits({ ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const rows = useInfiniteQuery({
     queryKey: ['logs', 'rows', query, range],
@@ -451,10 +484,10 @@ export function Logs() {
   // the distinct senders of the period (narrowed by the source), a host of the hub keeping the name it has there
   const senders = sources.data?.sources ?? [];
   const current = f.host ? `h:${f.host}` : f.hostname ? `n:${f.hostname}` : '';
-  const options = senders.map((s) => ({ value: s.hostId ? `h:${s.hostId}` : `n:${s.hostname}`, label: s.hostName }));
-  if (current && sources.isSuccess && !options.some((o) => o.value === current)) options.push({ value: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname });
+  const cloud = senders.map((x) => ({ key: x.hostId ? `h:${x.hostId}` : `n:${x.hostname}`, label: x.hostName, count: x.count, errors: x.errors }));
+  if (current && sources.isSuccess && !cloud.some((o) => o.key === current)) cloud.push({ key: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname, count: 0, errors: 0 });
   const noSender = sources.isSuccess && !senders.length;
-  const filtered = !!(f.host || f.hostname || f.site || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
+  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
 
   const field = 'mb-1 block text-xs text-muted';
@@ -465,10 +498,10 @@ export function Logs() {
         {servers.length === 1 && <span className="truncate text-xs text-muted">{servers[0].name}</span>}
       </HeaderTitle>
 
-      {!f.live && !failure && !noSender && (f.site !== '' || (matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
-        <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      {!f.live && !failure && !noSender && (f.site.length > 0 || (matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
+        <div className="mb-3 grid gap-3 xl:grid-cols-[minmax(0,5fr)_minmax(0,3fr)_minmax(0,4fr)]">
           <div className="flex min-w-0 gap-3">
-            {sites.length > 1 && <SiteBlocks sites={sites} site={f.site} onSite={(id) => set({ site: f.site === id ? '' : id })} />}
+            {sites.length > 1 && <SiteBlocks sites={sites} selected={f.site} onSite={(id) => set({ site: f.site.includes(id) ? f.site.filter((x) => x !== id) : [...f.site, id] })} />}
             <div className="min-w-0 flex-1">{matrix.data && matrix.data.sources.length > 0 ? <Matrix
             matrix={matrix.data}
             source={f.source}
@@ -482,27 +515,14 @@ export function Logs() {
               const same = f.source.includes(s) && f.severity === max;
               set({ source: same ? [] : [s], severity: same ? DEFAULT_SEVERITY : max });
             }}
-          /> : <div className="panel flex h-full items-center justify-center p-4 text-xs text-muted">Aucun journal sur la période{f.site ? ' pour ce site' : ''}.</div>}</div>
+          /> : <div className="panel flex h-full items-center justify-center p-4 text-xs text-muted">Aucun journal sur la période{f.site.length ? ' pour ces sites' : ''}.</div>}</div>
           </div>
+          {cloud.length > 0 ? <SenderCloud senders={cloud} current={current} onPick={(k) => set({ host: k.startsWith('h:') && k !== current ? k.slice(2) : '', hostname: k.startsWith('n:') && k !== current ? k.slice(2) : '' })} /> : <div />}
           {hits.data && hits.data.timestamps.length > 0 ? <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} /> : <div />}
         </div>
       )}
 
       <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
-        <label className="col-span-2 min-w-0 md:col-span-1">
-          <span className={field}>Émetteur</span>
-          <select
-            className="input w-full"
-            value={current}
-            onChange={(e) => {
-              const v = e.target.value;
-              set({ host: v.startsWith('h:') ? v.slice(2) : '', hostname: v.startsWith('n:') ? v.slice(2) : '' });
-            }}
-          >
-            <option value="">Tous</option>
-            {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </label>
         {tags.length > 0 && (
           <label className="min-w-0">
             <span className={field}>Tag</span>
@@ -566,6 +586,11 @@ export function Logs() {
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        {current && (
+          <button type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus filtrer" onClick={() => set({ host: '', hostname: '' })}>
+            {cloud.find((o) => o.key === current)?.label ?? current} <X className="h-3 w-3" />
+          </button>
+        )}
         {f.source.map((s) => (
           <button key={s} type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus filtrer" onClick={() => set({ source: f.source.filter((x) => x !== s) })}>
             {SOURCE_LABEL[s] ?? s} <X className="h-3 w-3" />

@@ -25,7 +25,8 @@ const filterProps = {
   // hosts of the hub (ids), or names as the journals carry them (a sender the hub does not know)
   host: list,
   hostname: list,
-  site: { type: 'string', maxLength: 24 },
+  // one or several sites (ids, comma separated)
+  site: list,
   tag: { type: 'string', maxLength: 24 },
   // worst severity kept (0 emerg … 7 debug)
   severity: { type: 'integer', minimum: 0, maximum: 7 },
@@ -94,12 +95,13 @@ export function filtersOf(q: FilterQuery, known: KnownHost[]): LogFilters | null
   const names = new Set(split(q.hostname));
   let narrowed = false;
   const ids = split(q.host);
-  if (ids.length || q.site || q.tag) {
+  const sites = split(q.site);
+  if (ids.length || sites.length || q.tag) {
     narrowed = true;
     for (const h of known) {
       if (!h.hostname) continue;
       if (ids.length && !ids.includes(h.id)) continue;
-      if (q.site && h.siteId !== q.site) continue;
+      if (sites.length && !(h.siteId && sites.includes(h.siteId))) continue;
       if (q.tag && !h.tags?.includes(q.tag)) continue;
       names.add(h.hostname);
     }
@@ -265,9 +267,9 @@ export function registerLogRoutes(app: FastifyInstance) {
   );
 
   // Who sent journals over the range: the hosts of the hub and the senders it does not know, with their last journal.
-  app.get<{ Querystring: { role?: string; from?: string; source?: string } }>(
+  app.get<{ Querystring: { role?: string; from?: string; source?: string; site?: string } }>(
     '/api/logs/sources',
-    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { role: filterProps.role, from: rangeProps.from, source: filterProps.source } } } },
+    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { role: filterProps.role, from: rangeProps.from, source: filterProps.source, site: filterProps.site } } } },
     async (req, reply) => {
       const role = serverOf(req, reply, req.query.role);
       if (!role) return reply;
@@ -275,9 +277,16 @@ export function registerLogRoutes(app: FastifyInstance) {
         const range = rangeOf({ from: req.query.from ?? '1d' });
         const [senders, known] = await Promise.all([querySenders(role.config, range.start, split(req.query.source)), knownHosts()]);
         const byKey = new Map(known.filter((h) => h.hostname).map((h) => [hostKey(h.hostname), h]));
+        // like the other filters, a site keeps the hosts it holds: a sender the hub does not know has none
+        const sites = split(req.query.site);
+        const inSites = (hostname: string) => {
+          const h = byKey.get(hostKey(hostname));
+          return !sites.length || !!(h?.siteId && sites.includes(h.siteId));
+        };
         return {
           role: role._id,
           sources: senders
+            .filter((s) => inSites(s.hostname))
             .map((s) => ({ ...s, hostId: byKey.get(hostKey(s.hostname))?.id ?? null, hostName: byKey.get(hostKey(s.hostname))?.name ?? s.hostname }))
             .sort((a, b) => a.hostName.localeCompare(b.hostName)),
         };

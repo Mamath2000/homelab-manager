@@ -71,6 +71,9 @@ test('logs: hosts, sites and tags of the hub become the names the journals carry
   assert.deepEqual(filtersOf({ host: 'a' }, known), { hostnames: ['pve1'] });
   assert.deepEqual(filtersOf({ site: 's1', severity: 4 }, known), { hostnames: ['pve1', 'docker01'], maxSeverity: 4 });
   assert.deepEqual(filtersOf({ site: 's1', tag: 'prod' }, known), { hostnames: ['pve1'] });
+  // several sites: the hosts of any of them
+  assert.deepEqual(filtersOf({ site: 's1,s2' }, known), { hostnames: ['pve1', 'docker01'] });
+  assert.deepEqual(filtersOf({ site: 's3,s1' }, known), { hostnames: ['pve1', 'docker01'] });
   // an unknown sender is named as it is
   assert.deepEqual(filtersOf({ hostname: 'switch-salon', host: 'b' }, known), { hostnames: ['switch-salon', 'docker01'] });
   // a selection with no host that can send returns nothing, never every journal

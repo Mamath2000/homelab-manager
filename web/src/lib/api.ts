@@ -1849,7 +1849,7 @@ export interface LogQuery {
   role?: string;
   host?: string[];
   hostname?: string[];
-  site?: string;
+  site?: string[];
   tag?: string;
   severity?: number;
   app?: string[];
@@ -2044,7 +2044,7 @@ export const api = {
   logHits: (q: LogQuery) => request<LogHits>('GET', `/api/logs/hits?${logParams(q)}`),
   logMatrix: (q: LogQuery) => request<LogMatrix>('GET', `/api/logs/matrix?${logParams(q)}`),
   logFields: (field: 'app' | 'facility', q: LogQuery) => request<{ values: { value: string; hits: number }[] }>('GET', `/api/logs/fields?${logParams(q, { field })}`),
-  logSources: (role?: string, source?: string[], from?: string) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams({ role, source, from })}`),
+  logSources: (role?: string, source?: string[], from?: string, site?: string[]) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams({ role, source, from, site })}`),
   logHosts: (role: string) => request<LogHosts>('GET', `/api/settings/logs/${encodeURIComponent(role)}/hosts`),
   addLogHost: (role: string, hostId: string) => request<{ jobId: string }>('POST', `/api/settings/logs/${encodeURIComponent(role)}/hosts`, { hostId }),
   removeLogHost: (role: string, hostId: string) => request<{ jobId: string | null; applied: boolean }>('DELETE', `/api/settings/logs/${encodeURIComponent(role)}/hosts/${hostId}`),
