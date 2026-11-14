@@ -137,7 +137,7 @@ function Histogram({ hits, onZoom }: { hits: LogHits; onZoom: (from: string, to:
   // the worst severities at the bottom of each bar
   const series = [...hits.series].sort((a, b) => a.severity - b.severity);
   return (
-    <div className="panel p-3">
+    <div className="panel flex h-full flex-col p-3">
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         <span className="text-zinc-300">{totals.reduce((a, b) => a + b, 0).toLocaleString('fr-FR')} lignes</span>
         {series.map((s) => (
@@ -148,7 +148,7 @@ function Histogram({ hits, onZoom }: { hits: LogHits; onZoom: (from: string, to:
         ))}
         <span className="ml-auto hidden sm:inline">Cliquer ou glisser sur les barres pour zoomer</span>
       </div>
-      <div className="flex h-24 select-none items-end gap-px" onMouseLeave={() => setDrag(null)} onMouseUp={apply} role="img" aria-label="Nombre de lignes par tranche de temps et par criticité">
+      <div className="flex min-h-[6rem] flex-1 select-none items-end gap-px" onMouseLeave={() => setDrag(null)} onMouseUp={apply} role="img" aria-label="Nombre de lignes par tranche de temps et par criticité">
         {hits.timestamps.map((t, i) => (
           <div
             key={t}
@@ -191,7 +191,7 @@ function Matrix({ matrix, active, severity, onPick }: { matrix: LogMatrix; activ
   const count = (source: string, severities: number[]) => matrix.cells.filter((c) => c.source === source && severities.includes(c.severity)).reduce((sum, c) => sum + c.count, 0);
   const totals = matrix.sources.map((s) => count(s, [0, 1, 2, 3, 4, 5, 6, 7]));
   return (
-    <div className="panel overflow-x-auto p-3">
+    <div className="panel flex h-full flex-col overflow-x-auto p-3">
       <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
@@ -236,7 +236,7 @@ function Matrix({ matrix, active, severity, onPick }: { matrix: LogMatrix; activ
           </tr>
         </tfoot>
       </table>
-      <p className="mt-2 text-[10px] text-muted">Tous les niveaux, quel que soit le filtre de criticité. Cliquer une colonne ou une cellule filtre sur la source.</p>
+      <p className="mt-auto pt-2 text-[10px] text-muted">Tous les niveaux, quel que soit le filtre de criticité. Cliquer une colonne ou une cellule filtre sur la source.</p>
     </div>
   );
 }
@@ -459,6 +459,13 @@ export function Logs() {
         {servers.length === 1 && <span className="truncate text-xs text-muted">{servers[0].name}</span>}
       </HeaderTitle>
 
+      {!f.live && !failure && !noSender && ((matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
+        <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          {matrix.data && matrix.data.sources.length > 0 ? <Matrix matrix={matrix.data} active={f.source} severity={f.severity} onPick={(source, severity) => set({ source: [source], ...(severity !== undefined ? { severity } : {}) })} /> : <div />}
+          {hits.data && hits.data.timestamps.length > 0 ? <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} /> : <div />}
+        </div>
+      )}
+
       <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <label className="col-span-2 min-w-0 md:col-span-1">
           <span className={field}>Hôte</span>
@@ -587,12 +594,6 @@ export function Logs() {
         </div>
       ) : (
         <>
-          {!f.live && ((matrix.data && matrix.data.sources.length > 0) || (hits.data && hits.data.timestamps.length > 0)) && (
-            <div className="mb-3 grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-              <div>{matrix.data && matrix.data.sources.length > 0 && <Matrix matrix={matrix.data} active={f.source} severity={f.severity} onPick={(source, severity) => set({ source: [source], ...(severity !== undefined ? { severity } : {}) })} />}</div>
-              <div>{hits.data && hits.data.timestamps.length > 0 && <Histogram hits={hits.data} onZoom={(from, to) => (setCustom(false), set({ from, to }))} />}</div>
-            </div>
-          )}
           {f.live && (
             <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
               <Badge tone={live.error ? 'warn' : 'ok'}>{live.error ?? 'en direct'}</Badge>
