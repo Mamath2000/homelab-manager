@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { dayOf, upsStatus } from '../src/monitoring.js';
 import { isUpsReport, type UpsReport } from '../src/ups.js';
 
-const upsAlert = (h: { ups?: UpsReport }) => dayOf(upsStatus(h, { online: true }));
+const upsAlert = (h: { ups?: UpsReport }) => dayOf(upsStatus(h, { online: true, now: h.ups?.checkedAt ?? 0 }));
 
 const ups = (o: Partial<UpsReport> = {}): UpsReport => ({
   checkedAt: 1,
@@ -49,4 +49,12 @@ test('UPS alert: low charge, runtime under the low threshold and failed test are
 
 test('UPS alert: values the UPS does not report raise nothing', () => {
   assert.equal(upsAlert({ ups: { checkedAt: 1, name: 'u', model: '', driver: '', status: 'OL' } })?.level, 'ok');
+});
+
+test('UPS alert: a report older than 10 minutes means the UPS is unreachable, not green', () => {
+  const at = 1_000_000;
+  const status = (age: number, online = true) => upsStatus({ ups: ups({ checkedAt: at }) }, { online, now: at + age });
+  assert.equal(dayOf(status(9 * 60_000))?.level, 'ok');
+  assert.deepEqual(dayOf(status(15 * 60_000)), { level: 'warn', reasons: ['Onduleur injoignable (dernier relevé il y a 15 min)'] });
+  assert.equal(status(15 * 60_000, false)?.level, 'unknown');
 });

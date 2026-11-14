@@ -1,11 +1,12 @@
 import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
-import { Activity, Boxes, Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Network, Radio, Server, Settings as SettingsIcon, Shield, ShieldCheck, Tags, Terminal, Wand2 } from 'lucide-react';
+import { Activity, Boxes, Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, MapPin, Network, Radio, ScrollText, Server, Settings as SettingsIcon, Shield, ShieldCheck, Tags, Terminal, Wand2 } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { HomeAssistantPanel } from '../components/HomeAssistantPanel';
 import { RolesSettings } from '../components/HubRoles';
 import { MqttSecuritySettings } from '../components/MqttSecurity';
+import { LogHostsSettings } from '../components/LogHosts';
 import { OmadaInventory } from '../components/OmadaInventory';
 import { PveInventory } from '../components/PveInventory';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
@@ -30,6 +31,7 @@ const tabs = [
   { id: 'pve', label: 'Proxmox VE', icon: Boxes },
   { id: 'omada', label: 'Omada', icon: Network },
   { id: 'mqtt', label: 'MQTT', icon: ShieldCheck },
+  { id: 'logs', label: 'Logs', icon: ScrollText },
   { id: 'health', label: 'Santé', icon: Activity },
   { id: 'security', label: 'Sécurité', icon: Shield },
   { id: 'homeassistant', label: 'Home Assistant', icon: Home },
@@ -47,7 +49,9 @@ export function Settings() {
   const hasOmada = !!roles?.some((r) => r.type === 'omada-controller');
   // MQTT: opened by a broker role whose management of accounts is available or active
   const hasMqtt = !!roles?.some((r) => r.type === 'mqtt-broker' && r.security.state !== 'unavailable');
-  const shown = tabs.filter((item) => (item.id !== 'setup' || features.standardisation) && (item.id !== 'pve' || hasPve) && (item.id !== 'omada' || hasOmada) && (item.id !== 'mqtt' || hasMqtt));
+  // Logs: opened by a log server role (the hosts that send to it)
+  const hasLogs = !!roles?.some((r) => r.type === 'log-server');
+  const shown = tabs.filter((item) => (item.id !== 'setup' || features.standardisation) && (item.id !== 'pve' || hasPve) && (item.id !== 'omada' || hasOmada) && (item.id !== 'mqtt' || hasMqtt) && (item.id !== 'logs' || hasLogs));
   // the old tab of the backups: the two PBS are roles now
   const asked = params.get('tab') === 'backups' ? 'roles' : params.get('tab');
   const tab: TabId = shown.find((item) => item.id === asked)?.id ?? 'hub';
@@ -118,6 +122,7 @@ export function Settings() {
     pve: <PveInventory />,
     omada: <OmadaInventory />,
     mqtt: <MqttSecuritySettings />,
+    logs: <LogHostsSettings />,
     health: <HealthSettings />,
     homeassistant: <HomeAssistantPanel />,
     about: (

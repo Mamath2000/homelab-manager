@@ -4,11 +4,11 @@ import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
-import { checkLogServer, LOG_URL_RE, pollLogServers } from '../logs.js';
+import { checkLogServer, LOG_URL_RE, logTarget, pollLogServers, testReception } from '../logs.js';
 import { checkAllHosts } from '../setup.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
 import { accountExists, checkName, createAccount, deleteAccount, listAccounts, setAccountPassword, setAccountSys, syncAccount } from '../mqttAccounts.js';
-import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous } from '../brokerAnonymous.js';
+import { brokerAnonymous, brokerAnonymousAccepted, checkBrokersAnonymous, recordAnonymous } from '../brokerAnonymous.js';
 import { anonymousState, setAnonymous } from '../mqttAnonymous.js';
 import { DynsecError, enableDynsec, resetDynsec, securityView } from '../mqttDynsec.js';
 import { securityOf } from '../mqttSecurity.js';
@@ -358,7 +358,9 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
     try {
-      return await enableDynsec(role);
+      const r = await enableDynsec(role);
+      void checkBrokersAnonymous().catch(() => undefined);
+      return r;
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -369,6 +371,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name } };
     try {
       await resetDynsec(role);
+      void checkBrokersAnonymous().catch(() => undefined);
       return { ok: true };
     } catch (err) {
       return dynsecFail(reply, err);
@@ -415,7 +418,9 @@ export function registerRoleRoutes(app: FastifyInstance) {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
     try {
-      return await anonymousState(role);
+      const st = await anonymousState(role);
+      recordAnonymous(role._id, st);
+      return st;
     } catch (err) {
       return dynsecFail(reply, err);
     }
@@ -429,7 +434,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
       req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { anonymous: req.body.allowed } };
       try {
         const state = await setAnonymous(role, req.body.allowed);
-        void checkBrokersAnonymous().catch(() => undefined);
+        recordAnonymous(role._id, state);
         return state;
       } catch (err) {
         return dynsecFail(reply, err);
@@ -511,6 +516,33 @@ export function registerRoleRoutes(app: FastifyInstance) {
 
   // connection test of a role being declared or edited. omada-controller: fingerprint, the one its certificate presents
   // when it was refused, and its source (to pin it or not, checkedFingerprint); detail: what the controller answered
+  // Reception test of a log server being declared or edited: a syslog line sent where the hosts will send, then read
+  // back through its API.
+  app.post<{ Body: { carrier: CarrierBody; config: ConfigBody; roleId?: string } }>(
+    '/api/roles/log-reception',
+    { schema: { body: { type: 'object', required: ['carrier', 'config'], additionalProperties: false, properties: { carrier, config, roleId: { type: 'string', maxLength: 32 } } } } },
+    async (req, reply) => {
+      const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;
+      const bad = configError('log-server', req.body.config);
+      if (bad) return reply.code(400).send({ error: bad });
+      const secret = typedSecret('log-server', req.body.config) ?? (stored?.type === 'log-server' ? storedSecret(stored) : '');
+      const c = toConfig('log-server', req.body.config, secret);
+      const host = await carrierOf(req.body.carrier);
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      const target = logTarget(c, host.info?.ips);
+      if (!target.address) return { ok: false, error: "adresse de l'hôte inconnue : la saisir" };
+      const dest = `${target.address}:${target.port}`;
+      try {
+        const r = await testReception(c, target.address, target.port);
+        return r.received
+          ? { ok: true, detail: `ligne de test envoyée à ${dest} et retrouvée par l'API` }
+          : { ok: false, error: `${dest} accepte la connexion, mais la ligne de test n'est pas arrivée dans VictoriaLogs : ce port n'est pas son entrée syslog ?` };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+  );
+
   app.post<{ Body: { type: DeclaredType; carrier: CarrierBody; config: ConfigBody; roleId?: string } }>('/api/roles/test', { schema: { body: testBody } }, async (req, reply) => {
     const { type } = req.body;
     const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;
@@ -533,7 +565,11 @@ export function registerRoleRoutes(app: FastifyInstance) {
       const c = toConfig(type, body, secret);
       try {
         const r = await checkLogServer(c);
-        return { ok: true, detail: r.senders ? `VictoriaLogs joignable, ${r.senders} émetteur${r.senders > 1 ? 's' : ''} sur 24 h` : "VictoriaLogs joignable, aucun journal reçu pour l'instant" };
+        const received = r.senders ? `${r.senders} émetteur${r.senders > 1 ? 's' : ''} sur 24 h` : "aucun journal reçu pour l'instant";
+        const tcp = r.syslog?.tcp ?? [];
+        const input = !r.syslog ? 'configuration syslog non lisible' : tcp.length ? `reçoit le syslog TCP sur ${tcp.join(', ')}` : 'ne reçoit pas de syslog en TCP (-syslog.listenAddr.tcp absent)';
+        // syslog: the ports read on the server, proposed as where the hosts send
+        return { ok: true, detail: `VictoriaLogs joignable, ${input}, ${received}`, ...(r.syslog ? { syslog: r.syslog } : {}) };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }

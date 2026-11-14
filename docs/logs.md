@@ -20,11 +20,29 @@ navigateur ──► hub ──API HTTP de requête─────────�
 ## Mise en place
 
 1. Installer VictoriaLogs sur un hôte (ci-dessous).
-2. **Paramètres › Rôles › Déclarer un rôle › Serveur de logs** : hôte porteur, adresse de l'API, port de réception syslog, test.
+2. **Paramètres › Rôles › Déclarer un rôle › Serveur de logs** : hôte, API (testée), délai d'alerte d'un hôte muet et destination des hôtes.
 3. **Paramètres › Standardisation › Système** : cocher **Envoi des journaux**, choisir le serveur, enregistrer.
 4. Appliquer la standardisation aux hôtes (fiche d'un hôte, ou sélection dans Hôtes). Voir [Standardisation](standardisation.md#envoi-des-journaux).
 
 L'option de standardisation demande `FEATURE_STANDARDISATION=true` ([Configuration](configuration.md)). Le rôle et la page Logs n'en dépendent pas : un appareil configuré à la main pour envoyer en syslog au serveur est lisible aussi.
+
+## Paramètres › Logs
+
+L'onglet apparaît avec un rôle Serveur de logs (administrateurs). Pour chaque serveur, une carte par hôte qui lui envoie ses journaux :
+
+| Couleur | État |
+|---|---|
+| vert | des journaux sont arrivés pendant le délai d'alerte du rôle (24 h s'il ne surveille pas les hôtes muets) |
+| orange | installation en cours, ou écart de l'option : configuration à appliquer, ou serveur qui refuse la connexion sur le port envoyé (l'agent tente une connexion TCP à chaque vérification) |
+| rouge | rien reçu pendant ce délai, ou l'agent ne peut pas appliquer l'option (agent à mettre à jour…) |
+
+La carte indique aussi le site, « hors ligne », et comment l'hôte envoie : **standard** (valeur standard de la standardisation), **valeur propre**, ou **réglé à la main** (le serveur reçoit de lui sans que la standardisation l'y envoie). États relus toutes les 30 secondes, toutes les 5 secondes pendant une installation.
+
+- **Ajouter des hôtes** : liste les hôtes qui n'envoient pas encore, à cocher (**Tout cocher** pour la liste filtrée) ; pour chaque hôte coché, l'option « Envoi des journaux » est réglée sur ce serveur (la valeur standard si c'est elle, sinon une valeur propre) et appliquée aussitôt : l'agent installe et configure rsyslog (une tâche par hôte). Un hôte en échec reste coché, avec la raison. Grisés : hôte hors ligne, agent à mettre à jour, hôte sans standardisation (Windows, HAOS, Unraid), standardisation désactivée sur le hub. Un hôte réglé à la main est proposé avec un avertissement : retirer son réglage manuel, sinon chaque ligne arrive en double.
+- **Réappliquer** (carte en écart, orange ou rouge, hôte en ligne) : pousse de nouveau la configuration rsyslog, par exemple après un changement du port ou de l'adresse du serveur dans le rôle.
+- **Corbeille** d'une carte : arrête l'envoi, après confirmation. L'option de l'hôte devient « aucun envoi » et l'agent retire son fichier (à la prochaine application si l'hôte est hors ligne). Pas de corbeille sur un hôte réglé à la main : son fichier n'est pas celui de l'agent.
+
+Les émetteurs que le hub ne connaît pas sont listés sous les cartes.
 
 ## Installer VictoriaLogs
 
@@ -41,7 +59,7 @@ services:
       - -storageDataPath=/victoria-logs-data
       - -retentionPeriod=30d
       - -httpListenAddr=:9428
-      - -syslog.listenAddr.tcp=:29514
+      - -syslog.listenAddr.tcp=:514
       - -syslog.useRemoteIP.tcp=true
     volumes:
       - ./data:/victoria-logs-data
@@ -50,12 +68,12 @@ services:
 | Réglage | Rôle |
 |---|---|
 | `-httpListenAddr` (9428) | API de requête, lue par le hub |
-| `-syslog.listenAddr.tcp` (29514) | réception des journaux des hôtes, en TCP |
+| `-syslog.listenAddr.tcp` (514) | réception des journaux des hôtes, en TCP ; un port sous 1024 demande que le processus soit root ou ait `CAP_NET_BIND_SERVICE` |
 | `-retentionPeriod` | durée de conservation (7 jours par défaut) ; `-retention.maxDiskSpaceUsageBytes` borne aussi le disque |
 | `-syslog.useRemoteIP.tcp` | garde l'adresse de l'émetteur de chaque journal (champ `remote_ip`) |
 
 :::warning L'API de VictoriaLogs n'a pas de compte
-Qui atteint le port 9428 lit tous les journaux, et peut en écrire. Le limiter au hub : pare-feu de l'hôte, ou écoute sur une adresse interne. Si un proxy avec authentification est placé devant, son compte se saisit dans le rôle (utilisateur et mot de passe, authentification basique).
+Qui atteint le port 9428 lit tous les journaux, et peut en écrire. Le limiter au hub : pare-feu de l'hôte, ou écoute sur une adresse interne. Pour une authentification, placer devant un reverse proxy HTTPS : son compte se saisit dans le rôle (**Derrière un reverse proxy HTTPS**, authentification basique).
 :::
 
 Les journaux voyagent **en clair** (TCP) entre les hôtes et le serveur : réseau local et VPN site à site. Le transport chiffré viendra plus tard.
@@ -121,6 +139,10 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
 | `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
+| `POST /api/roles/log-reception` | test de réception d'un serveur en cours de déclaration : ligne syslog de test envoyée, puis cherchée par l'API (administrateurs) |
+| `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
+| `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |
+| `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte (administrateurs, passkey) |
 
 Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
 

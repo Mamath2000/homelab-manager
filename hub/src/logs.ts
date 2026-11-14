@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { connect } from 'node:net';
 import type { FastifyBaseLogger } from 'fastify';
 import { isOnline } from './agents.js';
 import { hosts } from './db.js';
@@ -266,8 +268,62 @@ export async function checkLogServer(c: Server) {
   });
   if (health.status === 401 || health.status === 403) throw new LogServerError('le serveur de logs refuse ce compte');
   if (!health.ok) throw new LogServerError(`${c.url} répond ${health.status} : pas l'API d'un VictoriaLogs ?`);
-  const senders = await querySenders(c, '1d');
-  return { senders: senders.length };
+  const [senders, syslog] = await Promise.all([querySenders(c, '1d'), syslogInputs(c)]);
+  return { senders: senders.length, syslog };
+}
+
+// The ports VictoriaLogs receives syslog on, as its own flags say (/flags lists the ones set): what the hosts must send
+// to. null: the flags cannot be read (proxy, older server). In a container they are the ports inside it.
+export function parseSyslogFlags(flags: string) {
+  const ports = (proto: 'tcp' | 'udp') => {
+    const m = new RegExp(`^-syslog\\.listenAddr\\.${proto}="([^"]*)"`, 'm').exec(flags);
+    if (!m) return [];
+    return [...new Set(m[1].split(',').map((a) => Number(/:(\d{1,5})$/.exec(a.trim())?.[1])).filter((p) => p > 0 && p < 65536))].sort((a, b) => a - b);
+  };
+  return { tcp: ports('tcp'), udp: ports('udp') };
+}
+
+async function syslogInputs(c: Server) {
+  try {
+    const res = await fetch(`${c.url.replace(/\/+$/, '')}/flags`, { headers: headersOf(c), signal: AbortSignal.timeout(5000) });
+    return res.ok ? parseSyslogFlags(await res.text()) : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- test of the reception -----------------------------------------------------------------------------------------
+
+// the application of the lines the hub sends to test a server: never counted as a sender
+export const TEST_APP = 'hlm-reception-test';
+
+// One syslog line (RFC 5424) sent in TCP where the hosts send, as rsyslog does: refused, unreachable, or sent.
+function sendSyslog(address: string, port: number, line: string, timeoutMs = 5000) {
+  return new Promise<void>((resolve, reject) => {
+    const socket = connect({ host: address, port, timeout: timeoutMs });
+    const fail = (why: string) => {
+      socket.destroy();
+      reject(new LogServerError(why));
+    };
+    socket.once('timeout', () => fail(`${address}:${port} ne répond pas (délai dépassé)`));
+    socket.once('error', (err: NodeJS.ErrnoException) => fail(err.code === 'ECONNREFUSED' ? `${address}:${port} refuse la connexion : VictoriaLogs ne reçoit pas sur ce port` : `${address}:${port} injoignable : ${err.code ?? err.message}`));
+    socket.once('connect', () => socket.end(line, () => resolve()));
+  });
+}
+
+// The whole way of a journal: a test line sent to the destination of the hosts, then looked for through the API. The
+// hub sends from its own network: a host elsewhere (VPN, other site) may still be filtered on its way.
+export async function testReception(c: Server, address: string, port: number, wait = 6000) {
+  const nonce = randomBytes(6).toString('hex');
+  const message = `test de réception ${nonce}`;
+  await sendSyslog(address, port, `<14>1 ${new Date().toISOString()} homelab-manager ${TEST_APP} - - - ${message}\n`);
+  const query = `app_name:=${quote(TEST_APP)} _msg:${quote(message)}`;
+  for (const deadline = Date.now() + wait; Date.now() < deadline; ) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const res = await call(c, '/select/logsql/query', { query, start: '5m', limit: 1 }, 5000);
+    if ((await res.text()).trim()) return { received: true };
+  }
+  return { received: false };
 }
 
 export interface LogSender {
@@ -279,7 +335,7 @@ export interface LogSender {
 
 // Who sent journals in the range: the last one of each, how many, and how many errors (severity err and worse).
 export async function querySenders(c: Server, start: string): Promise<LogSender[]> {
-  const res = await call(c, '/select/logsql/query', { query: '* | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors', start, timeout: '15s' }, 17_000);
+  const res = await call(c, '/select/logsql/query', { query: `!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors`, start, timeout: '15s' }, 17_000);
   return jsonLines(await res.text())
     .filter((o) => o.hostname)
     .map((o) => ({ hostname: o.hostname, lastAt: Date.parse(o.last) || 0, count: Number(o.n) || 0, errors: Number(o.errors) || 0 }));

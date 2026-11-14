@@ -123,3 +123,19 @@ LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=500,fd=7))`
 		t.Fatalf("container: %+v", got)
 	}
 }
+
+func TestParseRoleCandidatesLogServerDocker(t *testing.T) {
+	// VictoriaLogs in a container (ct-186): docker-proxy publishes its API and its syslog input; another published port
+	// is not one of its inputs
+	out := `LISTEN 0 4096 192.168.100.186:9428 0.0.0.0:* users:(("docker-proxy",pid=1379,fd=4))
+LISTEN 0 4096 192.168.100.186:514 0.0.0.0:* users:(("docker-proxy",pid=1391,fd=4))
+LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("docker-proxy",pid=1400,fd=4))`
+	got := parseRoleCandidates(out)
+	if len(got) != 2 || got[0].Port != 514 || got[0].Scheme != "syslog" || got[0].Local || got[1].Port != 9428 || got[1].Scheme != "http" {
+		t.Fatalf("candidates = %+v", got)
+	}
+	// a syslog port published without the API is not a log server
+	if got := parseRoleCandidates(`LISTEN 0 4096 0.0.0.0:514 0.0.0.0:* users:(("docker-proxy",pid=1391,fd=4))`); len(got) != 0 {
+		t.Fatalf("candidates = %+v, want none", got)
+	}
+}

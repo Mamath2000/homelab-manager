@@ -39,6 +39,12 @@ Le panneau **Onduleur** est le premier bloc de la colonne de gauche de la fiche,
 
 Une valeur que l'onduleur ne remonte pas est affichée « — ».
 
+### Onduleur injoignable ou retiré
+
+L'agent relève l'onduleur au moins toutes les 5 minutes. Sans relevé depuis **plus de 10 minutes** (onduleur débranché, driver NUT arrêté), le panneau passe en orange : badge **Injoignable**, encart « Onduleur injoignable » avec l'âge du dernier relevé, et l'alerte de l'hôte devient un avertissement « Onduleur injoignable » au lieu de rester verte. Sans relevé depuis **plus de 48 heures**, les badges d'état et les mesures sont masqués : les dernières valeurs ne veulent plus rien dire.
+
+Quand l'onduleur est retiré pour de bon (NUT désinstallé, onduleur débranché), l'agent le signale au hub après **3 relevés ratés d'affilée** (environ 3 minutes, pour qu'un raté ponctuel de NUT n'efface rien) : le hub oublie le relevé et le panneau disparaît. Ce signal est envoyé une fois par session de l'agent, même si l'agent a redémarré entre-temps. Il faut un agent à jour ; sans cela le panneau reste en « Injoignable ».
+
 :::note Âge de la batterie
 La date de fabrication de la batterie (`battery.mfr.date`) est affichée à titre indicatif. L'âge n'entre pas dans les alertes : `battery.date` garde la valeur d'usine sur beaucoup d'onduleurs, et la fin de vie repose sur le drapeau `RB`, l'autonomie et les auto-tests.
 :::

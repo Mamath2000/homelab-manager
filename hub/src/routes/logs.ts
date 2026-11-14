@@ -1,8 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { isOnline } from '../agents.js';
+import { config } from '../config.js';
 import { hosts, parseId } from '../db.js';
+import { publish } from '../events.js';
+import { hostDto } from '../hostDto.js';
+import { hasRunningJob } from '../jobs.js';
+import { applySetup, canSetup, effectiveValues, loadSetupProfile, overridesError } from '../setup.js';
 import { trackStream } from '../events.js';
 import { hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
-import type { LogServerRole } from '../types.js';
+import type { HostDoc, LogServerRole, SetupOverrides, SetupProfile } from '../types.js';
 
 // Journals of the hosts, read on a log server (logs.ts). Admins and operators (profiles.ts), never an API key: a journal
 // may hold a secret. Without a log server role, the routes do not exist (404).
@@ -118,6 +124,39 @@ function withHosts(rows: LogRow[], known: KnownHost[]) {
     return { ...r, hostId: h?.id ?? null, hostName: h?.name ?? r.hostname };
   });
 }
+
+// --- hosts that send to a log server (Paramètres › Logs) ---------------------------------------------------------------
+
+// How a host sends to the server: through the standard value, its own value, or set by hand on the host (the server
+// receives from it, the standardisation does not send it there). null: it does not send there.
+export function sendMode(p: SetupProfile, h: Pick<HostDoc, 'setupOverrides' | 'capabilities'>, roleId: string): 'standard' | 'custom' | null {
+  if (!canSetup(h)) return null;
+  const o = h.setupOverrides?.log_forward;
+  if (o?.mode === 'custom') return o.value.role === roleId ? 'custom' : null;
+  return effectiveValues(p, h.setupOverrides).log_forward?.role === roleId ? 'standard' : null;
+}
+
+// The overrides that make a host send to the role (the standard value when it is the role), or send nothing.
+export function overridesSending(p: SetupProfile, overrides: SetupOverrides = {}, roleId: string): SetupOverrides {
+  const next = { ...overrides };
+  const std = p.options.log_forward;
+  if (roleId && std.enabled && std.value.role === roleId) delete next.log_forward;
+  else next.log_forward = { mode: 'custom', value: { role: roleId } };
+  return next;
+}
+
+// Why the journals of this host cannot be sent by the standardisation (null: they can).
+export function cannotSend(h: Pick<HostDoc, '_id' | 'capabilities'>) {
+  if (!config.featureStandardisation) return 'standardisation désactivée sur le hub (FEATURE_STANDARDISATION)';
+  if (!h.capabilities?.includes('setup')) return 'pas de standardisation sur cet hôte (Debian / Ubuntu seulement)';
+  if (!h.capabilities.includes('log_forward')) return "agent à mettre à jour";
+  if (!isOnline(h._id.toHexString())) return 'hôte hors ligne';
+  return null;
+}
+
+// the journals received from a host over this long are the green of its card: the silent time of the server, a day when
+// it watches no silence
+const receivingMs = (r: LogServerRole) => (r.config.silentHours || 24) * 3600_000;
 
 // live tails open at once, all accounts together: each one holds a connection to the log server
 const MAX_TAILS = 8;
@@ -273,6 +312,99 @@ export function registerLogRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  // The hosts that send their journals to a server: the ones the standardisation sends there, and the hosts of the hub it
+  // receives from anyway (set by hand). state: ok, journals received lately; pending, being installed; drift, to apply;
+  // error, the agent cannot apply it; silent, nothing received. others: senders the hub does not know.
+  app.get<{ Params: { role: string } }>('/api/settings/logs/:role/hosts', async (req, reply) => {
+    const role = serverOf(req, reply, req.params.role);
+    if (!role) return reply;
+    const [p, docs] = await Promise.all([loadSetupProfile(), hosts.find({}).toArray()]);
+    let senders: Awaited<ReturnType<typeof querySenders>> = [];
+    let error: string | null = null;
+    try {
+      senders = await querySenders(role.config, '7d');
+    } catch (err) {
+      error = (err as Error).message;
+    }
+    const byKey = new Map(senders.map((s) => [hostKey(s.hostname), s]));
+    const seen = new Set<string>();
+    const now = Date.now();
+    const list = docs.flatMap((h) => {
+      const mode = sendMode(p, h, role._id);
+      const sender = h.info?.hostname ? byKey.get(hostKey(h.info.hostname)) : undefined;
+      if (sender) seen.add(sender.hostname);
+      if (!mode && !sender) return [];
+      const id = h._id.toHexString();
+      const check = h.setup?.modules.find((m) => m.module === 'log_forward');
+      const running = hasRunningJob(id);
+      const receiving = !!sender && now - sender.lastAt < receivingMs(role);
+      // a drift that is not a silence: the option is to apply (or was not applied as it should)
+      const unapplied = !!mode && !!check && check.state !== 'ok' && !check.silent;
+      const state = receiving ? 'ok' : running ? 'pending' : unapplied ? (check!.state === 'drift' ? 'drift' : 'error') : 'silent';
+      return [{
+        hostId: id,
+        name: h.name,
+        siteId: h.siteId?.toString() ?? null,
+        online: isOnline(id),
+        mode: mode ?? ('manual' as const),
+        lastAt: sender?.lastAt ?? null,
+        count: sender?.count ?? 0,
+        state,
+        detail: check && check.state !== 'ok' ? (check.detail ?? null) : null,
+        running,
+      }];
+    });
+    const others = senders.filter((s) => !seen.has(s.hostname)).map((s) => ({ hostname: s.hostname, lastAt: s.lastAt, count: s.count }));
+    return { role: role._id, silentHours: role.config.silentHours, error, hosts: list.sort((a, b) => a.name.localeCompare(b.name)), others };
+  });
+
+  // Makes a host send its journals to the server: its value of the option becomes this server (the standard one when it
+  // is), then the option alone is applied (rsyslog installed and configured by its agent).
+  app.post<{ Params: { role: string }; Body: { hostId: string } }>(
+    '/api/settings/logs/:role/hosts',
+    { schema: { body: { type: 'object', required: ['hostId'], additionalProperties: false, properties: { hostId: { type: 'string', maxLength: 24 } } } } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.params.role);
+      if (!role) return reply;
+      const _id = parseId(req.body.hostId);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'hôte inconnu' });
+      const why = cannotSend(host);
+      if (why) return reply.code(409).send({ error: `${host.name} : ${why}` });
+      if (hasRunningJob(req.body.hostId)) return reply.code(409).send({ error: `${host.name} : une tâche est déjà en cours` });
+      const p = await loadSetupProfile();
+      const overrides = overridesSending(p, host.setupOverrides, role._id);
+      const bad = overridesError(p, overrides);
+      if (bad) return reply.code(400).send({ error: bad });
+      const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { setupOverrides: overrides } }, { returnDocument: 'after' }))!;
+      publish('host', hostDto(updated));
+      const job = await applySetup(updated, 'manual', ['log_forward']);
+      req.auditNote = { target: { kind: 'host', id: req.body.hostId, name: host.name }, details: { role: role._id, mode: overrides.log_forward ? 'custom' : 'standard' } };
+      reply.code(202);
+      return { jobId: job._id.toHexString() };
+    },
+  );
+
+  // Stops the journals of a host: its value becomes « no forwarding », and the agent removes its rsyslog file (now, or at the
+  // next application when it is offline). A host set by hand is not touched: its file is not the agent's.
+  app.delete<{ Params: { role: string; hostId: string } }>('/api/settings/logs/:role/hosts/:hostId', async (req, reply) => {
+    const role = serverOf(req, reply, req.params.role);
+    if (!role) return reply;
+    const _id = parseId(req.params.hostId);
+    const host = _id && (await hosts.findOne({ _id }));
+    if (!host) return reply.code(404).send({ error: 'hôte inconnu' });
+    const p = await loadSetupProfile();
+    if (!sendMode(p, host, role._id)) return reply.code(409).send({ error: `${host.name} n'envoie pas ses journaux par la standardisation : son rsyslog a été réglé à la main` });
+    if (hasRunningJob(req.params.hostId)) return reply.code(409).send({ error: `${host.name} : une tâche est déjà en cours` });
+    const overrides = overridesSending(p, host.setupOverrides, '');
+    const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { setupOverrides: overrides } }, { returnDocument: 'after' }))!;
+    publish('host', hostDto(updated));
+    const online = isOnline(req.params.hostId);
+    const job = online ? await applySetup(updated, 'manual', ['log_forward']) : null;
+    req.auditNote = { target: { kind: 'host', id: req.params.hostId, name: host.name }, details: { role: role._id, removed: true, applied: online } };
+    return { jobId: job?._id.toHexString() ?? null, applied: online };
+  });
 
   // Live tail (Server-Sent Events): every journal that matches the filters, as the server receives it.
   app.get<{ Querystring: FilterQuery }>(

@@ -84,6 +84,7 @@ const check = (key: string, label: string, level: AlertLevel, reason?: string): 
 // A roaming host away cannot back up, nor be read: being late or offline is expected then.
 const away = (h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'online'>) => !!h.roaming && !ctx.online;
 
+const UPS_STALE_MS = 10 * 60 * 1000;
 const STALE_LISTS_MS = 2 * 24 * 3600 * 1000;
 
 // --- providers ----------------------------------------------------------------------------------
@@ -197,9 +198,12 @@ export function offsiteStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'o
   );
 }
 
-export function upsStatus(h: Pick<HostDoc, 'ups'>, ctx: Pick<Context, 'online'>): DomainReport {
+export function upsStatus(h: Pick<HostDoc, 'ups'>, ctx: Pick<Context, 'online' | 'now'>): DomainReport {
   if (!h.ups) return null;
   if (!ctx.online) return unknown('Hôte hors ligne');
+  // the agent reports at least every 5 minutes; a silent UPS is unplugged or its driver is down
+  const age = ctx.now - h.ups.checkedAt;
+  if (age > UPS_STALE_MS) return known([check('ups', 'Onduleur', 'warn', `Onduleur injoignable (dernier relevé il y a ${Math.round(age / 60000)} min)`)]);
   const problems = upsProblems(h.ups);
   if (!problems.length) return known([check('ups', 'Onduleur', 'ok')]);
   return known(problems.map((p) => check(p.message, p.message, p.level, p.message)));
