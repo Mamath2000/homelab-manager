@@ -334,8 +334,9 @@ export interface LogSender {
 }
 
 // Who sent journals in the range: the last one of each, how many, and how many errors (severity err and worse).
-export async function querySenders(c: Server, start: string): Promise<LogSender[]> {
-  const res = await call(c, '/select/logsql/query', { query: `!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors`, start, timeout: '15s' }, 17_000);
+export async function querySenders(c: Server, start: string, sources?: string[]): Promise<LogSender[]> {
+  const only = sources?.length ? `${sourceCondition(sources)} ` : '';
+  const res = await call(c, '/select/logsql/query', { query: `${only}!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors`, start, timeout: '15s' }, 17_000);
   return jsonLines(await res.text())
     .filter((o) => o.hostname)
     .map((o) => ({ hostname: o.hostname, lastAt: Date.parse(o.last) || 0, count: Number(o.n) || 0, errors: Number(o.errors) || 0 }));

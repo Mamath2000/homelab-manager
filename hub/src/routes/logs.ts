@@ -265,15 +265,15 @@ export function registerLogRoutes(app: FastifyInstance) {
   );
 
   // Who sent journals over the range: the hosts of the hub and the senders it does not know, with their last journal.
-  app.get<{ Querystring: { role?: string; from?: string } }>(
+  app.get<{ Querystring: { role?: string; from?: string; source?: string } }>(
     '/api/logs/sources',
-    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { role: filterProps.role, from: rangeProps.from } } } },
+    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { role: filterProps.role, from: rangeProps.from, source: filterProps.source } } } },
     async (req, reply) => {
       const role = serverOf(req, reply, req.query.role);
       if (!role) return reply;
       try {
         const range = rangeOf({ from: req.query.from ?? '1d' });
-        const [senders, known] = await Promise.all([querySenders(role.config, range.start), knownHosts()]);
+        const [senders, known] = await Promise.all([querySenders(role.config, range.start, split(req.query.source)), knownHosts()]);
         const byKey = new Map(known.filter((h) => h.hostname).map((h) => [hostKey(h.hostname), h]));
         return {
           role: role._id,

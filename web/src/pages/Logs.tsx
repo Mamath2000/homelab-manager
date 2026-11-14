@@ -405,7 +405,7 @@ export function Logs() {
   const hasServer = servers.length > 0;
   const absolute = !/^\d+[mhd]$/.test(f.from);
 
-  const sources = useQuery({ queryKey: ['logs', 'sources', f.role], queryFn: () => api.logSources(f.role || undefined), enabled: hasServer, staleTime: 60_000 });
+  const sources = useQuery({ queryKey: ['logs', 'sources', f.role, f.source], queryFn: () => api.logSources(f.role || undefined, f.source), enabled: hasServer, staleTime: 60_000 });
   const apps = useQuery({ queryKey: ['logs', 'apps', query, range], queryFn: () => api.logFields('app', { ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData, staleTime: 30_000 });
   const matrix = useQuery({ queryKey: ['logs', 'matrix', f.role, range], queryFn: () => api.logMatrix({ ...(f.role ? { role: f.role } : {}), ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
   const hits = useQuery({ queryKey: ['logs', 'hits', query, range], queryFn: () => api.logHits({ ...query, ...range }), enabled: hasServer && !f.live, placeholderData: keepPreviousData });
@@ -437,7 +437,8 @@ export function Logs() {
   // the hosts of the hub that sent something, then the ones that did not, then the senders the hub does not know
   const senders = sources.data?.sources ?? [];
   const sending = new Set(senders.filter((s) => s.hostId).map((s) => s.hostId!));
-  const known = [...hosts].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const narrowed = f.source.length > 0;
+  const known = (narrowed ? hosts.filter((h) => sending.has(h.id)) : [...hosts]).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   const unknown = senders.filter((s) => !s.hostId);
   const noSender = sources.isSuccess && !senders.length;
   const filtered = !!(f.host || f.hostname || f.site || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
@@ -482,7 +483,7 @@ export function Logs() {
             <option value="">Tous</option>
             <optgroup label="Hôtes">
               {known.map((h) => (
-                <option key={h.id} value={`h:${h.id}`}>{h.name}{sources.isSuccess && !sending.has(h.id) ? ' (aucun journal)' : ''}</option>
+                <option key={h.id} value={`h:${h.id}`}>{h.name}{sources.isSuccess && !narrowed && !sending.has(h.id) ? ' (aucun journal)' : ''}</option>
               ))}
             </optgroup>
             {(unknown.length > 0 || f.hostname) && (
