@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Plus, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
-import { api, type Host, type LogHost, type LogHubRole } from '../lib/api';
+import { Container, Play, Plus, PowerOff, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
+import { api, type DockerStack, type Host, type LogHost, type LogHostDocker, type LogHubRole } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { lanAddress } from '../lib/roles';
@@ -14,7 +14,8 @@ import type { Tone } from '../lib/status';
 
 // Paramètres › Logs: the hosts that send their journals to each log server, one card per host, green while journals
 // arrive. Adding a host installs and configures rsyslog on it (option « Envoi des journaux » of the standardisation,
-// applied at once); the bin stops it (the agent removes its file).
+// applied at once); the bin stops it (the agent removes its file). A host with Docker stacks also sends the journals of
+// its containers from its card (homelab#347): always to the server of the host, stopped with them.
 
 const STATE: Record<LogHost['state'], { tone: Tone; card: string }> = {
   ok: { tone: 'ok', card: 'border-emerald-500/40 bg-emerald-500/5' },
@@ -41,7 +42,138 @@ function stateText(h: LogHost, silentHours: number) {
   }
 }
 
-function HostCard({ h, site, silentHours, onRemove, onApply, applying }: { h: LogHost; site?: string; silentHours: number; onRemove: () => void; onApply: () => void; applying: boolean }) {
+const DOCKER_TEXT: Record<LogHostDocker['state'], string> = { unavailable: 'text-muted', off: 'text-muted', pending: 'text-amber-300', ok: 'text-emerald-300', drift: 'text-amber-300', error: 'text-red-300', silent: 'text-red-300' };
+
+function dockerText(d: LogHostDocker, silentHours: number) {
+  switch (d.state) {
+    case 'unavailable':
+      return d.detail ?? 'indisponible';
+    case 'off':
+      return 'non suivis';
+    case 'pending':
+      return 'mise en place en cours…';
+    case 'ok':
+      return `reçu ${timeAgo(d.lastAt!)}`;
+    case 'drift':
+      return d.lastAt ? `${d.detail} · reçu ${timeAgo(d.lastAt)}` : (d.detail ?? 'à réappliquer');
+    case 'error':
+      return d.detail ?? 'aucun envoi possible';
+    case 'silent':
+      return d.lastAt ? `rien reçu depuis ${timeAgo(d.lastAt).replace(/^il y a /, '')}` : `aucun journal reçu${silentHours ? '' : ' (7 j)'}`;
+  }
+}
+
+// The journals of the containers of the host, under the ones of the host: turned on, set again, or off.
+function DockerLine({ h, silentHours, onEnable, onDisable }: { h: LogHost; silentHours: number; onEnable: () => void; onDisable: () => void }) {
+  const d = h.docker!;
+  const busy = !h.online || h.running;
+  const why = !h.online ? 'hôte hors ligne' : h.running ? 'une tâche est en cours' : null;
+  return (
+    <div className="mt-2 flex items-center justify-between gap-2 border-t border-line/60 pt-2">
+      <p className={clsx('flex min-w-0 items-center gap-1.5 text-xs', DOCKER_TEXT[d.state])} title={d.detail ?? undefined}>
+        <Container className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">Conteneurs : {dockerText(d, silentHours)}</span>
+      </p>
+      <div className="flex shrink-0 items-center gap-1">
+        {d.state === 'off' && (
+          <Button size="sm" icon={Play} disabled={busy} title={why ?? "Envoyer aussi les journaux des conteneurs (redémarre Docker sur l'hôte)"} onClick={onEnable}>
+            Activer
+          </Button>
+        )}
+        {d.enabled && (d.state === 'error' || d.state === 'drift' || d.state === 'silent') && (
+          <Button size="sm" icon={RefreshCw} disabled={busy} title={why ?? 'Remettre en place le collecteur, recréer des stacks'} onClick={onEnable}>
+            Réappliquer
+          </Button>
+        )}
+        {d.enabled && d.state !== 'pending' && (
+          <button type="button" onClick={onDisable} disabled={busy} title={why ?? "Arrêter l'envoi des journaux des conteneurs"} aria-label={`Arrêter l'envoi des journaux des conteneurs de ${h.name}`} className="rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
+            <PowerOff className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// why a stack cannot be recreated with the setting up (null: it can)
+function cannotRecreate(st: DockerStack, canRecreate: boolean) {
+  if (!st.managed) return 'non managée';
+  if (st.status === 'down' || st.status === 'stopped') return 'arrêtée';
+  if (st.logs === 'followed') return 'déjà suivie';
+  if (!canRecreate) return "agent à mettre à jour pour la recréer d'ici";
+  return null;
+}
+
+// Setting up (or again) of the collector of the journals of the containers: Docker restarts when daemon.json changes, then
+// the stacks ticked are created again so that their containers send.
+function DockerLogsModal({ h, host, role, onClose }: { h: LogHost; host: Host | undefined; role: LogHubRole; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const stacks = host?.docker?.stacks ?? [];
+  const canRecreate = !!host?.capabilities.includes('docker_recreate');
+  const offered = stacks.map((st) => ({ st, why: cannotRecreate(st, canRecreate) }));
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(offered.filter((x) => !x.why).map((x) => x.st.name)));
+  const [busy, setBusy] = useState(false);
+  const state = host?.docker?.logs.state;
+  // daemon.json in place: only the collector is set again
+  const restart = !state || state.daemon !== 'ok';
+  const toggle = (name: string, on: boolean) => {
+    const next = new Set(picked);
+    if (on) next.add(name);
+    else next.delete(name);
+    setPicked(next);
+  };
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      await api.setDockerLogs(h.hostId, true, offered.filter((x) => !x.why && picked.has(x.st.name)).map((x) => x.st.name));
+      await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
+      toast.success(`${h.name} : journaux des conteneurs en cours de mise en place`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <ConfirmModal open onClose={onClose} onConfirm={() => void confirm()} title={`Journaux des conteneurs · ${h.name}`} confirmLabel={h.docker?.enabled ? 'Réappliquer' : 'Activer'} danger loading={busy}>
+      <div className="space-y-3">
+        {restart ? (
+          <p>
+            <b>Docker va redémarrer sur {h.name}</b> : tous ses conteneurs sont arrêtés puis relancés, y compris ceux des stacks non managées et
+            ceux créés hors compose.
+          </p>
+        ) : (
+          <p>Docker ne redémarre pas : seul le collecteur est remis en place.</p>
+        )}
+        <p className="text-xs text-muted">
+          Les journaux des conteneurs partent vers <span className="font-mono">{role.target || role.name}</span>, le serveur de l'hôte. Un collecteur
+          Fluent Bit (stack <span className="font-mono">homelab-log-collector</span>) les lit sur l'hôte.
+        </p>
+        {offered.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-zinc-300">Stacks à recréer ensuite, pour que leurs conteneurs envoient :</p>
+            <ul className="max-h-[40vh] space-y-1 overflow-y-auto">
+              {offered.map(({ st, why }) => (
+                <li key={st.name}>
+                  <label className={clsx('flex items-center gap-3 rounded-md border px-3 py-1.5', why ? 'border-line opacity-50' : 'cursor-pointer border-line hover:bg-raised/40')}>
+                    {why ? <span className="h-4 w-4 shrink-0" /> : <Checkbox checked={picked.has(st.name)} onChange={(on) => toggle(st.name, on)} label={st.name} />}
+                    <span className="min-w-0 truncate font-medium text-zinc-100">{st.name}</span>
+                    {why && <span className="ml-auto shrink-0 text-xs text-muted">{why}</span>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted">Une stack non recréée n'envoie rien jusqu'à sa recréation (bouton « Recréer » de la fiche de l'hôte).</p>
+          </div>
+        )}
+      </div>
+    </ConfirmModal>
+  );
+}
+
+function HostCard({ h, site, silentHours, onRemove, onApply, applying, onDockerEnable, onDockerDisable }: { h: LogHost; site?: string; silentHours: number; onRemove: () => void; onApply: () => void; applying: boolean; onDockerEnable: () => void; onDockerDisable: () => void }) {
   const meta = STATE[h.state];
   // pushed again after a change of the server (destination), or when the host does not send
   const reapply = h.mode !== 'manual' && h.online && !h.running && (h.state === 'drift' || h.state === 'silent' || h.state === 'error');
@@ -69,6 +201,7 @@ function HostCard({ h, site, silentHours, onRemove, onApply, applying }: { h: Lo
           </Button>
         )}
       </div>
+      {h.docker && <DockerLine h={h} silentHours={silentHours} onEnable={onDockerEnable} onDisable={onDockerDisable} />}
     </article>
   );
 }
@@ -183,12 +316,29 @@ function ServerPanel({ role }: { role: LogHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
   const { data: sites = [] } = useSites();
+  const { data: allHosts = [] } = useHosts();
   // a host being installed is followed closely, the others are read again every half minute
   const { data, isLoading, error } = useQuery({
     queryKey: ['settings', 'logs', role.id],
     queryFn: () => api.logHosts(role.id),
-    refetchInterval: (q) => (q.state.data?.hosts.some((h) => h.state === 'pending' || h.running) ? 5_000 : 30_000),
+    refetchInterval: (q) => (q.state.data?.hosts.some((h) => h.state === 'pending' || h.running || h.docker?.state === 'pending') ? 5_000 : 30_000),
   });
+  const [dockerOn, setDockerOn] = useState<LogHost | null>(null);
+  const [dockerOff, setDockerOff] = useState<LogHost | null>(null);
+  const disableDocker = async () => {
+    if (!dockerOff) return;
+    setBusy(true);
+    try {
+      await api.setDockerLogs(dockerOff.hostId, false);
+      await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
+      toast.success(`${dockerOff.name} : envoi des journaux des conteneurs arrêté`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setDockerOff(null);
+      setBusy(false);
+    }
+  };
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<LogHost | null>(null);
   const [busy, setBusy] = useState(false);
@@ -242,7 +392,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {list.map((h) => (
-              <HostCard key={h.hostId} h={h} site={sites.find((s) => s.id === h.siteId)?.name} silentHours={data!.silentHours} onRemove={() => setRemoving(h)} onApply={() => void apply(h)} applying={applying === h.hostId} />
+              <HostCard key={h.hostId} h={h} site={sites.find((s) => s.id === h.siteId)?.name} silentHours={data!.silentHours} onRemove={() => setRemoving(h)} onApply={() => void apply(h)} applying={applying === h.hostId} onDockerEnable={() => setDockerOn(h)} onDockerDisable={() => setDockerOff(h)} />
             ))}
           </div>
         )}
@@ -257,6 +407,13 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         <b>{removing?.name}</b> n'enverra plus ses journaux : l'agent retire <code>/etc/rsyslog.d/90-homelab.conf</code> et redémarre rsyslog (le paquet reste
         installé). Ce que le serveur a déjà reçu est gardé.
         {removing?.mode === 'standard' && <> L'hôte garde une valeur propre « aucun envoi » dans sa standardisation.</>}
+        {removing?.docker?.enabled && <> Les journaux de ses conteneurs ne sont plus envoyés non plus : le collecteur est supprimé, sans redémarrer Docker.</>}
+      </ConfirmModal>
+      {dockerOn && <DockerLogsModal h={dockerOn} host={allHosts.find((x) => x.id === dockerOn.hostId)} role={role} onClose={() => setDockerOn(null)} />}
+      <ConfirmModal open={!!dockerOff} onClose={() => setDockerOff(null)} onConfirm={() => void disableDocker()} title="Arrêter l'envoi des journaux des conteneurs" confirmLabel="Arrêter" danger loading={busy}>
+        <b>{dockerOff?.name}</b> n'enverra plus les journaux de ses conteneurs : le collecteur est supprimé et les labels retirés de{' '}
+        <code>/etc/docker/daemon.json</code>, sans redémarrer Docker. Les conteneurs restent en <code>json-file</code> : <code>docker logs</code> fonctionne
+        toujours. Ce que le serveur a déjà reçu est gardé.
       </ConfirmModal>
     </Panel>
   );

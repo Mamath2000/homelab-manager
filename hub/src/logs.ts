@@ -61,7 +61,7 @@ export interface LogFilters {
   // words or a phrase looked for in the message, whatever the case
   text?: string;
   // excluded values, by field
-  not?: { hostnames?: string[]; apps?: string[] };
+  not?: { hostnames?: string[]; apps?: string[]; sources?: string[] };
 }
 
 const anyOf = (field: string, values: string[]) => (values.length === 1 ? `${field}:=${quote(values[0])}` : `${field}:in(${values.map(quote).join(',')})`);
@@ -87,6 +87,7 @@ export function filterQuery(f: LogFilters) {
   if (f.sources?.length) parts.push(sourceCondition(f.sources));
   if (f.not?.hostnames?.length) parts.push(`!${anyOf('hostname', f.not.hostnames)}`);
   if (f.not?.apps?.length) parts.push(`!${anyOf('app_name', f.not.apps)}`);
+  if (f.not?.sources?.length) parts.push(`!${sourceCondition(f.not.sources)}`);
   const text = f.text?.trim();
   // a part of a word matches too ("err" finds "error"): a regular expression of the text itself, nothing of it a pattern
   if (text) parts.push(`_msg:~${quote(`(?i)${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)}`);
@@ -176,8 +177,9 @@ export function toRow(o: Record<string, string>): LogRow {
     facility: o.facility_keyword ?? o.facility ?? '',
     app: dash(o.app_name),
     pid: dash(o.proc_id),
-    // rsyslog leaves the space that follows the header
-    message: (o._msg ?? '').replace(/^ /, ''),
+    // rsyslog leaves the space that follows the header; Fluent Bit (journals of the containers) starts the message of
+    // RFC 5424 with the UTF-8 BOM it allows
+    message: (o._msg ?? '').replace(/^(?: ?﻿| )/, ''),
     ...(o.remote_ip ? { remoteIp: o.remote_ip } : {}),
     ...(extra.length ? { fields: Object.fromEntries(extra) } : {}),
   };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, stackLogs, staleRegistryCheck, updatableStacks } from '../src/docker.js';
+import { dockerLogsCard, dockerSummary, dockerView, findStack, isDockerReport, isExternal, isUnmanaged, stackLogs, staleRegistryCheck, updatableStacks } from '../src/docker.js';
 import type { DockerStack } from '../src/types.js';
 import { dockerHost } from './fixtures.js';
 
@@ -172,15 +172,49 @@ test('journals of the containers: followed, to recreate, or nothing while the co
   const h = dockerHost({ stacks: [stack('web', 'running', [['app', 'app:1', 'running']])], logCollect: state });
   h.capabilities = ['docker', 'docker_log_collect'];
   h.docker!.stacks[0].services[0].containers[0].logFollowed = false;
-  h.dockerLogs = { role: 'logs' };
+  h.dockerLogs = { enabled: true };
   const v = dockerView(h)!;
-  assert.deepEqual(v.logs, { available: true, role: 'logs', state });
+  assert.deepEqual(v.logs, { available: true, enabled: true, state });
   assert.equal(v.stacks[0].logs, 'recreate');
   // not set up, agent without the capability
-  assert.deepEqual(dockerView(dockerHost({}))!.logs, { available: false, role: null, state: null });
+  assert.deepEqual(dockerView(dockerHost({}))!.logs, { available: false, enabled: false, state: null });
 
   assert.ok(isDockerReport({ checkedAt: 1, engine: '', compose: '', stacks: [], images: [], logCollect: state }));
   assert.ok(!isDockerReport({ checkedAt: 1, engine: '', compose: '', stacks: [], images: [], logCollect: { address: 1 } }));
+});
+
+test('journals of the containers on the card of Paramètres › Logs', () => {
+  const ok = { address: '192.168.100.172', port: 517, daemon: 'ok' as const, collector: 'running' as const };
+  const host = (logCollect?: typeof ok | Record<string, unknown>, enabled = true, followed = true, caps = ['docker', 'docker_log_collect']) => {
+    const h = dockerHost({ stacks: [stack('web', 'running', [['app', 'app:1', 'running']])], ...(logCollect ? { logCollect } : {}) });
+    h.capabilities = caps;
+    if (logCollect) h.docker!.stacks[0].services[0].containers[0].logFollowed = followed;
+    if (enabled) h.dockerLogs = { enabled: true };
+    return h;
+  };
+  const now = 1_000_000_000;
+  const o = { lastAt: now - 60_000, receivingMs: 3600_000, running: false, now };
+  const state = (h: ReturnType<typeof host>, x: Partial<typeof o> & { lastJob?: { status: string; error?: string } } = {}) => {
+    const c = dockerLogsCard(h, { ...o, ...x })!;
+    return [c.state, c.detail];
+  };
+  assert.deepEqual(state(host(ok)), ['ok', null]);
+  assert.deepEqual(state(host(ok), { lastAt: now - 7200_000 }), ['silent', null]);
+  assert.deepEqual(state(host(ok), { lastAt: null }), ['silent', null]);
+  assert.deepEqual(state(host(ok, true, false)), ['drift', 'une stack à recréer : web']);
+  assert.equal(dockerLogsCard(host(ok, true, false), o)!.recreate[0], 'web');
+  assert.deepEqual(state(host({ ...ok, daemon: 'drift', daemonDetail: 'log-driver journald' })), ['drift', 'log-driver journald']);
+  assert.deepEqual(state(host({ ...ok, collector: 'stopped' })), ['error', 'collecteur arrêté']);
+  assert.deepEqual(state(host({ ...ok, unreachable: 'connection refused' })), ['error', 'serveur de logs injoignable (connection refused)']);
+  assert.deepEqual(state(host(undefined)), ['error', 'collecteur absent']);
+  assert.deepEqual(state(host(undefined), { lastJob: { status: 'failed', error: 'dial tcp: refused' } }), ['error', 'dial tcp: refused']);
+  assert.deepEqual(state(host(undefined, false)), ['off', null]);
+  assert.deepEqual(state(host(undefined), { running: true }), ['pending', null]);
+  assert.deepEqual(state(host(undefined, false, true, ['docker'])), ['unavailable', 'agent à mettre à jour (Docker et systemd requis)']);
+  // no stack: nothing to show
+  const empty = dockerHost({ stacks: [] });
+  empty.capabilities = ['docker', 'docker_log_collect'];
+  assert.equal(dockerLogsCard(empty, o), null);
 });
 
 test('registry check stale after a local image change', () => {

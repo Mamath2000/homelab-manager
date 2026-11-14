@@ -262,6 +262,8 @@ export interface DockerContainer {
   status: string;
   health?: string; // healthy, unhealthy, starting
   imageId: string;
+  // created with the log settings of the collector (only while it is set up on the host)
+  logFollowed?: boolean;
 }
 
 // available: newer image on the registry; recreate: pulled, container not redeployed yet;
@@ -295,6 +297,19 @@ export interface DockerStack {
   update: ImageUpdate;
   updates: number;
   problems: string[];
+  // journals of the containers, while the collector is set up on the host (homelab#346): followed, every container
+  // sends; recreate, a container created before sends nothing until recreated; null: not set up, or no container
+  logs: 'followed' | 'recreate' | null;
+}
+
+// The collector of the journals of the containers as the agent found it (homelab#346)
+export interface LogCollectState {
+  address: string;
+  port: number;
+  daemon: 'ok' | 'drift';
+  daemonDetail?: string;
+  collector: 'running' | 'stopped' | 'absent';
+  unreachable?: string;
 }
 
 export interface DockerView {
@@ -303,6 +318,8 @@ export interface DockerView {
   checkedAt: number;
   updatesCheckedAt: number | null;
   stacks: DockerStack[];
+  // available: the agent can set the collector up; enabled: turned on (to the log server of the host); state: as found
+  logs: { available: boolean; enabled: boolean; state: LogCollectState | null };
 }
 
 export interface DockerSummary {
@@ -504,7 +521,7 @@ export interface SetupProfile {
   starship: string;
 }
 
-export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update';
+export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update' | 'docker_recreate';
 export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run' | 'db_restore' | 'apt_auto_set';
 export type JobStatus = 'running' | 'success' | 'failed';
 
@@ -1808,7 +1825,7 @@ export type HubRole =
   | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } })
   // a VictoriaLogs: url, its query API; address (null: the one of its host), port and protocol, where the hosts send their
   // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
-  | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number }; target: string });
+  | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
@@ -1822,7 +1839,7 @@ export type HubRoleCarrier = { kind: 'host' | 'equipment'; id: string };
 export type HubRoleInput = { carrier?: HubRoleCarrier; name: string } & (
   | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string } }
   | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string } }
-  | { type: 'log-server'; config: { url: string; address?: string; port: number; protocol: 'tcp'; username: string; password?: string; silentHours: number } }
+  | { type: 'log-server'; config: { url: string; address?: string; port: number; protocol: 'tcp'; username: string; password?: string; silentHours: number; dockerPort?: number } }
 );
 
 // Journals of the hosts, read on a log server (hub/src/routes/logs.ts). severity: 0 emerg … 7 debug.
@@ -1898,6 +1915,18 @@ export interface LogHost {
   state: 'ok' | 'pending' | 'drift' | 'error' | 'silent';
   detail: string | null;
   running: boolean;
+  // journals of its containers (homelab#347), null: no stack, or not sent by the standardisation
+  docker: LogHostDocker | null;
+}
+
+// unavailable: the agent cannot set it up; off: not turned on; pending: being set up or removed; ok: received lately;
+// drift: to look at (daemon.json changed, stacks to recreate); error: nothing can be sent; silent: nothing received
+export interface LogHostDocker {
+  enabled: boolean;
+  state: 'unavailable' | 'off' | 'pending' | 'ok' | 'drift' | 'error' | 'silent';
+  detail: string | null;
+  lastAt: number | null;
+  recreate: string[];
 }
 export interface LogHosts {
   role: string;
@@ -2050,6 +2079,8 @@ export const api = {
   logSources: (q: LogQuery) => request<{ role: string; sources: LogSource[] }>('GET', `/api/logs/sources?${logParams(q)}`),
   logHosts: (role: string) => request<LogHosts>('GET', `/api/settings/logs/${encodeURIComponent(role)}/hosts`),
   addLogHost: (role: string, hostId: string) => request<{ jobId: string }>('POST', `/api/settings/logs/${encodeURIComponent(role)}/hosts`, { hostId }),
+  // journals of the containers of a host, to its log server (homelab#347); recreate: stacks created again in the same job
+  setDockerLogs: (hostId: string, enabled: boolean, recreate: string[] = []) => request<{ jobId: string }>('PUT', `/api/hosts/${hostId}/docker-logs`, { enabled, ...(recreate.length ? { recreate } : {}) }),
   removeLogHost: (role: string, hostId: string) => request<{ jobId: string | null; applied: boolean }>('DELETE', `/api/settings/logs/${encodeURIComponent(role)}/hosts/${hostId}`),
   logContext: (role: string | undefined, hostname: string, time: string) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role }, { hostname, time })}`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),

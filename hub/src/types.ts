@@ -399,8 +399,9 @@ export interface HostDoc {
   critical?: boolean;
   // automatic security updates chosen in its options (autoUpgrade.ts)
   autoSecurityUpdates?: boolean;
-  // journals of the containers sent to this log server (role id), chosen from the Docker block of the host (homelab#346)
-  dockerLogs?: { role: string };
+  // journals of the containers sent too (homelab#346, #347): always to the log server of the host (its option « Envoi des
+  // journaux »), turned on from Paramètres › Logs
+  dockerLogs?: { enabled: true };
   // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
   haExcluded?: boolean;
   // level of detail published to Home Assistant for this host; absent: the global level (see homeassistant/detail.ts)
@@ -570,7 +571,8 @@ export interface SetupState {
 export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;
 // hosts without APT (Unraid...) do not announce apt_update
 export const hasApt = (h: { capabilities?: string[] }) => !!h.capabilities?.includes('apt_update');
-export const DOCKER_ACTIONS = ['docker_up', 'docker_stop', 'docker_restart', 'docker_update'] as const;
+// docker_recreate: compose up --force-recreate (capability docker_recreate), for the containers to take the log settings
+export const DOCKER_ACTIONS = ['docker_up', 'docker_stop', 'docker_restart', 'docker_update', 'docker_recreate'] as const;
 export const JOB_ACTIONS = [
   'apt_report',
   'apt_update',
@@ -621,8 +623,8 @@ export interface JobDoc {
   method?: 'apt' | 'docker';
   // apt_auto_set: turned on or off
   autoEnabled?: boolean;
-  // docker_log_collect: the log server and where the collector sends (role null: collector removed)
-  logCollect?: { role: string | null; address?: string; port?: number };
+  // docker_log_collect: the log server and where the collector sends (role null: collector removed), the stacks recreated
+  logCollect?: { role: string | null; address?: string; port?: number; recreate?: string[] };
   // db_restore: what is restored where (never the credentials)
   dbRestore?: DbRestoreInfo;
   // agent_install: the CT and the host it becomes (the enrollment code is never stored)

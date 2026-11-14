@@ -131,6 +131,8 @@ func (s *session) hello(ctx context.Context) error {
 	caps := platformCapabilities()
 	if !onWSL && dock.available(ctx) {
 		caps = append(caps, "docker")
+		// docker_recreate: compose up --force-recreate of a stack (homelab#347)
+		caps = append(caps, "docker_recreate")
 		// journals of the containers (logcollect.go): Docker is restarted through systemd (not on Unraid yet)
 		if _, err := exec.LookPath("systemctl"); err == nil {
 			caps = append(caps, "docker_log_collect")
@@ -544,7 +546,7 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 		} else {
 			code = -1
 		}
-	case "docker_up", "docker_stop", "docker_restart", "docker_update":
+	case "docker_up", "docker_stop", "docker_restart", "docker_update", "docker_recreate":
 		code, err = dock.runAction(jctx, emit, in.Action, in.Stack, in.Service)
 	case "docker_log_collect":
 		code, err = dock.applyLogCollect(jctx, in.LogCollect, emit)

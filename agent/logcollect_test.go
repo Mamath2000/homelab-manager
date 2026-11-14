@@ -107,13 +107,13 @@ func TestLogFollowed(t *testing.T) {
 }
 
 func TestValidateLogCollect(t *testing.T) {
-	ok := []*LogCollectSpec{{Address: ""}, {Address: "192.168.100.172", Port: 517, Protocol: "tcp"}, {Address: "logs.lan", Port: 517, Protocol: "tcp"}}
+	ok := []*LogCollectSpec{{Address: ""}, {Address: "192.168.100.172", Port: 517, Protocol: "tcp"}, {Address: "logs.lan", Port: 517, Protocol: "tcp"}, {Address: "logs.lan", Port: 517, Protocol: "tcp", Recreate: []string{"web", "canicoif-app"}}}
 	for _, l := range ok {
 		if err := validateLogCollect(l); err != nil {
 			t.Fatalf("%+v: %v", l, err)
 		}
 	}
-	bad := []*LogCollectSpec{nil, {Address: "x\" y", Port: 517, Protocol: "tcp"}, {Address: "a", Port: 0, Protocol: "tcp"}, {Address: "a", Port: 517, Protocol: "udp"}, {Address: "a\nb", Port: 517, Protocol: "tcp"}}
+	bad := []*LogCollectSpec{nil, {Address: "x\" y", Port: 517, Protocol: "tcp"}, {Address: "a", Port: 0, Protocol: "tcp"}, {Address: "a", Port: 517, Protocol: "udp"}, {Address: "a\nb", Port: 517, Protocol: "tcp"}, {Address: "a", Port: 517, Protocol: "tcp", Recreate: []string{"../x"}}, {Address: "", Recreate: []string{"web"}}}
 	for _, l := range bad {
 		if validateLogCollect(l) == nil {
 			t.Fatalf("%+v must be refused", l)

@@ -80,7 +80,7 @@ export interface JobTarget {
   enabled?: boolean;
   // docker_log_collect: what the job is about (info, stored) and where the collector sends (sent; address "": removed)
   logCollectInfo?: NonNullable<JobDoc['logCollect']>;
-  logCollect?: { address: string; port?: number; protocol?: 'tcp' };
+  logCollect?: { address: string; port?: number; protocol?: 'tcp'; recreate?: string[] };
   // agent_install: what the agent runs (holds the enrollment code: only sent, never stored) and what the job is about
   install?: { kind: 'lxc' | 'node'; vmid?: number; node?: string; code: string; installCurl: boolean };
   installTarget?: { cluster: string; vmid: number; node?: string; hostId: ObjectId };

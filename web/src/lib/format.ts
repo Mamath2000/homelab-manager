@@ -57,6 +57,8 @@ export const actionLabel: Record<string, string> = {
   docker_stop: 'Arrêt de stack',
   docker_restart: 'Redémarrage de stack',
   docker_update: 'Mise à jour de stack',
+  docker_recreate: 'Recréation de stack',
+  docker_log_collect: 'Journaux des conteneurs',
   setup_apply: 'Standardisation',
   backup_run: 'Sauvegarde',
   offsite_run: 'Copie déportée',

@@ -748,6 +748,8 @@ interface LogForm {
   // where the hosts send their journals, as rsyslog reads it: tcp://server:port
   destination: string;
   silentHours: string;
+  // where the collectors of the containers send (homelab#346); '': the TCP listener tagged source=docker, read in its flags
+  dockerPort: string;
 }
 
 const LOG_API_PORT = 9428;
@@ -790,6 +792,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
     username: role?.config.username ?? '',
     destination: role?.target ?? '',
     silentHours: String(role?.config.silentHours ?? 6),
+    dockerPort: role?.config.dockerPort ? String(role.config.dockerPort) : '',
   }));
   const [form, setForm] = useState<LogForm>(initial);
   const [secret, setSecret] = useState('');
@@ -851,6 +854,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
     username: form.https ? form.username.trim() : '',
     ...(form.https && secret ? { password: secret } : {}),
     silentHours: /^\d{1,2}$/.test(form.silentHours) ? Math.min(+form.silentHours, 24) : 6,
+    ...(form.dockerPort && portValid(form.dockerPort) ? { dockerPort: +form.dockerPort } : {}),
   });
   const runTest = async () => {
     setBusy('test');
@@ -904,8 +908,9 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const accountOk = !form.https || !secret || !!form.username.trim();
   const apiOk = nameOk && ADDRESS_RE.test(form.apiAddress.trim()) && portValid(form.apiPort) && accountOk;
   const silentOk = /^\d{1,2}$/.test(form.silentHours) && +form.silentHours <= 24;
+  const dockerPortOk = !form.dockerPort || portValid(form.dockerPort);
   const destinationOk = !!dest;
-  const configOk = silentOk && destinationOk;
+  const configOk = silentOk && destinationOk && dockerPortOk;
   const tested = test?.level === 'ok';
   // the reception test guides (the step is done once it passed) without stopping the save: the hub may not see the server as
   // the hosts do
@@ -1044,6 +1049,18 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
               {form.destination && !dest && <p className="text-xs text-amber-300">Format attendu : tcp://serveur:port</p>}
               <CheckLine label="Réception syslog" check={reception} idle={destination ? `le hub envoie une ligne de test à ${destination}, puis la cherche par l'API` : undefined} />
             </section>
+            <section className="space-y-2 border-t border-line pt-3">
+              <h4 className={sub}>Journaux des conteneurs</h4>
+              <label className="block">
+                <span className={field}>Port Docker (TCP)</span>
+                <input className="input w-28 font-mono text-xs" inputMode="numeric" value={form.dockerPort} onChange={(e) => setConf({ dockerPort: e.target.value.trim() })} placeholder="auto" />
+              </label>
+              <p className="text-xs text-muted">
+                Où les collecteurs des hôtes Docker envoient, en syslog TCP, à la même adresse que les hôtes. Vide : le listener TCP de VictoriaLogs marqué{' '}
+                <span className="font-mono">source=docker</span> (lu dans ses options).
+              </p>
+              {!dockerPortOk && <p className="text-xs text-amber-300">Port invalide (1 à 65535)</p>}
+            </section>
           </Step>
           <Step n={4} title="Récapitulatif" state={summary}>
             <DetectedRows
@@ -1054,6 +1071,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
                 ...(form.https ? [{ label: 'Compte du proxy', value: form.username, empty: 'aucun' }] : []),
                 { label: 'Hôte muet', value: silentOk ? (+form.silentHours ? `alerte après ${form.silentHours} h` : 'pas d’alerte') : '', empty: 'à corriger (étape 3)' },
                 { label: 'Envoi des hôtes', value: destinationOk ? destination : '', empty: 'à compléter (étape 3)', hint: reception?.level === 'ok' ? 'réception testée' : reception ? 'réception en échec (étape 3)' : 'réception non testée (étape 3)' },
+                { label: 'Conteneurs', value: dockerPortOk ? (form.dockerPort ? `port ${form.dockerPort}` : 'port lu sur le serveur') : '', empty: 'à corriger (étape 3)' },
               ]}
             />
             {!tested && <p className="text-xs text-amber-300">L'enregistrement demande un test de l'API réussi (étape 2).</p>}

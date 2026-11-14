@@ -15,6 +15,7 @@ import { checkHostSetup, onAgentHello } from './setup.js';
 import { refreshLinks } from './pve.js';
 import { isResult, onResult, onSynced, syncHost } from './backupJobs.js';
 import { isDockerReport, isDockerUpdates, staleRegistryCheck } from './docker.js';
+import { reconcileDockerLogs } from './dockerLogs.js';
 import { isHaBackupReport, refreshHaBackups } from './haBackups.js';
 import { isSeriesReport, onOffsiteHello, onOffsiteReport, onOffsiteSynced } from './offsite.js';
 import { onMountHello, settleMount } from './pbsMount.js';
@@ -352,6 +353,9 @@ export function registerAgentSocket(app: FastifyInstance) {
                 await removeStackProbes(host._id, msg.docker.stacks.map((st) => st.name));
                 if (recheck) log.info('local images changed since the registry check');
                 await dockerRecheck(host._id);
+                // the collector of the journals of the containers follows the log server of the host
+                const fresh = await hosts.findOne({ _id: host._id });
+                if (fresh) reconcileDockerLogs(fresh).catch((err) => log.warn({ err }, 'journals of the containers not set again'));
               }
               break;
             case 'docker_updates':

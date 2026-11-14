@@ -32,6 +32,8 @@ test('logs: the filters become a LogsQL query, every value quoted', () => {
   assert.equal(filterQuery({ sources: [NO_SOURCE] }), 'source:""');
   assert.equal(filterQuery({ sources: ['host', NO_SOURCE] }), '(source:="host" or source:"")');
   assert.equal(filterQuery({ sources: ['x" | delete'] }), 'source:="x\\" | delete"');
+  // the journals of a host apart from the ones of its containers
+  assert.equal(filterQuery({ hostnames: ['pve1'], not: { sources: ['docker'] } }), 'hostname:="pve1" !source:="docker"');
 });
 
 test('logs: nothing typed in a filter is read as LogsQL', () => {
@@ -49,6 +51,10 @@ test('logs: a row of the server as the UI reads it', () => {
   assert.deepEqual(row, { time: '2026-11-12T19:07:58.419838Z', hostname: 'pve1', severity: 3, level: 'error', facility: 'daemon', app: 'sshd', pid: '', message: 'erreur de test', remoteIp: '10.0.0.5', fields: { 'origin.software': 'rsyslogd' } });
   // a journal without a severity is an information
   assert.equal(toRow({ _time: 't', _msg: 'x' }).level, 'info');
+  // the UTF-8 BOM of Fluent Bit (journals of the containers) is not part of the message, an indentation is
+  assert.equal(toRow({ _time: 't', _msg: '\uFEFF{"level":"error"}' }).message, '{"level":"error"}');
+  assert.equal(toRow({ _time: 't', _msg: ' \uFEFFstarted' }).message, 'started');
+  assert.equal(toRow({ _time: 't', _msg: '   at main.go:12' }).message, '  at main.go:12');
 });
 
 test('logs: range of a request, step of the histogram', () => {

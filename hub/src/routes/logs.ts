@@ -2,7 +2,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { isOnline } from '../agents.js';
 import { config } from '../config.js';
 import { loadSites } from '../catalog.js';
-import { equipments, hosts, parseId } from '../db.js';
+import { equipments, hosts, jobs, parseId } from '../db.js';
+import { dockerLogsCard } from '../docker.js';
+import { reconcileDockerLogs } from '../dockerLogs.js';
 import { publish } from '../events.js';
 import { hostDto } from '../hostDto.js';
 import { hasRunningJob } from '../jobs.js';
@@ -391,13 +393,21 @@ export function registerLogRoutes(app: FastifyInstance) {
     if (!role) return reply;
     const [p, docs] = await Promise.all([loadSetupProfile(), hosts.find({}).toArray()]);
     let senders: Awaited<ReturnType<typeof querySenders>> = [];
+    let dockerSenders: typeof senders = [];
     let error: string | null = null;
     try {
-      senders = await querySenders(role.config, '7d');
+      // the journals of the host (rsyslog) apart from the ones of its containers, each with its own state
+      [senders, dockerSenders] = await Promise.all([querySenders(role.config, '7d', { not: { sources: ['docker'] } }), querySenders(role.config, '7d', { sources: ['docker'] })]);
     } catch (err) {
       error = (err as Error).message;
     }
     const byKey = new Map(senders.map((s) => [hostKey(s.hostname), s]));
+    const dockerByKey = new Map(dockerSenders.map((s) => [hostKey(s.hostname), s]));
+    // last job of the collector of each host: its error while nothing is in place
+    const lastJobs = new Map<string, { status: string; error?: string }>();
+    for (const j of await jobs.find({ action: 'docker_log_collect', createdAt: { $gte: new Date(Date.now() - 30 * 24 * 3600_000) } }, { projection: { hostId: 1, status: 1, error: 1 } }).sort({ createdAt: 1 }).toArray()) {
+      lastJobs.set(j.hostId.toHexString(), { status: j.status, error: j.error });
+    }
     const seen = new Set<string>();
     const now = Date.now();
     const list = docs.flatMap((h) => {
@@ -423,6 +433,16 @@ export function registerLogRoutes(app: FastifyInstance) {
         state,
         detail: check && check.state !== 'ok' ? (check.detail ?? null) : null,
         running,
+        // the journals of its containers go with the ones of the host: offered only when it sends them by the standardisation
+        docker: mode
+          ? dockerLogsCard(h, {
+              lastAt: (h.info?.hostname && dockerByKey.get(hostKey(h.info.hostname))?.lastAt) || null,
+              receivingMs: receivingMs(role),
+              running: lastJobs.get(id)?.status === 'running',
+              lastJob: lastJobs.get(id),
+              now,
+            })
+          : null,
       }];
     });
     const others = senders.filter((s) => !seen.has(s.hostname)).map((s) => ({ hostname: s.hostname, lastAt: s.lastAt, count: s.count }));
@@ -450,6 +470,8 @@ export function registerLogRoutes(app: FastifyInstance) {
       const updated = (await hosts.findOneAndUpdate({ _id: host._id }, { $set: { setupOverrides: overrides } }, { returnDocument: 'after' }))!;
       publish('host', hostDto(updated));
       const job = await applySetup(updated, 'manual', ['log_forward']);
+      // the journals of its containers follow (run by the agent after this job)
+      await reconcileDockerLogs(updated, 'manual', p);
       req.auditNote = { target: { kind: 'host', id: req.body.hostId, name: host.name }, details: { role: role._id, mode: overrides.log_forward ? 'custom' : 'standard' } };
       reply.code(202);
       return { jobId: job._id.toHexString() };
@@ -472,6 +494,8 @@ export function registerLogRoutes(app: FastifyInstance) {
     publish('host', hostDto(updated));
     const online = isOnline(req.params.hostId);
     const job = online ? await applySetup(updated, 'manual', ['log_forward']) : null;
+    // the journals of its containers stop too (offline: at its next report)
+    if (online) await reconcileDockerLogs(updated, 'manual', p);
     req.auditNote = { target: { kind: 'host', id: req.params.hostId, name: host.name }, details: { role: role._id, removed: true, applied: online } };
     return { jobId: job?._id.toHexString() ?? null, applied: online };
   });

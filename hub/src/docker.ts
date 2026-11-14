@@ -51,11 +51,11 @@ export interface StackView extends Omit<DockerStack, 'services'> {
 
 export type StackLogs = 'followed' | 'recreate' | null;
 
-// Journals of the containers of the host (homelab#346): the log server chosen for it (null: none), and the collector as
-// the agent found it (null: not set up on the host). available: the agent can set it up.
+// Journals of the containers of the host (homelab#346, #347): turned on (they go to the log server of the host), and the
+// collector as the agent found it (null: not set up on the host). available: the agent can set it up.
 export interface DockerLogsView {
   available: boolean;
-  role: string | null;
+  enabled: boolean;
   state: LogCollectState | null;
 }
 
@@ -155,8 +155,44 @@ export function dockerView(h: HostDoc): DockerView | null {
     checkedAt: r.checkedAt,
     updatesCheckedAt: h.dockerUpdates?.checkedAt ?? null,
     stacks,
-    logs: { available: !!h.capabilities?.includes('docker_log_collect'), role: h.dockerLogs?.role ?? null, state: r.logCollect ?? null },
+    logs: { available: !!h.capabilities?.includes('docker_log_collect'), enabled: !!h.dockerLogs?.enabled, state: r.logCollect ?? null },
   };
+}
+
+// The journals of the containers on the card of the host in Paramètres › Logs (homelab#347). null: no stack, nothing to
+// show. unavailable: the agent cannot set it up; off: not turned on; pending: being set up or removed; ok: received
+// lately; drift: to look at (daemon.json changed, stacks to recreate); error: nothing can be sent; silent: nothing received.
+export type DockerLogsCardState = 'unavailable' | 'off' | 'pending' | 'ok' | 'drift' | 'error' | 'silent';
+
+export interface DockerLogsCard {
+  enabled: boolean;
+  state: DockerLogsCardState;
+  detail: string | null;
+  // last journal of a container received from the host (source=docker)
+  lastAt: number | null;
+  // stacks whose containers do not send until recreated
+  recreate: string[];
+}
+
+export function dockerLogsCard(
+  h: HostDoc,
+  o: { lastAt: number | null; receivingMs: number; running: boolean; lastJob?: { status: string; error?: string } | null; now?: number },
+): DockerLogsCard | null {
+  const v = dockerView(h);
+  if (!v || !v.stacks.length) return null;
+  const recreate = v.stacks.filter((st) => st.managed && st.logs === 'recreate').map((st) => st.name);
+  const card = (state: DockerLogsCardState, detail: string | null = null): DockerLogsCard => ({ enabled: v.logs.enabled, state, detail, lastAt: o.lastAt, recreate });
+  const s = v.logs.state;
+  if (!v.logs.available) return card('unavailable', 'agent à mettre à jour (Docker et systemd requis)');
+  if (o.running) return card('pending');
+  if (!v.logs.enabled) return card('off');
+  if (!s) return card('error', o.lastJob?.status === 'failed' ? (o.lastJob.error ?? 'mise en place en échec') : 'collecteur absent');
+  if (s.collector !== 'running') return card('error', s.collector === 'stopped' ? 'collecteur arrêté' : 'collecteur absent');
+  if (s.unreachable) return card('error', `serveur de logs injoignable (${s.unreachable})`);
+  if (s.daemon !== 'ok') return card('drift', s.daemonDetail ?? '/etc/docker/daemon.json modifié : à réappliquer');
+  if (recreate.length) return card('drift', `${recreate.length > 1 ? `${recreate.length} stacks` : 'une stack'} à recréer : ${recreate.join(', ')}`);
+  const receiving = o.lastAt !== null && (o.now ?? Date.now()) - o.lastAt < o.receivingMs;
+  return card(receiving ? 'ok' : 'silent');
 }
 
 export function dockerSummary(v: DockerView | null) {

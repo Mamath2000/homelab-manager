@@ -262,6 +262,9 @@ func (d *dockerModule) runAction(ctx context.Context, emit func(string), action,
 		return run("stop")
 	case "docker_restart":
 		return run("restart")
+	case "docker_recreate":
+		// new containers from the same images: they take the current settings of the daemon (log driver...)
+		return run("up", "-d", "--force-recreate")
 	case "docker_update":
 		if code, err := run("pull"); code != 0 || err != nil {
 			return code, err

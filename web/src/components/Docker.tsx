@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
-import { ArrowUpCircle, Container, Play, RefreshCw, RotateCw, Square } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import { ArrowUpCircle, Container, Play, RefreshCcw, RefreshCw, RotateCw, ScrollText, Square } from 'lucide-react';
 import type { DockerStack, Host, ImageUpdate, StackAction } from '../lib/api';
 import { useMe } from '../lib/auth';
+import { hostLogsPath } from '../lib/hostLogs';
 import { timeAgo } from '../lib/format';
 import { useRunJob } from '../lib/queries';
 import { imageUpdateMeta, stackMeta, stackPath } from '../lib/status';
@@ -42,7 +43,30 @@ const actionText: Record<StackAction, { label: string; icon: typeof Play; confir
   docker_stop: { label: 'Arrêter', icon: Square, confirm: (w) => `docker compose stop sur ${w} : les conteneurs sont arrêtés, pas supprimés.` },
   docker_restart: { label: 'Redémarrer', icon: RotateCw },
   docker_update: { label: 'Mettre à jour', icon: ArrowUpCircle },
+  docker_recreate: { label: 'Recréer', icon: RefreshCcw },
 };
+
+// Recreate is offered to a stack whose containers do not send their journals yet (created before the collector)
+const recreateOffered = (host: Host, stack: DockerStack, service?: string) => !service && stack.logs === 'recreate' && host.capabilities.includes('docker_recreate');
+
+// Journals of the containers of a stack, while the collector is set up on the host (homelab#346)
+export function StackLogsBadge({ stack }: { stack: Pick<DockerStack, 'logs'> }) {
+  if (stack.logs === 'followed') {
+    return (
+      <span title="Chaque conteneur de la stack envoie ses journaux">
+        <Badge tone="ok">Suivis</Badge>
+      </span>
+    );
+  }
+  if (stack.logs === 'recreate') {
+    return (
+      <span title="Des conteneurs créés avant la mise en place du suivi n'envoient rien : recréer la stack">
+        <Badge tone="warn">À recréer</Badge>
+      </span>
+    );
+  }
+  return null;
+}
 
 // Buttons for a stack, or one of its services; only stopping asks for a confirmation.
 // `compact`: icon block of a table row, always the 4 actions (greyed when not possible).
@@ -69,8 +93,9 @@ export function StackActions({
   if (!stack.managed && !compact) return null;
   const what = service ? `le service ${service} de ${stack.name}` : `la stack ${stack.name}`;
   const off = disabled || !host.online;
-  const actions: StackAction[] = stack.status === 'down' ? ['docker_up'] : ['docker_up', 'docker_restart', 'docker_stop', 'docker_update'];
-  const highlight = (a: StackAction) => a === 'docker_update' && stack.updates > 0 && !service;
+  const recreate = recreateOffered(host, stack, service);
+  const actions: StackAction[] = stack.status === 'down' ? ['docker_up'] : ['docker_up', 'docker_restart', 'docker_stop', 'docker_update', ...(recreate ? (['docker_recreate'] as const) : [])];
+  const highlight = (a: StackAction) => (a === 'docker_update' && stack.updates > 0 && !service) || a === 'docker_recreate';
   const start = (a: StackAction) =>
     run.mutate(
       { hostId: host.id, action: a, target: { stack: stack.name, service } },
@@ -95,7 +120,7 @@ export function StackActions({
     <>
       {compact ? (
         <IconGroup
-          actions={(['docker_up', 'docker_restart', 'docker_stop', 'docker_update'] as StackAction[]).map((a) => {
+          actions={(['docker_up', 'docker_restart', 'docker_stop', 'docker_update', ...(recreate ? (['docker_recreate'] as const) : [])] as StackAction[]).map((a) => {
             const w = why(a);
             const label = a === 'docker_update' && stack.updates > 0 && !service ? `${actionText[a].label} (${stack.updates} MAJ)` : actionText[a].label;
             return {
@@ -188,16 +213,28 @@ export function ServiceTags({ services, wrap = false }: { services: { name: stri
 
 // Stacks of a host, on its detail page.
 export function DockerPanel({ host, running, onStarted }: { host: Host; running: boolean; onStarted: (jobId: string) => void }) {
-  const { canWrite } = useMe();
+  const { canWrite, canLogs, canSettings } = useMe();
+  const navigate = useNavigate();
   const d = host.docker;
   if (!d) return null;
+  // the Logs column while the collector of the journals of the containers is set up (homelab#346)
+  const collecting = !!d.logs.state;
   return (
     <Panel
       title="Docker"
       icon={Container}
       bodyClassName=""
       className="@container"
-      actions={<CheckImagesButton host={host} disabled={running} onStarted={onStarted} />}
+      actions={
+        <div className="flex items-center gap-2">
+          {collecting && canLogs && (
+            <Button size="sm" icon={ScrollText} title="Logs : les journaux des conteneurs de cet hôte" onClick={() => navigate(hostLogsPath(host.id, '&source=docker'))}>
+              Logs
+            </Button>
+          )}
+          <CheckImagesButton host={host} disabled={running} onStarted={onStarted} />
+        </div>
+      }
     >
       {d.stacks.length === 0 ? (
         <p className="p-4 text-sm text-muted">Aucune stack compose sur cet hôte.</p>
@@ -219,6 +256,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                 <div className="flex flex-wrap items-center gap-2">
                   <StackStatusBadge stack={st} />
                   {st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}
+                  {collecting && <StackLogsBadge stack={st} />}
                 </div>
                 {st.problems.length > 0 && <p className="break-words text-xs text-amber-300">{st.problems.join(' · ')}</p>}
                 {st.services.length > 0 && <ServiceTags services={st.services} wrap />}
@@ -232,6 +270,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                 <th className="th pl-4">Stack</th>
                 <th className="th">État</th>
                 <th className="th">Images</th>
+                {collecting && <th className="th">Logs</th>}
                 <th className="th hidden md:table-cell">Services</th>
                 {canWrite && <th className="th pr-4 text-right">Actions</th>}
               </tr>
@@ -247,6 +286,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                   </td>
                   <td className="td"><StackStatusBadge stack={st} /></td>
                   <td className="td">{st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}</td>
+                  {collecting && <td className="td"><StackLogsBadge stack={st} /></td>}
                   <td className="td hidden md:table-cell">
                     <ServiceTags services={st.services} />
                   </td>
@@ -264,6 +304,20 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
       )}
       <p className="border-t border-line px-4 py-2 text-xs text-muted">
         Docker {d.engine} · compose {d.compose} · images vérifiées {d.updatesCheckedAt ? timeAgo(d.updatesCheckedAt) : 'jamais'}
+        {d.logs.available && (
+          <>
+            {' · '}
+            journaux des conteneurs{' '}
+            {d.logs.state ? (
+              <span className="font-mono">→ {d.logs.state.address}:{d.logs.state.port}</span>
+            ) : d.logs.enabled ? (
+              <span className="text-amber-300">collecteur absent</span>
+            ) : (
+              'non suivis'
+            )}
+            {canSettings && <> (<Link to="/settings?tab=logs" className="text-emerald-400 hover:underline">Paramètres › Logs</Link>)</>}
+          </>
+        )}
       </p>
     </Panel>
   );

@@ -361,6 +361,9 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (action.startsWith('docker_') && !host.capabilities?.includes('docker')) {
         return reply.code(400).send({ error: "Docker (avec compose v2) n'est pas disponible sur cet hôte" });
       }
+      if (action === 'docker_recreate' && !host.capabilities?.includes('docker_recreate')) {
+        return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas recréer une stack : mets-le à jour" });
+      }
       // stack actions need a stack of the last report; docker_check covers the whole host
       if ((DOCKER_ACTIONS as readonly string[]).includes(action)) {
         if (!stack || !STACK_RE.test(stack) || (service && !SERVICE_RE.test(service))) {
@@ -380,23 +383,40 @@ export function registerHostRoutes(app: FastifyInstance) {
     },
   );
 
-  // Journals of the containers of the host (homelab#346): sent to a log server (role), or no longer (null). Admins only
-  // (profiles.ts), with a passkey: turning it on restarts Docker on the host when its daemon.json changes. Containers
-  // created before are sent once recreated (the Docker block offers it).
-  app.put<{ Params: { id: string }; Body: { role: string | null } }>(
+  // Journals of the containers of the host (homelab#346, #347), on or off: they go to the log server of the host. Admins
+  // only (profiles.ts), with a passkey: turning it on restarts Docker on the host when its daemon.json changes. recreate:
+  // the stacks created again in the same job, so that their containers send (the others once recreated).
+  app.put<{ Params: { id: string }; Body: { enabled: boolean; recreate?: string[] } }>(
     '/api/hosts/:id/docker-logs',
-    { schema: { body: { type: 'object', required: ['role'], additionalProperties: false, properties: { role: { type: ['string', 'null'], maxLength: 32 } } } } },
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['enabled'],
+          additionalProperties: false,
+          properties: { enabled: { type: 'boolean' }, recreate: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: STACK_RE.source } } },
+        },
+      },
+    },
     async (req, reply) => {
       const _id = parseId(req.params.id);
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
+      const { enabled } = req.body;
+      const recreate = req.body.recreate ?? [];
       if (!canCollectDockerLogs(host)) return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas envoyer les journaux des conteneurs : mets-le à jour (Docker et systemd requis)" });
       if (!isOnline(req.params.id)) return reply.code(409).send({ error: `${host.name} est hors ligne` });
       if (hasRunningJob(req.params.id)) return reply.code(409).send({ error: `${host.name} : une tâche est déjà en cours` });
-      if (req.body.role === null && !host.dockerLogs && !host.docker?.logCollect) return reply.code(409).send({ error: "les journaux des conteneurs de cet hôte ne sont pas envoyés" });
+      if (!enabled && !host.dockerLogs && !host.docker?.logCollect) return reply.code(409).send({ error: 'les journaux des conteneurs de cet hôte ne sont pas envoyés' });
+      if (recreate.length) {
+        if (!enabled) return reply.code(400).send({ error: 'recréer des stacks ne concerne que la mise en place' });
+        if (!host.capabilities?.includes('docker_recreate')) return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas recréer une stack : mets-le à jour" });
+        const bad = recreate.find((st) => !findStack(host, st) || isUnmanaged(host, st));
+        if (bad) return reply.code(409).send({ error: `${bad} : stack introuvable ou non managée` });
+      }
       try {
-        const job = await setDockerLogs(host, req.body.role);
-        req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: { role: req.body.role } };
+        const job = await setDockerLogs(host, enabled, recreate);
+        req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: { enabled, ...(recreate.length ? { recreate } : {}) } };
         const updated = await hosts.findOne({ _id: host._id });
         if (updated) publish('host', hostDto(updated));
         reply.code(202);

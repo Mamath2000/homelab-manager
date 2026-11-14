@@ -31,6 +31,8 @@ type LogCollectSpec struct {
 	Address  string `json:"address"`
 	Port     int    `json:"port,omitempty"`
 	Protocol string `json:"protocol,omitempty"` // tcp
+	// stacks recreated once the collector runs, so that their containers send (homelab#347)
+	Recreate []string `json:"recreate,omitempty"`
 }
 
 // LogCollectState: what is in place, sent with the Docker report while the collector is set up on this host.
@@ -72,10 +74,18 @@ func validateLogCollect(l *LogCollectSpec) error {
 		return fmt.Errorf("docker_log_collect without its server")
 	}
 	if l.Address == "" {
+		if len(l.Recreate) > 0 {
+			return fmt.Errorf("stacks to recreate without a log server")
+		}
 		return nil
 	}
 	if !logAddressRe.MatchString(l.Address) || l.Port < 1 || l.Port > 65535 || l.Protocol != "tcp" {
 		return fmt.Errorf("invalid log server")
+	}
+	for _, s := range l.Recreate {
+		if !stackNameRe.MatchString(s) {
+			return fmt.Errorf("invalid stack %q", s)
+		}
 	}
 	return nil
 }
@@ -529,6 +539,21 @@ func (d *dockerModule) applyLogCollect(ctx context.Context, l *LogCollectSpec, e
 		return fail(err)
 	}
 	emit("the journals of the containers are sent to " + l.Address + ":" + strconv.Itoa(l.Port) + "\n")
+
+	// 3. the stacks chosen: their containers created again with the log settings. One that fails does not undo the rest.
+	failed := []string{}
+	for _, st := range l.Recreate {
+		emit("\nrecreating " + st + "\n")
+		if code, err := d.runAction(ctx, emit, "docker_recreate", st, ""); code != 0 || err != nil {
+			if err != nil {
+				emit(err.Error() + "\n")
+			}
+			failed = append(failed, st)
+		}
+	}
+	if len(failed) > 0 {
+		return -1, fmt.Errorf("collector set up, stacks not recreated: %s", strings.Join(failed, ", "))
+	}
 	emit("containers created before are sent once recreated (docker compose up -d --force-recreate)\n")
 	return 0, nil
 }
