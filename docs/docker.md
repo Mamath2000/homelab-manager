@@ -67,6 +67,7 @@ Sur une stack, ou sur un seul de ses services (page de la stack) :
 | Arrêter | `docker compose stop` (les conteneurs ne sont pas supprimés) |
 | Redémarrer | `docker compose restart` |
 | Mettre à jour | `docker compose pull`, `docker compose up -d`, puis `docker image prune -f` (seulement les images devenues orphelines) |
+| Recréer | `docker compose up -d --force-recreate` : nouveaux conteneurs, mêmes images ; proposé seulement sur une stack « À recréer » ([journaux des conteneurs](#journaux-des-conteneurs)) |
 
 Les actions sont des tâches comme les autres : sortie en direct, historique (onglet **Historique** de la stack et page Activité), une tâche à la fois par hôte. **Mettre à jour (n)** sur la page Docker lance la mise à jour de toutes les stacks concernées.
 
@@ -84,6 +85,17 @@ Logs et fichiers compose peuvent contenir des secrets (un mot de passe écrit da
 - le **journal (sortie) des jobs**, comme celui d'une mise à jour de stack, n'est pas lisible par le rôle **viewer** : il voit le statut du job, pas sa sortie.
 
 Le rôle **viewer** voit les stacks, leurs états et leurs mises à jour.
+
+## Journaux des conteneurs
+
+Les journaux des conteneurs peuvent être envoyés au serveur de logs de l'hôte : activation dans **Paramètres › Logs**, sur la carte de l'hôte (voir [Logs](logs.md#journaux-des-conteneurs-docker)). Le bloc Docker de la fiche hôte montre ensuite :
+
+- une colonne **Logs** par stack : **Suivis** (chaque conteneur en marche envoie) ou **À recréer** (un conteneur créé avant l'activation n'envoie rien) ; rien pour une stack arrêtée ;
+- l'action **Recréer** sur une stack à recréer ;
+- le bouton **Logs** : la page Logs filtrée sur l'hôte et `source=docker` ;
+- en pied de bloc, la destination du collecteur, ou « non suivis ».
+
+Le collecteur apparaît lui-même comme une stack, `homelab-log-collector` : ses propres journaux ne sont pas envoyés.
 
 ## Tableau de bord
 

@@ -1,19 +1,20 @@
 ---
 title: Logs
-description: Journaux des hôtes centralisés sur un serveur de logs (VictoriaLogs), envoyés en syslog par la standardisation et lus dans la page Logs
+description: Journaux des hôtes et des conteneurs Docker centralisés sur un serveur de logs (VictoriaLogs), envoyés en syslog et lus dans la page Logs
 sidebar_position: 3.6
 ---
 
 # Logs
 
-Les journaux des hôtes sont centralisés sur un **serveur de logs** et lus dans la page **Logs** de Homelab Manager.
+Les journaux des hôtes, et ceux de leurs conteneurs Docker, sont centralisés sur un **serveur de logs** et lus dans la page **Logs** de Homelab Manager.
 
 ```
-hôtes (rsyslog, posé par la standardisation) ──syslog TCP──► serveur de logs (VictoriaLogs)
-navigateur ──► hub ──API HTTP de requête─────────────────────►
+hôtes (rsyslog, posé par la standardisation) ──────────syslog TCP──► serveur de logs (VictoriaLogs)
+conteneurs (json-file) ── collecteur Fluent Bit ───────syslog TCP──►   (source=docker)
+navigateur ──► hub ──API HTTP de requête──────────────────────────►
 ```
 
-- **Les agents ne transportent aucun journal.** L'agent d'un hôte installe rsyslog et écrit sa configuration ; c'est rsyslog qui envoie, directement au serveur.
+- **Les agents ne transportent aucun journal.** L'agent d'un hôte installe rsyslog (ou le collecteur des conteneurs) et écrit sa configuration ; ce sont eux qui envoient, directement au serveur.
 - Le serveur de logs est un [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) installé à la main sur un hôte, déclaré comme [rôle du hub](roles.md#serveur-de-logs).
 - Le hub est le seul à interroger le serveur. L'entrée **Logs** du menu n'apparaît qu'avec un rôle **Serveur de logs**.
 
@@ -42,7 +43,75 @@ La carte indique aussi le site, « hors ligne », et comment l'hôte envoie : **
 - **Réappliquer** (carte en écart, orange ou rouge, hôte en ligne) : pousse de nouveau la configuration rsyslog, par exemple après un changement du port ou de l'adresse du serveur dans le rôle.
 - **Corbeille** d'une carte : arrête l'envoi, après confirmation. L'option de l'hôte devient « aucun envoi » et l'agent retire son fichier (à la prochaine application si l'hôte est hors ligne). Pas de corbeille sur un hôte réglé à la main : son fichier n'est pas celui de l'agent.
 
+Le vert d'une carte ne compte que les journaux de l'hôte : les lignes de ses conteneurs ont leur propre état (ci-dessous).
+
+**Conteneurs** : sur la carte d'un hôte qui a des stacks Compose et envoie ses journaux par la standardisation, une seconde ligne suit les [journaux de ses conteneurs](#journaux-des-conteneurs-docker) :
+
+| État | Signification |
+|---|---|
+| non suivis | pas activé ; bouton **Activer** |
+| reçu il y a… (vert) | des lignes de conteneurs sont arrivées pendant le délai du rôle |
+| orange | mise en place en cours, stack(s) à recréer, ou `/etc/docker/daemon.json` modifié sur l'hôte |
+| rouge | collecteur absent ou arrêté, serveur injoignable, ou rien reçu |
+| agent à mettre à jour | l'agent ne sait pas poser le collecteur (Docker et systemd requis) |
+
+**Réappliquer** (orange ou rouge) remet le collecteur en place et propose de recréer des stacks ; l'icône d'arrêt coupe l'envoi des conteneurs seul. La **corbeille** de la carte arrête les deux.
+
 Les émetteurs que le hub ne connaît pas sont listés sous les cartes.
+
+## Journaux des conteneurs Docker
+
+Les journaux des conteneurs ne passent ni par journald ni par rsyslog. Un collecteur **Fluent Bit**, posé et réglé par l'agent, lit les fichiers des conteneurs sur l'hôte et les envoie au serveur, en syslog RFC 5424 sur TCP, vers le listener étiqueté `source=docker` ([Installer VictoriaLogs](#installer-victorialogs)).
+
+Prérequis : un agent qui annonce la capacité `docker_log_collect` (Docker et systemd ; pas Unraid pour l'instant), et un hôte qui **envoie déjà ses journaux** par la standardisation. Les journaux des conteneurs vont **toujours au serveur de l'hôte** : il n'y a pas de serveur à choisir.
+
+### Activer
+
+**Paramètres › Logs**, carte de l'hôte, **Activer** (administrateurs, passkey, journal d'audit). La boîte de confirmation dit si Docker va redémarrer, et liste les stacks à **recréer** dans la même tâche (cochées : stacks managées en marche ; grisées : non managées, arrêtées, déjà suivies). L'agent, dans l'ordre :
+
+1. vérifie que le serveur accepte la connexion (sinon rien n'est modifié) ;
+2. fusionne `/etc/docker/daemon.json` : pilote `json-file`, rotation `10m` × 3 sauf réglage existant, labels Compose (`com.docker.compose.project`, `com.docker.compose.service`) recopiés dans chaque ligne ; les `log-opts` inconnues de `json-file` sont retirées (affichées dans la tâche), les autres clés gardées. Le fichier est validé par `dockerd --validate`, puis **Docker redémarre** (tous les conteneurs de l'hôte, y compris ceux des stacks non managées et ceux lancés hors Compose). Fichier déjà conforme : pas de redémarrage ;
+3. lance le collecteur : stack `homelab-log-collector`, image `fluent/fluent-bit` épinglée par empreinte, fichiers dans `/var/lib/homelab-agent/log-collector` ;
+4. recrée les stacks cochées (`docker compose up -d --force-recreate`).
+
+Une étape qui échoue remet `daemon.json` et le collecteur dans leur état d'avant. Une stack qui ne se recrée pas n'annule pas le reste : la tâche est en échec et la nomme.
+
+Un conteneur garde les réglages de journaux de sa création : ceux créés avant l'activation **n'envoient rien** tant qu'ils ne sont pas recréés. Le bloc Docker de la fiche hôte les signale (« À recréer ») et propose **Recréer** ([Docker](docker.md#journaux-des-conteneurs)). Une stack arrêtée n'a pas d'état : elle n'envoie rien de toute façon.
+
+### Suivre le serveur de l'hôte
+
+L'hôte ne garde que « activé ». À chaque rapport Docker, le hub compare la destination du collecteur au serveur de l'hôte (option **Envoi des journaux**, adresse et port du rôle) et, s'ils diffèrent, remet le collecteur sur le bon serveur. Ce recalage **ne redémarre jamais Docker** : un collecteur absent ou un `daemon.json` modifié à la main attendent **Réappliquer**. Une tentative en échec n'est pas répétée pour la même destination. Un hôte qui n'envoie plus ses journaux arrête aussi ceux de ses conteneurs.
+
+### Arrêter
+
+L'agent supprime le collecteur et retire les labels de `daemon.json`, **sans redémarrer Docker** (ils partent au prochain redémarrage). Les conteneurs restent en `json-file` : `docker logs` fonctionne toujours. Ce que le serveur a reçu est gardé.
+
+### Contenu d'une ligne
+
+| Champ | Valeur |
+|---|---|
+| `hostname` | nom de l'hôte |
+| `app_name` | service Compose |
+| `hlm@32473.compose_project` | stack |
+| `hlm@32473.container_id` | conteneur (12 caractères) |
+| `hlm@32473.stream` | `stdout` ou `stderr` |
+| `facility` | `user` |
+| `source` | `docker` (posé par le listener) |
+
+`32473` est un numéro d'entreprise de documentation (RFC 5612) : l'identifiant `hlm@32473` est provisoire. Le BOM UTF-8 que Fluent Bit place en tête du message (RFC 5424) est retiré à l'affichage.
+
+### Criticité
+
+Les pilotes de Docker ne connaissent pas la criticité d'une ligne : le collecteur la déduit du texte. La première règle qui s'applique l'emporte :
+
+1. **niveau structuré** : pino (`"level":60` critique, `50` erreur, `40` avertissement, `10`–`30` info), MongoDB (`"s":"F"`, `"E"`, `"W"`, `"I"`), `level` en JSON ou en logfmt (`fatal`, `panic`, `crit`… / `error` / `warn` / `info`, `debug`) ;
+2. **mots-clés** du message : `fatal`, `panic`, `critical` → critique ; `error`, `exception`, `failed`, `failure` → erreur ; `warn`, `warning` → avertissement ;
+3. sinon **info**.
+
+### Non envoyés
+
+- les conteneurs lancés hors Compose (sans label de service) ;
+- le collecteur lui-même.
 
 ## Installer VictoriaLogs
 
@@ -60,6 +129,10 @@ services:
       - -retentionPeriod=30d
       - -httpListenAddr=:9428
       - -syslog.listenAddr.tcp=:514
+      # journaux des conteneurs Docker : un second listener TCP, étiqueté source=docker
+      - -syslog.listenAddr.tcp=:517
+      - -syslog.extraFields.tcp={"source":"host"}
+      - -syslog.extraFields.tcp={"source":"docker"}
       - -syslog.useRemoteIP.tcp=true
     volumes:
       - ./data:/victoria-logs-data
@@ -71,6 +144,9 @@ services:
 | `-syslog.listenAddr.tcp` (514) | réception des journaux des hôtes, en TCP ; un port sous 1024 demande que le processus soit root ou ait `CAP_NET_BIND_SERVICE` |
 | `-retentionPeriod` | durée de conservation (7 jours par défaut) ; `-retention.maxDiskSpaceUsageBytes` borne aussi le disque |
 | `-syslog.useRemoteIP.tcp` | garde l'adresse de l'émetteur de chaque journal (champ `remote_ip`) |
+| `-syslog.extraFields.tcp` | champs ajoutés aux lignes d'un listener, **appariés par position** aux `-syslog.listenAddr.tcp` (l'ordre compte) : `source` range les lignes dans la matrice de la page Logs |
+
+Le collecteur des conteneurs envoie au listener TCP étiqueté `source=docker` (517 dans l'exemple), à la même adresse que les hôtes. Le hub le lit dans la configuration du serveur (`/flags`) ; le champ **Port Docker** du rôle l'impose ([Rôles](roles.md#serveur-de-logs)).
 
 :::warning L'API de VictoriaLogs n'a pas de compte
 Qui atteint le port 9428 lit tous les journaux, et peut en écrire. Le limiter au hub : pare-feu de l'hôte, ou écoute sur une adresse interne. Pour une authentification, placer devant un reverse proxy HTTPS : son compte se saisit dans le rôle (**Derrière un reverse proxy HTTPS**, authentification basique).
@@ -122,7 +198,7 @@ Les erreurs présentes dans les journaux ne changent pas l'état d'un hôte : se
 
 ## Limites
 
-- **Conteneurs Docker** : leurs journaux ne passent pas par journald (pilote `json-file`), ils ne sont donc pas envoyés.
+- **Conteneurs Docker** : seuls ceux lancés par Docker Compose sont envoyés, sur un hôte Docker avec systemd qui envoie ses journaux par la standardisation (pas encore Unraid) ; un conteneur créé avant l'activation n'envoie qu'une fois recréé ; la criticité est déduite du texte.
 - **Home Assistant OS, Windows, Unraid** : pas de standardisation ; l'envoi se règle à la main quand le système le permet.
 - **Équipements sans agent** : un appareil réglé pour envoyer en syslog au serveur apparaît dans « Autres émetteurs » ; il n'est pas encore rattaché à sa fiche.
 
@@ -142,7 +218,8 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `POST /api/roles/log-reception` | test de réception d'un serveur en cours de déclaration : ligne syslog de test envoyée, puis cherchée par l'API (administrateurs) |
 | `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
 | `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |
-| `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte (administrateurs, passkey) |
+| `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte, et celui de ses conteneurs (administrateurs, passkey) |
+| `PUT /api/hosts/:id/docker-logs` | journaux des conteneurs : `{ "enabled": true, "recreate": ["stack"…] }` les met en place (et recrée ces stacks), `{ "enabled": false }` les arrête (administrateurs, passkey) ; `202 { jobId }` |
 
 Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
 
