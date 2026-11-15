@@ -15,7 +15,7 @@
     "@simplewebauthn/browser": "^14.0.0",
     "@tanstack/react-query": "^5.104.1",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.54.0",
+    "lucide-react": "^1.72.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^8.5.1"
@@ -26,15 +26,15 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
-    "@vitejs/plugin-react": "^6.2.1",
+    "@vitejs/plugin-react": "^6.3.0",
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~5.8.3",
-    "typescript-eslint": "^8.71.1",
-    "vite": "^8.3.6"
+    "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.8"
   },
   "overrides": {
     "minimatch": "^11.0.5"
