@@ -176,10 +176,12 @@ export class ProbeEngine {
   private async tick() {
     if (this.dirty || Date.now() - this.loadedAt > RELOAD_MS) await this.reload();
     const now = Date.now();
-    for (const p of this.list) {
+    // the most overdue first (never measured = 0): in list order, the probes at the end would starve when the slots are full
+    const due = this.list.filter((p) => !this.inflight.has(p._id.toHexString()) && (this.nextAt.get(p._id.toHexString()) ?? 0) <= now);
+    due.sort((a, b) => (this.nextAt.get(a._id.toHexString()) ?? 0) - (this.nextAt.get(b._id.toHexString()) ?? 0));
+    for (const p of due) {
       const id = p._id.toHexString();
       if (this.inflight.size >= MAX_PARALLEL) break;
-      if (this.inflight.has(id) || (this.nextAt.get(id) ?? 0) > now) continue;
       this.nextAt.set(id, now + p.intervalSec * 1000);
       this.inflight.add(id);
       this.run(p).catch((err) => this.log.warn({ err, probe: p.name }, 'probe failed')).finally(() => this.inflight.delete(id));
