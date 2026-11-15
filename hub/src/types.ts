@@ -1353,7 +1353,7 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller', 'log-server'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller', 'log-server', 'esphome'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host', 'equipment'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
@@ -1364,6 +1364,12 @@ export interface RoleCarrier {
   kind: CarrierKind;
   id: ObjectId;
 }
+
+// A role the hub carries itself (esphome: what it does through the brokers of other roles), on no host nor equipment.
+export interface HubCarrier {
+  kind: 'hub';
+}
+export type AnyCarrierKind = CarrierKind | HubCarrier['kind'];
 
 // mqtt-broker: an MQTT broker the probes listen to (distinct from the one of the Home Assistant bridge), reached at
 // address (the first private IP of its host when absent) and port.
@@ -1530,9 +1536,68 @@ export interface OmadaStateDoc {
   pollError?: string;
 }
 
-export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole | LogServerRole;
+// esphome (homelab#352): the ESPHome devices seen on the brokers it listens to (esphome.ts), carried by the hub. brokers:
+// the mqtt-broker roles listened to; siteId: the site of the devices found on it, when it is not the one of the host of the
+// broker (a broker of a site that runs on another, as the one of jarsay at vouille).
+export interface EsphomeBroker {
+  brokerId: string;
+  siteId?: string;
+}
+// logServer: the log-server role the lines of the devices go to (absent: the first one).
+export interface EsphomeConfig {
+  brokers: EsphomeBroker[];
+  logServer?: string;
+}
+
+export interface EsphomeRole {
+  _id: 'esphome';
+  type: 'esphome';
+  name: string;
+  carrier: HubCarrier;
+  config: EsphomeConfig;
+  createdAt: Date;
+}
+
+// An ESPHome device as its broker shows it (collection `esphome`, _id = <broker>/<unique_id>): its LWT
+// (esphome/<id>/LWT), what it publishes in esphome/<id>/info (retained, JSON) and its log level (esphome/<id>/log_level).
+// Kept when it is no longer seen: lastSeenAt tells since when.
+export interface EsphomeSubDevice {
+  id: string;
+  name?: string;
+  // the tags of the drivers of the sub-device: a log line with one of them is its own
+  tags?: string[];
+}
+export interface EsphomeInfo {
+  name?: string;
+  ip?: string;
+  mac?: string;
+  version?: string;
+  devices?: EsphomeSubDevice[];
+}
+export interface EsphomeDeviceDoc {
+  _id: string;
+  brokerId: string;
+  uniqueId: string;
+  // online / offline (null: no LWT seen, only its info)
+  lwt: 'online' | 'offline' | null;
+  lwtAt?: Date;
+  info?: EsphomeInfo;
+  infoAt?: Date;
+  // the info payload is not JSON, or not the expected shape
+  infoError?: string;
+  level?: string;
+  levelAt?: Date;
+  // its lines (esphome/<id>/logs) are forwarded to the log server (set once it is an equipment)
+  logs?: boolean;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+}
+
+export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole | LogServerRole | EsphomeRole;
+// a role carried by a host or an equipment (every type but the ones of the hub)
+export type CarriedRoleDoc = Exclude<RoleDoc, EsphomeRole>;
 // the ones of the roles collection
-export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole | LogServerRole;
+export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole | LogServerRole | EsphomeRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {
@@ -1558,7 +1623,7 @@ export const EQUIPMENT_TYPES = ['gateway', 'switch', 'ap', 'coordinator', 'bridg
 export type EquipmentType = (typeof EQUIPMENT_TYPES)[number];
 
 // manual: typed in the interface; the others are kept up to date by the synchronisation of their source (#231)
-export const EQUIPMENT_SOURCES = ['manual', 'omada'] as const;
+export const EQUIPMENT_SOURCES = ['manual', 'omada', 'esphome'] as const;
 export type EquipmentSource = (typeof EQUIPMENT_SOURCES)[number];
 
 // What an automatic source reports of an equipment, written by its synchronisation: its native checks (connected,
@@ -1575,7 +1640,7 @@ export interface EquipmentDoc {
   type: EquipmentType;
   ip?: string;
   source: EquipmentSource;
-  externalId?: string; // id of the equipment in its source (MAC for Omada); absent for a manual one
+  externalId?: string; // id of the equipment in its source (MAC for Omada, <broker>/<unique_id>[/<sub-device>] for ESPHome); absent for a manual one
   // upstream equipment: shown on the page, later the probable cause of a failure; never hides a probe
   uplinkId?: ObjectId;
   native?: EquipmentNative;

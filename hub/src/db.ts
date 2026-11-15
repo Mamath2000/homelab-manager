@@ -3,7 +3,7 @@ import { config } from './config.js';
 
 // the journal of the key actions is kept one year, then dropped by Mongo itself (no purge from the hub)
 export const AUDIT_RETENTION_DAYS = 365;
-import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, PasskeyDoc, StoredRoleDoc, OmadaStateDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
+import type { AgentSettings, BackupDoc, BackupStatDoc, StorageUsageDoc, BackupJobDoc, EquipmentAlertDoc, EquipmentDoc, GuestDoc, HealthMetricDoc, HealthSettings, HostAlertDoc, PveSettings, HomeAssistantSettings, HostDoc, JobDoc, PbsSettings, PbsRemoteSettings, ProbeDayDoc, ProbeDoc, ProbeMeasureDoc, PkiDoc, UiTlsDoc, ApiKeyDoc, AuditDoc, PasskeyDoc, StoredRoleDoc, OmadaStateDoc, EsphomeDeviceDoc, SessionDoc, SetupProfile, SitesSettings, TagsSettings, UserDoc } from './types.js';
 
 // an account given apart from the URL (no escaping of the password); none: the URL as it is (with its own account, if any)
 const client = new MongoClient(
@@ -32,6 +32,8 @@ export let equipments: Collection<EquipmentDoc>;
 export let equipmentAlerts: Collection<EquipmentAlertDoc>;
 export let roles: Collection<StoredRoleDoc>;
 export let omada: Collection<OmadaStateDoc>;
+// the ESPHome devices seen on the brokers of the esphome role (esphome.ts)
+export let esphome: Collection<EsphomeDeviceDoc>;
 export let audit: Collection<AuditDoc>;
 
 export async function connectDb() {
@@ -59,6 +61,7 @@ export async function connectDb() {
   equipmentAlerts = db.collection('equipmentAlerts');
   roles = db.collection('roles');
   omada = db.collection('omada');
+  esphome = db.collection('esphome');
   audit = db.collection('audit');
 
   await Promise.all([
@@ -76,6 +79,7 @@ export async function connectDb() {
     audit.createIndex({ category: 1, _id: -1 }),
     audit.createIndex({ at: 1 }, { expireAfterSeconds: AUDIT_RETENTION_DAYS * 24 * 3600, name: 'audit_ttl' }),
     roles.createIndex({ 'carrier.id': 1 }),
+    esphome.createIndex({ brokerId: 1 }),
     apiKeys.createIndex({ hash: 1 }, { unique: true }),
     apiKeys.createIndex({ userId: 1 }),
     sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),

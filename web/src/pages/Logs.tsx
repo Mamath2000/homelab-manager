@@ -90,6 +90,9 @@ function useLogFilters() {
       app: list(params.get('app')),
       notApp: list(params.get('notApp')),
       source: list(params.get('source')),
+      // sub-devices of an ESPHome device, with the lines of the ESP from warning up (deviceSystem)
+      device: list(params.get('device')),
+      deviceSystem: params.get('deviceSystem') === '1',
       q: params.get('q') ?? '',
       from: params.get('from') ?? DEFAULT_PERIOD,
       to: params.get('to') ?? '',
@@ -127,6 +130,7 @@ const toQuery = (f: Filters): LogQuery => ({
   ...(f.app.length ? { app: f.app } : {}),
   ...(f.notApp.length ? { notApp: f.notApp } : {}),
   ...(f.source.length ? { source: f.source } : {}),
+  ...(f.device.length ? { device: f.device, ...(f.deviceSystem ? { deviceSystem: true } : {}) } : {}),
   ...(f.q ? { q: f.q } : {}),
 });
 
@@ -508,7 +512,7 @@ export function Logs() {
   if (current && sources.isSuccess && !cloud.some((o) => o.key === current)) cloud.push({ key: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname, count: 0, errors: 0 });
   // the server received nothing at all over the period, whatever the sites
   const nothing = matrix.isSuccess && !matrix.data.sources.length;
-  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.q || f.level || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
+  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.device.length || f.q || f.level || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
 
   const field = 'mb-1 block text-xs text-muted';
@@ -622,6 +626,17 @@ export function Logs() {
             {SOURCE_LABEL[s] ?? s} <X className="h-3 w-3" />
           </button>
         ))}
+        {f.device.map((d) => (
+          <button key={d} type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus filtrer" onClick={() => set({ device: f.device.filter((x) => x !== d), ...(f.device.length === 1 ? { deviceSystem: false } : {}) })}>
+            sous-appareil {d} <X className="h-3 w-3" />
+          </button>
+        ))}
+        {f.device.length > 0 && (
+          <label className="inline-flex items-center gap-1.5 text-xs text-zinc-300" title="Avec les lignes de l'ESP porteur qui ne reviennent à aucun sous-appareil, à partir de warning">
+            <input type="checkbox" checked={f.deviceSystem} onChange={(e) => set({ deviceSystem: e.target.checked })} />
+            + lignes système de l'ESP (warning et pire)
+          </label>
+        )}
         {f.notApp.map((a) => (
           <button key={a} type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus exclure" onClick={() => set({ notApp: f.notApp.filter((x) => x !== a) })}>
             sans {a} <X className="h-3 w-3" />

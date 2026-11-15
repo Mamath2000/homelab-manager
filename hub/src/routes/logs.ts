@@ -41,6 +41,9 @@ const filterProps = {
   q: { type: 'string', maxLength: 512 },
   notApp: list,
   notHostname: list,
+  // sub-devices of an ESPHome device (field device), with the lines of the ESP from warning up (deviceSystem)
+  device: list,
+  deviceSystem: { type: 'boolean' },
 } as const;
 const rangeProps = { from: { type: 'string', maxLength: 40 }, to: { type: 'string', maxLength: 40 } } as const;
 
@@ -58,6 +61,8 @@ interface FilterQuery {
   q?: string;
   notApp?: string;
   notHostname?: string;
+  device?: string;
+  deviceSystem?: boolean;
 }
 interface RangeQuery {
   from?: string;
@@ -172,6 +177,7 @@ export function filtersOf(q: FilterQuery, known: KnownHost[], senders: Located[]
     ...(q.facility ? { facilities: split(q.facility) } : {}),
     ...(q.source ? { sources: split(q.source) } : {}),
     ...(q.q?.trim() ? { text: q.q.trim() } : {}),
+    ...(q.device ? { devices: split(q.device), ...(q.deviceSystem ? { deviceSystem: true } : {}) } : {}),
     ...(q.notApp || q.notHostname ? { not: { apps: split(q.notApp), hostnames: split(q.notHostname) } } : {}),
   };
 }

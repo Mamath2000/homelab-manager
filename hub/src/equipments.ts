@@ -2,6 +2,7 @@ import { isIP } from 'node:net';
 import type { ObjectId } from 'mongodb';
 import { equipments, probes } from './db.js';
 import { publish } from './events.js';
+import { esphomeDevice } from './esphome.js';
 import { carriedBy } from './roles.js';
 import type { EquipmentDoc, EquipmentType, ProbeDoc } from './types.js';
 
@@ -24,6 +25,15 @@ export const TYPE_LABELS: Record<EquipmentType, string> = {
   other: 'Autre',
 };
 
+// An equipment of ESPHome: the name its lines carry (hostname of the Logs page) and its sub-device (null: the ESP itself).
+export function esphomeOf(e: Pick<EquipmentDoc, 'source' | 'externalId'>) {
+  if (e.source !== 'esphome' || !e.externalId) return null;
+  const [broker, uniqueId, device] = e.externalId.split('/');
+  if (!broker || !uniqueId) return null;
+  const d = esphomeDevice(`${broker}/${uniqueId}`);
+  return { key: `${broker}/${uniqueId}`, hostname: d?.info?.name ?? uniqueId, device: device ?? null, logs: !!d?.logs };
+}
+
 export function equipmentDto(e: EquipmentDoc, own: ProbeDoc[] = []) {
   return {
     id: e._id.toHexString(),
@@ -35,6 +45,7 @@ export function equipmentDto(e: EquipmentDoc, own: ProbeDoc[] = []) {
     externalId: e.externalId ?? null,
     uplinkId: e.uplinkId?.toHexString() ?? null,
     native: e.native ?? null,
+    esphome: esphomeOf(e),
     // roles of the hub it carries (an Omada controller), never a secret
     roles: carriedBy(e._id).map((r) => ({ id: r._id, type: r.type, name: r.name })),
     createdAt: e.createdAt,

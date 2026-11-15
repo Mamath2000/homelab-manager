@@ -22,6 +22,9 @@ import { registerSiteRoutes } from './routes/sites.js';
 import { registerProbeRoutes } from './routes/probes.js';
 import { registerRoleRoutes } from './routes/roles.js';
 import { registerOmadaRoutes } from './routes/omada.js';
+import { registerEsphomeRoutes } from './routes/esphome.js';
+import { brokerSites, startEsphome } from './esphome.js';
+import { syncEsphomeEquipments } from './esphomeEquipments.js';
 import { startOmadaPoller } from './omadaSync.js';
 import { registerLogRoutes } from './routes/logs.js';
 import { startLogPoller } from './logs.js';
@@ -131,6 +134,7 @@ registerSiteRoutes(app);
 registerProbeRoutes(app);
 registerRoleRoutes(app);
 registerOmadaRoutes(app);
+registerEsphomeRoutes(app);
 registerLogRoutes(app);
 registerEquipmentRoutes(app);
 registerSetupRoutes(app);
@@ -181,6 +185,8 @@ const stopPvePoller = startPvePoller(app.log);
 const stopOmadaPoller = startOmadaPoller(app.log);
 const stopLogPoller = startLogPoller(app.log);
 const stopProbes = startProbes(app.log);
+// after the probes: it listens on the connections of their engine
+const stopEsphome = startEsphome(app.log, async (d) => syncEsphomeEquipments(d, (await brokerSites()).get(d.brokerId)));
 await bridge.apply(await loadHaBridgeSettings());
 watchSettingsRoles();
 // the broker role of the bridge changed (edited, moved, its host got other IPs): apply does nothing when the address and
@@ -210,6 +216,7 @@ async function shutdown() {
   stopPvePoller();
   stopOmadaPoller();
   stopLogPoller();
+  await stopEsphome();
   stopProbes();
   stopRefusedWatch();
   await bridge.stop(false);

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeft, RefreshCw, Router, Settings, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Router, ScrollText, Settings, Trash2 } from 'lucide-react';
 import { AlertTimeline } from '../components/AlertTimeline';
 import { EquipmentModal } from '../components/Equipment';
 import { SOURCE_LABELS, TYPE_LABELS, equipmentTone, useSiteName } from '../lib/equipment';
@@ -42,7 +42,7 @@ export function EquipmentDetail() {
 }
 
 function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
-  const { canManage } = useMe();
+  const { canManage, canLogs } = useMe();
   const { data: all } = useEquipments();
   const { data: status } = useStatus();
   const siteName = useSiteName();
@@ -144,11 +144,24 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
               </StripItem>
             )}
             <StripItem label="Ajouté le">{dateTime(e.createdAt)}</StripItem>
-            {canManage && (
+            {(canManage || (canLogs && e.esphome?.logs)) && (
               <div className="flex shrink-0 items-center gap-2 self-center px-4 py-2.5">
-                {synced && <Button icon={RefreshCw} loading={refreshing} title={`Actualiser : relire ${SOURCE_LABELS[e.source]} maintenant`} aria-label="Actualiser" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={refresh} />}
-                <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setEditing(true)} />
-                <Button variant="danger" icon={Trash2} aria-label={`Supprimer ${e.name}`} title="Supprimer" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setRemoving(true)} />
+                {canLogs && e.esphome?.logs && (
+                  <Button
+                    icon={ScrollText}
+                    title={e.esphome.device ? 'Logs : les lignes de ce sous-appareil' : "Logs : les lignes de l'ESP"}
+                    aria-label="Logs"
+                    className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5"
+                    onClick={() => navigate(`/logs?hostname=${encodeURIComponent(e.esphome!.hostname)}&source=esphome${e.esphome!.device ? `&device=${encodeURIComponent(e.esphome!.device)}` : ''}`)}
+                  />
+                )}
+                {canManage && e.source === 'omada' && <Button icon={RefreshCw} loading={refreshing} title={`Actualiser : relire ${SOURCE_LABELS[e.source]} maintenant`} aria-label="Actualiser" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={refresh} />}
+                {canManage && (
+                  <>
+                    <Button icon={Settings} title="Options" aria-label="Options" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setEditing(true)} />
+                    <Button variant="danger" icon={Trash2} aria-label={`Supprimer ${e.name}`} title="Supprimer" className="h-11! w-11! px-0! [&>svg]:h-5 [&>svg]:w-5" onClick={() => setRemoving(true)} />
+                  </>
+                )}
               </div>
             )}
           </dl>

@@ -60,6 +60,10 @@ export interface LogFilters {
   sources?: string[];
   // words or a phrase looked for in the message, whatever the case
   text?: string;
+  // sub-devices of an ESPHome device (field `device`, homelab#352); deviceSystem: with the lines of the ESP that carries
+  // them that belong to none of its sub-devices, from warning up (scope it to the ESP with hostnames)
+  devices?: string[];
+  deviceSystem?: boolean;
   // excluded values, by field
   not?: { hostnames?: string[]; apps?: string[]; sources?: string[] };
 }
@@ -85,6 +89,7 @@ export function filterQuery(f: LogFilters) {
   if (f.apps?.length) parts.push(anyOf('app_name', f.apps));
   if (f.facilities?.length) parts.push(anyOf('facility_keyword', f.facilities));
   if (f.sources?.length) parts.push(sourceCondition(f.sources));
+  if (f.devices?.length) parts.push(f.deviceSystem ? `(${anyOf('device', f.devices)} or (device:"" severity:<=4))` : anyOf('device', f.devices));
   if (f.not?.hostnames?.length) parts.push(`!${anyOf('hostname', f.not.hostnames)}`);
   if (f.not?.apps?.length) parts.push(`!${anyOf('app_name', f.not.apps)}`);
   if (f.not?.sources?.length) parts.push(`!${sourceCondition(f.not.sources)}`);
@@ -137,6 +142,27 @@ async function call(c: Server, path: string, params: Record<string, string | num
 }
 
 const QUERY_TIMEOUT_MS = 20_000;
+
+// Writes lines to the server (JSON lines ingestion of VictoriaLogs): one object per line, its time in _time and its message
+// in _msg; the stream of a line is its sender and application, as for the syslog ones. The lines the hub forwards
+// (ESPHome, homelab#352).
+export async function insertJsonLines(c: Server, lines: Record<string, string>[], timeoutMs = 10_000) {
+  if (!lines.length) return;
+  const url = `${c.url.replace(/\/+$/, '')}/insert/jsonline?_stream_fields=hostname,app_name&_msg_field=_msg&_time_field=_time`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/stream+json', ...headersOf(c) },
+      body: lines.map((l) => JSON.stringify(l)).join('\n') + '\n',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    throw failure(err);
+  }
+  if (res.status === 401 || res.status === 403) throw new LogServerError('le serveur de logs refuse le compte du rôle');
+  if (!res.ok) throw new LogServerError(`le serveur de logs répond ${res.status} : ${(await res.text().catch(() => '')).slice(0, 200)}`);
+}
 
 // JSON lines: one object per line
 const jsonLines = (text: string) =>

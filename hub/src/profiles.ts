@@ -108,6 +108,10 @@ export const SENSITIVE_ACTIONS = new Set([
   'PUT /api/roles/:id/mqtt-anonymous',
   'PUT /api/roles/:id/mqtt-accounts/:username',
   'DELETE /api/roles/:id/mqtt-accounts/:username',
+  // the hub listens to the brokers chosen there (homelab#352)
+  'POST /api/settings/esphome',
+  'PUT /api/settings/esphome',
+  'DELETE /api/settings/esphome',
   // standardisation and access manifest
   'PUT /api/settings/setup',
   'PUT /api/hosts/:id/setup',
@@ -115,6 +119,8 @@ export const SENSITIVE_ACTIONS = new Set([
   'DELETE /api/settings/logs/:role/hosts/:hostId',
   // journals of the containers of a host: restarts Docker there, sends them elsewhere (homelab#346)
   'PUT /api/hosts/:id/docker-logs',
+  // the lines of an ESPHome device sent to the log server (homelab#352)
+  'PUT /api/settings/esphome/logs',
   'PUT /api/hosts/:id/access-keys/ack',
   'POST /api/settings/access/apply',
   // agents: install command (enrollment code), renewal of the certificate, revocation, removal of the host

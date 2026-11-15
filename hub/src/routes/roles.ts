@@ -225,14 +225,14 @@ function logServerSaved(log: FastifyBaseLogger) {
 export function registerRoleRoutes(app: FastifyInstance) {
   app.get('/api/roles', async () => {
     const list = allRoles();
-    const ids = list.map((r) => r.carrier.id);
+    const ids = list.flatMap((r) => (r.carrier.kind === 'hub' ? [] : [r.carrier.id]));
     const [carriers, boxes] = await Promise.all([
       hosts.find({ _id: { $in: ids } }, { projection: { name: 1, info: 1, roleCandidates: 1 } }).toArray(),
       equipments.find({ _id: { $in: ids } }, { projection: { name: 1, ip: 1 } }).toArray(),
     ]);
     const byId = new Map<string, Pick<HostDoc, 'name' | 'info'>>([...carriers, ...boxes.map((e) => ({ _id: e._id, name: e.name, info: { ips: e.ip ? [e.ip] : [] } as unknown as HostDoc['info'] }))].map((h) => [h._id.toHexString(), h]));
     const uses = await Promise.all(list.map((r) => defOf(r.type).uses(r._id)));
-    return { roles: list.map((r, i) => ({ ...roleView(r, byId.get(r.carrier.id.toHexString()) ?? null), uses: uses[i] })) };
+    return { roles: list.map((r, i) => ({ ...roleView(r, r.carrier.kind === 'hub' ? null : byId.get(r.carrier.id.toHexString()) ?? null), uses: uses[i] })) };
   });
 
   app.post<{ Body: { type: DeclaredType; carrier: CarrierBody; name: string; config: ConfigBody } }>('/api/roles', { schema: { body: createBody } }, async (req, reply) => {

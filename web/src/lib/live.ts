@@ -48,6 +48,11 @@ export function useLiveEvents(enabled: boolean) {
     });
     // the sites and devices of an Omada controller (Paramètres › Omada)
     es.addEventListener('omada', () => qc.invalidateQueries({ queryKey: ['settings', 'omada'] }));
+    // ESPHome devices seen or changed on the brokers of the esphome role (Paramètres › ESPHome, summary of the role)
+    es.addEventListener('esphome', () => {
+      qc.invalidateQueries({ queryKey: ['settings', 'esphome'] });
+      qc.invalidateQueries({ queryKey: keys.roles });
+    });
     es.addEventListener('backups', () => {
       qc.invalidateQueries({ queryKey: keys.backups });
       qc.invalidateQueries({ queryKey: keys.status });

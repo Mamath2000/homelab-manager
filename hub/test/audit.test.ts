@@ -172,12 +172,14 @@ test('every audited route and every sensitive action exists', async () => {
   const { registerSetupRoutes } = await import('../src/routes/setup.js');
   const { registerDbRestoreRoutes } = await import('../src/routes/dbRestore.js');
   const { registerLogRoutes } = await import('../src/routes/logs.js');
+  const { registerEsphomeRoutes } = await import('../src/routes/esphome.js');
   const { SENSITIVE_ACTIONS } = await import('../src/profiles.js');
   registerAuth(a);
   registerUserRoutes(a);
   registerPasskeyRoutes(a);
   registerHostRoutes(a);
   registerSettingsRoutes(a, {} as never);
+  registerEsphomeRoutes(a);
   registerAgentSettingsRoutes(a, {} as never);
   registerBackupRoutes(a);
   registerOffsiteRoutes(a);

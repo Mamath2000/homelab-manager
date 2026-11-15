@@ -1,5 +1,6 @@
 import { securityOf } from './mqttSecurity.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
+import { esphomeCount } from './esphome.js';
 import { bridgeStatusOf } from './homeassistant/bridge.js';
 import { logPollOf, logTarget } from './logs.js';
 import { omadaPollOf } from './omadaSync.js';
@@ -14,7 +15,9 @@ const worst = <T extends { state: keyof typeof RANK }>(list: (T | null)[]) =>
   list.reduce<T | null>((a, b) => (!b ? a : !a || RANK[b.state] > RANK[a.state] ? b : a), null);
 
 export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'roleCandidates'> | null) {
-  const base = { id: r._id, type: r.type, name: r.name, carrier: { kind: r.carrier.kind, id: r.carrier.id.toHexString(), name: host?.name ?? '' } };
+  // a role of the hub has no carrier to link to
+  const carrier = r.carrier.kind === 'hub' ? { kind: r.carrier.kind, id: '', name: 'Hub' } : { kind: r.carrier.kind, id: r.carrier.id.toHexString(), name: host?.name ?? '' };
+  const base = { id: r._id, type: r.type, name: r.name, carrier };
   switch (r.type) {
     case 'mqtt-broker': {
       const { password, clientKeyPem, dynsec, ...config } = r.config;
@@ -106,6 +109,20 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
         target: target.address ? `${target.protocol}://${target.address.includes(':') ? `[${target.address}]` : target.address}:${target.port}` : '',
         status: p ? { state: p.pollError ? ('error' as const) : ('connected' as const), error: p.pollError ?? null } : null,
         summary: p && !p.pollError ? `${p.senders.length} émetteur${p.senders.length > 1 ? 's' : ''} sur 24 h` : null,
+      };
+    }
+    // the brokers it listens to (esphome.ts): connected when all of them are, the worst one else
+    case 'esphome': {
+      const states = r.config.brokers.map((b) => probeEngine()?.pool.status(b.brokerId) ?? null);
+      const n = esphomeCount();
+      return {
+        ...base,
+        config: r.config,
+        hasSecret: false,
+        url: '',
+        account: '',
+        status: worst(states),
+        summary: `${r.config.brokers.length} broker${r.config.brokers.length > 1 ? 's' : ''} écouté${r.config.brokers.length > 1 ? 's' : ''}, ${n} appareil${n > 1 ? 's' : ''} découvert${n > 1 ? 's' : ''}`,
       };
     }
   }

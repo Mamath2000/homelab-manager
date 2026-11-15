@@ -296,6 +296,8 @@ export const NATIVE_STALE_MS = 15 * 60_000;
 
 export function nativeStatus(e: Pick<EquipmentDoc, 'source' | 'native'>, now: number): DomainReport {
   if (e.source === 'manual') return null;
+  // ESPHome tells the presence of a device through the probes made with it (LWT, ping): native checks only once it writes some
+  if (e.source === 'esphome' && !e.native) return null;
   if (!e.native) return unknown('Pas encore synchronisé');
   // the source stopped answering: what it said last says nothing of now
   if (now - e.native.syncedAt.getTime() > NATIVE_STALE_MS) return unknown('Source muette');

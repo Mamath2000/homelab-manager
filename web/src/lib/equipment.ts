@@ -16,7 +16,7 @@ export const TYPE_LABELS: Record<EquipmentType, string> = {
 };
 export const EQUIPMENT_TYPES = Object.keys(TYPE_LABELS) as EquipmentType[];
 
-export const SOURCE_LABELS: Record<EquipmentSource, string> = { manual: 'Manuel', omada: 'Omada' };
+export const SOURCE_LABELS: Record<EquipmentSource, string> = { manual: 'Manuel', omada: 'Omada', esphome: 'ESPHome' };
 
 // Level of an equipment: its worst read domain; neutral when nothing is followed (no probe yet) or nothing can be read.
 export function equipmentTone(status: StatusView | undefined, e: Pick<Equipment, 'id'>): Tone {

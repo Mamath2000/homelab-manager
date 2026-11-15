@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { hosts, probes, roles, settings } from './db.js';
-import type { CarrierKind, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
+import type { AnyCarrierKind, CarrierKind, EsphomeRole, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
 import { openRole, openSettings } from './storedSecrets.js';
 
 export type RoleOf<T extends RoleType> = Extract<RoleDoc, { type: T }>;
@@ -15,7 +15,7 @@ export const ROLE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 // What each type of role needs.
 interface RoleTypeDef<R extends RoleDoc = RoleDoc> {
   label: string;
-  carriers: readonly CarrierKind[];
+  carriers: readonly AnyCarrierKind[];
   // at most one role of this type in the homelab
   single: boolean;
   // null: the host may carry this config, else why not (checked on creation and when the carrier or what was
@@ -39,7 +39,8 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     same: (a, b) => a.port === b.port,
     uses: async (id) => {
       const [n, ha] = await Promise.all([probes.countDocuments({ 'target.type': 'mqtt', 'target.brokerId': id }), settings.countDocuments({ _id: 'homeassistant', brokerRoleId: id } as never)]);
-      return [...(n ? [`${n} sonde${n > 1 ? 's' : ''}`] : []), ...(ha ? ['Home Assistant'] : [])];
+      const esphome = esphomeRole()?.config.brokers.some((b) => b.brokerId === id);
+      return [...(n ? [`${n} sonde${n > 1 ? 's' : ''}`] : []), ...(ha ? ['Home Assistant'] : []), ...(esphome ? ['ESPHome'] : [])];
     },
   },
   // declared, moved and removed through routes/backups.ts (the token is made and revoked by the agent of the node)
@@ -97,6 +98,15 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
       return [...(std ? ['standardisation (envoi des journaux)'] : []), ...(n ? [`${n} hôte${n > 1 ? 's' : ''} (valeur propre)`] : [])];
     },
   },
+  // carried by the hub, declared and set through routes/esphome.ts: the devices of the brokers it listens to (esphome.ts)
+  esphome: {
+    label: 'ESPHome',
+    carriers: ['hub'],
+    single: true,
+    carrierError: () => null,
+    same: () => true,
+    uses: async () => [],
+  },
 };
 
 
@@ -131,7 +141,8 @@ async function settingsRoles() {
 }
 
 export const allRoles = () => cache;
-export const carriedBy = (id: ObjectId) => cache.filter((r) => r.carrier.id.equals(id));
+export const carriedBy = (id: ObjectId) => cache.filter((r) => r.carrier.kind !== 'hub' && r.carrier.id.equals(id));
+export const esphomeRole = () => cache.find((r): r is EsphomeRole => r.type === 'esphome');
 
 // Why a carrier cannot be deleted while it carries roles (null: it carries none): they are moved or removed first.
 export function carrierDeleteError(kind: CarrierKind, carried: Pick<RoleDoc, 'name'>[]) {
@@ -141,12 +152,12 @@ export function carrierDeleteError(kind: CarrierKind, carried: Pick<RoleDoc, 'na
 }
 
 // null: a role of this type may take this name, carrier and config among the roles of the list, else the refusal.
-// self: the role being edited.
-export function roleConflict(list: RoleDoc[], type: RoleType, name: string, carrierId: ObjectId, config: RoleDoc['config'], self?: string) {
+// self: the role being edited. carrierId: null for a role of the hub.
+export function roleConflict(list: RoleDoc[], type: RoleType, name: string, carrierId: ObjectId | null, config: RoleDoc['config'], self?: string) {
   const def = defOf(type);
   const others = list.filter((r) => r.type === type && r._id !== self);
   if (def.single && others.length) return `un rôle ${def.label} est déjà déclaré`;
-  if (others.some((r) => r.carrier.id.equals(carrierId) && def.same(r.config, config))) return 'ce rôle est déjà déclaré sur cet hôte';
+  if (carrierId && others.some((r) => r.carrier.kind !== 'hub' && r.carrier.id.equals(carrierId) && def.same(r.config, config))) return 'ce rôle est déjà déclaré sur cet hôte';
   if (others.some((r) => r.name.toLowerCase() === name.toLowerCase())) return 'un rôle de ce type porte déjà ce nom';
   return null;
 }

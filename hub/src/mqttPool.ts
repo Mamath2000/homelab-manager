@@ -5,6 +5,8 @@ import type { MqttBroker } from './types.js';
 
 // One connection per broker, shared by all the probes that listen to it, and one subscription per topic:
 // the memory used does not grow with the number of probes. The last message of each topic is kept.
+// Other consumers (esphome.ts) add their topics (wildcards allowed) on the same connections with want(), get the
+// messages through listen() and publish on them: the last message is kept only for the topics subscribed as such.
 
 export type BrokerState = 'connecting' | 'connected' | 'error';
 
@@ -37,11 +39,64 @@ const sleepUntil = (conn: Conn, ms: number) =>
 
 const keyOf = (b: MqttBroker) => `${b.url}|${b.username}|${b.password}|${tlsKey(b.tls)}`;
 
+export type MessageListener = (brokerId: string, topic: string, payload: Buffer, retain: boolean) => void;
+
+// the topics a consumer wants, by broker
+export type Wanted = Map<string, Set<string>>;
+
 export class MqttPool {
   private conns = new Map<string, Conn>();
+  private brokers: MqttBroker[] = [];
+  private wanted = new Map<string, Wanted>();
+  private listeners = new Set<MessageListener>();
 
-  // Brokers and topics wanted now: opens, reopens and closes connections and subscriptions to match.
-  sync(brokers: MqttBroker[], wanted: Map<string, Set<string>>) {
+  // Brokers and topics the probes want now: opens, reopens and closes connections and subscriptions to match, with the
+  // topics of the other consumers.
+  sync(brokers: MqttBroker[], wanted: Wanted) {
+    this.brokers = brokers;
+    this.wanted.set('probes', wanted);
+    this.apply();
+  }
+
+  // The topics of another consumer (empty: none); applied at once on the brokers known from the last sync.
+  want(consumer: string, wanted: Wanted) {
+    if (consumer === 'probes') throw new Error('reserved consumer');
+    if (wanted.size) this.wanted.set(consumer, wanted);
+    else this.wanted.delete(consumer);
+    this.apply();
+  }
+
+  // Every message received, on every broker; returns the unsubscribe function. A message that matches two subscriptions
+  // of the connection (the topic of a probe and a wildcard) arrives twice (Mosquitto 2): what a listener does with it must
+  // not count it twice.
+  listen(fn: MessageListener) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  // Publishes on the connection of the broker (false: not connected, nothing sent).
+  publish(brokerId: string, topic: string, payload: string, retain = false): Promise<boolean> {
+    const conn = this.conns.get(brokerId);
+    if (!conn || conn.state !== 'connected') return Promise.resolve(false);
+    return new Promise((resolve, reject) => conn.client.publish(topic, payload, { qos: 0, retain }, (err) => (err ? reject(err) : resolve(true))));
+  }
+
+  // all the topics wanted, by broker
+  private merged(): Wanted {
+    const out: Wanted = new Map();
+    for (const w of this.wanted.values()) {
+      for (const [id, topics] of w) {
+        const set = out.get(id) ?? new Set<string>();
+        topics.forEach((t) => set.add(t));
+        out.set(id, set);
+      }
+    }
+    return out;
+  }
+
+  private apply() {
+    const brokers = this.brokers;
+    const wanted = this.merged();
     const byId = new Map(brokers.map((b) => [b.id, b]));
     for (const [id, conn] of this.conns) {
       const b = byId.get(id);
@@ -91,9 +146,19 @@ export class MqttPool {
     client.on('offline', () => {
       if (conn.state === 'connected') conn.state = 'connecting';
     });
-    client.on('message', (topic, payload) => {
-      conn.last.set(topic, { payload: payload.toString(), at: Date.now() });
-      changed();
+    client.on('message', (topic, payload, packet) => {
+      // a topic only matched by a wildcard (the lines of logs of the devices) is not kept
+      if (conn.topics.has(topic)) {
+        conn.last.set(topic, { payload: payload.toString(), at: Date.now() });
+        changed();
+      }
+      for (const l of this.listeners) {
+        try {
+          l(b.id, topic, payload, !!packet.retain);
+        } catch {
+          // a consumer that fails does not stop the others
+        }
+      }
     });
     this.conns.set(b.id, conn);
     return conn;

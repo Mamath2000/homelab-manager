@@ -1773,7 +1773,7 @@ export interface MqttBrokerView {
 // Equipment: what is followed without an agent (hub/src/equipments.ts). manual: typed here; the others come from
 // their source, which provides type, site, IP and uplink (only the name is edited).
 export type EquipmentType = 'gateway' | 'switch' | 'ap' | 'coordinator' | 'bridge' | 'iot' | 'other';
-export type EquipmentSource = 'manual' | 'omada';
+export type EquipmentSource = 'manual' | 'omada' | 'esphome';
 export interface Equipment {
   id: string;
   name: string;
@@ -1786,6 +1786,8 @@ export interface Equipment {
   native: { syncedAt: string; checks: Check[] } | null;
   // roles of the hub it carries (an Omada controller)
   roles: { id: string; type: HubRoleType; name: string }[];
+  // an equipment of ESPHome: the name its lines carry, its sub-device (null: the ESP), its logs on
+  esphome: { key: string; hostname: string; device: string | null; logs: boolean } | null;
   createdAt: string;
   probes: { id: string; name: string; state: ProbeState; message: string | null }[];
 }
@@ -1802,11 +1804,12 @@ export interface EquipmentInput {
 // A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
 // hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
 // role in use is not deleted (absent from the roles of a host).
-export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller' | 'log-server';
+export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller' | 'log-server' | 'esphome';
 interface HubRoleBase {
   id: string;
   name: string;
-  carrier: { kind: 'host' | 'equipment'; id: string; name: string };
+  // hub: a role the hub carries itself (esphome), id ''
+  carrier: { kind: 'host' | 'equipment' | 'hub'; id: string; name: string };
   hasSecret: boolean;
   url: string;
   account: string;
@@ -1825,12 +1828,72 @@ export type HubRole =
   | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } })
   // a VictoriaLogs: url, its query API; address (null: the one of its host), port and protocol, where the hosts send their
   // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
-  | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string });
+  | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string })
+  // carried by the hub: the brokers it listens to for ESPHome devices (Paramètres › ESPHome)
+  | (HubRoleBase & { type: 'esphome'; config: { brokers: EsphomeBroker[] } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 export type LogHubRole = Extract<HubRole, { type: 'log-server' }>;
+
+// ESPHome (homelab#352, Paramètres › ESPHome): the brokers the role listens to, and the devices found on each.
+// siteId: the site set for the broker (absent: the one of its host); site: the one its devices are in.
+export interface EsphomeBroker {
+  brokerId: string;
+  siteId?: string;
+}
+export interface EsphomeSubDevice {
+  id: string;
+  name?: string;
+  tags?: string[];
+}
+export interface EsphomeDevice {
+  key: string; // <broker>/<unique_id>
+  brokerId: string;
+  uniqueId: string;
+  name: string | null;
+  ip: string | null;
+  mac: string | null;
+  version: string | null;
+  devices: EsphomeSubDevice[];
+  hasInfo: boolean;
+  infoError: string | null;
+  lwt: 'online' | 'offline' | null;
+  lwtAt: string | null;
+  level: string | null;
+  // its lines forwarded to the log server; the last one received (ms)
+  logs: boolean;
+  lastLineAt: number | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  // its equipment, the ones of its sub-devices (by id), and the manual equipments it could be linked to while it has none
+  equipment: { id: string; name: string } | null;
+  subEquipments: Record<string, { id: string; name: string }>;
+  candidates: { id: string; name: string; ip: string | null }[];
+}
+export interface EsphomeBrokerView {
+  brokerId: string;
+  name: string;
+  siteId: string | null;
+  site: string | null;
+  status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
+  devices: EsphomeDevice[];
+}
+export interface EsphomeSettings {
+  // logServer: where the lines go (null: no log server); logServerSet: the one chosen (null: the first one); shipping: the
+  // lines written, dropped and waiting, and the last error of the writing
+  role: {
+    name: string;
+    brokers: EsphomeBrokerView[];
+    logServer: string | null;
+    logServerSet: string | null;
+    shipping: { sent: number; dropped: number; waiting: number; error: string | null } | null;
+  } | null;
+  // the mqtt-broker roles that may be listened to, with the site of their host; the log servers the lines may go to
+  brokers: { id: string; name: string; siteId: string | null }[];
+  logServers: { id: string; name: string }[];
+}
 
 // a broker or an Omada controller (a Proxmox VE cluster has its own routes, see createPveToken); the secret
 // (password, clientSecret): absent keeps the stored one, "" clears it (a controller needs one); carrier on an edit:
@@ -1878,6 +1941,9 @@ export interface LogQuery {
   q?: string;
   notApp?: string[];
   notHostname?: string[];
+  // sub-devices of an ESPHome device (field device); deviceSystem: with the lines of the ESP from warning up
+  device?: string[];
+  deviceSystem?: boolean;
   // a date (ISO) or a time back from now ("15m", "1h", "7d")
   from?: string;
   to?: string;
@@ -2194,6 +2260,14 @@ export const api = {
   setVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<{ ok: true }>('PUT', `/api/settings/omada/vpn-probes/${id}`, b),
   testVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<ProbeMeasure>('POST', `/api/settings/omada/vpn-probes/${id}/test`, b),
   setOmadaSite: (controller: string, siteId: string, homelabSiteId: string) => request<{ ok: true }>('PUT', `/api/settings/omada/${controller}/sites/${siteId}`, { siteId: homelabSiteId }),
+  esphomeSettings: () => request<EsphomeSettings>('GET', '/api/settings/esphome'),
+  declareEsphome: () => request<{ id: string }>('POST', '/api/settings/esphome'),
+  saveEsphome: (brokers: EsphomeBroker[], logServer: string) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, ...(logServer ? { logServer } : {}) }),
+  setEsphomeLogs: (key: string, enabled: boolean) => request<{ key: string; logs: boolean }>('PUT', '/api/settings/esphome/logs', { key, enabled }),
+  deleteEsphome: () => request<void>('DELETE', '/api/settings/esphome'),
+  // the equipment of an ESP (made, or a manual one linked: equipmentId) and the ones of the sub-devices chosen
+  createEsphomeEquipments: (b: { key: string; name?: string; equipmentId?: string; devices: string[] }) =>
+    request<{ id: string; linked: boolean; created: number }>('POST', '/api/settings/esphome/equipments', b),
   linkOmadaDevice: (controller: string, mac: string, opts: { equipmentId?: string; name?: string } = {}) => request<{ id: string }>('POST', `/api/settings/omada/${controller}/link`, { mac, ...opts }),
   pveInventory: () => request<{ clusters: PveInventory[] }>('GET', '/api/settings/pve/inventory'),
   installPveAgents: (cluster: string, vmids: number[], dryRun: boolean, nodes: string[] = []) =>

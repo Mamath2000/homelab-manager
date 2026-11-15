@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { KeyRound, Pencil, Plug, Plus, Radio, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
@@ -472,7 +472,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const { data: hosts = [] } = useHosts();
   const { data: equipments = [] } = useEquipments();
   const type = 'omada-controller' as const;
-  const [initialCarrier] = useState<OmadaCarrier | null>(() => (role ? { kind: role.carrier.kind, id: role.carrier.id } : null));
+  const [initialCarrier] = useState<OmadaCarrier | null>(() => (role && role.carrier.kind !== 'hub' ? { kind: role.carrier.kind, id: role.carrier.id } : null));
   const [carrier, setCarrier] = useState<OmadaCarrier | null>(initialCarrier);
   const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', ...(role ? splitUrl(role.config.url) : { address: '', port: String(OMADA_PORT) }), fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '' }));
   const [form, setForm] = useState<OmadaForm>(initial);
@@ -1107,6 +1107,7 @@ function DynsecIcon({ role }: { role: MqttHubRole }) {
 function notNow(t: HubRoleType, roles: HubRole[]) {
   if (SINGLE_ROLES.includes(t) && roles.some((r) => r.type === t)) return 'déjà déclaré : un seul dans le homelab';
   if (t === 'pbs-offsite' && !roles.some((r) => r.type === 'pbs-primary')) return 'déclarer d’abord le PBS principal';
+  if (t === 'esphome' && !roles.some((r) => r.type === 'mqtt-broker')) return 'déclarer d’abord un broker MQTT';
   return null;
 }
 
@@ -1149,6 +1150,7 @@ export function RolesSettings() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<HubRole | null>(null);
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
 
   const refresh = () =>
     Promise.all([
@@ -1164,6 +1166,9 @@ export function RolesSettings() {
       if (removing.type === 'pve-cluster') {
         const r = await api.deletePveCluster(removing.config.cluster);
         toast.success(r.revoked ? `Rôle ${removing.name} supprimé, jeton ${r.revoked} révoqué${r.userDeleted ? ' (utilisateur supprimé)' : ''}` : `Rôle ${removing.name} supprimé`);
+      } else if (removing.type === 'esphome') {
+        await api.deleteEsphome();
+        toast.success(`Rôle ${removing.name} supprimé`);
       } else {
         await api.deleteRole(removing.id);
         toast.success(`Rôle ${removing.name} supprimé`);
@@ -1176,8 +1181,18 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
+  // the role of the hub is set in its own screen (Paramètres › ESPHome): declared at once, then opened there
+  const declareEsphome = async () => {
+    try {
+      await api.declareEsphome();
+      await refresh();
+      navigate('/settings?tab=esphome');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
   const edit = (r: HubRole) =>
-    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
+    r.type === 'esphome' ? navigate('/settings?tab=esphome') : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1192,7 +1207,7 @@ export function RolesSettings() {
     </div>
   );
   // the carrier, a host or an equipment (an Omada controller)
-  const carrierLink = (r: HubRole) => <Link className="underline" to={r.carrier.kind === 'equipment' ? `/equipments/${r.carrier.id}` : `/hosts/${r.carrier.id}`}>{r.carrier.name || 'porteur introuvable'}</Link>;
+  const carrierLink = (r: HubRole) => r.carrier.kind === 'hub' ? <span>Hub</span> : <Link className="underline" to={r.carrier.kind === 'equipment' ? `/equipments/${r.carrier.id}` : `/hosts/${r.carrier.id}`}>{r.carrier.name || 'porteur introuvable'}</Link>;
   // by type, in the order of the catalog of the types; the two PBS (main and off-site) share one section
   const sections = ROLE_TYPES.filter((t) => t.id !== 'pbs-offsite')
     .map((t) => {
@@ -1211,6 +1226,8 @@ export function RolesSettings() {
       </div>
     );
   };
+  // the brokers the role of the hub listens to, by name
+  const esphomeBrokers = (r: Extract<HubRole, { type: 'esphome' }>) => r.config.brokers.map((b) => roles?.find((x) => x.id === b.brokerId)?.name ?? b.brokerId).join(', ');
   const dot: Record<string, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', info: 'bg-sky-500', neutral: 'bg-zinc-500' };
   // one card per role: the ones of a row share its width, a lone one takes all of it
   const roleCard = (r: HubRole) => {
@@ -1228,12 +1245,16 @@ export function RolesSettings() {
             {actions(r)}
           </span>
         </div>
-        <p className="mt-1.5 break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
+        {r.type === 'esphome' ? (
+          <p className="mt-1.5 break-all text-xs text-muted">{esphomeBrokers(r) || 'aucun broker écouté'}</p>
+        ) : (
+          <p className="mt-1.5 break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
+        )}
         <dl className="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
           <dt className="text-muted">Porteur</dt>
           <dd className="truncate">{carrierLink(r)}</dd>
           <dt className="text-muted">Compte</dt>
-          <dd className="truncate" title={r.account || undefined}>{r.account || 'anonyme'}</dd>
+          <dd className="truncate" title={r.account || undefined}>{r.account || (r.carrier.kind === 'hub' ? '—' : 'anonyme')}</dd>
           <dt className="text-muted">Utilisé par</dt>
           <dd className="truncate" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</dd>
         </dl>
@@ -1249,7 +1270,8 @@ export function RolesSettings() {
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
         Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
         cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
-        PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur de logs reçoit les journaux des hôtes et ouvre la page Logs. Un rôle utilisé ne peut pas être
+        PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur de logs reçoit les journaux des hôtes et ouvre la page Logs ; le rôle ESPHome, porté par le hub, découvre les
+        appareils ESPHome sur les brokers choisis. Un rôle utilisé ne peut pas être
         supprimé, ni l'hôte ou l'équipement qui le porte.
       </p>
       {!!pbs?.pinRefused?.length && (
@@ -1290,7 +1312,7 @@ export function RolesSettings() {
         <TypePicker
           roles={roles ?? []}
           onClose={() => setPicking(false)}
-          onPick={(t) => (setPicking(false), setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
+          onPick={(t) => (setPicking(false), t === 'esphome' ? void declareEsphome() : setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
         />
       )}
       {editing?.type === 'pbs-primary' && pbs && <PbsModal data={pbs} open onClose={() => (setEditing(null), void refresh())} />}
@@ -1320,6 +1342,11 @@ export function RolesSettings() {
           <>
             Le rôle <b>{removing.name}</b> est retiré du hub, qui oublie l'application et son secret. Rien n'est changé sur le contrôleur : l'application de sa
             plateforme d'intégration reste à supprimer à la main.
+          </>
+        ) : removing?.type === 'esphome' ? (
+          <>
+            Le rôle <b>{removing.name}</b> est retiré du hub : les brokers ne sont plus écoutés pour ESPHome et les appareils découverts sont oubliés. Rien
+            n'est changé sur les appareils.
           </>
         ) : removing?.type === 'log-server' ? (
           <>
