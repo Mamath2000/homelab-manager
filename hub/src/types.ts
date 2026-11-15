@@ -1543,10 +1543,12 @@ export interface EsphomeBroker {
   brokerId: string;
   siteId?: string;
 }
-// logServer: the log-server role the lines of the devices go to (absent: the first one).
+// logServer: the log-server role the lines of the devices go to (absent: the first one). silentHours: an ESP online whose
+// logs are on and that sent no line for that long is mute (0: not watched; absent: ESPHOME_SILENT_HOURS).
 export interface EsphomeConfig {
   brokers: EsphomeBroker[];
   logServer?: string;
+  silentHours?: number;
 }
 
 export interface EsphomeRole {
@@ -1587,8 +1589,11 @@ export interface EsphomeDeviceDoc {
   infoError?: string;
   level?: string;
   levelAt?: Date;
-  // its lines (esphome/<id>/logs) are forwarded to the log server (set once it is an equipment)
+  // its lines (esphome/<id>/logs) are forwarded to the log server (set once it is an equipment); the last one received
+  // (written every few minutes, for the mute detection across a restart of the hub)
   logs?: boolean;
+  logsAt?: Date;
+  lastLineAt?: Date;
   firstSeenAt: Date;
   lastSeenAt: Date;
 }

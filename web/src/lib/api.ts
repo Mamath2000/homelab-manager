@@ -1865,6 +1865,8 @@ export interface EsphomeDevice {
   // its lines forwarded to the log server; the last one received (ms)
   logs: boolean;
   lastLineAt: number | null;
+  // why it is mute (null: it is not, or not watched)
+  mute: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
   // its equipment, the ones of its sub-devices (by id), and the manual equipments it could be linked to while it has none
@@ -1888,11 +1890,16 @@ export interface EsphomeSettings {
     brokers: EsphomeBrokerView[];
     logServer: string | null;
     logServerSet: string | null;
+    // hours without a line before an ESP online is mute (0: not watched)
+    silentHours: number;
     shipping: { sent: number; dropped: number; waiting: number; error: string | null } | null;
   } | null;
   // the mqtt-broker roles that may be listened to, with the site of their host; the log servers the lines may go to
   brokers: { id: string; name: string; siteId: string | null }[];
   logServers: { id: string; name: string }[];
+  // the levels of the logger, and the one a device boots at
+  levels: string[];
+  defaultLevel: string;
 }
 
 // a broker or an Omada controller (a Proxmox VE cluster has its own routes, see createPveToken); the secret
@@ -2262,7 +2269,8 @@ export const api = {
   setOmadaSite: (controller: string, siteId: string, homelabSiteId: string) => request<{ ok: true }>('PUT', `/api/settings/omada/${controller}/sites/${siteId}`, { siteId: homelabSiteId }),
   esphomeSettings: () => request<EsphomeSettings>('GET', '/api/settings/esphome'),
   declareEsphome: () => request<{ id: string }>('POST', '/api/settings/esphome'),
-  saveEsphome: (brokers: EsphomeBroker[], logServer: string) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, ...(logServer ? { logServer } : {}) }),
+  saveEsphome: (brokers: EsphomeBroker[], logServer: string, silentHours: number) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, silentHours, ...(logServer ? { logServer } : {}) }),
+  setEsphomeLevel: (key: string, level: string) => request<{ key: string; level: string }>('PUT', '/api/settings/esphome/level', { key, level }),
   setEsphomeLogs: (key: string, enabled: boolean) => request<{ key: string; logs: boolean }>('PUT', '/api/settings/esphome/logs', { key, enabled }),
   deleteEsphome: () => request<void>('DELETE', '/api/settings/esphome'),
   // the equipment of an ESP (made, or a manual one linked: equipmentId) and the ones of the sub-devices chosen

@@ -1,11 +1,11 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { esphome, hosts } from './db.js';
+import { equipments, esphome, hosts } from './db.js';
 import { publish, subscribe } from './events.js';
 import type { MqttPool, Wanted } from './mqttPool.js';
 import { LogShipper, parseLine, recordOf } from './esphomeLogs.js';
 import { probeEngine } from './probes.js';
 import { allRoles, esphomeRole } from './roles.js';
-import type { EsphomeDeviceDoc, EsphomeInfo, EsphomeSubDevice, MqttBrokerRole } from './types.js';
+import type { EquipmentNative, EsphomeDeviceDoc, EsphomeInfo, EsphomeSubDevice, MqttBrokerRole } from './types.js';
 
 // ESPHome (homelab#352): the devices seen on the brokers the esphome role listens to. Each device publishes, under
 // esphome/<unique_id>/ (the unique_id substitution of its YAML, in lower case):
@@ -20,6 +20,28 @@ export const ESPHOME_TOPICS = ['LWT', 'info', 'log_level'] as const;
 type Kind = (typeof ESPHOME_TOPICS)[number];
 
 export const deviceKey = (brokerId: string, uniqueId: string) => `${brokerId}/${uniqueId}`;
+
+// The levels of the logger, as the select of the package names them (log_level/set). A device offers only the ones up to
+// the level it was compiled with; it boots at its initial one, DEFAULT_LEVEL (initial_level: INFO in the package).
+export const LOG_LEVELS = ['NONE', 'ERROR', 'WARN', 'INFO', 'CONFIG', 'DEBUG', 'VERBOSE', 'VERY_VERBOSE'] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+export const DEFAULT_LEVEL: LogLevel = 'INFO';
+// an ESP whose logs are on is mute after this long without a line (the package sends a heartbeat every hour)
+export const ESPHOME_SILENT_HOURS = 2;
+
+// The native checks of the equipment of an ESP: its lines received (homelab#352). null: no native check, so no connection
+// domain: logs off, not watched (silentHours 0), or the ESP offline (its LWT probe says it). since: when a line could be
+// expected from (logs turned on, or the hub started), the grace before the first one.
+export function muteNative(d: Pick<EsphomeDeviceDoc, 'logs' | 'lwt'>, lastLineAt: number | null, since: number, silentHours: number, now = Date.now()): EquipmentNative | null {
+  if (!d.logs || d.lwt !== 'online' || !silentHours) return null;
+  const syncedAt = new Date(now);
+  const limit = silentHours * 3600_000;
+  const label = 'Logs reçus';
+  if (lastLineAt && now - lastLineAt < limit) return { syncedAt, checks: [{ key: 'logs', label, level: 'ok' }] };
+  if (!lastLineAt && now - since < limit) return { syncedAt, checks: [{ key: 'logs', label, level: 'ok' }] };
+  const reason = lastLineAt ? `Muet : aucune ligne de log depuis ${Math.floor((now - lastLineAt) / 3600_000)} h` : `Muet : aucune ligne de log reçue`;
+  return { syncedAt, checks: [{ key: 'logs', label, level: 'warn', reason }] };
+}
 
 // esphome/<id>/<kind> -> its parts (null: not a topic of a device)
 export function parseTopic(topic: string): { uniqueId: string; kind: Kind | 'logs' } | null {
@@ -100,7 +122,17 @@ export const esphomeDevice = (key: string) => devices.get(key) ?? null;
 let sites = new Map<string, string | null>();
 // the last line received from each device whose logs are on (time, ms)
 const lastLines = new Map<string, number>();
-export const lastLineOf = (key: string) => lastLines.get(key) ?? null;
+export const lastLineOf = (key: string) => lastLines.get(key) ?? devices.get(key)?.lastLineAt?.getTime() ?? null;
+// the connections the engine listens on (null: not running)
+let currentPool: MqttPool | null = null;
+// when a line can be expected of a device at the earliest: its logs turned on, or the hub started
+const startedAt = Date.now();
+// the engine checks the mute devices again (a device turned on or off)
+let recheck: (() => void) | null = null;
+
+// The mute check of a device now, as the engine writes it on its equipment.
+export const deviceMute = (d: EsphomeDeviceDoc, now = Date.now()) =>
+  muteNative(d, lastLineOf(d._id), Math.max(startedAt, d.logsAt?.getTime() ?? 0), esphomeRole()?.config.silentHours ?? ESPHOME_SILENT_HOURS, now);
 // what the engine runs again when the subscriptions must change (the logs of a device turned on or off)
 let resync: (() => void) | null = null;
 // the lines on their way to the log server (null: the engine is not running)
@@ -138,19 +170,31 @@ export function wantedTopics(brokerIds: Iterable<string>, withLogs: Set<string> 
 export async function setDeviceLogs(key: string, on: boolean) {
   const d = devices.get(key);
   if (!d) return null;
-  const next = { ...d, logs: on };
+  const { lastLineAt: _last, logsAt: _at, ...rest } = d;
+  const next: EsphomeDeviceDoc = on ? { ...rest, logs: true, logsAt: new Date() } : { ...rest, logs: false };
   devices.set(key, next);
-  if (!on) lastLines.delete(key);
-  await esphome.updateOne({ _id: key }, on ? { $set: { logs: true } } : { $unset: { logs: '' } });
+  lastLines.delete(key);
+  await esphome.updateOne({ _id: key }, on ? { $set: { logs: true, logsAt: next.logsAt! }, $unset: { lastLineAt: '' } } : { $unset: { logs: '', logsAt: '', lastLineAt: '' } });
   resync?.();
+  recheck?.();
   publish('esphome', {});
   return next;
+}
+
+// Asks a device for another level of its logger (esphome/<id>/log_level/set, never retained: it boots at its initial
+// level again). false: its broker is not connected. The device answers on log_level.
+export async function setDeviceLevel(key: string, level: LogLevel) {
+  const d = devices.get(key);
+  if (!d || !currentPool) return false;
+  return currentPool.publish(d.brokerId, `esphome/${d.uniqueId}/log_level/set`, level, false);
 }
 
 // --- engine ---------------------------------------------------------------------------------------------------------
 
 // the UI is told at most once a second (a broker sends all its retained messages at once on connection)
 const NOTIFY_MS = 1000;
+// the mute check, and the last lines saved
+const SILENCE_MS = 5 * 60_000;
 
 // onInfo: a device told another info (its address may have changed): what its equipments get from it follows
 export function startEsphome(log: FastifyBaseLogger, onInfo?: (d: EsphomeDeviceDoc) => Promise<unknown>) {
@@ -199,6 +243,7 @@ export function startEsphome(log: FastifyBaseLogger, onInfo?: (d: EsphomeDeviceD
       unlisten?.();
       pool = engine?.pool ?? null;
       unlisten = pool?.listen(onMessage) ?? null;
+      currentPool = pool;
     }
     const ids = listened();
     const withLogs = new Set([...devices.values()].filter((d) => d.logs && ids.has(d.brokerId)).map((d) => d.brokerId));
@@ -208,6 +253,31 @@ export function startEsphome(log: FastifyBaseLogger, onInfo?: (d: EsphomeDeviceD
       .catch((err) => log.warn({ err }, 'esphome: sites of the brokers not read'));
   };
   resync = sync;
+
+  // The mute check of the equipments of the ESP whose logs are on, every few minutes (and the last lines saved).
+  const silence = async () => {
+    const ids = listened();
+    const list = [...devices.values()].filter((d) => ids.has(d.brokerId));
+    const boxes = await equipments.find({ source: 'esphome', externalId: { $in: list.map((d) => d._id) } }, { projection: { externalId: 1, native: 1 } }).toArray();
+    const now = Date.now();
+    for (const e of boxes) {
+      const d = devices.get(e.externalId!)!;
+      const native = deviceMute(d, now);
+      const before = JSON.stringify(e.native?.checks ?? null);
+      await equipments.updateOne({ _id: e._id }, native ? { $set: { native } } : { $unset: { native: '' } });
+      if (before !== JSON.stringify(native?.checks ?? null)) publish('equipment', { id: e._id.toHexString() });
+    }
+    for (const [key, at] of lastLines) {
+      const d = devices.get(key);
+      if (!d || (d.lastLineAt && d.lastLineAt.getTime() >= at)) continue;
+      devices.set(key, { ...d, lastLineAt: new Date(at) });
+      await esphome.updateOne({ _id: key }, { $set: { lastLineAt: new Date(at) } });
+    }
+  };
+  const runSilence = () => void silence().catch((err) => log.warn({ err }, 'esphome: mute check failed'));
+  recheck = runSilence;
+  const silenceTimer = setInterval(runSilence, SILENCE_MS);
+  const firstSilence = setTimeout(runSilence, 30_000);
 
   const ready = esphome
     .find()
@@ -226,7 +296,11 @@ export function startEsphome(log: FastifyBaseLogger, onInfo?: (d: EsphomeDeviceD
     unlisten?.();
     pool?.want('esphome', new Map());
     if (timer) clearTimeout(timer);
-    resync = null;
+    clearInterval(silenceTimer);
+    clearTimeout(firstSilence);
+    resync = recheck = null;
+    currentPool = null;
+    await silence().catch(() => undefined);
     // what is waiting is written before the hub stops
     await ship.flush().catch(() => undefined);
     ship.stop();

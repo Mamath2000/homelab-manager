@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { settingsDiff } from '../audit.js';
 import { loadSites } from '../catalog.js';
 import { equipments, parseId, roles } from '../db.js';
-import { brokerSites, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, setDeviceLogs } from '../esphome.js';
+import { brokerSites, DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
 import { logRole, logRoles } from '../logs.js';
 import { candidatesFor, createEsphomeEquipments, EsphomeLinkError, subKey, syncAllEsphomeEquipments } from '../esphomeEquipments.js';
 import { probeEngine } from '../probes.js';
@@ -34,6 +34,8 @@ const configBody = {
     },
     // the log-server role the lines go to ("" or absent: the first one)
     logServer: { type: 'string', maxLength: 32 },
+    // hours without a line before an ESP online is mute (0: not watched)
+    silentHours: { type: 'integer', minimum: 0, maximum: 48 },
   },
 } as const;
 
@@ -49,9 +51,10 @@ export function brokersError(list: EsphomeBroker[], brokerIds: Set<string>, site
   return null;
 }
 
-export const toEsphomeConfig = (list: EsphomeBroker[], logServer?: string): EsphomeConfig => ({
+export const toEsphomeConfig = (list: EsphomeBroker[], logServer?: string, silentHours?: number): EsphomeConfig => ({
   brokers: list.map((b) => ({ brokerId: b.brokerId, ...(b.siteId ? { siteId: b.siteId } : {}) })),
   ...(logServer ? { logServer } : {}),
+  ...(silentHours !== undefined ? { silentHours } : {}),
 });
 
 type Box = Pick<EquipmentDoc, '_id' | 'name' | 'ip' | 'siteId' | 'source' | 'externalId'>;
@@ -85,6 +88,8 @@ export const deviceView = (d: EsphomeDeviceDoc) => ({
   // its lines forwarded to the log server, and the last one received (ms, since the hub started)
   logs: !!d.logs,
   lastLineAt: lastLineOf(d._id),
+  // why it is mute (null: it is not, or not watched)
+  mute: deviceMute(d)?.checks.find((c) => c.level !== 'ok')?.reason ?? null,
   firstSeenAt: d.firstSeenAt,
   lastSeenAt: d.lastSeenAt,
 });
@@ -103,6 +108,7 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
             // where the lines go (null: no log server, the logs cannot be turned on), and how the writing goes
             logServer: logRole(role.config.logServer)?._id ?? null,
             logServerSet: role.config.logServer ?? null,
+            silentHours: role.config.silentHours ?? ESPHOME_SILENT_HOURS,
             shipping: (() => {
               const s = esphomeShipper();
               return s ? { sent: s.sent, dropped: s.dropped, waiting: s.waiting, error: s.lastError } : null;
@@ -121,6 +127,9 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
       // the brokers that may be listened to, the log servers the lines may go to
       brokers,
       logServers: logRoles().map((r) => ({ id: r._id, name: r.name })),
+      // the levels a device may be set to, and the one it boots at
+      levels: LOG_LEVELS,
+      defaultLevel: DEFAULT_LEVEL,
     };
   });
 
@@ -136,14 +145,14 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     return reply.code(201).send({ id: doc._id });
   });
 
-  app.put<{ Body: { brokers: EsphomeBroker[]; logServer?: string } }>('/api/settings/esphome', { schema: { body: configBody } }, async (req, reply) => {
+  app.put<{ Body: { brokers: EsphomeBroker[]; logServer?: string; silentHours?: number } }>('/api/settings/esphome', { schema: { body: configBody } }, async (req, reply) => {
     const current = esphomeRole();
     if (!current) return reply.code(404).send({ error: 'rôle ESPHome non déclaré' });
     const sites = await loadSites();
     const bad = brokersError(req.body.brokers, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)));
     if (bad) return reply.code(400).send({ error: bad });
     if (req.body.logServer && !logRoles().some((r) => r._id === req.body.logServer)) return reply.code(400).send({ error: `serveur de logs inconnu : ${req.body.logServer}` });
-    const config = toEsphomeConfig(req.body.brokers, req.body.logServer);
+    const config = toEsphomeConfig(req.body.brokers, req.body.logServer, req.body.silentHours ?? current.config.silentHours);
     await roles.replaceOne({ _id: current._id }, { ...current, config });
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type, ...settingsDiff(current.config, config) } };
     await rolesSaved([]);
@@ -169,6 +178,19 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
       await setDeviceLogs(d._id, req.body.enabled);
       req.auditNote = { target: { kind: 'equipment', id: d._id, name: d.info?.name ?? d.uniqueId }, details: { enabled: req.body.enabled } };
       return { key: d._id, logs: req.body.enabled };
+    },
+  );
+
+  // Another level for the logger of an ESP online, until it reboots (the command is never retained).
+  app.put<{ Body: { key: string; level: LogLevel } }>(
+    '/api/settings/esphome/level',
+    { schema: { body: { type: 'object', required: ['key', 'level'], additionalProperties: false, properties: { key: { type: 'string', minLength: 3, maxLength: 128 }, level: { enum: LOG_LEVELS } } } } },
+    async (req, reply) => {
+      const d = esphomeDevices().find((x) => x._id === req.body.key);
+      if (!d) return reply.code(404).send({ error: 'appareil inconnu' });
+      if (d.lwt !== 'online') return reply.code(409).send({ error: "l'appareil est hors ligne : la commande, non conservée, serait perdue" });
+      if (!(await setDeviceLevel(d._id, req.body.level))) return reply.code(502).send({ error: 'broker non connecté' });
+      return { key: d._id, level: req.body.level };
     },
   );
 

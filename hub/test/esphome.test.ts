@@ -289,3 +289,32 @@ test('esphome logs: the switch of a device is the admins’, sensitive', () => {
   assert.ok(!authorize('operator', 'PUT', '/api/settings/esphome/logs'));
   assert.ok(sensitiveAction('PUT', '/api/settings/esphome/logs'));
 });
+
+// --- level and mute (lot 5) -----------------------------------------------------------------------------------------
+
+test('esphome mute: an ESP online, logs on, silent for too long; nothing said offline, logs off or unwatched', async () => {
+  const { muteNative } = await import('../src/esphome.js');
+  const now = Date.parse('2026-11-15T20:00:00Z');
+  const h = 3600_000;
+  const on = { logs: true, lwt: 'online' as const };
+  assert.deepEqual(muteNative(on, now - 30 * 60_000, now - 10 * h, 2, now)?.checks, [{ key: 'logs', label: 'Logs reçus', level: 'ok' }]);
+  assert.deepEqual(muteNative(on, now - 3 * h, now - 10 * h, 2, now)?.checks, [{ key: 'logs', label: 'Logs reçus', level: 'warn', reason: 'Muet : aucune ligne de log depuis 3 h' }]);
+  // no line yet: the grace after the logs were turned on, then mute
+  assert.equal(muteNative(on, null, now - h, 2, now)?.checks[0].level, 'ok');
+  assert.deepEqual(muteNative(on, null, now - 5 * h, 2, now)?.checks[0], { key: 'logs', label: 'Logs reçus', level: 'warn', reason: 'Muet : aucune ligne de log reçue' });
+  assert.equal(muteNative({ logs: true, lwt: 'offline' }, null, 0, 2, now), null);
+  assert.equal(muteNative({ logs: false, lwt: 'online' }, null, 0, 2, now), null);
+  assert.equal(muteNative(on, null, 0, 0, now), null);
+  assert.equal(muteNative(on, now, now, 2, now)?.syncedAt.getTime(), now);
+});
+
+test('esphome level: a known level, for a device the hub knows', async () => {
+  const a = Fastify();
+  registerEsphomeRoutes(a);
+  const put = (payload: unknown) => a.inject({ method: 'PUT', url: '/api/settings/esphome/level', payload });
+  assert.equal((await put({ key: 'v/four', level: 'LOUD' })).statusCode, 400);
+  assert.equal((await put({ key: 'v/four' })).statusCode, 400);
+  assert.equal((await put({ key: 'v/four', level: 'DEBUG' })).statusCode, 404);
+  assert.equal((await a.inject({ method: 'PUT', url: '/api/settings/esphome', payload: { brokers: [], silentHours: 99 } })).statusCode, 400);
+  assert.ok(!authorize('operator', 'PUT', '/api/settings/esphome/level'));
+});
