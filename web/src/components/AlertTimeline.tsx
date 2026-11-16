@@ -147,7 +147,7 @@ export function AlertTimeline({ kind = 'host', id }: { kind?: ProbeSubjectKind; 
         return (
           <div key={id} className="flex min-w-0 items-baseline gap-2">
             <span className={clsx('h-2.5 w-2.5 shrink-0 rounded-[2px]', cellColor[a?.level ?? 'none'])} />
-            <span className="min-w-0 break-words" title={`${label} · ${text(selected.key, id)}`}>
+            <span className="line-clamp-3 min-w-0 break-words" title={`${label} · ${text(selected.key, id)}`}>
               <span className="font-medium text-zinc-200">{label}</span>
               <span className="text-zinc-400"> · {text(selected.key, id)}</span>
             </span>
