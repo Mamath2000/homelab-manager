@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import clsx from 'clsx';
 import { MapPin, RefreshCw } from 'lucide-react';
-import type { DomainMeta, Equipment, Host, StatusView } from '../lib/api';
+import type { DomainMeta, Equipment, EquipmentSource, Host, StatusView } from '../lib/api';
 import { cellCls, cellLabel, cellOf, domainCells, domainText, hostsDomains, levelTone, sumCells, worstLevel, type Cell } from '../lib/monitoring';
 import { useMe } from '../lib/auth';
 import { useRunBulk, useStatus } from '../lib/queries';
@@ -84,14 +84,24 @@ function ProbeSquares({ equipments, status }: { equipments: Equipment[]; status:
   );
 }
 
+// One column per source of the equipments (Omada, ESPHome, manual), each with its own bracket.
+const SOURCE_ORDER: EquipmentSource[] = ['omada', 'esphome', 'manual'];
+
 function EquipmentColumn({ equipments, status }: { equipments: Equipment[]; status: StatusView | undefined }) {
-  if (!equipments.length) return null;
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[11px] text-muted">Équipements · <b className="font-medium tabular-nums text-zinc-300">{equipments.length}</b></span>
-      <span aria-hidden className="mb-0.5 h-1.5 rounded-t-[2px] border-x border-t border-zinc-600" />
-      <ProbeSquares equipments={equipments} status={status} />
-    </div>
+    <>
+      {SOURCE_ORDER.map((source) => {
+        const group = equipments.filter((e) => e.source === source);
+        if (!group.length) return null;
+        return (
+          <div key={source} className="flex flex-col gap-1">
+            <span className="text-[11px] text-muted">{SOURCE_LABELS[source]} · <b className="font-medium tabular-nums text-zinc-300">{group.length}</b></span>
+            <span aria-hidden className="mb-0.5 h-1.5 rounded-t-[2px] border-x border-t border-zinc-600" />
+            <ProbeSquares equipments={group} status={status} />
+          </div>
+        );
+      })}
+    </>
   );
 }
 
