@@ -181,29 +181,6 @@ export async function setDeviceLogs(key: string, on: boolean) {
   return next;
 }
 
-// Follows devices (the ones picked in the list of the ones seen), or stops following them: their logs are turned off.
-// Returns the keys changed.
-export async function setDevicesTracked(keys: string[], tracked: boolean) {
-  const changed: string[] = [];
-  for (const key of new Set(keys)) {
-    const d = devices.get(key);
-    if (!d || !!d.untracked === !tracked) continue;
-    const { untracked: _u, logs: _l, logsAt: _a, lastLineAt: _t, ...rest } = d;
-    devices.set(key, tracked ? { ...rest, ...(d.logs ? { logs: d.logs } : {}) } : { ...rest, untracked: true });
-    lastLines.delete(key);
-    changed.push(key);
-  }
-  if (!changed.length) return changed;
-  await esphome.updateMany(
-    { _id: { $in: changed } },
-    tracked ? { $unset: { untracked: '' } } : { $set: { untracked: true }, $unset: { logs: '', logsAt: '', lastLineAt: '' } },
-  );
-  resync?.();
-  recheck?.();
-  publish('esphome', {});
-  return changed;
-}
-
 // Asks a device for another level of its logger (esphome/<id>/log_level/set, never retained: it boots at its initial
 // level again). false: its broker is not connected. The device answers on log_level.
 export async function setDeviceLevel(key: string, level: LogLevel) {
@@ -247,11 +224,8 @@ export function startEsphome(log: FastifyBaseLogger, onInfo?: (d: EsphomeDeviceD
       ship.push(recordOf(d, parseLine(payload.toString()), sites.get(brokerId), at));
       return;
     }
-    const known = devices.get(key);
-    const applied = applyMessage(known, brokerId, t.uniqueId, t.kind, payload.toString(), new Date());
-    if (!applied) return;
-    // a device discovered now is offered, not followed, until it is picked
-    const next = known ? applied : { ...applied, untracked: true };
+    const next = applyMessage(devices.get(key), brokerId, t.uniqueId, t.kind, payload.toString(), new Date());
+    if (!next) return;
     devices.set(key, next);
     // the fields of the message only: the logs switch is written by setDeviceLogs alone
     const { _id, logs: _logs, ...fields } = next;

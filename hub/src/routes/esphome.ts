@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { settingsDiff } from '../audit.js';
 import { loadSites } from '../catalog.js';
 import { equipments, parseId, roles } from '../db.js';
-import { brokerSites, DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, setDevicesTracked, type LogLevel } from '../esphome.js';
+import { brokerSites, DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
 import { logRole, logRoles } from '../logs.js';
 import { candidatesFor, createEsphomeEquipments, EsphomeLinkError, subKey, syncAllEsphomeEquipments } from '../esphomeEquipments.js';
 import { probeEngine } from '../probes.js';
@@ -87,7 +87,6 @@ export const deviceView = (d: EsphomeDeviceDoc) => ({
   level: d.level ?? null,
   // its lines forwarded to the log server, and the last one received (ms, since the hub started)
   logs: !!d.logs,
-  tracked: !d.untracked,
   lastLineAt: lastLineOf(d._id),
   // why it is mute (null: it is not, or not watched)
   mute: deviceMute(d)?.checks.find((c) => c.level !== 'ok')?.reason ?? null,
@@ -179,21 +178,6 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
       await setDeviceLogs(d._id, req.body.enabled);
       req.auditNote = { target: { kind: 'equipment', id: d._id, name: d.info?.name ?? d.uniqueId }, details: { enabled: req.body.enabled } };
       return { key: d._id, logs: req.body.enabled };
-    },
-  );
-
-  // Follows devices seen on the broker (tracked: true), or stops following them (their logs are turned off).
-  app.put<{ Body: { keys: string[]; tracked: boolean } }>(
-    '/api/settings/esphome/tracked',
-    { schema: { body: { type: 'object', required: ['keys', 'tracked'], additionalProperties: false, properties: { keys: { type: 'array', minItems: 1, maxItems: 512, items: { type: 'string', minLength: 3, maxLength: 128 } }, tracked: { type: 'boolean' } } } } },
-    async (req, reply) => {
-      if (!esphomeRole()) return reply.code(404).send({ error: 'rôle ESPHome non déclaré' });
-      const known = new Set(esphomeDevices().map((d) => d._id));
-      const keys = req.body.keys.filter((k) => known.has(k));
-      if (!keys.length) return reply.code(404).send({ error: 'appareils inconnus' });
-      const changed = await setDevicesTracked(keys, req.body.tracked);
-      req.auditNote = { target: { kind: 'role', id: 'esphome', name: 'ESPHome' }, details: { tracked: req.body.tracked, devices: changed.length } };
-      return { tracked: req.body.tracked, changed: changed.length };
     },
   );
 

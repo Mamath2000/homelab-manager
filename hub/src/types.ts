@@ -1594,9 +1594,6 @@ export interface EsphomeDeviceDoc {
   logs?: boolean;
   logsAt?: Date;
   lastLineAt?: Date;
-  // seen on the broker but not followed (yet): kept out of the list. Set on discovery; devices stored before the
-  // flag existed have none and stay followed.
-  untracked?: boolean;
   firstSeenAt: Date;
   lastSeenAt: Date;
 }

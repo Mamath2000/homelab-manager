@@ -230,7 +230,6 @@ route('setup', 'setup.logsAdd', 'POST /api/settings/logs/:role/hosts');
 route('setup', 'setup.logsRemove', 'DELETE /api/settings/logs/:role/hosts/:hostId');
 route('setup', 'setup.dockerLogs', 'PUT /api/hosts/:id/docker-logs');
 route('setup', 'setup.esphomeLogs', 'PUT /api/settings/esphome/logs');
-route('setup', 'setup.esphomeTracked', 'PUT /api/settings/esphome/tracked');
 
 const routeKey = (req: FastifyRequest) => `${req.method} ${req.routeOptions.url ?? ''}`;
 
