@@ -391,9 +391,9 @@ export function registerLogRoutes(app: FastifyInstance) {
     },
   );
 
-  // The hosts that send their journals to a server: the ones the standardisation sends there, and the hosts of the hub it
-  // receives from anyway (set by hand). state: ok, journals received lately; pending, being installed; drift, to apply;
-  // error, the agent cannot apply it; silent, nothing received. others: senders the hub does not know.
+  // The hosts whose journals the hub sends to a server (the standardisation sends them there): only those, whatever else
+  // the server receives. state: ok, journals received lately; pending, being installed; drift, to apply; error, the agent
+  // cannot apply it; silent, nothing received.
   app.get<{ Params: { role: string } }>('/api/settings/logs/:role/hosts', async (req, reply) => {
     const role = serverOf(req, reply, req.params.role);
     if (!role) return reply;
@@ -414,13 +414,11 @@ export function registerLogRoutes(app: FastifyInstance) {
     for (const j of await jobs.find({ action: 'docker_log_collect', createdAt: { $gte: new Date(Date.now() - 30 * 24 * 3600_000) } }, { projection: { hostId: 1, status: 1, error: 1 } }).sort({ createdAt: 1 }).toArray()) {
       lastJobs.set(j.hostId.toHexString(), { status: j.status, error: j.error });
     }
-    const seen = new Set<string>();
     const now = Date.now();
     const list = docs.flatMap((h) => {
       const mode = sendMode(p, h, role._id);
       const sender = h.info?.hostname ? byKey.get(hostKey(h.info.hostname)) : undefined;
-      if (sender) seen.add(sender.hostname);
-      if (!mode && !sender) return [];
+      if (!mode) return [];
       const id = h._id.toHexString();
       const check = h.setup?.modules.find((m) => m.module === 'log_forward');
       const running = hasRunningJob(id);
@@ -433,26 +431,23 @@ export function registerLogRoutes(app: FastifyInstance) {
         name: h.name,
         siteId: h.siteId?.toString() ?? null,
         online: isOnline(id),
-        mode: mode ?? ('manual' as const),
+        mode,
         lastAt: sender?.lastAt ?? null,
         count: sender?.count ?? 0,
         state,
         detail: check && check.state !== 'ok' ? (check.detail ?? null) : null,
         running,
-        // the journals of its containers go with the ones of the host: offered only when it sends them by the standardisation
-        docker: mode
-          ? dockerLogsCard(h, {
-              lastAt: (h.info?.hostname && dockerByKey.get(hostKey(h.info.hostname))?.lastAt) || null,
-              receivingMs: receivingMs(role),
-              running: lastJobs.get(id)?.status === 'running',
-              lastJob: lastJobs.get(id),
-              now,
-            })
-          : null,
+        // the journals of its containers go with the ones of the host
+        docker: dockerLogsCard(h, {
+          lastAt: (h.info?.hostname && dockerByKey.get(hostKey(h.info.hostname))?.lastAt) || null,
+          receivingMs: receivingMs(role),
+          running: lastJobs.get(id)?.status === 'running',
+          lastJob: lastJobs.get(id),
+          now,
+        }),
       }];
     });
-    const others = senders.filter((s) => !seen.has(s.hostname)).map((s) => ({ hostname: s.hostname, lastAt: s.lastAt, count: s.count }));
-    return { role: role._id, silentHours: role.config.silentHours, error, hosts: list.sort((a, b) => a.name.localeCompare(b.name)), others };
+    return { role: role._id, silentHours: role.config.silentHours, error, hosts: list.sort((a, b) => a.name.localeCompare(b.name)) };
   });
 
   // Makes a host send its journals to the server: its value of the option becomes this server (the standard one when it

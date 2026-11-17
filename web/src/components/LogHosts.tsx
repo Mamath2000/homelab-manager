@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Container, Play, Plus, PowerOff, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Container, Play, Plus, PowerOff, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
 import { api, type DockerStack, type Host, type LogHost, type LogHostDocker, type LogHubRole } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -17,54 +17,55 @@ import type { Tone } from '../lib/status';
 // applied at once); the bin stops it (the agent removes its file). A host with Docker stacks also sends the journals of
 // its containers from its card (homelab#347): always to the server of the host, stopped with them.
 
-const STATE: Record<LogHost['state'], { tone: Tone; card: string }> = {
-  ok: { tone: 'ok', card: 'border-emerald-500/40 bg-emerald-500/5' },
-  silent: { tone: 'bad', card: 'border-red-500/40 bg-red-500/5' },
-  error: { tone: 'bad', card: 'border-red-500/40 bg-red-500/5' },
-  pending: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5' },
-  drift: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5' },
+// silent is a warning (nothing came for a while), not a failure: the configuration is in place
+const STATE: Record<LogHost['state'], { tone: Tone; card: string; text: string }> = {
+  ok: { tone: 'ok', card: 'border-emerald-500/40 bg-emerald-500/5', text: 'text-emerald-300' },
+  silent: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5', text: 'text-amber-300' },
+  error: { tone: 'bad', card: 'border-red-500/40 bg-red-500/5', text: 'text-red-300' },
+  pending: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5', text: 'text-amber-300' },
+  drift: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5', text: 'text-amber-300' },
 };
 
-const MODE_LABEL: Record<LogHost['mode'], string> = { standard: 'standard', custom: 'valeur propre', manual: 'réglé à la main' };
+// the last message received (the server is read over 7 days)
+const lastText = (lastAt: number | null) => (lastAt ? `dernier message ${timeAgo(lastAt)}` : 'aucun message reçu (7 j)');
+// beyond this, a host (or its containers) that sent nothing gets a warning
+const silentText = (silentHours: number) => `rien depuis plus de ${silentHours || 24} h`;
 
-function stateText(h: LogHost, silentHours: number) {
+function stateText(h: LogHost) {
   switch (h.state) {
-    case 'ok':
-      return `reçu ${timeAgo(h.lastAt)}`;
     case 'pending':
-      return 'installation en cours…';
+      return 'mise en place en cours…';
     case 'drift':
       return h.detail ?? 'configuration à appliquer';
     case 'error':
       return h.detail ?? "l'agent ne peut pas l'appliquer";
-    case 'silent':
-      return h.lastAt ? `rien reçu depuis ${timeAgo(h.lastAt).replace(/^il y a /, '')}` : `aucun journal reçu${silentHours ? '' : ' (7 j)'}`;
+    default:
+      return lastText(h.lastAt);
   }
 }
 
-const DOCKER_TEXT: Record<LogHostDocker['state'], string> = { unavailable: 'text-muted', off: 'text-muted', pending: 'text-amber-300', ok: 'text-emerald-300', drift: 'text-amber-300', error: 'text-red-300', silent: 'text-red-300' };
+const DOCKER_TEXT: Record<LogHostDocker['state'], string> = { unavailable: 'text-muted', off: 'text-muted', pending: 'text-amber-300', ok: 'text-emerald-300', drift: 'text-amber-300', error: 'text-red-300', silent: 'text-amber-300' };
 
-function dockerText(d: LogHostDocker, silentHours: number) {
+function dockerText(d: LogHostDocker) {
   switch (d.state) {
     case 'unavailable':
       return d.detail ?? 'indisponible';
     case 'off':
-      return 'non suivis';
+      return 'désactivés';
     case 'pending':
       return 'mise en place en cours…';
-    case 'ok':
-      return `reçu ${timeAgo(d.lastAt!)}`;
     case 'drift':
-      return d.lastAt ? `${d.detail} · reçu ${timeAgo(d.lastAt)}` : (d.detail ?? 'à réappliquer');
     case 'error':
-      return d.detail ?? 'aucun envoi possible';
-    case 'silent':
-      return d.lastAt ? `rien reçu depuis ${timeAgo(d.lastAt).replace(/^il y a /, '')}` : `aucun journal reçu${silentHours ? '' : ' (7 j)'}`;
+      return d.detail ?? 'à réappliquer';
+    default:
+      return lastText(d.lastAt);
   }
 }
 
 // The journals of the containers of the host, under the ones of the host: turned on, set again, or off.
 function DockerLine({ h, silentHours, onEnable, onDisable }: { h: LogHost; silentHours: number; onEnable: () => void; onDisable: () => void }) {
+  // drift / error: something of the setting up is missing on the host (collector, daemon.json, stacks to recreate):
+  // setting it up again fixes it. A silence alone is not: everything is in place, the containers just wrote nothing.
   const d = h.docker!;
   const busy = !h.online || h.running;
   const why = !h.online ? 'hôte hors ligne' : h.running ? 'une tâche est en cours' : null;
@@ -72,7 +73,8 @@ function DockerLine({ h, silentHours, onEnable, onDisable }: { h: LogHost; silen
     <div className="mt-2 flex items-center justify-between gap-2 border-t border-line/60 pt-2">
       <p className={clsx('flex min-w-0 items-center gap-1.5 text-xs', DOCKER_TEXT[d.state])} title={d.detail ?? undefined}>
         <Container className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">Conteneurs : {dockerText(d, silentHours)}</span>
+        <span className="truncate">Conteneurs : {dockerText(d)}</span>
+        {d.state === 'silent' && <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-label={silentText(silentHours)} />}
       </p>
       <div className="flex shrink-0 items-center gap-1">
         {d.state === 'off' && (
@@ -80,8 +82,8 @@ function DockerLine({ h, silentHours, onEnable, onDisable }: { h: LogHost; silen
             Activer
           </Button>
         )}
-        {d.enabled && (d.state === 'error' || d.state === 'drift' || d.state === 'silent') && (
-          <Button size="sm" icon={RefreshCw} disabled={busy} title={why ?? 'Remettre en place le collecteur, recréer des stacks'} onClick={onEnable}>
+        {d.enabled && (d.state === 'error' || d.state === 'drift') && (
+          <Button size="sm" icon={RefreshCw} disabled={busy} title={why ?? `${d.detail ?? 'Mise en place incomplète'} : la refaire`} onClick={onEnable}>
             Réappliquer
           </Button>
         )}
@@ -175,8 +177,9 @@ function DockerLogsModal({ h, host, role, onClose }: { h: LogHost; host: Host | 
 
 function HostCard({ h, site, silentHours, onRemove, onApply, applying, onDockerEnable, onDockerDisable }: { h: LogHost; site?: string; silentHours: number; onRemove: () => void; onApply: () => void; applying: boolean; onDockerEnable: () => void; onDockerDisable: () => void }) {
   const meta = STATE[h.state];
-  // pushed again after a change of the server (destination), or when the host does not send
-  const reapply = h.mode !== 'manual' && h.online && !h.running && (h.state === 'drift' || h.state === 'silent' || h.state === 'error');
+  // the rsyslog setting is not (or no longer) the expected one on the host: applying it again fixes it. Not for a silence:
+  // the setting is in place, applying it again would change nothing.
+  const reapply = h.online && !h.running && (h.state === 'drift' || h.state === 'error');
   return (
     <article className={clsx('min-w-0 rounded-lg border p-3.5', meta.card)}>
       <div className="flex items-start justify-between gap-2">
@@ -184,17 +187,21 @@ function HostCard({ h, site, silentHours, onRemove, onApply, applying, onDockerE
           <StatusDot tone={meta.tone} pulse={h.state === 'pending'} />
           <Link to={`/hosts/${h.hostId}`} className="truncate font-medium text-zinc-100 hover:underline" title={h.name}>{h.name}</Link>
         </div>
-        {h.mode !== 'manual' && (
-          <button type="button" onClick={onRemove} disabled={h.running} title="Arrêter l'envoi des journaux" aria-label={`Arrêter l'envoi des journaux de ${h.name}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
+        <button type="button" onClick={onRemove} disabled={h.running} title="Ne plus gérer les journaux de cet hôte" aria-label={`Ne plus gérer les journaux de ${h.name}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
-      <p className={clsx('mt-1.5 line-clamp-2 text-xs', h.state === 'ok' ? 'text-emerald-300' : h.state === 'silent' || h.state === 'error' ? 'text-red-300' : 'text-amber-300')} title={h.detail ?? undefined}>
-        {stateText(h, silentHours)}
+      <p className={clsx('mt-1.5 line-clamp-2 text-xs', meta.text)} title={h.lastAt ? new Date(h.lastAt).toLocaleString('fr-FR') : (h.detail ?? undefined)}>
+        {stateText(h)}
       </p>
+      {h.state === 'silent' && (
+        <p className="mt-1 inline-flex items-center gap-1 text-xs text-amber-300">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {silentText(silentHours)}
+        </p>
+      )}
       <div className="mt-1 flex items-center justify-between gap-2">
-        <p className="truncate text-[11px] text-muted">{[site, !h.online && 'hors ligne', MODE_LABEL[h.mode]].filter(Boolean).join(' · ')}</p>
+        <p className="truncate text-[11px] text-muted">{[site, !h.online && 'hors ligne'].filter(Boolean).join(' · ')}</p>
         {reapply && (
           <Button size="sm" icon={RefreshCw} loading={applying} onClick={onApply} title="Réappliquer la configuration rsyslog sur l'hôte" className="shrink-0">
             Réappliquer
@@ -225,8 +232,7 @@ function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: Log
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const sending = new Set(listed.filter((h) => h.mode !== 'manual').map((h) => h.hostId));
-  const manual = new Set(listed.filter((h) => h.mode === 'manual').map((h) => h.hostId));
+  const sending = new Set(listed.map((h) => h.hostId));
   const all = hosts
     .filter((h) => !sending.has(h.id))
     .map((h) => ({ h, why: cannotSend(h, features.standardisation) }))
@@ -299,7 +305,6 @@ function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: Log
                     <span className="block truncate font-medium text-zinc-100">{h.name}</span>
                     <span className="block text-xs text-muted">
                       {why ?? (lanAddress(h.info?.ips) || 'adresse inconnue')}
-                      {manual.has(h.id) && !why && <span className="text-amber-300"> · envoie déjà, réglé à la main : retirer ce réglage, sinon chaque ligne arrivera en double</span>}
                     </span>
                   </span>
                 </label>
@@ -370,7 +375,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
     }
   };
   const list = data?.hosts ?? [];
-  const ok = list.filter((h) => h.state === 'ok').length;
+  const warned = list.filter((h) => h.state === 'silent').length;
   return (
     <Panel
       title={role.name}
@@ -380,7 +385,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
       <div className="space-y-3 text-sm">
         <p className="text-xs text-muted">
           Destination des hôtes : <span className="font-mono text-zinc-300">{role.target || 'inconnue'}</span>
-          {data && list.length > 0 && <> · {ok} / {list.length} hôte{list.length > 1 ? 's' : ''} reçu{list.length > 1 ? 's' : ''} {data.silentHours ? `sur les ${data.silentHours} dernières heures` : 'sur 24 h'}</>}
+          {data && list.length > 0 && <> · {list.length} hôte{list.length > 1 ? 's' : ''} géré{list.length > 1 ? 's' : ''}{warned ? ` · ${warned} sans message depuis plus de ${data.silentHours || 24} h` : ''}</>}
         </p>
         {data?.error && <p className="text-xs text-amber-300">Serveur de logs illisible ({data.error}) : les états sont inconnus.</p>}
         {isLoading ? (
@@ -388,18 +393,13 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         ) : error ? (
           <p className="text-red-400">{(error as Error).message}</p>
         ) : !list.length ? (
-          <Empty icon={ScrollText} title="Aucun hôte n'envoie ses journaux">« Ajouter des hôtes » installe rsyslog sur les hôtes choisis et le règle pour envoyer ses journaux à ce serveur.</Empty>
+          <Empty icon={ScrollText} title="Aucun hôte géré">« Ajouter des hôtes » installe rsyslog sur les hôtes choisis et le règle pour envoyer ses journaux à ce serveur.</Empty>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {list.map((h) => (
               <HostCard key={h.hostId} h={h} site={sites.find((s) => s.id === h.siteId)?.name} silentHours={data!.silentHours} onRemove={() => setRemoving(h)} onApply={() => void apply(h)} applying={applying === h.hostId} onDockerEnable={() => setDockerOn(h)} onDockerDisable={() => setDockerOff(h)} />
             ))}
           </div>
-        )}
-        {!!data?.others.length && (
-          <p className="text-xs text-muted">
-            Reçus aussi d'émetteurs inconnus du hub (7 j) : {data.others.map((o) => o.hostname).join(', ')}. <Link to="/logs" className="text-emerald-400 hover:underline">Voir dans Logs</Link>
-          </p>
         )}
       </div>
       {adding && data && <AddHostModal role={role} listed={list} onClose={() => setAdding(false)} />}

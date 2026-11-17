@@ -1982,7 +1982,7 @@ export interface LogHost {
   name: string;
   siteId: string | null;
   online: boolean;
-  mode: 'standard' | 'custom' | 'manual';
+  mode: 'standard' | 'custom';
   lastAt: number | null;
   count: number;
   state: 'ok' | 'pending' | 'drift' | 'error' | 'silent';
@@ -2007,8 +2007,6 @@ export interface LogHosts {
   // the server could not be read: the states are unknown
   error: string | null;
   hosts: LogHost[];
-  // senders the hub does not know
-  others: { hostname: string; lastAt: number; count: number }[];
 }
 
 export function logParams(q: LogQuery, extra: Record<string, string | number | undefined> = {}) {
