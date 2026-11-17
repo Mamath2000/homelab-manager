@@ -1864,6 +1864,8 @@ export interface EsphomeDevice {
   level: string | null;
   // its lines forwarded to the log server; the last one received (ms)
   logs: boolean;
+  // followed (listed in the broker's tab); false: only offered in « Ajouter des appareils »
+  tracked: boolean;
   lastLineAt: number | null;
   // why it is mute (null: it is not, or not watched)
   mute: string | null;
@@ -2271,6 +2273,7 @@ export const api = {
   declareEsphome: () => request<{ id: string }>('POST', '/api/settings/esphome'),
   saveEsphome: (brokers: EsphomeBroker[], logServer: string, silentHours: number) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, silentHours, ...(logServer ? { logServer } : {}) }),
   setEsphomeLevel: (key: string, level: string) => request<{ key: string; level: string }>('PUT', '/api/settings/esphome/level', { key, level }),
+  setEsphomeTracked: (keys: string[], tracked: boolean) => request<{ tracked: boolean; changed: number }>('PUT', '/api/settings/esphome/tracked', { keys, tracked }),
   setEsphomeLogs: (key: string, enabled: boolean) => request<{ key: string; logs: boolean }>('PUT', '/api/settings/esphome/logs', { key, enabled }),
   deleteEsphome: () => request<void>('DELETE', '/api/settings/esphome'),
   // the equipment of an ESP (made, or a manual one linked: equipmentId) and the ones of the sub-devices chosen

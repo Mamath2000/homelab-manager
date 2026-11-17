@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
-import { Cpu, Plus, Radio, Save, SlidersHorizontal } from 'lucide-react';
+import { Cpu, Plus, Radio, Save, ScrollText, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { api, type EsphomeBroker, type EsphomeBrokerView, type EsphomeDevice, type EsphomeSettings as Settings } from '../lib/api';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useSites } from '../lib/queries';
@@ -185,20 +185,94 @@ function LogsCell({ d, canLog }: { d: EsphomeDevice; canLog: boolean }) {
     }
   };
   const why = !d.equipment ? "créer d'abord l'équipement" : !canLog ? 'aucun serveur de logs' : null;
+  const last = d.logs ? (d.lastLineAt ? `dernière ligne ${timeAgo(d.lastLineAt)}` : 'aucune ligne reçue') : null;
+  const name = d.name ?? d.uniqueId;
   return (
-    <div className="flex flex-col items-start gap-1">
-      <span className="inline-flex items-center gap-2" title={why ?? (d.logs ? 'Ne plus envoyer ses lignes au serveur de logs' : 'Envoyer ses lignes au serveur de logs')}>
-        {busy ? <Spinner className="h-4 w-4" /> : <Checkbox checked={d.logs} onChange={(v) => void (why && v ? null : toggle(v))} label={`Logs de ${d.name ?? d.uniqueId}`} />}
-        <span className="text-xs text-muted">{d.logs ? 'activés' : why ?? 'désactivés'}</span>
-      </span>
-      {d.logs && (
-        <span className="text-xs text-muted">
-          {d.lastLineAt ? <>dernière ligne {timeAgo(d.lastLineAt)}</> : 'aucune ligne reçue'}
-          {d.equipment && d.name && (
-            <> · <Link className="underline" to={`/logs?hostname=${encodeURIComponent(d.name)}&source=esphome`}>voir</Link></>
-          )}
-        </span>
-      )}
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={d.logs}
+        aria-label={`Logs de ${name}`}
+        disabled={busy || (!!why && !d.logs)}
+        onClick={() => void toggle(!d.logs)}
+        title={d.logs ? `Logs envoyés au serveur (${last}) : cliquer pour arrêter` : (why ?? 'Envoyer les logs au serveur de logs')}
+        className={clsx(
+          'inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40',
+          d.logs ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-line bg-raised/40 text-zinc-500 hover:text-zinc-200',
+        )}
+      >
+        {busy ? <Spinner className="h-3.5 w-3.5" /> : <ScrollText className="h-3.5 w-3.5" />}
+        {d.logs && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+      </button>
+      {d.logs && d.equipment && d.name && <Link className="text-xs text-muted underline" to={`/logs?hostname=${encodeURIComponent(d.name)}&source=esphome`}>voir</Link>}
+    </span>
+  );
+}
+
+// The sub-devices of an ESP, one button each, lit while it is an equipment: a click makes it one, a click on a lit one
+// removes it (after confirmation: its probes and history go with it). Only once the ESP itself is an equipment.
+function SubDevices({ d }: { d: EsphomeDevice }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<{ id: string; name: string; equipmentId: string } | null>(null);
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments })]);
+  const make = async (id: string) => {
+    setBusy(id);
+    try {
+      await api.createEsphomeEquipments({ key: d.key, devices: [id] });
+      await refresh();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = async () => {
+    if (!removing) return;
+    setBusy(removing.id);
+    try {
+      await api.deleteEquipment(removing.equipmentId);
+      await refresh();
+      toast.success(`Équipement ${removing.name} supprimé`);
+      setRemoving(null);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {d.devices.map((x) => {
+        const eq = d.subEquipments[x.id];
+        const name = x.name ?? x.id;
+        const why = !d.equipment ? "créer d'abord l'équipement de l'ESP" : null;
+        return (
+          <button
+            key={x.id}
+            type="button"
+            aria-pressed={!!eq}
+            disabled={busy !== null || (!!why && !eq)}
+            onClick={() => (eq ? setRemoving({ id: x.id, name, equipmentId: eq.id }) : void make(x.id))}
+            title={eq ? `${name} : équipement créé, cliquer pour le supprimer` : (why ?? `Créer l'équipement ${name}`)}
+            className={clsx(
+              'inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-40',
+              eq ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'border-line bg-raised/40 text-zinc-500 hover:text-zinc-200',
+            )}
+          >
+            {busy === x.id ? <Spinner className="h-3 w-3" /> : <span className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', eq ? 'bg-emerald-400' : 'bg-zinc-600')} aria-hidden="true" />}
+            <span className="truncate">{name}</span>
+          </button>
+        );
+      })}
+      <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Supprimer l'équipement" confirmLabel="Supprimer" danger loading={busy !== null}>
+        <p>
+          Supprimer l'équipement <b>{removing?.name}</b> ? Ses sondes et son historique sont supprimés avec lui ; le sous-appareil reste
+          visible ici et peut être recréé.
+        </p>
+      </ConfirmModal>
     </div>
   );
 }
@@ -315,71 +389,137 @@ function EquipmentCell({ d, site }: { d: EsphomeDevice; site: string | null }) {
   };
   const made = Object.values(d.subEquipments);
   return (
-    <div className="flex flex-col items-start gap-1">
+    <span className="inline-flex min-w-0 items-center gap-1.5">
       {d.equipment ? (
         <>
-          <Link className="underline" to={`/equipments/${d.equipment.id}`}>{d.equipment.name}</Link>
-          {made.length > 0 && <span className="text-xs text-muted">+ {made.length} sous-appareil{made.length > 1 ? 's' : ''}</span>}
-          {subs.length > 0 && <Button size="sm" icon={Plus} onClick={() => setOpen(true)}>Sous-appareils ({subs.length})</Button>}
+          <Link className="truncate text-xs underline" to={`/equipments/${d.equipment.id}`} title={d.equipment.name}>{d.equipment.name}</Link>
+          {made.length > 0 && <span className="shrink-0 text-xs text-muted">+{made.length}</span>}
         </>
       ) : (
-        <Button size="sm" variant="primary" loading={busy} onClick={() => (subs.length || d.candidates.length ? setOpen(true) : void direct())}>Créer l'équipement</Button>
+        <Button size="sm" variant="primary" icon={Plus} loading={busy} onClick={() => (subs.length || d.candidates.length ? setOpen(true) : void direct())}>Équipement</Button>
       )}
       {open && <CreateModal d={d} site={site} onClose={() => setOpen(false)} />}
-    </div>
+    </span>
   );
 }
 
 const lwtTone = (d: EsphomeDevice) => (d.lwt === 'online' ? 'ok' : d.lwt === 'offline' ? 'bad' : 'neutral');
 const lwtLabel = (d: EsphomeDevice) => (d.lwt === 'online' ? 'en ligne' : d.lwt === 'offline' ? 'hors ligne' : 'LWT absent');
 
-// one labelled line of a card
-function Field({ label, children }: { label: string; children: ReactNode }) {
+// a device as a small block, like the hosts of the logs: state and name, what it is, then its controls on one line
+function DeviceCard({ d, site, canLog, levels, defaultLevel, selected, onSelect, onUntrack }: { d: EsphomeDevice; site: string | null; canLog: boolean; levels: string[]; defaultLevel: string; selected: boolean; onSelect: (v: boolean) => void; onUntrack: () => void }) {
+  const meta = [d.ip, d.version].filter(Boolean).join(' · ');
+  const bad = d.lwt === 'offline';
   return (
-    <div className="flex items-start justify-between gap-3 py-1 text-xs">
-      <span className="shrink-0 text-muted">{label}</span>
-      <span className="min-w-0 text-right">{children}</span>
-    </div>
-  );
-}
-
-// a device as a small block: identity and state on top, then its fields, then what can be done with it
-function DeviceCard({ d, site, canLog, levels, defaultLevel, selected, onSelect }: { d: EsphomeDevice; site: string | null; canLog: boolean; levels: string[]; defaultLevel: string; selected: boolean; onSelect: (v: boolean) => void }) {
-  const subs = d.devices.map((x) => x.name ?? x.id).join(', ');
-  return (
-    <li className={clsx('flex flex-col rounded-lg border bg-raised/40', selected ? 'border-emerald-500/60' : 'border-line')}>
-      <div className="flex items-start gap-2 border-b border-line px-3 py-2">
-        <Checkbox checked={selected} onChange={onSelect} label={`Sélectionner ${d.name ?? d.uniqueId}`} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-zinc-100" title={d.name ?? d.uniqueId}>{d.name ?? d.uniqueId}</div>
-          <div className="truncate font-mono text-xs text-muted" title={d.uniqueId}>{d.uniqueId}</div>
-        </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5" title={`${lwtLabel(d)}${d.lwtAt ? ` depuis ${dateTime(d.lwtAt)}` : ''}`}>
+    <article className={clsx('min-w-0 rounded-lg border p-3.5', selected ? 'border-emerald-500/70 bg-emerald-500/10' : bad ? 'border-red-500/40 bg-red-500/5' : d.lwt === 'online' ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line bg-raised/40')}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Checkbox checked={selected} onChange={onSelect} label={`Sélectionner ${d.name ?? d.uniqueId}`} />
           <StatusDot tone={lwtTone(d)} />
-          <span className="text-xs text-muted">{lwtLabel(d)}</span>
-        </span>
+          <span className="truncate font-medium text-zinc-100" title={`${d.name ?? d.uniqueId} (${d.uniqueId})`}>{d.name ?? d.uniqueId}</span>
+        </div>
+        <button type="button" onClick={onUntrack} title="Ne plus suivre cet appareil" aria-label={`Ne plus suivre ${d.name ?? d.uniqueId}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </div>
-      <div className="flex-1 divide-y divide-line/50 px-3 py-1">
-        <Field label="IP"><span className="font-mono">{d.ip ?? '—'}</span></Field>
-        <Field label="Version">{d.version ?? '—'}</Field>
-        <Field label="Sous-appareils"><span title={subs || undefined}>{d.devices.length ? `${d.devices.length} : ${subs}` : '—'}</span></Field>
-        <Field label="Vu"><span className="text-muted" title={dateTime(d.lastSeenAt)}>{timeAgo(d.lastSeenAt)}</span></Field>
-        <Field label="Niveau de log"><LevelCell d={d} levels={levels} defaultLevel={defaultLevel} /></Field>
-        <Field label="Logs"><LogsCell d={d} canLog={canLog} /></Field>
-        <Field label="Équipement"><EquipmentCell d={d} site={site} /></Field>
+      <p className="mt-1.5 truncate text-xs text-muted" title={`${lwtLabel(d)}${d.lwtAt ? ` depuis ${dateTime(d.lwtAt)}` : ''}`}>
+        <span className={d.lwt === 'online' ? 'text-emerald-300' : bad ? 'text-red-300' : undefined}>{lwtLabel(d)}</span>
+        {meta && <> · <span className="font-mono">{meta}</span></>}
+      </p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <LevelCell d={d} levels={levels} defaultLevel={defaultLevel} />
+        <LogsCell d={d} canLog={canLog} />
+        <EquipmentCell d={d} site={site} />
       </div>
-      {(!d.hasInfo && !d.infoError) || d.infoError || d.mute ? (
-        <div className="flex flex-wrap gap-1 border-t border-line px-3 py-2">
+      {d.devices.length > 0 && <SubDevices d={d} />}
+      {((!d.hasInfo && !d.infoError) || d.infoError || d.mute) && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
           {!d.hasInfo && !d.infoError && <span title="Le package ne publie pas encore esphome/<unique_id>/info : nom, IP, version et sous-appareils inconnus"><Badge tone="warn">sans info</Badge></span>}
           {d.infoError && <span title={d.infoError}><Badge tone="bad">info invalide</Badge></span>}
           {d.mute && <span title={d.mute}><Badge tone="warn">muet</Badge></span>}
         </div>
-      ) : null}
-    </li>
+      )}
+    </article>
   );
 }
 
-type GroupAction = 'level' | 'logs-on' | 'logs-off' | 'equipments';
+// The devices seen on the broker that are not followed yet, several picked at once.
+function AddDevicesModal({ b, onClose }: { b: EsphomeBrokerView; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const offered = b.devices.filter((d) => !d.tracked);
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const list = offered.filter((d) => !q || `${d.name ?? ''} ${d.uniqueId} ${d.ip ?? ''}`.toLowerCase().includes(q.toLowerCase()));
+  const allPicked = list.length > 0 && list.every((d) => picked.has(d.key));
+  const toggle = (key: string, on: boolean) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  const add = async () => {
+    setBusy(true);
+    try {
+      const r = await api.setEsphomeTracked([...picked], true);
+      await qc.invalidateQueries({ queryKey: QUERY });
+      toast.success(`${r.changed} appareil${r.changed > 1 ? 's' : ''} suivi${r.changed > 1 ? 's' : ''}`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open
+      wide
+      scroll
+      onClose={onClose}
+      title={`Ajouter des appareils · ${b.name}`}
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>Annuler</Button>
+          <Button variant="primary" icon={Plus} loading={busy} disabled={!picked.size} onClick={() => void add()}>Suivre {picked.size || ''}</Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-xs text-muted">Appareils vus sur le broker (LWT, info) et pas encore suivis.</p>
+        {!offered.length ? (
+          <p className="text-muted">Aucun appareil à ajouter : tout ce que le broker montre est déjà suivi.</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Checkbox checked={allPicked} indeterminate={picked.size > 0 && !allPicked} onChange={(v) => setPicked(v ? new Set(list.map((d) => d.key)) : new Set())} label="Tout sélectionner" />
+              <input className="input flex-1 py-1" placeholder="Filtrer (nom, id, IP)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filtrer les appareils" />
+              <span className="shrink-0 text-xs text-muted">{picked.size} / {offered.length}</span>
+            </div>
+            <ul className="divide-y divide-line/60 rounded-md border border-line">
+              {list.map((d) => (
+                <li key={d.key} className="flex items-center gap-3 px-3 py-2">
+                  <Checkbox checked={picked.has(d.key)} onChange={(v) => toggle(d.key, v)} label={`Suivre ${d.name ?? d.uniqueId}`} />
+                  <StatusDot tone={lwtTone(d)} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-zinc-100">{d.name ?? d.uniqueId}</span>
+                    <span className="block truncate font-mono text-xs text-muted">{d.uniqueId}</span>
+                  </span>
+                  <span className="shrink-0 text-right font-mono text-xs text-muted">{[d.ip, d.version].filter(Boolean).join(' · ') || '—'}</span>
+                </li>
+              ))}
+              {!list.length && <li className="px-3 py-2 text-muted">Aucun résultat.</li>}
+            </ul>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+type GroupAction = 'level' | 'logs-on' | 'logs-off' | 'equipments' | 'untrack';
 
 // Group actions on the devices ticked: the window shows which ones are targeted (the others, which the action cannot
 // concern, are left out and named).
@@ -396,6 +536,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
       case 'logs-off': return devices.filter((d) => d.logs);
       // an ESP alone: nothing to choose in the single window (no sub-device, no manual equipment to link)
       case 'equipments': return devices.filter((d) => !d.equipment && !missingSubs(d).length && !d.candidates.length);
+      case 'untrack': return devices;
     }
   };
   const label: Record<GroupAction, string> = {
@@ -403,6 +544,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
     'logs-on': 'Activer les logs',
     'logs-off': 'Désactiver les logs',
     equipments: 'Créer les équipements',
+    untrack: 'Ne plus suivre',
   };
   const list = action ? targets(action) : [];
   const run = async () => {
@@ -416,6 +558,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
             case 'logs-on': return api.setEsphomeLogs(d.key, true);
             case 'logs-off': return api.setEsphomeLogs(d.key, false);
             case 'equipments': return api.createEsphomeEquipments({ key: d.key, devices: [] });
+            case 'untrack': return api.setEsphomeTracked([d.key], false);
           }
         }),
       );
@@ -443,6 +586,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
         <Button size="sm" disabled={!targets('logs-on').length} onClick={() => setAction('logs-on')}>Activer les logs</Button>
         <Button size="sm" disabled={!targets('logs-off').length} onClick={() => setAction('logs-off')}>Désactiver les logs</Button>
         <Button size="sm" icon={Plus} disabled={!targets('equipments').length} onClick={() => setAction('equipments')}>Créer les équipements</Button>
+        <Button size="sm" icon={Trash2} onClick={() => setAction('untrack')}>Ne plus suivre</Button>
       </span>
       <ConfirmModal
         open={!!action}
@@ -457,6 +601,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
           {list.map((d) => <li key={d.key}><span className="text-zinc-100">{name(d)}</span> <span className="font-mono text-xs text-muted">{d.uniqueId}</span></li>)}
         </ul>
         {action === 'level' && <p className="mt-3 text-xs text-muted">Jusqu'au prochain redémarrage des appareils (la commande n'est pas conservée).</p>}
+        {action === 'untrack' && <p className="mt-3 text-xs text-muted">Leurs logs sont coupés ; leurs équipements restent. Ils redeviennent disponibles dans « Ajouter des appareils ».</p>}
         {action === 'equipments' && <p className="mt-3 text-xs text-muted">Seuls les ESP sans sous-appareil à créer ni équipement manuel à relier sont concernés ; les autres se font un par un.</p>}
         {skipped.length > 0 && <p className="mt-3 text-xs text-muted">Non concernés : {skipped.map(name).join(', ')}.</p>}
       </ConfirmModal>
@@ -467,11 +612,25 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
 function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerView; canLog: boolean; levels: string[]; defaultLevel: string }) {
   const { data: sites = [] } = useSites();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState(false);
+  const qc = useQueryClient();
+  const toast = useToast();
   const st = roleStatus({ status: b.status, url: '', carrier: { kind: 'hub', id: '', name: '' } });
-  const online = b.devices.filter((d) => d.lwt === 'online').length;
+  // only the devices followed are listed; the others are offered in « Ajouter des appareils »
+  const followed = b.devices.filter((d) => d.tracked);
+  const offered = b.devices.length - followed.length;
+  const online = followed.filter((d) => d.lwt === 'online').length;
+  const untrack = async (d: EsphomeDevice) => {
+    try {
+      await api.setEsphomeTracked([d.key], false);
+      await qc.invalidateQueries({ queryKey: QUERY });
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
   const site = b.site ? sites.find((s) => s.id === b.site)?.name ?? b.site : null;
   // devices forgotten since the selection was made drop out of it
-  const picked = b.devices.filter((d) => selected.has(d.key));
+  const picked = followed.filter((d) => selected.has(d.key));
   const toggle = (key: string, on: boolean) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -480,30 +639,33 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerVi
       return next;
     });
   return (
-    <Panel title={`Appareils de ${b.name}`} icon={Cpu} bodyClassName="" actions={<Badge tone={st.tone}>{st.label}</Badge>}>
+    <Panel title={`Appareils de ${b.name}`} icon={Cpu} bodyClassName="" actions={<span className="inline-flex items-center gap-2"><Badge tone={st.tone}>{st.label}</Badge><Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>Ajouter des appareils{offered ? ` (${offered})` : ''}</Button></span>}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-3 text-xs text-muted">
-        {b.devices.length > 0 && (
+        {followed.length > 0 && (
           <Checkbox
-            checked={picked.length === b.devices.length}
-            indeterminate={picked.length > 0 && picked.length < b.devices.length}
-            onChange={(v) => setSelected(v ? new Set(b.devices.map((d) => d.key)) : new Set())}
+            checked={picked.length === followed.length}
+            indeterminate={picked.length > 0 && picked.length < followed.length}
+            onChange={(v) => setSelected(v ? new Set(followed.map((d) => d.key)) : new Set())}
             label="Tout sélectionner"
           />
         )}
         <p>
-          {b.devices.length} appareil{b.devices.length > 1 ? 's' : ''} · {online} en ligne · site {site ?? 'aucun'}
+          {followed.length} appareil{followed.length > 1 ? 's' : ''} suivi{followed.length > 1 ? 's' : ''} · {online} en ligne · site {site ?? 'aucun'}
           {b.siteId ? ' (choisi pour ce broker)' : " (celui de l'hôte du broker)"}
         </p>
       </div>
       {picked.length > 0 && <GroupBar devices={picked} canLog={canLog} levels={levels} onClear={() => setSelected(new Set())} />}
       {b.status?.error && <p className="mx-4 my-3 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-200">{b.status.error}</p>}
-      {!b.devices.length ? (
-        <p className="p-4 text-sm text-muted">Aucun appareil : un ESP apparaît dès qu'il publie son LWT sur <code>esphome/&lt;unique_id&gt;/LWT</code>.</p>
+      {!followed.length ? (
+        <p className="p-4 text-sm text-muted">
+          {offered ? `Aucun appareil suivi : ${offered} vu${offered > 1 ? 's' : ''} sur le broker, à ajouter.` : <>Aucun appareil : un ESP apparaît dès qu'il publie son LWT sur <code>esphome/&lt;unique_id&gt;/LWT</code>.</>}
+        </p>
       ) : (
-        <ul className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-          {b.devices.map((d) => <DeviceCard key={d.key} d={d} site={site} canLog={canLog} levels={levels} defaultLevel={defaultLevel} selected={selected.has(d.key)} onSelect={(v) => toggle(d.key, v)} />)}
-        </ul>
+        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+          {followed.map((d) => <DeviceCard key={d.key} d={d} site={site} canLog={canLog} levels={levels} defaultLevel={defaultLevel} selected={selected.has(d.key)} onSelect={(v) => toggle(d.key, v)} onUntrack={() => void untrack(d)} />)}
+        </div>
       )}
+      {adding && <AddDevicesModal b={b} onClose={() => setAdding(false)} />}
     </Panel>
   );
 }
@@ -523,7 +685,7 @@ export function EsphomeSettings() {
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
   if (!data?.role) return <p className="p-4 text-sm text-muted">Rôle ESPHome non déclaré : le déclarer dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.</p>;
   const brokers = data.role.brokers;
-  const tabs = [{ id: 'setup', label: 'Paramétrage', icon: SlidersHorizontal }, ...brokers.map((b) => ({ id: b.brokerId, label: `${b.name} (${b.devices.length})`, icon: Radio }))];
+  const tabs = [{ id: 'setup', label: 'Paramétrage', icon: SlidersHorizontal }, ...brokers.map((b) => ({ id: b.brokerId, label: `${b.name} (${b.devices.filter((d) => d.tracked).length})`, icon: Radio }))];
   const current = tabs.some((t) => t.id === tab) ? tab : 'setup';
   const broker = brokers.find((b) => b.brokerId === current);
   return (
