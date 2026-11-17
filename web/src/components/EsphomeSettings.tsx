@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
-import { Cpu, Plus, Radio, Save, ScrollText, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Copy, Cpu, Plus, Radio, Save, ScrollText, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { api, type EsphomeBroker, type EsphomeBrokerView, type EsphomeDevice, type EsphomeSettings as Settings } from '../lib/api';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useSites } from '../lib/queries';
@@ -203,7 +203,7 @@ function LogsCell({ d, canLog }: { d: EsphomeDevice; canLog: boolean }) {
         )}
       >
         {busy ? <Spinner className="h-3.5 w-3.5" /> : <ScrollText className="h-3.5 w-3.5" />}
-        {d.logs && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />}
+        {d.logs ? 'Activé' : 'Désactivé'}
       </button>
       {d.logs && d.equipment && d.name && <Link className="text-xs text-muted underline" to={`/logs?hostname=${encodeURIComponent(d.name)}&source=esphome`}>voir</Link>}
     </span>
@@ -287,30 +287,65 @@ async function removeDevice(d: EsphomeDevice) {
 const lwtTone = (d: EsphomeDevice) => (d.lwt === 'online' ? 'ok' : d.lwt === 'offline' ? 'bad' : 'neutral');
 const lwtLabel = (d: EsphomeDevice) => (d.lwt === 'online' ? 'en ligne' : d.lwt === 'offline' ? 'hors ligne' : 'LWT absent');
 
+// The IP, copied with a click (the clipboard API needs a secure context: hidden textarea on plain http LAN)
+function CopyIp({ ip }: { ip: string }) {
+  const toast = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(ip);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = ip;
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (!ok) return toast.error('Copie impossible');
+    }
+    toast.success(`${ip} copiée`);
+  };
+  return (
+    <button type="button" onClick={() => void copy()} title="Copier l'IP" className="inline-flex items-center gap-1 rounded-sm hover:text-zinc-100 hover:underline">
+      {ip}
+      <Copy className="h-3 w-3" />
+    </button>
+  );
+}
+
 // a device as a small block, like the hosts of the logs: state and name, what it is, then its controls on one line
 function DeviceCard({ d, canLog, levels, defaultLevel, selected, onSelect, onUntrack }: { d: EsphomeDevice; canLog: boolean; levels: string[]; defaultLevel: string; selected: boolean; onSelect: (v: boolean) => void; onUntrack: () => void }) {
-  const meta = [d.ip, d.version].filter(Boolean).join(' · ');
+  const meta = [d.uniqueId, d.ip, d.version].filter(Boolean).join(' · ');
+  const rest = d.version ? ` · ${d.version}` : '';
   const bad = d.lwt === 'offline';
+  const title = d.name ?? d.uniqueId;
   return (
     <article className={clsx('min-w-0 rounded-lg border p-3.5', selected ? 'border-emerald-500/70 bg-emerald-500/10' : bad ? 'border-red-500/40 bg-red-500/5' : d.lwt === 'online' ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-line bg-raised/40')}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <Checkbox checked={selected} onChange={onSelect} label={`Sélectionner ${d.name ?? d.uniqueId}`} />
+          <Checkbox checked={selected} onChange={onSelect} label={`Sélectionner ${title}`} />
           <StatusDot tone={lwtTone(d)} />
-          <span className="truncate font-medium text-zinc-100" title={`${d.name ?? d.uniqueId} (${d.uniqueId})`}>{d.name ?? d.uniqueId}</span>
+          {d.equipment ? (
+            <Link className="truncate font-medium text-zinc-100 hover:underline" to={`/equipments/${d.equipment.id}`} title={`Équipement ${d.equipment.name}`}>{title}</Link>
+          ) : (
+            <span className="truncate font-medium text-zinc-100">{title}</span>
+          )}
         </div>
-        <button type="button" onClick={onUntrack} title="Retirer cet appareil (supprime ses équipements)" aria-label={`Retirer ${d.name ?? d.uniqueId}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className={clsx('text-xs', d.lwt === 'online' ? 'text-emerald-300' : bad ? 'text-red-300' : 'text-muted')} title={d.lwtAt ? `depuis ${dateTime(d.lwtAt)}` : undefined}>{lwtLabel(d)}</span>
+          <button type="button" onClick={onUntrack} title="Retirer cet appareil (supprime ses équipements)" aria-label={`Retirer ${title}`} className="rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
-      <p className="mt-1.5 truncate text-xs text-muted" title={`${lwtLabel(d)}${d.lwtAt ? ` depuis ${dateTime(d.lwtAt)}` : ''}`}>
-        <span className={d.lwt === 'online' ? 'text-emerald-300' : bad ? 'text-red-300' : undefined}>{lwtLabel(d)}</span>
-        {meta && <> · <span className="font-mono">{meta}</span></>}
+      <p className="mt-1.5 flex min-w-0 items-center gap-x-1 truncate font-mono text-xs text-muted" title={meta}>
+        <span className="truncate">{d.uniqueId}</span>
+        {d.ip && <> · <CopyIp ip={d.ip} /></>}
+        {rest && <span className="shrink-0">{rest}</span>}
       </p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <LevelCell d={d} levels={levels} defaultLevel={defaultLevel} />
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-xs text-muted">Suivi des logs</span>
         <LogsCell d={d} canLog={canLog} />
-        {d.equipment && <Link className="truncate text-xs underline" to={`/equipments/${d.equipment.id}`} title={`Équipement ${d.equipment.name}`}>{d.equipment.name}</Link>}
+        {d.logs && <LevelCell d={d} levels={levels} defaultLevel={defaultLevel} />}
       </div>
       {d.devices.length > 0 && <SubDevices d={d} />}
       {((!d.hasInfo && !d.infoError) || d.infoError || d.mute) && (
