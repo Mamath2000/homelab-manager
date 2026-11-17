@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Cpu, Plus, Radio, Save, SlidersHorizontal } from 'lucide-react';
 import { api, type EsphomeBroker, type EsphomeBrokerView, type EsphomeDevice, type EsphomeSettings as Settings } from '../lib/api';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useSites } from '../lib/queries';
 import { roleStatus } from '../lib/roles';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, Modal, Panel, Spinner, StatusDot, Tabs } from './ui';
+import { Badge, Button, Checkbox, ConfirmModal, Modal, Panel, Spinner, StatusDot, Tabs } from './ui';
 
 // Paramètres › ESPHome (homelab#352): the esphome role, carried by the hub. Paramétrage: the brokers listened to (mqtt-broker
 // roles), each with the site of its devices; then one tab per broker, its devices as their messages left them
@@ -123,19 +124,28 @@ function BrokersSetup({ data }: { data: Settings }) {
 // The level of the logger of an ESP: the one it reports (log_level), changed at once from the list while it is online
 // (until it reboots: the command is not kept). Not the default one: flagged.
 function LevelCell({ d, levels, defaultLevel }: { d: EsphomeDevice; levels: string[]; defaultLevel: string }) {
-  const qc = useQueryClient();
   const toast = useToast();
-  const [busy, setBusy] = useState(false);
+  // the level asked, shown until the device confirms it on log_level (it answers after the request: refetching at once
+  // would give the old level back and the select would snap back to it)
+  const [pending, setPending] = useState<string | null>(null);
+  // confirmed by the device: done (state adjusted while rendering, not in an effect)
+  if (pending !== null && pending === d.level) setPending(null);
+  const busy = pending !== null;
+  useEffect(() => {
+    if (pending === null) return;
+    const t = setTimeout(() => {
+      toast.error(`${d.name ?? d.uniqueId} n'a pas confirmé le niveau ${pending}`);
+      setPending(null);
+    }, 10_000);
+    return () => clearTimeout(t);
+  }, [pending, d.level, d.name, d.uniqueId, toast]);
   const change = async (level: string) => {
-    setBusy(true);
+    setPending(level);
     try {
       await api.setEsphomeLevel(d.key, level);
-      // the device answers on log_level: the list follows through the live event
-      await qc.invalidateQueries({ queryKey: QUERY });
     } catch (err) {
       toast.error((err as Error).message);
-    } finally {
-      setBusy(false);
+      setPending(null);
     }
   };
   if (!d.level) return <span className="text-xs text-muted" title="Le package ne publie pas encore esphome/<unique_id>/log_level">—</span>;
@@ -144,7 +154,7 @@ function LevelCell({ d, levels, defaultLevel }: { d: EsphomeDevice; levels: stri
     <span className="inline-flex flex-wrap items-center gap-1.5">
       <select
         className="input py-1 text-xs"
-        value={d.level}
+        value={pending ?? d.level}
         disabled={busy || d.lwt !== 'online'}
         title={d.lwt !== 'online' ? 'Hors ligne : la commande serait perdue' : `Changer le niveau jusqu'au prochain redémarrage (démarre à ${defaultLevel})`}
         onChange={(e) => void change(e.target.value)}
@@ -323,72 +333,176 @@ function EquipmentCell({ d, site }: { d: EsphomeDevice; site: string | null }) {
 const lwtTone = (d: EsphomeDevice) => (d.lwt === 'online' ? 'ok' : d.lwt === 'offline' ? 'bad' : 'neutral');
 const lwtLabel = (d: EsphomeDevice) => (d.lwt === 'online' ? 'en ligne' : d.lwt === 'offline' ? 'hors ligne' : 'LWT absent');
 
-function DeviceRow({ d, site, canLog, levels, defaultLevel }: { d: EsphomeDevice; site: string | null; canLog: boolean; levels: string[]; defaultLevel: string }) {
+// one labelled line of a card
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1 text-xs">
+      <span className="shrink-0 text-muted">{label}</span>
+      <span className="min-w-0 text-right">{children}</span>
+    </div>
+  );
+}
+
+// a device as a small block: identity and state on top, then its fields, then what can be done with it
+function DeviceCard({ d, site, canLog, levels, defaultLevel, selected, onSelect }: { d: EsphomeDevice; site: string | null; canLog: boolean; levels: string[]; defaultLevel: string; selected: boolean; onSelect: (v: boolean) => void }) {
   const subs = d.devices.map((x) => x.name ?? x.id).join(', ');
   return (
-    <tr className="border-t border-line align-top">
-      <td className="px-4 py-2">
-        <span className="inline-flex items-center gap-2" title={`${lwtLabel(d)}${d.lwtAt ? ` depuis ${dateTime(d.lwtAt)}` : ''}`}>
+    <li className={clsx('flex flex-col rounded-lg border bg-raised/40', selected ? 'border-emerald-500/60' : 'border-line')}>
+      <div className="flex items-start gap-2 border-b border-line px-3 py-2">
+        <Checkbox checked={selected} onChange={onSelect} label={`Sélectionner ${d.name ?? d.uniqueId}`} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-zinc-100" title={d.name ?? d.uniqueId}>{d.name ?? d.uniqueId}</div>
+          <div className="truncate font-mono text-xs text-muted" title={d.uniqueId}>{d.uniqueId}</div>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1.5" title={`${lwtLabel(d)}${d.lwtAt ? ` depuis ${dateTime(d.lwtAt)}` : ''}`}>
           <StatusDot tone={lwtTone(d)} />
           <span className="text-xs text-muted">{lwtLabel(d)}</span>
         </span>
-      </td>
-      <td className="px-4 py-2">
-        <div className="font-medium text-zinc-100">{d.name ?? d.uniqueId}</div>
-        <div className="font-mono text-xs text-muted">{d.uniqueId}</div>
-      </td>
-      <td className="px-4 py-2 font-mono text-xs">{d.ip ?? '—'}</td>
-      <td className="px-4 py-2 text-xs">{d.version ?? '—'}</td>
-      <td className="px-4 py-2 text-xs" title={subs || undefined}>{d.devices.length ? `${d.devices.length} : ${subs}` : '—'}</td>
-      <td className="px-4 py-2 text-xs"><LevelCell d={d} levels={levels} defaultLevel={defaultLevel} /></td>
-      <td className="px-4 py-2 text-xs text-muted" title={dateTime(d.lastSeenAt)}>{timeAgo(d.lastSeenAt)}</td>
-      <td className="px-4 py-2 text-sm"><EquipmentCell d={d} site={site} /></td>
-      <td className="px-4 py-2 text-sm"><LogsCell d={d} canLog={canLog} /></td>
-      <td className="px-4 py-2">
-        <span className="inline-flex flex-wrap gap-1">
+      </div>
+      <div className="flex-1 divide-y divide-line/50 px-3 py-1">
+        <Field label="IP"><span className="font-mono">{d.ip ?? '—'}</span></Field>
+        <Field label="Version">{d.version ?? '—'}</Field>
+        <Field label="Sous-appareils"><span title={subs || undefined}>{d.devices.length ? `${d.devices.length} : ${subs}` : '—'}</span></Field>
+        <Field label="Vu"><span className="text-muted" title={dateTime(d.lastSeenAt)}>{timeAgo(d.lastSeenAt)}</span></Field>
+        <Field label="Niveau de log"><LevelCell d={d} levels={levels} defaultLevel={defaultLevel} /></Field>
+        <Field label="Logs"><LogsCell d={d} canLog={canLog} /></Field>
+        <Field label="Équipement"><EquipmentCell d={d} site={site} /></Field>
+      </div>
+      {(!d.hasInfo && !d.infoError) || d.infoError || d.mute ? (
+        <div className="flex flex-wrap gap-1 border-t border-line px-3 py-2">
           {!d.hasInfo && !d.infoError && <span title="Le package ne publie pas encore esphome/<unique_id>/info : nom, IP, version et sous-appareils inconnus"><Badge tone="warn">sans info</Badge></span>}
           {d.infoError && <span title={d.infoError}><Badge tone="bad">info invalide</Badge></span>}
           {d.mute && <span title={d.mute}><Badge tone="warn">muet</Badge></span>}
-        </span>
-      </td>
-    </tr>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+type GroupAction = 'level' | 'logs-on' | 'logs-off' | 'equipments';
+
+// Group actions on the devices ticked: the window shows which ones are targeted (the others, which the action cannot
+// concern, are left out and named).
+function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice[]; canLog: boolean; levels: string[]; onClear: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [action, setAction] = useState<GroupAction | null>(null);
+  const [level, setLevel] = useState(levels.includes('DEBUG') ? 'DEBUG' : levels[0] ?? '');
+  const [busy, setBusy] = useState(false);
+  const targets = (a: GroupAction) => {
+    switch (a) {
+      case 'level': return devices.filter((d) => d.lwt === 'online' && d.level && d.level !== level);
+      case 'logs-on': return canLog ? devices.filter((d) => d.equipment && !d.logs) : [];
+      case 'logs-off': return devices.filter((d) => d.logs);
+      // an ESP alone: nothing to choose in the single window (no sub-device, no manual equipment to link)
+      case 'equipments': return devices.filter((d) => !d.equipment && !missingSubs(d).length && !d.candidates.length);
+    }
+  };
+  const label: Record<GroupAction, string> = {
+    level: `Niveau de log ${level}`,
+    'logs-on': 'Activer les logs',
+    'logs-off': 'Désactiver les logs',
+    equipments: 'Créer les équipements',
+  };
+  const list = action ? targets(action) : [];
+  const run = async () => {
+    if (!action) return;
+    setBusy(true);
+    try {
+      const results = await Promise.allSettled(
+        list.map((d) => {
+          switch (action) {
+            case 'level': return api.setEsphomeLevel(d.key, level);
+            case 'logs-on': return api.setEsphomeLogs(d.key, true);
+            case 'logs-off': return api.setEsphomeLogs(d.key, false);
+            case 'equipments': return api.createEsphomeEquipments({ key: d.key, devices: [] });
+          }
+        }),
+      );
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), ...(action === 'equipments' ? [qc.invalidateQueries({ queryKey: keys.equipments })] : [])]);
+      const ok = results.length - failed.length;
+      if (ok) toast.success(action === 'level' ? `Niveau ${level} demandé à ${ok} appareil${ok > 1 ? 's' : ''}` : `${label[action]} : ${ok} appareil${ok > 1 ? 's' : ''}`);
+      if (failed.length) toast.error(`${failed.length} échec${failed.length > 1 ? 's' : ''} : ${(failed[0].reason as Error).message}`);
+      setAction(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const skipped = action ? devices.filter((d) => !list.includes(d)) : [];
+  const name = (d: EsphomeDevice) => d.name ?? d.uniqueId;
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-sm">
+      <span className="font-medium text-zinc-100">{devices.length} sélectionné{devices.length > 1 ? 's' : ''}</span>
+      <Button size="sm" variant="ghost" onClick={onClear}>Tout désélectionner</Button>
+      <span className="ml-auto flex flex-wrap items-center gap-2">
+        <select className="input py-1 text-xs" value={level} onChange={(e) => setLevel(e.target.value)} aria-label="Niveau de log à appliquer">
+          {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <Button size="sm" disabled={!targets('level').length} onClick={() => setAction('level')}>Appliquer le niveau</Button>
+        <Button size="sm" disabled={!targets('logs-on').length} onClick={() => setAction('logs-on')}>Activer les logs</Button>
+        <Button size="sm" disabled={!targets('logs-off').length} onClick={() => setAction('logs-off')}>Désactiver les logs</Button>
+        <Button size="sm" icon={Plus} disabled={!targets('equipments').length} onClick={() => setAction('equipments')}>Créer les équipements</Button>
+      </span>
+      <ConfirmModal
+        open={!!action}
+        onClose={() => setAction(null)}
+        onConfirm={() => void run()}
+        title={action ? `${label[action]} — ${list.length} appareil${list.length > 1 ? 's' : ''}` : ''}
+        confirmLabel="Appliquer"
+        loading={busy}
+        disabled={!list.length}
+      >
+        <ul className="max-h-60 space-y-0.5 overflow-y-auto text-sm">
+          {list.map((d) => <li key={d.key}><span className="text-zinc-100">{name(d)}</span> <span className="font-mono text-xs text-muted">{d.uniqueId}</span></li>)}
+        </ul>
+        {action === 'level' && <p className="mt-3 text-xs text-muted">Jusqu'au prochain redémarrage des appareils (la commande n'est pas conservée).</p>}
+        {action === 'equipments' && <p className="mt-3 text-xs text-muted">Seuls les ESP sans sous-appareil à créer ni équipement manuel à relier sont concernés ; les autres se font un par un.</p>}
+        {skipped.length > 0 && <p className="mt-3 text-xs text-muted">Non concernés : {skipped.map(name).join(', ')}.</p>}
+      </ConfirmModal>
+    </div>
   );
 }
 
 function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerView; canLog: boolean; levels: string[]; defaultLevel: string }) {
   const { data: sites = [] } = useSites();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const st = roleStatus({ status: b.status, url: '', carrier: { kind: 'hub', id: '', name: '' } });
   const online = b.devices.filter((d) => d.lwt === 'online').length;
   const site = b.site ? sites.find((s) => s.id === b.site)?.name ?? b.site : null;
+  // devices forgotten since the selection was made drop out of it
+  const picked = b.devices.filter((d) => selected.has(d.key));
+  const toggle = (key: string, on: boolean) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
   return (
     <Panel title={`Appareils de ${b.name}`} icon={Cpu} bodyClassName="" actions={<Badge tone={st.tone}>{st.label}</Badge>}>
-      <p className="border-b border-line px-4 py-3 text-xs text-muted">
-        {b.devices.length} appareil{b.devices.length > 1 ? 's' : ''} · {online} en ligne · site {site ?? 'aucun'}
-        {b.siteId ? ' (choisi pour ce broker)' : " (celui de l'hôte du broker)"}
-      </p>
+      <div className="flex items-center gap-3 border-b border-line px-4 py-3 text-xs text-muted">
+        {b.devices.length > 0 && (
+          <Checkbox
+            checked={picked.length === b.devices.length}
+            indeterminate={picked.length > 0 && picked.length < b.devices.length}
+            onChange={(v) => setSelected(v ? new Set(b.devices.map((d) => d.key)) : new Set())}
+            label="Tout sélectionner"
+          />
+        )}
+        <p>
+          {b.devices.length} appareil{b.devices.length > 1 ? 's' : ''} · {online} en ligne · site {site ?? 'aucun'}
+          {b.siteId ? ' (choisi pour ce broker)' : " (celui de l'hôte du broker)"}
+        </p>
+      </div>
+      {picked.length > 0 && <GroupBar devices={picked} canLog={canLog} levels={levels} onClear={() => setSelected(new Set())} />}
       {b.status?.error && <p className="mx-4 my-3 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-200">{b.status.error}</p>}
       {!b.devices.length ? (
         <p className="p-4 text-sm text-muted">Aucun appareil : un ESP apparaît dès qu'il publie son LWT sur <code>esphome/&lt;unique_id&gt;/LWT</code>.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs text-muted">
-              <tr>
-                <th className="px-4 py-2 font-normal">État</th>
-                <th className="px-4 py-2 font-normal">Appareil</th>
-                <th className="px-4 py-2 font-normal">IP</th>
-                <th className="px-4 py-2 font-normal">Version</th>
-                <th className="px-4 py-2 font-normal">Sous-appareils</th>
-                <th className="px-4 py-2 font-normal">Niveau de log</th>
-                <th className="px-4 py-2 font-normal">Vu</th>
-                <th className="px-4 py-2 font-normal">Équipement</th>
-                <th className="px-4 py-2 font-normal">Logs</th>
-                <th className="px-4 py-2 font-normal"><span className="sr-only">Remarques</span></th>
-              </tr>
-            </thead>
-            <tbody>{b.devices.map((d) => <DeviceRow key={d.key} d={d} site={site} canLog={canLog} levels={levels} defaultLevel={defaultLevel} />)}</tbody>
-          </table>
-        </div>
+        <ul className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+          {b.devices.map((d) => <DeviceCard key={d.key} d={d} site={site} canLog={canLog} levels={levels} defaultLevel={defaultLevel} selected={selected.has(d.key)} onSelect={(v) => toggle(d.key, v)} />)}
+        </ul>
       )}
     </Panel>
   );
@@ -396,7 +510,15 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerVi
 
 export function EsphomeSettings() {
   const { data, isLoading, error } = useQuery({ queryKey: QUERY, queryFn: api.esphomeSettings });
-  const [tab, setTab] = useState('setup');
+  // sub-tab kept in the URL (?sub=…): coming back from another screen restores it
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('sub') ?? 'setup';
+  const setTab = (id: string) => {
+    const next = new URLSearchParams(params);
+    if (id === 'setup') next.delete('sub');
+    else next.set('sub', id);
+    setParams(next, { replace: true });
+  };
   if (isLoading) return <div className="flex justify-center p-6"><Spinner /></div>;
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
   if (!data?.role) return <p className="p-4 text-sm text-muted">Rôle ESPHome non déclaré : le déclarer dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.</p>;

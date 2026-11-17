@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowLeft, RefreshCw, Router, ScrollText, Settings, Trash2 } from 'lucide-react';
@@ -47,6 +47,9 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
   const { data: status } = useStatus();
   const siteName = useSiteName();
   const navigate = useNavigate();
+  const location = useLocation();
+  // history back keeps the filters of the list (they live in its URL); page opened directly: the plain list
+  const goBack = () => (location.key === 'default' ? navigate('/equipments') : navigate(-1));
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -80,7 +83,7 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
       await api.deleteEquipment(e.id);
       await qc.invalidateQueries({ queryKey: keys.equipments });
       toast.success(`Équipement ${e.name} supprimé`);
-      navigate('/equipments');
+      goBack();
     } catch (err) {
       toast.error((err as Error).message);
       setBusy(false);
@@ -93,10 +96,10 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
         icon={Router}
         title={e.name}
         back={
-          <Link to="/equipments" title="Retour aux équipements" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line px-2 text-sm text-muted transition hover:bg-raised hover:text-zinc-100">
+          <button type="button" onClick={goBack} title="Retour à l'écran précédent" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line px-2 text-sm text-muted transition hover:bg-raised hover:text-zinc-100">
             <ArrowLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Équipements</span>
-          </Link>
+            <span className="hidden sm:inline">Retour</span>
+          </button>
         }
         status={
           <span className={clsx('inline-flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', toneBadge[tone])}>
