@@ -192,7 +192,7 @@ function CutoffBar({ role, selection, masked, onMasked }: { role: string; select
         loading={mask.isPending}
         disabled={preview.isLoading || !preview.data?.hosts.length}
       >
-        {preview.isLoading ? (
+        {preview.isLoading || (!preview.data && !preview.error) ? (
           <Spinner />
         ) : preview.error ? (
           <p className="text-red-400">{(preview.error as Error).message}</p>

@@ -17,6 +17,7 @@ export async function registerSecurityHeaders(app: FastifyInstance) {
         'script-src': ["'self'"],
         'style-src': ["'self'"],
         'connect-src': ["'self'"],
+        'font-src': ["'self'", 'data:'],
         'img-src': ["'self'", 'data:'],
         'object-src': ["'none'"],
         'base-uri': ["'self'"],
