@@ -1,0 +1,10 @@
+{
+  "model": "sonnet",
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npx eslint *)",
+      "Bash(python3 -)"
+    ]
+  }
+}

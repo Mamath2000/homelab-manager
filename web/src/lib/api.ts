@@ -1951,10 +1951,18 @@ export interface LogQuery {
   // sub-devices of an ESPHome device (field device); deviceSystem: with the lines of the ESP from warning up
   device?: string[];
   deviceSystem?: boolean;
+  // read the history hidden by host too (homelab#355)
+  showMasked?: boolean;
   // a date (ISO) or a time back from now ("15m", "1h", "7d")
   from?: string;
   to?: string;
 }
+// history of a host hidden before `since` (ISO); the hosts of a selection with the journals it would hide
+export interface LogCutoff {
+  hostname: string;
+  since: string;
+}
+export type LogSelection = Pick<LogQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'>;
 export interface LogHits {
   step: string;
   timestamps: string[];
@@ -2153,7 +2161,11 @@ export const api = {
   // journals of the containers of a host, to its log server (homelab#347); recreate: stacks created again in the same job
   setDockerLogs: (hostId: string, enabled: boolean, recreate: string[] = []) => request<{ jobId: string }>('PUT', `/api/hosts/${hostId}/docker-logs`, { enabled, ...(recreate.length ? { recreate } : {}) }),
   removeLogHost: (role: string, hostId: string) => request<{ jobId: string | null; applied: boolean }>('DELETE', `/api/settings/logs/${encodeURIComponent(role)}/hosts/${hostId}`),
-  logContext: (role: string | undefined, hostname: string, time: string) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role }, { hostname, time })}`),
+  logCutoffs: (role?: string) => request<{ cutoffs: LogCutoff[] }>('GET', `/api/logs/cutoffs?${logParams({ role })}`),
+  logCutoffPreview: (sel: LogSelection) => request<{ cutoffs: LogCutoff[]; hosts: { hostname: string; count: number }[] }>('GET', `/api/logs/cutoffs?${logParams(sel, { preview: 'true' })}`),
+  maskLogs: (sel: LogSelection) => request<{ cutoffs: LogCutoff[] }>('PUT', '/api/logs/cutoffs', { ...sel, host: sel.host?.join(','), hostname: sel.hostname?.join(','), site: sel.site?.join(',') }),
+  unmaskLogs: (sel: LogSelection) => request<{ cutoffs: LogCutoff[] }>('DELETE', `/api/logs/cutoffs?${logParams(sel)}`),
+  logContext: (role: string | undefined, hostname: string, time: string, showMasked?: boolean) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role, showMasked }, { hostname, time })}`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),

@@ -661,6 +661,15 @@ export type JobBy = Pick<AuditActor, 'kind' | 'name' | 'keyName'>;
 export const AUDIT_CATEGORIES = ['auth', 'account', 'apiKey', 'host', 'job', 'settings', 'setup'] as const;
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
 
+// History of the journals of a host hidden before `since` (homelab#355): a mask on the queries, nothing is deleted.
+export interface LogCutoffDoc {
+  // the hostname as the journals carry it
+  _id: string;
+  since: Date;
+  by: string | null;
+  at: Date;
+}
+
 // One key action on the hub (audit.ts): only added, never changed nor removed; Mongo drops it after a year.
 export interface AuditDoc {
   _id: ObjectId;

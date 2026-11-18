@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUp, ChevronDown, ChevronRight, Copy, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, ChevronRight, Copy, EyeOff, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { Badge, Button, Empty, Modal, Spinner } from '../components/ui';
-import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow } from '../lib/api';
+import { Badge, Button, ConfirmModal, Empty, Modal, Spinner } from '../components/ui';
+import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow, type LogSelection } from '../lib/api';
+import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { useHosts, useLogServers, useSites, useTags } from '../lib/queries';
 import { toneBadge, type Tone } from '../lib/status';
@@ -97,6 +98,8 @@ function useLogFilters() {
       from: params.get('from') ?? DEFAULT_PERIOD,
       to: params.get('to') ?? '',
       live: params.get('live') === '1',
+      // read the history hidden by host too (homelab#355)
+      masked: params.get('masked') === '1',
     };
   }, [params]);
   const set = (patch: Partial<Record<keyof typeof filters, string | number | boolean | string[]>>) => {
@@ -132,7 +135,80 @@ const toQuery = (f: Filters): LogQuery => ({
   ...(f.source.length ? { source: f.source } : {}),
   ...(f.device.length ? { device: f.device, ...(f.deviceSystem ? { deviceSystem: true } : {}) } : {}),
   ...(f.q ? { q: f.q } : {}),
+  ...(f.masked ? { showMasked: true } : {}),
 });
+
+// History hidden by host (homelab#355): nothing is deleted on the log server, the hub leaves out what is older than the
+// cutoff of the host. Hiding is for admins (passkey), reading hidden lines is for everyone who reads the journals.
+const sinceLabel = (iso: string) => new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function CutoffBar({ role, selection, masked, onMasked }: { role: string; selection: LogSelection; masked: boolean; onMasked: (on: boolean) => void }) {
+  const { canManage } = useMe();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [confirm, setConfirm] = useState(false);
+  const cutoffs = useQuery({ queryKey: ['logs', 'cutoffs', role], queryFn: () => api.logCutoffs(role || undefined) });
+  const selected = !!(selection.host?.length || selection.hostname?.length || selection.site?.length || selection.tag);
+  const preview = useQuery({ queryKey: ['logs', 'cutoffs', 'preview', selection], queryFn: () => api.logCutoffPreview(selection), enabled: confirm });
+  const done = () => qc.invalidateQueries({ queryKey: ['logs'] });
+  const mask = useMutation({
+    mutationFn: () => api.maskLogs(selection),
+    onSuccess: () => (setConfirm(false), toast.success('Historique masqué'), void done()),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const unmask = useMutation({
+    mutationFn: () => api.unmaskLogs({ role: role || undefined }),
+    onSuccess: () => (toast.success('Historique réaffiché'), void done()),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const list = cutoffs.data?.cutoffs ?? [];
+  const total = preview.data?.hosts.reduce((n, h) => n + h.count, 0) ?? 0;
+  if (!list.length && !canManage) return null;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+      {list.map((c) => (
+        <span key={c.hostname} className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-zinc-300" title="Les journaux de cet hôte plus anciens sont masqués">
+          <EyeOff className="h-3 w-3" /> {c.hostname} : historique masqué avant le {sinceLabel(c.since)}
+        </span>
+      ))}
+      {list.length > 0 && (
+        <>
+          <label className="inline-flex items-center gap-1.5 text-zinc-300">
+            <input type="checkbox" checked={masked} onChange={(e) => onMasked(e.target.checked)} />
+            Afficher l'historique masqué
+          </label>
+          {canManage && <Button size="sm" loading={unmask.isPending} onClick={() => unmask.mutate()}>Tout réafficher</Button>}
+        </>
+      )}
+      {canManage && (
+        <Button size="sm" icon={EyeOff} disabled={!selected} title={selected ? undefined : "Filtrer sur un hôte (ou un site, un tag) pour masquer son historique"} onClick={() => setConfirm(true)}>Masquer l'historique</Button>
+      )}
+      <ConfirmModal
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        onConfirm={() => mask.mutate()}
+        title="Masquer l'historique"
+        confirmLabel="Masquer"
+        loading={mask.isPending}
+        disabled={preview.isLoading || !preview.data?.hosts.length}
+      >
+        {preview.isLoading ? (
+          <Spinner />
+        ) : preview.error ? (
+          <p className="text-red-400">{(preview.error as Error).message}</p>
+        ) : (
+          <>
+            <p>Les journaux reçus jusqu'à maintenant ne seront plus affichés (ni comptés) pour {preview.data!.hosts.length > 1 ? `ces ${preview.data!.hosts.length} hôtes` : 'cet hôte'}. Rien n'est supprimé : « Tout réafficher » les rétablit.</p>
+            <ul className="my-2 max-h-48 overflow-y-auto font-mono text-xs">
+              {preview.data!.hosts.map((h) => <li key={h.hostname}>{h.hostname} : {h.count.toLocaleString('fr-FR')} ligne{h.count > 1 ? 's' : ''} masquée{h.count > 1 ? 's' : ''}</li>)}
+            </ul>
+            <p className="text-muted">{total.toLocaleString('fr-FR')} lignes au total.</p>
+          </>
+        )}
+      </ConfirmModal>
+    </div>
+  );
+}
 
 // Stacked bars per severity over the range; a click on a bar, or a drag over several, zooms on them.
 function Histogram({ hits, onZoom }: { hits: LogHits; onZoom: (from: string, to: string) => void }) {
@@ -299,8 +375,8 @@ function Matrix({ matrix, source, level, onSource, onLevel, onCell }: { matrix: 
 }
 
 // What surrounds a journal on its host, the journal itself highlighted.
-function ContextModal({ row, role, onClose }: { row: LogRow; role: string; onClose: () => void }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ['logs', 'context', role, row.hostname, row.time], queryFn: () => api.logContext(role || undefined, row.hostname, row.time) });
+function ContextModal({ row, role, masked, onClose }: { row: LogRow; role: string; masked: boolean; onClose: () => void }) {
+  const { data, isLoading, error } = useQuery({ queryKey: ['logs', 'context', role, row.hostname, row.time, masked], queryFn: () => api.logContext(role || undefined, row.hostname, row.time, masked || undefined) });
   const target = useRef<HTMLLIElement>(null);
   useEffect(() => {
     target.current?.scrollIntoView({ block: 'center' });
@@ -473,7 +549,7 @@ export function Logs() {
   // The head of the page cascades, the period over all of it: the sites narrow the matrix, the sites and the matrix (source,
   // criticity) the senders, the sites, the matrix and the sender the histogram. The filters above the list touch the list
   // only.
-  const head: LogQuery = { ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...range };
+  const head: LogQuery = { ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.masked ? { showMasked: true } : {}), ...range };
   const picked: LogQuery = { ...head, ...(f.source.length ? { source: f.source } : {}), ...(f.level || f.severity !== DEFAULT_SEVERITY ? severityOf(f) : {}) };
   const sender: LogQuery = { ...picked, ...severityOf(f), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}) };
   const matrix = useQuery({ queryKey: ['logs', 'matrix', head], queryFn: () => api.logMatrix(head), enabled: hasServer, placeholderData: keepPreviousData });
@@ -615,6 +691,13 @@ export function Logs() {
         <SearchBox key={f.q} initial={f.q} onApply={(q) => set({ q })} />
       </div>
 
+      <CutoffBar
+        role={f.role}
+        selection={{ ...(f.role ? { role: f.role } : {}), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.tag ? { tag: f.tag } : {}) }}
+        masked={f.masked}
+        onMasked={(on) => set({ masked: on })}
+      />
+
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {current && (
           <button type="button" className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-xs text-zinc-300 hover:text-zinc-100" title="Ne plus filtrer" onClick={() => set({ host: '', hostname: '' })}>
@@ -707,7 +790,7 @@ export function Logs() {
           )}
         </>
       )}
-      {context && <ContextModal row={context} role={f.role} onClose={() => setContext(null)} />}
+      {context && <ContextModal row={context} role={f.role} masked={f.masked} onClose={() => setContext(null)} />}
     </>
   );
 }

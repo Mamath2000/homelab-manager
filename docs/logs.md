@@ -126,7 +126,7 @@ services:
     network_mode: host
     command:
       - -storageDataPath=/victoria-logs-data
-      - -retentionPeriod=30d
+      - -retentionPeriod=7d
       - -httpListenAddr=:9428
       - -syslog.listenAddr.tcp=:514
       # journaux des conteneurs Docker : un second listener TCP, étiqueté source=docker
@@ -142,7 +142,7 @@ services:
 |---|---|
 | `-httpListenAddr` (9428) | API de requête, lue par le hub |
 | `-syslog.listenAddr.tcp` (514) | réception des journaux des hôtes, en TCP ; un port sous 1024 demande que le processus soit root ou ait `CAP_NET_BIND_SERVICE` |
-| `-retentionPeriod` | durée de conservation (7 jours par défaut) ; `-retention.maxDiskSpaceUsageBytes` borne aussi le disque |
+| `-retentionPeriod` | durée de conservation (7 jours par défaut, valeur de l'exemple) ; réglage du serveur à faire à la main dans son compose, le hub ne le modifie pas ; `-retention.maxDiskSpaceUsageBytes` borne aussi le disque |
 | `-syslog.useRemoteIP.tcp` | garde l'adresse de l'émetteur de chaque journal (champ `remote_ip`) |
 | `-syslog.extraFields.tcp` | champs ajoutés aux lignes d'un listener, **appariés par position** aux `-syslog.listenAddr.tcp` (l'ordre compte) : `source` range les lignes dans la matrice de la page Logs |
 
@@ -185,6 +185,16 @@ Un hôte est reconnu par le **nom d'hôte** de ses journaux, comparé à celui q
 
 **Direct** affiche les nouvelles lignes au fil de l'eau, en haut de la liste, avec les mêmes filtres (la période est ignorée, l'histogramme masqué). Descendre dans la liste met l'affichage en pause ; un bouton indique le nombre de nouvelles lignes et y revient. La liste garde 1000 lignes. Huit suivis au plus sont ouverts en même temps sur le hub.
 
+### Masquer l'historique d'un hôte
+
+Une fois l'investigation faite et les actions décidées, **Masquer l'historique** (administrateurs, passkey) repart d'une page propre pour un hôte : filtrer sur l'hôte (ou un site, un tag), le bouton affiche un aperçu « N lignes masquées » par hôte, puis pose un **repère** à l'instant présent.
+
+- Rien n'est supprimé sur le serveur : le hub écarte à la lecture les lignes de l'hôte plus anciennes que le repère. Liste, histogramme, matrice, émetteurs, valeurs des filtres, contexte et direct respectent le masque, pour que les compteurs et la liste concordent.
+- Une pastille « historique masqué avant le … » rappelle chaque repère ; **Afficher l'historique masqué** lit tout, sans modifier les repères ; **Tout réafficher** les retire.
+- Un repère est posé par **nom d'hôte brut** : il couvre aussi un émetteur inconnu du hub. Masquer de nouveau le même hôte déplace le repère.
+- La détection d'hôte muet ([ci-dessous](#hôte-muet)) lit les lignes brutes : masquer un hôte ne le fait pas passer en « rien reçu ».
+- Pose et retrait sont inscrits au journal d'audit. Un repère plus ancien que la rétention du serveur n'a plus d'effet (il reste en base, inoffensif).
+
 ## Sur la fiche d'un hôte
 
 - Le bouton **Logs** de l'en-tête ouvre la page filtrée sur l'hôte.
@@ -215,12 +225,15 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `GET /api/logs/sources` | émetteurs des dernières 24 h, avec l'hôte du hub reconnu |
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
 | `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
+| `GET /api/logs/cutoffs` | repères d'historique masqué ; avec `preview=true` et une sélection (`host`, `hostname`, `site`, `tag`), le nombre de lignes que masquer cette sélection écarterait, par hôte |
+| `PUT /api/logs/cutoffs` | masque l'historique de la sélection jusqu'à maintenant, 400 si elle ne contient aucun hôte (administrateurs, passkey) |
+| `DELETE /api/logs/cutoffs` | réaffiche l'historique de la sélection, de tous les hôtes sans sélection (administrateurs, passkey) |
 | `POST /api/roles/log-reception` | test de réception d'un serveur en cours de déclaration : ligne syslog de test envoyée, puis cherchée par l'API (administrateurs) |
 | `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
 | `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |
 | `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte, et celui de ses conteneurs (administrateurs, passkey) |
 | `PUT /api/hosts/:id/docker-logs` | journaux des conteneurs : `{ "enabled": true, "recreate": ["stack"…] }` les met en place (et recrée ces stacks), `{ "enabled": false }` les arrête (administrateurs, passkey) ; `202 { jobId }` |
 
-Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname` ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
+Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname`, `showMasked` (lit aussi l'historique masqué) ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
 
 Le hub construit lui-même la requête envoyée au serveur : aucune requête LogsQL n'est acceptée du navigateur.

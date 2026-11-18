@@ -10,7 +10,8 @@ import { hostDto } from '../hostDto.js';
 import { hasRunningJob } from '../jobs.js';
 import { applySetup, canSetup, effectiveValues, loadSetupProfile, overridesError } from '../setup.js';
 import { trackStream } from '../events.js';
-import { hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, querySources, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
+import { loadCutoffs, removeCutoffs, setCutoffs } from '../logCutoffs.js';
+import { countByHost, hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, querySources, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
 import type { HostDoc, LogServerRole, SetupOverrides, SetupProfile } from '../types.js';
 
 // Journals of the hosts, read on a log server (logs.ts). Admins and operators (profiles.ts), never an API key: a journal
@@ -44,6 +45,8 @@ const filterProps = {
   // sub-devices of an ESPHome device (field device), with the lines of the ESP from warning up (deviceSystem)
   device: list,
   deviceSystem: { type: 'boolean' },
+  // read the history hidden by host too (homelab#355)
+  showMasked: { type: 'boolean' },
 } as const;
 const rangeProps = { from: { type: 'string', maxLength: 40 }, to: { type: 'string', maxLength: 40 } } as const;
 
@@ -63,6 +66,7 @@ interface FilterQuery {
   notHostname?: string;
   device?: string;
   deviceSystem?: boolean;
+  showMasked?: boolean;
 }
 interface RangeQuery {
   from?: string;
@@ -185,7 +189,9 @@ export function filtersOf(q: FilterQuery, known: KnownHost[], senders: Located[]
 // The filters of a request, the senders of its range located when it names a site.
 async function resolveFilters(role: LogServerRole, q: FilterQuery & RangeQuery, known: KnownHost[], range: LogRange) {
   const senders = split(q.site).length ? await locatedSenders(role, range, `${q.from ?? '1h'}|${q.to ?? ''}`, known) : [];
-  return filtersOf(q, known, senders);
+  const filters = filtersOf(q, known, senders);
+  // the history hidden by host is left out, unless the page asks for it
+  return filters && !q.showMasked ? { ...filters, cutoffs: await loadCutoffs() } : filters;
 }
 
 // Each row with the host of the hub that sent it (null: a sender the hub does not know).
@@ -365,8 +371,74 @@ export function registerLogRoutes(app: FastifyInstance) {
     },
   );
 
+  // History hidden by host (homelab#355). The hosts are named like a filter of the page (host, hostname, site, tag): the
+  // selection must hold at least one, never the whole server by accident.
+  const cutoffHosts = async (role: LogServerRole, q: FilterQuery) => {
+    const range = rangeOf({ from: '1d' });
+    const f = await resolveFilters(role, { ...q, showMasked: true, from: '1d' }, await knownHosts(), range);
+    if (!f?.hostnames?.length) throw new BadRequest('aucun hôte sélectionné');
+    return f.hostnames;
+  };
+  const cutoffProps = { type: 'object', additionalProperties: false, properties: { role: filterProps.role, host: list, hostname: list, site: list, tag: filterProps.tag } } as const;
+
+  // The cutoffs set, and for a selection how many journals hiding its history would hide (count per host).
+  app.get<{ Querystring: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> & { preview?: boolean } }>(
+    '/api/logs/cutoffs',
+    { schema: { querystring: { ...cutoffProps, properties: { ...cutoffProps.properties, preview: { type: 'boolean' } } } } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.query.role);
+      if (!role) return reply;
+      try {
+        const cutoffs = await loadCutoffs();
+        if (!req.query.preview) return { cutoffs };
+        const names = await cutoffHosts(role, req.query);
+        const counts = await countByHost(role.config, { hostnames: names, cutoffs });
+        return { cutoffs, hosts: names.map((hostname) => ({ hostname, count: counts.get(hostname) ?? 0 })) };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
+
+  // Hide the history of the hosts before now (or move the cutoff). Admins, passkey, audit.
+  app.put<{ Body: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> }>(
+    '/api/logs/cutoffs',
+    { schema: { body: cutoffProps } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.body.role);
+      if (!role) return reply;
+      try {
+        const names = await cutoffHosts(role, req.body);
+        await setCutoffs(names, req.user?.username ?? null);
+        req.auditNote = { details: { hostnames: names } };
+        return { cutoffs: await loadCutoffs() };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
+
+  // Show the history again: the hosts of the selection, or every host without selection.
+  app.delete<{ Querystring: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> }>(
+    '/api/logs/cutoffs',
+    { schema: { querystring: cutoffProps } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.query.role);
+      if (!role) return reply;
+      try {
+        const selected = req.query.host || req.query.hostname || req.query.site || req.query.tag;
+        const names = selected ? await cutoffHosts(role, req.query) : [];
+        await removeCutoffs(names);
+        req.auditNote = { details: { hostnames: names.length ? names : 'all' } };
+        return { cutoffs: await loadCutoffs() };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
+
   // What surrounds a journal on its host: the rows before and after it, oldest first.
-  app.get<{ Querystring: { role?: string; hostname: string; time: string; before?: number; after?: number } }>(
+  app.get<{ Querystring: { role?: string; hostname: string; time: string; before?: number; after?: number; showMasked?: boolean } }>(
     '/api/logs/context',
     {
       schema: {
@@ -374,7 +446,7 @@ export function registerLogRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['hostname', 'time'],
           additionalProperties: false,
-          properties: { role: filterProps.role, hostname: { type: 'string', minLength: 1, maxLength: 253 }, time: { type: 'string', maxLength: 40 }, before: { type: 'integer', minimum: 0, maximum: 200 }, after: { type: 'integer', minimum: 0, maximum: 200 } },
+          properties: { role: filterProps.role, hostname: { type: 'string', minLength: 1, maxLength: 253 }, time: { type: 'string', maxLength: 40 }, before: { type: 'integer', minimum: 0, maximum: 200 }, after: { type: 'integer', minimum: 0, maximum: 200 }, showMasked: filterProps.showMasked },
         },
       },
     },
@@ -383,7 +455,7 @@ export function registerLogRoutes(app: FastifyInstance) {
       if (!role) return reply;
       try {
         if (!TIME_RE.test(req.query.time)) throw new BadRequest('time invalide');
-        const rows = await queryContext(role.config, req.query.hostname, req.query.time, req.query.before ?? 20, req.query.after ?? 20);
+        const rows = await queryContext(role.config, req.query.hostname, req.query.time, req.query.before ?? 20, req.query.after ?? 20, req.query.showMasked ? undefined : await loadCutoffs());
         return { rows: withHosts(rows, await knownHosts()) };
       } catch (err) {
         return fail(reply, err);

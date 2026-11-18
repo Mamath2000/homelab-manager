@@ -66,7 +66,18 @@ export interface LogFilters {
   deviceSystem?: boolean;
   // excluded values, by field
   not?: { hostnames?: string[]; apps?: string[]; sources?: string[] };
+  // history hidden by host (homelab#355): the journals of `hostname` older than `since` (ISO) are left out. Set by the
+  // routes that show journals, never by the poll that watches silent hosts (it reads the raw lines).
+  cutoffs?: LogCutoff[];
 }
+
+export interface LogCutoff {
+  hostname: string;
+  since: string;
+}
+
+// The beginning of the range of a hidden history: no journal is older.
+const EPOCH = '2000-01-01T00:00:00Z';
 
 const anyOf = (field: string, values: string[]) => (values.length === 1 ? `${field}:=${quote(values[0])}` : `${field}:in(${values.map(quote).join(',')})`);
 
@@ -93,6 +104,11 @@ export function filterQuery(f: LogFilters) {
   if (f.not?.hostnames?.length) parts.push(`!${anyOf('hostname', f.not.hostnames)}`);
   if (f.not?.apps?.length) parts.push(`!${anyOf('app_name', f.not.apps)}`);
   if (f.not?.sources?.length) parts.push(`!${sourceCondition(f.not.sources)}`);
+  // a cutoff on a host the selection leaves out has nothing to hide
+  for (const c of f.cutoffs ?? []) {
+    if (f.hostnames?.length && !f.hostnames.includes(c.hostname)) continue;
+    parts.push(`!(hostname:=${quote(c.hostname)} _time:[${EPOCH},${c.since}))`);
+  }
   const text = f.text?.trim();
   // a part of a word matches too ("err" finds "error"): a regular expression of the text itself, nothing of it a pattern
   if (text) parts.push(`_msg:~${quote(`(?i)${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)}`);
@@ -281,13 +297,13 @@ export async function queryFieldValues(c: Server, field: LogField, f: LogFilters
 }
 
 // What surrounds a journal on its host: the rows just before and just after it, oldest first, the row itself included.
-export async function queryContext(c: Server, hostname: string, time: string, before: number, after: number): Promise<LogRow[]> {
+export async function queryContext(c: Server, hostname: string, time: string, before: number, after: number, cutoffs?: LogCutoff[]): Promise<LogRow[]> {
   const t = Date.parse(time);
   if (!Number.isFinite(t)) throw new LogServerError('date invalide', 400);
   const hour = 3600_000;
   const [prev, next] = await Promise.all([
-    queryLogs(c, { hostnames: [hostname] }, { start: new Date(t - hour).toISOString(), end: time }, before),
-    queryLogs(c, { hostnames: [hostname] }, { start: time, end: new Date(t + hour).toISOString() }, after + 1, true),
+    queryLogs(c, { hostnames: [hostname], cutoffs }, { start: new Date(t - hour).toISOString(), end: time }, before),
+    queryLogs(c, { hostnames: [hostname], cutoffs }, { start: time, end: new Date(t + hour).toISOString() }, after + 1, true),
   ]);
   return [...prev.reverse(), ...next];
 }
@@ -423,6 +439,13 @@ export async function querySenders(c: Server, start: string, f: LogFilters = {},
   return jsonLines(await res.text())
     .filter((o) => o.hostname)
     .map((o) => ({ hostname: o.hostname, lastAt: Date.parse(o.last) || 0, count: Number(o.n) || 0, errors: Number(o.errors) || 0, ...(o.ip ? { ip: o.ip } : {}) }));
+}
+
+// Journals per host over the whole history that matches the filters (what hiding a history hides).
+export async function countByHost(c: Server, f: LogFilters): Promise<Map<string, number>> {
+  const only = filterQuery(f);
+  const res = await call(c, '/select/logsql/query', { query: `${only === '*' ? '' : `${only} `}| stats by (hostname) count() n`, start: EPOCH, timeout: `${QUERY_TIMEOUT_MS / 1000}s` }, QUERY_TIMEOUT_MS + 2000);
+  return new Map(jsonLines(await res.text()).filter((o) => o.hostname).map((o) => [o.hostname, Number(o.n) || 0]));
 }
 
 // The categories the server received over the range, whatever the other filters: the columns of the matrix, the same

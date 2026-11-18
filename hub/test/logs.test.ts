@@ -379,3 +379,17 @@ test('log server: the reception test sends a syslog line and finds it through th
     api.close();
   }
 });
+
+test('logs: the history hidden by host leaves out the older journals of that host only', () => {
+  const since = '2026-11-18T10:00:00.000Z';
+  const mask = (h: string) => `!(hostname:="${h}" _time:[2000-01-01T00:00:00Z,${since}))`;
+  // no cutoff: unchanged
+  assert.equal(filterQuery({ hostnames: ['pve1'], cutoffs: [] }), 'hostname:="pve1"');
+  // one clause per hidden host, the other hosts untouched
+  assert.equal(filterQuery({ cutoffs: [{ hostname: 'pve1', since }, { hostname: 'pve2', since }] }), `${mask('pve1')} ${mask('pve2')}`);
+  // a selection that leaves the host out has nothing to hide
+  assert.equal(filterQuery({ hostnames: ['pve2'], cutoffs: [{ hostname: 'pve1', since }] }), 'hostname:="pve2"');
+  assert.equal(filterQuery({ hostnames: ['pve1'], maxSeverity: 4, cutoffs: [{ hostname: 'pve1', since }] }), `hostname:="pve1" severity:<=4 ${mask('pve1')}`);
+  // the hostname is quoted
+  assert.match(filterQuery({ cutoffs: [{ hostname: 'x" | delete', since }] }), /hostname:="x\\" \| delete"/);
+});

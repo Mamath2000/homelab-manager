@@ -54,6 +54,8 @@ const ACTIONS: Record<string, string> = {
   'setup.overrides': "Valeurs propres d'un hôte",
   'setup.keyAck': 'Clé SSH validée ou retirée de la validation',
   'setup.accessApply': 'Accès appliqués aux hôtes',
+  'settings.logsMask': 'Historique des journaux masqué',
+  'settings.logsUnmask': 'Historique des journaux réaffiché',
   'setup.logsAdd': 'Envoi des journaux ajouté à un hôte',
   'setup.logsRemove': 'Envoi des journaux retiré d’un hôte',
 };
