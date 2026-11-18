@@ -1962,7 +1962,7 @@ export interface LogCutoff {
   hostname: string;
   since: string;
 }
-export type LogSelection = Pick<LogQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'>;
+export type LogSelection = Pick<LogQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> & { all?: boolean };
 export interface LogHits {
   step: string;
   timestamps: string[];

@@ -4,7 +4,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import clsx from 'clsx';
 import { ArrowUp, ChevronDown, ChevronRight, Copy, EyeOff, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { Badge, Button, Empty, Modal, Spinner } from '../components/ui';
+import { Badge, Button, ConfirmModal, Empty, Modal, Spinner } from '../components/ui';
 import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow, type LogSelection } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -155,9 +155,21 @@ function MaskButton({ selection }: { selection: LogSelection }) {
     onSuccess: () => (toast.success('Historique masqué'), void qc.invalidateQueries({ queryKey: ['logs'] })),
     onError: (e: Error) => toast.error(e.message),
   });
+  const maskAll = useMutation({
+    mutationFn: () => api.maskLogs({ ...(selection.role ? { role: selection.role } : {}), all: true }),
+    onSuccess: () => (setConfirmAll(false), toast.success('Historique de tous les hôtes masqué'), void qc.invalidateQueries({ queryKey: ['logs'] })),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const [confirmAll, setConfirmAll] = useState(false);
   if (!canManage) return null;
   return (
-    <Button size="sm" icon={EyeOff} disabled={!selected} loading={mask.isPending} title={selected ? "Masquer les journaux reçus jusqu'à maintenant pour la sélection" : "Filtrer sur un hôte (ou un site, un tag) pour masquer son historique"} onClick={() => mask.mutate()}>Masquer</Button>
+    <>
+      <Button size="sm" icon={EyeOff} disabled={!selected} loading={mask.isPending} title={selected ? "Masquer les journaux reçus jusqu'à maintenant pour la sélection" : "Filtrer sur un hôte (ou un site, un tag) pour masquer son historique"} onClick={() => mask.mutate()}>Masquer</Button>
+      <Button size="sm" icon={EyeOff} title="Masquer l'historique de tous les hôtes" onClick={() => setConfirmAll(true)}>Tout masquer</Button>
+      <ConfirmModal open={confirmAll} onClose={() => setConfirmAll(false)} onConfirm={() => maskAll.mutate()} loading={maskAll.isPending} title="Masquer l'historique de tous les hôtes" confirmLabel="Tout masquer">
+        <p className="text-sm text-zinc-300">Les journaux reçus jusqu'à maintenant seront masqués pour tous les hôtes. Rien n'est supprimé : « Tout réafficher » les restitue.</p>
+      </ConfirmModal>
+    </>
   );
 }
 

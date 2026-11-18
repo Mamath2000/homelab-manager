@@ -380,6 +380,8 @@ export function registerLogRoutes(app: FastifyInstance) {
     return f.hostnames;
   };
   const cutoffProps = { type: 'object', additionalProperties: false, properties: { role: filterProps.role, host: list, hostname: list, site: list, tag: filterProps.tag } } as const;
+  // « Tout masquer »: every sender the log server holds (retention is 30 d at most by default), not a selection.
+  const maskProps = { ...cutoffProps, properties: { ...cutoffProps.properties, all: { type: 'boolean' } } } as const;
 
   // The cutoffs set, and for a selection how many journals hiding its history would hide (count per host).
   app.get<{ Querystring: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> & { preview?: boolean } }>(
@@ -401,14 +403,15 @@ export function registerLogRoutes(app: FastifyInstance) {
   );
 
   // Hide the history of the hosts before now (or move the cutoff). Admins, audit (no passkey: nothing is deleted).
-  app.put<{ Body: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> }>(
+  app.put<{ Body: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> & { all?: boolean } }>(
     '/api/logs/cutoffs',
-    { schema: { body: cutoffProps } },
+    { schema: { body: maskProps } },
     async (req, reply) => {
       const role = serverOf(req, reply, req.body.role);
       if (!role) return reply;
       try {
-        const names = await cutoffHosts(role, req.body);
+        const names = req.body.all ? (await querySenders(role.config, '30d')).map((x) => x.hostname) : await cutoffHosts(role, req.body);
+        if (!names.length) throw new BadRequest('aucun hôte à masquer');
         await setCutoffs(names, req.user?.username ?? null);
         req.auditNote = { details: { hostnames: names } };
         return { cutoffs: await loadCutoffs() };

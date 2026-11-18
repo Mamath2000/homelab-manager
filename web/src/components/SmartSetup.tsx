@@ -25,6 +25,17 @@ export function SmartSetup({ host, canManage }: { host: Host; canManage: boolean
     mutationFn: () => api.hostSmartCandidates(host.id),
     onError: (err: Error) => toast.error(err.message),
   });
+  // Direct removal of a configured device (disk gone from the host: it is no longer offered by the scan).
+  const remove = useMutation({
+    mutationFn: (device: string) => api.saveHostSmartDevices(host.id, host.smartDevices.filter((d) => d !== device)),
+    onSuccess: async ({ devices: saved }) => {
+      await qc.invalidateQueries({ queryKey: ['hosts'] });
+      setDevices(saved.join(', '));
+      toast.success('Disque retiré du suivi SMART');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const detected = new Set(scan.data?.candidates.map((c) => c.device));
   const toggle = (device: string, on: boolean) => {
     const next = new Set(selected);
     if (on) next.add(device); else next.delete(device);
@@ -49,6 +60,18 @@ export function SmartSetup({ host, canManage }: { host: Host; canManage: boolean
         <Button size="sm" variant="ghost" loading={scan.isPending} disabled={!host.online} onClick={() => scan.mutate()}>Détecter les disques</Button>
         <Button size="sm" loading={save.isPending} disabled={!host.online} onClick={() => save.mutate()}>Enregistrer</Button>
       </div>
+      {host.smartDevices.length > 0 && (
+        <ul className="divide-y divide-line rounded-md border border-line">
+          {host.smartDevices.map((device) => (
+            <li key={device} className="flex items-center gap-3 px-3 py-1.5 text-xs">
+              <span className="font-mono text-zinc-100">{device}</span>
+              {scan.data && !detected.has(device) && <Badge tone="warn">introuvable sur l'hôte</Badge>}
+              <span className="flex-1" />
+              <Button size="sm" variant="ghost" loading={remove.isPending && remove.variables === device} disabled={!host.online} onClick={() => remove.mutate(device)}>Retirer</Button>
+            </li>
+          ))}
+        </ul>
+      )}
       {scan.data && (!scan.data.candidates.length ? <p className="text-xs text-muted">Aucun disque détecté par smartctl.</p> : (
         <ul className="divide-y divide-line rounded-md border border-line">
           {scan.data.candidates.map((c) => (
