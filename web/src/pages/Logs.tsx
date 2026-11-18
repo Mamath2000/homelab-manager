@@ -4,7 +4,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import clsx from 'clsx';
 import { ArrowUp, ChevronDown, ChevronRight, Copy, EyeOff, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
 import { HeaderTitle } from '../components/HeaderSlot';
-import { Badge, Button, ConfirmModal, Empty, Modal, Spinner } from '../components/ui';
+import { Badge, Button, Empty, Modal, Spinner } from '../components/ui';
 import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow, type LogSelection } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -142,70 +142,48 @@ const toQuery = (f: Filters): LogQuery => ({
 // cutoff of the host. Hiding is for admins (passkey), reading hidden lines is for everyone who reads the journals.
 const sinceLabel = (iso: string) => new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-function CutoffBar({ role, selection, masked, onMasked }: { role: string; selection: LogSelection; masked: boolean; onMasked: (on: boolean) => void }) {
+const selectionHeld = (s: LogSelection) => !!(s.host?.length || s.hostname?.length || s.site?.length || s.tag);
+
+// Hides the history of the selection right away (nothing is deleted: « Tout réafficher » brings it back).
+function MaskButton({ selection }: { selection: LogSelection }) {
   const { canManage } = useMe();
   const qc = useQueryClient();
   const toast = useToast();
-  const [confirm, setConfirm] = useState(false);
-  const cutoffs = useQuery({ queryKey: ['logs', 'cutoffs', role], queryFn: () => api.logCutoffs(role || undefined) });
-  const selected = !!(selection.host?.length || selection.hostname?.length || selection.site?.length || selection.tag);
-  const preview = useQuery({ queryKey: ['logs', 'cutoffs', 'preview', selection], queryFn: () => api.logCutoffPreview(selection), enabled: confirm });
-  const done = () => qc.invalidateQueries({ queryKey: ['logs'] });
+  const selected = selectionHeld(selection);
   const mask = useMutation({
     mutationFn: () => api.maskLogs(selection),
-    onSuccess: () => (setConfirm(false), toast.success('Historique masqué'), void done()),
+    onSuccess: () => (toast.success('Historique masqué'), void qc.invalidateQueries({ queryKey: ['logs'] })),
     onError: (e: Error) => toast.error(e.message),
   });
+  if (!canManage) return null;
+  return (
+    <Button size="sm" icon={EyeOff} disabled={!selected} loading={mask.isPending} title={selected ? "Masquer les journaux reçus jusqu'à maintenant pour la sélection" : "Filtrer sur un hôte (ou un site, un tag) pour masquer son historique"} onClick={() => mask.mutate()}>Masquer</Button>
+  );
+}
+
+function CutoffBar({ role, masked, onMasked }: { role: string; masked: boolean; onMasked: (on: boolean) => void }) {
+  const { canManage } = useMe();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const cutoffs = useQuery({ queryKey: ['logs', 'cutoffs', role], queryFn: () => api.logCutoffs(role || undefined) });
   const unmask = useMutation({
     mutationFn: () => api.unmaskLogs({ role: role || undefined }),
-    onSuccess: () => (toast.success('Historique réaffiché'), void done()),
+    onSuccess: () => (toast.success('Historique réaffiché'), void qc.invalidateQueries({ queryKey: ['logs'] })),
     onError: (e: Error) => toast.error(e.message),
   });
   const list = cutoffs.data?.cutoffs ?? [];
-  const total = preview.data?.hosts.reduce((n, h) => n + h.count, 0) ?? 0;
-  if (!list.length && !canManage) return null;
+  if (!list.length) return null;
+  const hosts = list.map((c) => `${c.hostname} (avant le ${sinceLabel(c.since)})`).join('\n');
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-      {list.map((c) => (
-        <span key={c.hostname} className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-zinc-300" title="Les journaux de cet hôte plus anciens sont masqués">
-          <EyeOff className="h-3 w-3" /> {c.hostname} : historique masqué avant le {sinceLabel(c.since)}
-        </span>
-      ))}
-      {list.length > 0 && (
-        <>
-          <label className="inline-flex items-center gap-1.5 text-zinc-300">
-            <input type="checkbox" checked={masked} onChange={(e) => onMasked(e.target.checked)} />
-            Afficher l'historique masqué
-          </label>
-          {canManage && <Button size="sm" loading={unmask.isPending} onClick={() => unmask.mutate()}>Tout réafficher</Button>}
-        </>
-      )}
-      {canManage && (
-        <Button size="sm" icon={EyeOff} disabled={!selected} title={selected ? undefined : "Filtrer sur un hôte (ou un site, un tag) pour masquer son historique"} onClick={() => setConfirm(true)}>Masquer l'historique</Button>
-      )}
-      <ConfirmModal
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        onConfirm={() => mask.mutate()}
-        title="Masquer l'historique"
-        confirmLabel="Masquer"
-        loading={mask.isPending}
-        disabled={preview.isLoading || !preview.data?.hosts.length}
-      >
-        {preview.isLoading || (!preview.data && !preview.error) ? (
-          <Spinner />
-        ) : preview.error ? (
-          <p className="text-red-400">{(preview.error as Error).message}</p>
-        ) : (
-          <>
-            <p>Les journaux reçus jusqu'à maintenant ne seront plus affichés (ni comptés) pour {preview.data!.hosts.length > 1 ? `ces ${preview.data!.hosts.length} hôtes` : 'cet hôte'}. Rien n'est supprimé : « Tout réafficher » les rétablit.</p>
-            <ul className="my-2 max-h-48 overflow-y-auto font-mono text-xs">
-              {preview.data!.hosts.map((h) => <li key={h.hostname}>{h.hostname} : {h.count.toLocaleString('fr-FR')} ligne{h.count > 1 ? 's' : ''} masquée{h.count > 1 ? 's' : ''}</li>)}
-            </ul>
-            <p className="text-muted">{total.toLocaleString('fr-FR')} lignes au total.</p>
-          </>
-        )}
-      </ConfirmModal>
+      <span className="inline-flex items-center gap-1 rounded-md border border-line bg-raised px-2 py-1 text-zinc-300" title={hosts}>
+        <EyeOff className="h-3 w-3" /> Historique masqué pour {list.length} hôte{list.length > 1 ? 's' : ''}
+      </span>
+      <label className="inline-flex items-center gap-1.5 text-zinc-300">
+        <input type="checkbox" checked={masked} onChange={(e) => onMasked(e.target.checked)} />
+        Afficher l'historique masqué
+      </label>
+      {canManage && <Button size="sm" loading={unmask.isPending} onClick={() => unmask.mutate()}>Tout réafficher</Button>}
     </div>
   );
 }
@@ -693,7 +671,6 @@ export function Logs() {
 
       <CutoffBar
         role={f.role}
-        selection={{ ...(f.role ? { role: f.role } : {}), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.tag ? { tag: f.tag } : {}) }}
         masked={f.masked}
         onMasked={(on) => set({ masked: on })}
       />
@@ -726,6 +703,7 @@ export function Logs() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2">
+          <MaskButton selection={{ ...(f.role ? { role: f.role } : {}), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.tag ? { tag: f.tag } : {}) }} />
           {!f.live && <Button size="sm" icon={RefreshCw} loading={rows.isRefetching || hits.isRefetching} onClick={() => void refresh()}>Actualiser</Button>}
           <Button size="sm" variant={f.live ? 'primary' : 'secondary'} icon={f.live ? Pause : Radio} onClick={() => set({ live: !f.live })}>{f.live ? 'Arrêter le direct' : 'Direct'}</Button>
         </div>

@@ -187,10 +187,10 @@ Un hôte est reconnu par le **nom d'hôte** de ses journaux, comparé à celui q
 
 ### Masquer l'historique d'un hôte
 
-Une fois l'investigation faite et les actions décidées, **Masquer l'historique** (administrateurs, passkey) repart d'une page propre pour un hôte : filtrer sur l'hôte (ou un site, un tag), le bouton affiche un aperçu « N lignes masquées » par hôte, puis pose un **repère** à l'instant présent.
+Une fois l'investigation faite et les actions décidées, **Masquer** (administrateurs, sans passkey : rien n'est supprimé) repart d'une page propre pour un hôte : filtrer sur l'hôte (ou un site, un tag), le bouton, à côté d'**Actualiser**, pose directement un **repère** à l'instant présent.
 
 - Rien n'est supprimé sur le serveur : le hub écarte à la lecture les lignes de l'hôte plus anciennes que le repère. Liste, histogramme, matrice, émetteurs, valeurs des filtres, contexte et direct respectent le masque, pour que les compteurs et la liste concordent.
-- Une pastille « historique masqué avant le … » rappelle chaque repère ; **Afficher l'historique masqué** lit tout, sans modifier les repères ; **Tout réafficher** les retire.
+- Une seule pastille « Historique masqué pour N hôtes » (détail au survol) rappelle les repères ; **Afficher l'historique masqué** lit tout, sans modifier les repères ; **Tout réafficher** les retire.
 - Un repère est posé par **nom d'hôte brut** : il couvre aussi un émetteur inconnu du hub. Masquer de nouveau le même hôte déplace le repère.
 - La détection d'hôte muet ([ci-dessous](#hôte-muet)) lit les lignes brutes : masquer un hôte ne le fait pas passer en « rien reçu ».
 - Pose et retrait sont inscrits au journal d'audit. Un repère plus ancien que la rétention du serveur n'a plus d'effet (il reste en base, inoffensif).
@@ -226,8 +226,8 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `GET /api/logs/context?hostname=…&time=…` | lignes d'avant et d'après une ligne, sur son hôte |
 | `GET /api/logs/tail` | suivi en direct (Server-Sent Events) |
 | `GET /api/logs/cutoffs` | repères d'historique masqué ; avec `preview=true` et une sélection (`host`, `hostname`, `site`, `tag`), le nombre de lignes que masquer cette sélection écarterait, par hôte |
-| `PUT /api/logs/cutoffs` | masque l'historique de la sélection jusqu'à maintenant, 400 si elle ne contient aucun hôte (administrateurs, passkey) |
-| `DELETE /api/logs/cutoffs` | réaffiche l'historique de la sélection, de tous les hôtes sans sélection (administrateurs, passkey) |
+| `PUT /api/logs/cutoffs` | masque l'historique de la sélection jusqu'à maintenant, 400 si elle ne contient aucun hôte (administrateurs) |
+| `DELETE /api/logs/cutoffs` | réaffiche l'historique de la sélection, de tous les hôtes sans sélection (administrateurs) |
 | `POST /api/roles/log-reception` | test de réception d'un serveur en cours de déclaration : ligne syslog de test envoyée, puis cherchée par l'API (administrateurs) |
 | `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
 | `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |

@@ -115,9 +115,6 @@ export const SENSITIVE_ACTIONS = new Set([
   // standardisation and access manifest
   'PUT /api/settings/setup',
   'PUT /api/hosts/:id/setup',
-  // history of the journals hidden or shown again (homelab#355)
-  'PUT /api/logs/cutoffs',
-  'DELETE /api/logs/cutoffs',
   'POST /api/settings/logs/:role/hosts',
   'DELETE /api/settings/logs/:role/hosts/:hostId',
   // journals of the containers of a host: restarts Docker there, sends them elsewhere (homelab#346)

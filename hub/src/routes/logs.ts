@@ -400,7 +400,7 @@ export function registerLogRoutes(app: FastifyInstance) {
     },
   );
 
-  // Hide the history of the hosts before now (or move the cutoff). Admins, passkey, audit.
+  // Hide the history of the hosts before now (or move the cutoff). Admins, audit (no passkey: nothing is deleted).
   app.put<{ Body: Pick<FilterQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> }>(
     '/api/logs/cutoffs',
     { schema: { body: cutoffProps } },
