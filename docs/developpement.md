@@ -53,7 +53,42 @@ Cette page s'adresse à celles et ceux qui veulent comprendre le fonctionnement 
 
 ## Développement
 
-Prérequis : Node.js 24, Go 1.27 (le `toolchain` de `agent/go.mod` est téléchargé au besoin), GNU Make, Docker pour l'image, et un MongoDB accessible (défaut `mongodb://localhost:27017/homelab`, `make start MONGO_URL=…` sinon). `make` (ou `make help`) liste toutes les commandes.
+### Installation de l'environnement de dév
+
+Prérequis (Linux ou WSL ; `make help` liste toutes les commandes) :
+
+| Outil | Version | Usage |
+| --- | --- | --- |
+| Go | ≥ 1.26.0 (`go` de `agent/go.mod`) | agent, `make lint` (gofmt, go vet), `make test` |
+| Node.js + npm | 24 (comme la CI et le `Dockerfile`) | hub, interface, site de doc |
+| GNU Make | — | point d'entrée de toutes les commandes |
+| MongoDB | accessible, défaut `mongodb://localhost:27017/homelab` (`MONGO_URL=…` sinon) | `make dev`, `make start` |
+| Docker + buildx | — | image (`make docker-build`, releases multi-arch) |
+| `gh` (GitHub CLI), authentifié | — | releases : synchro HAOS, promotion, doc publique |
+
+**Go** : le paquet `golang` de Debian est trop ancien. Installer le tarball officiel dans `/usr/local/go` :
+
+```sh
+curl -fsSL https://go.dev/dl/go1.26.0.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc && . ~/.bashrc
+go version
+```
+
+Le `toolchain` de `agent/go.mod` (1.27.x) est téléchargé automatiquement par Go au premier build ; utiliser `linux-arm64` sur une machine ARM.
+
+**Node.js 24** : via [nvm](https://github.com/nvm-sh/nvm) (`nvm install 24`) ou le dépôt NodeSource. Un Node plus ancien (22…) peut passer en local mais n'est pas ce que valident la CI et l'image.
+
+**Docker, make, gh** : `sudo apt install make docker.io docker-buildx gh` (ou les dépôts officiels Docker / GitHub), puis `gh auth login` et `docker login` (Docker Hub, pour pousser les releases). Ajouter l'utilisateur au groupe `docker`.
+
+**MongoDB** : un conteneur suffit, par exemple `docker run -d --name hm-mongo -p 27017:27017 mongo:8.0`.
+
+Vérification :
+
+```sh
+make install && make check    # dépendances, puis lint + tests + build
+```
+
+Une release (`make docker-release`) passe par `make check` et exige donc toute la liste ci-dessus, plus la clé de signature (voir [Release](#release)).
 
 ```sh
 make install            # dépendances hub + web + agent
@@ -113,6 +148,29 @@ L'agent a sa propre version, `agent/VERSION` (X.Y.Z), indépendante de celle de 
 - `make agent-minor` / `make agent-major` pour un changement de mineur ou de majeur.
 - `agent/VERSION` modifié se commite avec le code de l'agent.
 - Les binaires sont reproductibles (`-trimpath -buildvcs=false`) : le hub détecte un agent obsolète par l'empreinte de son binaire, un commit qui ne touche pas l'agent ne doit donc pas la changer.
+
+### Build multi-plateforme de l'agent
+
+L'agent est du Go pur (`CGO_ENABLED=0`, binaire statique) : la cross-compilation ne demande que `GOOS` / `GOARCH`, sans QEMU ni toolchain croisée. Trois cibles, servies par le hub :
+
+| Cible | Binaire | Utilisé par |
+| --- | --- | --- |
+| `linux/amd64` | `homelab-agent-linux-amd64` | serveurs, VM, CT Debian/Ubuntu… ; **HAOS sur x86** |
+| `linux/arm64` | `homelab-agent-linux-arm64` | Raspberry Pi, serveurs ARM ; **HAOS sur ARM** |
+| `windows/amd64` | `homelab-agent-windows-amd64.exe` | hôtes Windows |
+
+**En local** : `make agent` (`agent/build.sh`) compile les trois dans `agent/dist` (avec `agent/dist/VERSION`), sans signature (agents de dév). Pour une seule cible à la main :
+
+```sh
+cd agent && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \
+  -ldflags "-s -w -X main.version=$(cat VERSION) -X main.minVersion=$(cat MIN_VERSION)" -o dist/homelab-agent-windows-amd64.exe .
+```
+
+Pour ajouter une cible : `TARGETS` dans `agent/build.sh` **et** la boucle de compilation du stage `agent` du `Dockerfile` (les deux doivent rester alignés), puis les fichiers à code spécifique à l'OS (`*_unix.go`, `*_windows.go`). `make lint` fait aussi un `go vet` avec `GOOS=windows`.
+
+**En release** : le stage `agent` du `Dockerfile` (`FROM --platform=$BUILDPLATFORM`) compile les trois binaires en natif sur la machine de build, quelle que soit la plateforme de l'image. Il les signe (Ed25519, clé de release en secret BuildKit) et y embarque la clé publique, le plancher de version et l'image client des sauvegardes. Les binaires sont copiés dans `/app/agent` de l'image, **identiques pour l'image amd64 et arm64** : le hub sert tous les binaires, quelle que soit sa propre architecture. L'image du hub, elle, est construite en multi-arch par `docker buildx` (`PLATFORMS=linux/amd64,linux/arm64`, builder `homelab-manager-builder` de type `docker-container`, créé au besoin par `docker-release.sh`).
+
+**HAOS** : pas de cible dédiée. L'application Home Assistant embarque le binaire **linux** (amd64 ou arm64 selon l'hôte) récupéré sur le hub, et le dépôt [homelab-manager-haos](https://github.com/Mamath2000/homelab-manager-haos) republie l'application quand l'agent change. `docker-release` lance cette synchro (`gh workflow run sync.yaml`, canal `dev` à chaque release, `prod` à la promotion) ; en cas d'échec, `make -C ../homelab-manager-haos sync CHANNEL=dev|prod`, sinon le cron quotidien la rattrape. L'agent HAOS ne se met pas à jour lui-même (voir [Installation](installation.md#home-assistant-os)).
 
 ## Feuille de route
 
