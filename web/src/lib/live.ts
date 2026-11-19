@@ -30,6 +30,13 @@ export function useLiveEvents(enabled: boolean) {
       // capabilities (PBS client installed...) shown by the backups window
       qc.invalidateQueries({ queryKey: ['backup-jobs', host.id] });
     });
+    es.addEventListener('job.deleted', (e) => {
+      const { id, hostId } = JSON.parse((e as MessageEvent).data) as { id: string; hostId: string };
+      qc.setQueryData<Job[]>(keys.jobs, (old) => old?.filter((j) => j.id !== id));
+      qc.invalidateQueries({ queryKey: keys.hostJobs(hostId) });
+      qc.invalidateQueries({ queryKey: keys.status });
+      qc.removeQueries({ queryKey: keys.job(id) });
+    });
     es.addEventListener('host.deleted', (e) => {
       const { id } = JSON.parse((e as MessageEvent).data) as { id: string };
       qc.setQueryData<Host[]>(keys.hosts, (old) => old?.filter((h) => h.id !== id));

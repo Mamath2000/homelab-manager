@@ -2194,6 +2194,7 @@ export const api = {
   deleteTag: (id: string) => request<void>('DELETE', `/api/tags/${id}`),
   dockerUpdate: (targets: { hostId: string; stack: string }[]) => request<Job[]>('POST', '/api/jobs/docker-update', { targets }),
   job: (id: string) => request<Job>('GET', `/api/jobs/${id}`),
+  deleteJob: (id: string) => request<void>('DELETE', `/api/jobs/${id}`),
   runJob: (hostId: string, action: JobAction, packages?: string[], target?: { stack: string; service?: string } | { sessionId: number }) =>
     request<Job>('POST', `/api/hosts/${hostId}/jobs`, { action, packages, ...target }),
 

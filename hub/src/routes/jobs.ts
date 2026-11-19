@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { hosts, jobs, parseId } from '../db.js';
 import { agentOutdated } from '../agentBinaries.js';
 import { STACK_RE, updatableStacks } from '../docker.js';
-import { createJob, jobDto, securityPackages } from '../jobs.js';
+import { createJob, deleteJob, jobDto, securityPackages } from '../jobs.js';
 import { applySetup, canSetup, loadSetupProfile, resetAndApplySetup, resetError } from '../setup.js';
 import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type JobAction, type SetupOption } from '../types.js';
 
@@ -26,6 +26,15 @@ export function registerJobRoutes(app: FastifyInstance) {
     if (!job) return reply.code(404).send({ error: 'job not found' });
     // the output of a job may hold secrets (commands, restores): not for read-only accounts
     return jobDto(job, req.user!.profile !== 'viewer');
+  });
+
+  // Forgets a job (a finished one, or one stuck in "running" whose result will never come). Admins only (profiles.ts).
+  app.delete<{ Params: { id: string } }>('/api/jobs/:id', async (req, reply) => {
+    const _id = parseId(req.params.id);
+    const gone = _id && (await deleteJob(_id));
+    if (gone === 'hub') return reply.code(409).send({ error: 'tâche exécutée par le hub : attendre sa fin' });
+    if (!gone) return reply.code(404).send({ error: 'job not found' });
+    return reply.code(204).send();
   });
 
   // Same action on several hosts at once: full upgrades, or the security updates of each host

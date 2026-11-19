@@ -257,6 +257,18 @@ export async function failRunningJobs(hostId: string, reason: string, keep: (job
   }
 }
 
+// Removes a job record. A job still running is forgotten too: the late output or result of its agent is ignored
+// (finishJob/appendJobLog find nothing). Jobs run by the hub itself are refused: their caller still writes to them.
+export async function deleteJob(jobId: ObjectId) {
+  const id = jobId.toHexString();
+  if (running.get(id)?.hub) return 'hub' as const;
+  const gone = await jobs.findOneAndDelete({ _id: jobId }, { projection: { hostId: 1, hostName: 1, action: 1 } });
+  if (!gone) return null;
+  running.delete(id);
+  publish('job.deleted', { id, hostId: gone.hostId.toHexString() });
+  return gone;
+}
+
 export async function flushLogs() {
   for (const [jobId, r] of running) {
     if (!r.dirty) continue;
