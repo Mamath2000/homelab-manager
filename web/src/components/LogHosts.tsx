@@ -19,7 +19,7 @@ import type { Tone } from '../lib/status';
 
 // silent is a warning (nothing came for a while), not a failure: the configuration is in place
 const STATE: Record<LogHost['state'], { tone: Tone; card: string; text: string }> = {
-  ok: { tone: 'ok', card: 'border-emerald-500/40 bg-emerald-500/5', text: 'text-emerald-300' },
+  ok: { tone: 'ok', card: 'border-emerald-500/50', text: 'text-zinc-400' },
   silent: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5', text: 'text-amber-300' },
   error: { tone: 'bad', card: 'border-red-500/40 bg-red-500/5', text: 'text-red-300' },
   pending: { tone: 'warn', card: 'border-amber-500/40 bg-amber-500/5', text: 'text-amber-300' },
@@ -44,7 +44,7 @@ function stateText(h: LogHost) {
   }
 }
 
-const DOCKER_TEXT: Record<LogHostDocker['state'], string> = { unavailable: 'text-muted', off: 'text-muted', pending: 'text-amber-300', ok: 'text-emerald-300', drift: 'text-amber-300', error: 'text-red-300', silent: 'text-amber-300' };
+const DOCKER_TEXT: Record<LogHostDocker['state'], string> = { unavailable: 'text-muted', off: 'text-zinc-300', pending: 'text-amber-300', ok: 'text-zinc-400', drift: 'text-amber-300', error: 'text-red-300', silent: 'text-amber-300' };
 
 function dockerText(d: LogHostDocker) {
   switch (d.state) {
@@ -70,7 +70,7 @@ function DockerLine({ h, silentHours, onEnable, onDisable }: { h: LogHost; silen
   const busy = !h.online || h.running;
   const why = !h.online ? 'hôte hors ligne' : h.running ? 'une tâche est en cours' : null;
   return (
-    <div className="mt-2 flex items-center justify-between gap-2 border-t border-line/60 pt-2">
+    <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-raised/60 px-2 py-1.5">
       <p className={clsx('flex min-w-0 items-center gap-1.5 text-xs', DOCKER_TEXT[d.state])} title={d.detail ?? undefined}>
         <Container className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">Conteneurs : {dockerText(d)}</span>
