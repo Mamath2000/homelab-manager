@@ -96,6 +96,17 @@ export function BrokerCardControls({ role, onAccounts, children }: { role: MqttH
   };
 
   const allowed = anon.data?.allowed;
+  // not managed by the hub: same icon, same place, but only an indicator (the state comes from the role's own probe)
+  const readOnlyAnonymous = role.anonymous == null ? null : (
+    <Button
+      size="sm"
+      icon={Ghost}
+      tabIndex={-1}
+      aria-label={`Connexions anonymes ${role.anonymous ? 'acceptées' : 'refusées'}`}
+      title={role.anonymous ? 'Connexions anonymes acceptées (broker non géré par HLM : à changer sur le broker)' : 'Connexions anonymes refusées'}
+      className={clsx('cursor-default', role.anonymous ? '!border-red-500/50 !text-red-400 hover:!bg-transparent' : '!border-emerald-500/50 !text-emerald-400 hover:!bg-transparent')}
+    />
+  );
   const slots: BrokerCardSlots = {
     buttons: (
       <>
@@ -119,7 +130,7 @@ export function BrokerCardControls({ role, onAccounts, children }: { role: MqttH
         className={clsx(anon.data && (allowed ? '!border-red-500/50 !text-red-400 hover:!bg-red-500/10' : '!border-emerald-500/50 !text-emerald-400 hover:!bg-emerald-500/10'))}
         onClick={() => setConfirm(allowed ? 'anonymous-off' : 'anonymous-on')}
       />
-    ) : null,
+    ) : readOnlyAnonymous,
     stats: manageable ? <BrokerStats role={role} /> : null,
     reset: manageable ? (
       <button type="button" disabled={busy} onClick={() => setConfirm('reset')} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted underline decoration-dotted underline-offset-2 transition hover:text-red-300 disabled:opacity-50">
@@ -128,7 +139,7 @@ export function BrokerCardControls({ role, onAccounts, children }: { role: MqttH
       </button>
     ) : null,
   };
-  if (!wanted) return <>{children({ buttons: null, anonymous: null, reset: null, stats: null })}</>;
+  if (!wanted) return <>{children({ buttons: null, anonymous: readOnlyAnonymous, reset: null, stats: null })}</>;
   return (
     <>
       {children(slots)}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Save, ScrollText, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Save, ScrollText, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
@@ -1307,7 +1307,6 @@ export function RolesSettings() {
           {c?.stats}
         </div>
         {r.status?.error && <p className="mt-1 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
-        {r.type === 'mqtt-broker' && r.anonymous && !c?.anonymous && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted" title={`Connexions anonymes acceptées : ${ANONYMOUS_HINT}`}><TriangleAlert size={12} className="shrink-0 text-red-400" aria-hidden />Connexions anonymes acceptées</p>}
         {/* what the role unlocks: its options, opened in a window over this screen */}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-line pt-2.5 empty:hidden">
           {c?.buttons}
