@@ -312,7 +312,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   );
 }
 
-export function ConfirmModal({ open, onClose, onConfirm, title, children, confirmLabel, danger, loading, disabled }: {
+export function ConfirmModal({ open, onClose, onConfirm, title, children, confirmLabel, danger, loading, disabled, extra }: {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -323,6 +323,8 @@ export function ConfirmModal({ open, onClose, onConfirm, title, children, confir
   loading?: boolean;
   // the action is refused for now: the text says why
   disabled?: boolean;
+  // a further action, on the left of the footer
+  extra?: ReactNode;
 }) {
   return (
     <Modal
@@ -331,6 +333,7 @@ export function ConfirmModal({ open, onClose, onConfirm, title, children, confir
       title={title}
       footer={
         <>
+          {extra}
           <Button variant="ghost" onClick={onClose}>Annuler</Button>
           <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={loading} disabled={disabled}>{confirmLabel}</Button>
         </>

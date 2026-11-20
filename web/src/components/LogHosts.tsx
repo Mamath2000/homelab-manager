@@ -7,7 +7,7 @@ import { api, type DockerStack, type Host, type LogHost, type LogHostDocker, typ
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
 import { lanAddress } from '../lib/roles';
-import { useHosts, useLogServers, useSites } from '../lib/queries';
+import { keys, useHosts, useLogServers, useSites } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { Button, Checkbox, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot } from './ui';
 import type { Tone } from '../lib/status';
@@ -120,7 +120,7 @@ function DockerLogsModal({ h, host, role, onClose }: { h: LogHost; host: Host | 
     setBusy(true);
     try {
       await api.setDockerLogs(h.hostId, true, offered.filter((x) => !x.why && picked.has(x.st.name)).map((x) => x.st.name));
-      await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
+      await Promise.all([qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] }), qc.invalidateQueries({ queryKey: keys.hosts })]);
       toast.success(`${h.name} : journaux des conteneurs en cours de mise en place`);
       onClose();
     } catch (err) {
@@ -310,6 +310,68 @@ function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: Log
   );
 }
 
+// Stops the journals of the containers of a host (collector removed, Docker not restarted); or sets them up again instead.
+function DockerDisableModal({ h, role, onClose, onReapply }: { h: LogHost; role: LogHubRole; onClose: () => void; onReapply: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const disable = async () => {
+    setBusy(true);
+    try {
+      await api.setDockerLogs(h.hostId, false);
+      await Promise.all([qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] }), qc.invalidateQueries({ queryKey: keys.hosts })]);
+      toast.success(`${h.name} : envoi des journaux des conteneurs arrêté`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <ConfirmModal
+      open
+      onClose={onClose}
+      onConfirm={() => void disable()}
+      title="Arrêter l'envoi des journaux des conteneurs"
+      confirmLabel="Arrêter"
+      danger
+      loading={busy}
+      extra={
+        <Button icon={RefreshCw} disabled={busy} title="Refaire la mise en place du collecteur (sans redémarrer Docker)" onClick={onReapply}>
+          Réappliquer
+        </Button>
+      }
+    >
+      <b>{h.name}</b> n'enverra plus les journaux de ses conteneurs : le collecteur est supprimé et les labels retirés de{' '}
+      <code>/etc/docker/daemon.json</code>, sans redémarrer Docker. Les conteneurs restent en <code>json-file</code> : <code>docker logs</code> fonctionne
+      toujours. Ce que le serveur a déjà reçu est gardé.
+    </ConfirmModal>
+  );
+}
+
+function HostDockerLogsOf({ role, host }: { role: LogHubRole; host: Host }) {
+  const { data } = useQuery({ queryKey: ['settings', 'logs', role.id], queryFn: () => api.logHosts(role.id), refetchInterval: 30_000 });
+  const [on, setOn] = useState(false);
+  const [off, setOff] = useState(false);
+  const h = data?.hosts.find((x) => x.hostId === host.id);
+  if (!h?.docker) return null;
+  return (
+    <>
+      <DockerButton h={h} silentHours={data!.silentHours} onEnable={() => setOn(true)} onDisable={() => setOff(true)} />
+      {on && <DockerLogsModal h={h} host={host} role={role} onClose={() => setOn(false)} />}
+      {off && <DockerDisableModal h={h} role={role} onClose={() => setOff(false)} onReapply={() => { setOff(false); setOn(true); }} />}
+    </>
+  );
+}
+
+// The same icon and actions on the page of a host (card Docker). Nothing when the host is not in the list of a log
+// server (it does not send its journals): the ones of its containers go with them.
+export function HostDockerLogs({ host }: { host: Host }) {
+  const { data: servers = [] } = useLogServers();
+  return <>{servers.map((r) => <HostDockerLogsOf key={r.id} role={r} host={host} />)}</>;
+}
+
 function ServerPanel({ role }: { role: LogHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -323,20 +385,6 @@ function ServerPanel({ role }: { role: LogHubRole }) {
   });
   const [dockerOn, setDockerOn] = useState<LogHost | null>(null);
   const [dockerOff, setDockerOff] = useState<LogHost | null>(null);
-  const disableDocker = async () => {
-    if (!dockerOff) return;
-    setBusy(true);
-    try {
-      await api.setDockerLogs(dockerOff.hostId, false);
-      await qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] });
-      toast.success(`${dockerOff.name} : envoi des journaux des conteneurs arrêté`);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setDockerOff(null);
-      setBusy(false);
-    }
-  };
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<LogHost | null>(null);
   const [busy, setBusy] = useState(false);
@@ -403,11 +451,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         {removing?.docker?.enabled && <> Les journaux de ses conteneurs ne sont plus envoyés non plus : le collecteur est supprimé, sans redémarrer Docker.</>}
       </ConfirmModal>
       {dockerOn && <DockerLogsModal h={dockerOn} host={allHosts.find((x) => x.id === dockerOn.hostId)} role={role} onClose={() => setDockerOn(null)} />}
-      <ConfirmModal open={!!dockerOff} onClose={() => setDockerOff(null)} onConfirm={() => void disableDocker()} title="Arrêter l'envoi des journaux des conteneurs" confirmLabel="Arrêter" danger loading={busy}>
-        <b>{dockerOff?.name}</b> n'enverra plus les journaux de ses conteneurs : le collecteur est supprimé et les labels retirés de{' '}
-        <code>/etc/docker/daemon.json</code>, sans redémarrer Docker. Les conteneurs restent en <code>json-file</code> : <code>docker logs</code> fonctionne
-        toujours. Ce que le serveur a déjà reçu est gardé.
-      </ConfirmModal>
+      {dockerOff && <DockerDisableModal h={dockerOff} role={role} onClose={() => setDockerOff(null)} onReapply={() => { setDockerOn(dockerOff); setDockerOff(null); }} />}
     </Panel>
   );
 }
