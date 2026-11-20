@@ -2,55 +2,46 @@ import type { FastifyInstance } from 'fastify';
 import { settingsDiff } from '../audit.js';
 import { loadSites } from '../catalog.js';
 import { equipments, parseId, roles } from '../db.js';
-import { brokerSites, DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
+import { DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
 import { logRole } from '../logs.js';
 import { candidatesFor, createEsphomeEquipments, EsphomeLinkError, subKey, syncAllEsphomeEquipments } from '../esphomeEquipments.js';
 import { probeEngine } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
-import { allRoles, esphomeRole, roleConflict } from '../roles.js';
-import type { EquipmentDoc, EsphomeBroker, EsphomeConfig, EsphomeDeviceDoc, EsphomeRole, MqttBrokerRole } from '../types.js';
+import { allRoles, esphomeRoles, newRoleId, roleConflict } from '../roles.js';
+import type { EquipmentDoc, EsphomeConfig, EsphomeDeviceDoc, EsphomeRole, MqttBrokerRole } from '../types.js';
 
-// Rôles › ESPHome (admin, homelab#352): the esphome role, carried by the hub, declared and removed here, and the
-// brokers it listens to (mqtt-broker roles), each with the site of its devices when it is not the one of its host. The
-// devices found on each broker, as their messages left them (esphome.ts).
+// Rôles › ESPHome (admin, homelab#352, #358): one esphome role per site, carried by the hub, declared and removed here.
+// Each listens to one broker (mqtt-broker role) for the devices of its site. The devices found on each broker, as their
+// messages left them (esphome.ts).
 
 const brokerRoles = () => allRoles().filter((r): r is MqttBrokerRole => r.type === 'mqtt-broker');
 
-const configBody = {
+const roleBody = {
   type: 'object',
-  required: ['brokers'],
+  required: ['siteId', 'brokerId'],
   additionalProperties: false,
   properties: {
-    brokers: {
-      type: 'array',
-      maxItems: 32,
-      items: {
-        type: 'object',
-        required: ['brokerId'],
-        additionalProperties: false,
-        // siteId absent or "": the site of the host of the broker
-        properties: { brokerId: { type: 'string', maxLength: 32 }, siteId: { type: 'string', maxLength: 24 } },
-      },
-    },
+    siteId: { type: 'string', minLength: 1, maxLength: 24 },
+    brokerId: { type: 'string', minLength: 1, maxLength: 32 },
+    // absent: "ESPHome — <site>"
+    name: { type: 'string', maxLength: 64 },
     // hours without a line before an ESP online is mute (0: not watched)
     silentHours: { type: 'integer', minimum: 0, maximum: 48 },
   },
 } as const;
 
-// null: the brokers may be listened to, else why not
-export function brokersError(list: EsphomeBroker[], brokerIds: Set<string>, siteIds: Set<string>) {
-  const seen = new Set<string>();
-  for (const b of list) {
-    if (!brokerIds.has(b.brokerId)) return `broker inconnu : ${b.brokerId}`;
-    if (seen.has(b.brokerId)) return `broker en double : ${b.brokerId}`;
-    seen.add(b.brokerId);
-    if (b.siteId && !siteIds.has(b.siteId)) return `site inconnu : ${b.siteId}`;
-  }
+// null: the role may listen to this broker for this site, else why not (self: the role being edited)
+export function esphomeError(c: { siteId: string; brokerId: string }, brokerIds: Set<string>, siteIds: Set<string>, others: EsphomeRole[]) {
+  if (!siteIds.has(c.siteId)) return `site inconnu : ${c.siteId}`;
+  if (!brokerIds.has(c.brokerId)) return `broker inconnu : ${c.brokerId}`;
+  if (others.some((r) => r.config.siteId === c.siteId)) return 'un rôle ESPHome est déjà déclaré pour ce site';
+  if (others.some((r) => r.config.brokerId === c.brokerId)) return 'ce broker est déjà écouté par un autre rôle ESPHome';
   return null;
 }
 
-export const toEsphomeConfig = (list: EsphomeBroker[], silentHours?: number): EsphomeConfig => ({
-  brokers: list.map((b) => ({ brokerId: b.brokerId, ...(b.siteId ? { siteId: b.siteId } : {}) })),
+export const toEsphomeConfig = (c: { siteId: string; brokerId: string }, silentHours?: number): EsphomeConfig => ({
+  siteId: c.siteId,
+  brokerId: c.brokerId,
   ...(silentHours !== undefined ? { silentHours } : {}),
 });
 
@@ -93,33 +84,24 @@ export const deviceView = (d: EsphomeDeviceDoc) => ({
 
 export function registerEsphomeRoutes(app: FastifyInstance) {
   app.get('/api/settings/esphome', async () => {
-    const role = esphomeRole();
-    const sites = await brokerSites();
     const engine = probeEngine();
     const boxes = await equipments.find({ source: { $in: ['esphome', 'manual'] } }, { projection: { name: 1, ip: 1, siteId: 1, source: 1, externalId: 1 } }).toArray();
-    const brokers = brokerRoles().map((b) => ({ id: b._id, name: b.name, siteId: sites.get(b._id) ?? null }));
+    const brokers = brokerRoles().map((b) => ({ id: b._id, name: b.name }));
+    const shipper = esphomeShipper();
     return {
-      role: role
-        ? {
-            name: role.name,
-            // where the lines go (null: no log server, the logs cannot be turned on), and how the writing goes
-            logServer: logRole()?._id ?? null,
-            silentHours: role.config.silentHours ?? ESPHOME_SILENT_HOURS,
-            shipping: (() => {
-              const s = esphomeShipper();
-              return s ? { sent: s.sent, dropped: s.dropped, waiting: s.waiting, error: s.lastError } : null;
-            })(),
-            brokers: role.config.brokers.map((b) => ({
-              brokerId: b.brokerId,
-              name: brokers.find((x) => x.id === b.brokerId)?.name ?? b.brokerId,
-              // the site set for it, and the one its devices are in
-              siteId: b.siteId ?? null,
-              site: sites.get(b.brokerId) ?? null,
-              status: engine?.pool.status(b.brokerId) ?? null,
-              devices: esphomeDevices(b.brokerId).map((d) => ({ ...deviceView(d), ...equipmentsOf(d, boxes, sites.get(b.brokerId)) })),
-            })),
-          }
-        : null,
+      // where the lines go (null: no log server, the logs cannot be turned on), and how the writing goes
+      logServer: logRole()?._id ?? null,
+      shipping: shipper ? { sent: shipper.sent, dropped: shipper.dropped, waiting: shipper.waiting, error: shipper.lastError } : null,
+      roles: esphomeRoles().map((r) => ({
+        id: r._id,
+        name: r.name,
+        siteId: r.config.siteId,
+        brokerId: r.config.brokerId,
+        brokerName: brokers.find((x) => x.id === r.config.brokerId)?.name ?? r.config.brokerId,
+        silentHours: r.config.silentHours ?? ESPHOME_SILENT_HOURS,
+        status: engine?.pool.status(r.config.brokerId) ?? null,
+        devices: esphomeDevices(r.config.brokerId).map((d) => ({ ...deviceView(d), ...equipmentsOf(d, boxes, r.config.siteId) })),
+      })),
       // the brokers that may be listened to
       brokers,
       // the levels a device may be set to, and the one it boots at
@@ -128,29 +110,36 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     };
   });
 
-  // declared with no broker: they are chosen in the screen
-  app.post('/api/settings/esphome', async (req, reply) => {
-    if (!brokerRoles().length) return reply.code(409).send({ error: 'déclarer d’abord un rôle Broker MQTT' });
-    const why = roleConflict(allRoles(), 'esphome', 'ESPHome', null, { brokers: [] });
+  app.post<{ Body: { siteId: string; brokerId: string; name?: string; silentHours?: number } }>('/api/settings/esphome', { schema: { body: roleBody } }, async (req, reply) => {
+    const sites = await loadSites();
+    const bad = esphomeError(req.body, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)), esphomeRoles());
+    if (bad) return reply.code(409).send({ error: bad });
+    const name = req.body.name?.trim() || `ESPHome — ${sites.find((s) => s.id === req.body.siteId)?.name ?? req.body.siteId}`;
+    const why = roleConflict(allRoles(), 'esphome', name, null, toEsphomeConfig(req.body));
     if (why) return reply.code(409).send({ error: why });
-    const doc: EsphomeRole = { _id: 'esphome', type: 'esphome', name: 'ESPHome', carrier: { kind: 'hub' }, config: { brokers: [] }, createdAt: new Date() };
+    const taken = new Set(allRoles().map((r) => r._id));
+    const doc: EsphomeRole = { _id: newRoleId(name, (id) => taken.has(id)), type: 'esphome', name, carrier: { kind: 'hub' }, config: toEsphomeConfig(req.body, req.body.silentHours), createdAt: new Date() };
     await roles.insertOne(doc);
-    req.auditNote = { target: { kind: 'role', id: doc._id, name: doc.name }, details: { type: doc.type, carrier: 'hub' } };
+    req.auditNote = { target: { kind: 'role', id: doc._id, name: doc.name }, details: { type: doc.type, carrier: 'hub', siteId: doc.config.siteId, brokerId: doc.config.brokerId } };
     await rolesSaved([]);
+    await syncAllEsphomeEquipments();
     return reply.code(201).send({ id: doc._id });
   });
 
-  app.put<{ Body: { brokers: EsphomeBroker[]; silentHours?: number } }>('/api/settings/esphome', { schema: { body: configBody } }, async (req, reply) => {
-    const current = esphomeRole();
-    if (!current) return reply.code(404).send({ error: 'rôle ESPHome non déclaré' });
+  app.put<{ Params: { id: string }; Body: { siteId: string; brokerId: string; name?: string; silentHours?: number } }>('/api/settings/esphome/:id', { schema: { body: roleBody } }, async (req, reply) => {
+    const current = esphomeRoles().find((r) => r._id === req.params.id);
+    if (!current) return reply.code(404).send({ error: 'rôle ESPHome inconnu' });
     const sites = await loadSites();
-    const bad = brokersError(req.body.brokers, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)));
-    if (bad) return reply.code(400).send({ error: bad });
-    const config = toEsphomeConfig(req.body.brokers, req.body.silentHours ?? current.config.silentHours);
-    await roles.replaceOne({ _id: current._id }, { ...current, config });
-    req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type, ...settingsDiff(current.config, config) } };
+    const bad = esphomeError(req.body, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)), esphomeRoles().filter((r) => r._id !== current._id));
+    if (bad) return reply.code(409).send({ error: bad });
+    const name = req.body.name?.trim() || current.name;
+    const why = roleConflict(allRoles(), 'esphome', name, null, toEsphomeConfig(req.body), current._id);
+    if (why) return reply.code(409).send({ error: why });
+    const config = toEsphomeConfig(req.body, req.body.silentHours ?? current.config.silentHours);
+    await roles.replaceOne({ _id: current._id }, { ...current, name, config });
+    req.auditNote = { target: { kind: 'role', id: current._id, name }, details: { type: current.type, ...settingsDiff(current.config, config) } };
     await rolesSaved([]);
-    await forgetDevices(new Set(config.brokers.map((b) => b.brokerId)));
+    await forgetDevices(new Set(esphomeRoles().map((r) => r.config.brokerId)));
     // the site of a broker may have changed: its equipments follow
     await syncAllEsphomeEquipments();
     return { id: current._id };
@@ -161,8 +150,6 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     '/api/settings/esphome/logs',
     { schema: { body: { type: 'object', required: ['key', 'enabled'], additionalProperties: false, properties: { key: { type: 'string', minLength: 3, maxLength: 128 }, enabled: { type: 'boolean' } } } } },
     async (req, reply) => {
-      const role = esphomeRole();
-      if (!role) return reply.code(404).send({ error: 'rôle ESPHome non déclaré' });
       const d = esphomeDevices().find((x) => x._id === req.body.key);
       if (!d) return reply.code(404).send({ error: 'appareil inconnu' });
       if (req.body.enabled) {
@@ -220,13 +207,13 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     },
   );
 
-  app.delete('/api/settings/esphome', async (req, reply) => {
-    const current = esphomeRole();
-    if (!current) return reply.code(404).send({ error: 'rôle ESPHome non déclaré' });
+  app.delete<{ Params: { id: string } }>('/api/settings/esphome/:id', async (req, reply) => {
+    const current = esphomeRoles().find((r) => r._id === req.params.id);
+    if (!current) return reply.code(404).send({ error: 'rôle ESPHome inconnu' });
     await roles.deleteOne({ _id: current._id });
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type } };
     await rolesSaved([]);
-    await forgetDevices(new Set());
+    await forgetDevices(new Set(esphomeRoles().map((r) => r.config.brokerId)));
     return reply.code(204).send();
   });
 }

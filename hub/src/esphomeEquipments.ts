@@ -4,7 +4,7 @@ import { equipments, esphome, probes } from './db.js';
 import { brokerSites, esphomeDevices } from './esphome.js';
 import { publish } from './events.js';
 import { INTERVAL_RANGE, TIMEOUT_RANGE } from './probes.js';
-import { esphomeRole } from './roles.js';
+import { esphomeRoles } from './roles.js';
 import type { EquipmentDoc, EsphomeDeviceDoc, ProbeDoc } from './types.js';
 
 // ESPHome as a source of equipment (homelab#352). An ESP becomes an equipment only when the admin says so (created, or linked
@@ -77,7 +77,7 @@ export interface CreateOptions {
 // gets the sub-devices it lacks. Everything is checked before anything is written.
 export async function createEsphomeEquipments(key: string, o: CreateOptions) {
   const d = await esphome.findOne({ _id: key });
-  if (!d || !esphomeRole()?.config.brokers.some((b) => b.brokerId === d.brokerId)) throw new EsphomeLinkError('appareil inconnu', 404);
+  if (!d || !esphomeRoles().some((r) => r.config.brokerId === d.brokerId)) throw new EsphomeLinkError('appareil inconnu', 404);
   const siteId = (await brokerSites()).get(d.brokerId) ?? undefined;
   const subs = d.info?.devices ?? [];
   const unknown = o.devices.find((id) => !subs.some((s) => s.id === id));

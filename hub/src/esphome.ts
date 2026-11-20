@@ -4,7 +4,7 @@ import { publish, subscribe } from './events.js';
 import type { MqttPool, Wanted } from './mqttPool.js';
 import { LogShipper, parseLine, recordOf } from './esphomeLogs.js';
 import { probeEngine } from './probes.js';
-import { allRoles, esphomeRole } from './roles.js';
+import { allRoles, esphomeRoles } from './roles.js';
 import type { EquipmentNative, EsphomeDeviceDoc, EsphomeInfo, EsphomeSubDevice, MqttBrokerRole } from './types.js';
 
 // ESPHome (homelab#352): the devices seen on the brokers the esphome role listens to. Each device publishes, under
@@ -116,7 +116,7 @@ export function applyMessage(doc: EsphomeDeviceDoc | undefined, brokerId: string
 // --- state ----------------------------------------------------------------------------------------------------------
 
 const devices = new Map<string, EsphomeDeviceDoc>();
-const listened = () => new Set(esphomeRole()?.config.brokers.map((b) => b.brokerId) ?? []);
+const listened = () => new Set(esphomeRoles().map((r) => r.config.brokerId));
 export const esphomeDevice = (key: string) => devices.get(key) ?? null;
 // the site of the devices of each broker, as brokerSites last gave it (the lines carry it)
 let sites = new Map<string, string | null>();
@@ -132,7 +132,7 @@ let recheck: (() => void) | null = null;
 
 // The mute check of a device now, as the engine writes it on its equipment.
 export const deviceMute = (d: EsphomeDeviceDoc, now = Date.now()) =>
-  muteNative(d, lastLineOf(d._id), Math.max(startedAt, d.logsAt?.getTime() ?? 0), esphomeRole()?.config.silentHours ?? ESPHOME_SILENT_HOURS, now);
+  muteNative(d, lastLineOf(d._id), Math.max(startedAt, d.logsAt?.getTime() ?? 0), esphomeRoles().find((r) => r.config.brokerId === d.brokerId)?.config.silentHours ?? ESPHOME_SILENT_HOURS, now);
 // what the engine runs again when the subscriptions must change (the logs of a device turned on or off)
 let resync: (() => void) | null = null;
 // the lines on their way to the log server (null: the engine is not running)
@@ -146,13 +146,9 @@ export function esphomeDevices(brokerId?: string) {
 }
 export const esphomeCount = () => esphomeDevices().length;
 
-// The site of the devices of a broker: the one set in the role, else the one of the host of the broker.
+// The site of the devices of each broker listened to: the one of its role.
 export async function brokerSites(): Promise<Map<string, string | null>> {
-  const role = esphomeRole();
-  const brokers = allRoles().filter((r): r is MqttBrokerRole => r.type === 'mqtt-broker');
-  const carriers = await hosts.find({ _id: { $in: brokers.map((b) => b.carrier.id) } }, { projection: { siteId: 1 } }).toArray();
-  const siteOf = new Map(carriers.map((h) => [h._id.toHexString(), h.siteId ?? null]));
-  return new Map(brokers.map((b) => [b._id, role?.config.brokers.find((x) => x.brokerId === b._id)?.siteId ?? siteOf.get(b.carrier.id.toHexString()) ?? null]));
+  return new Map(esphomeRoles().map((r) => [r.config.brokerId, r.config.siteId]));
 }
 
 // Forgets the devices of the brokers no longer listened to (a broker removed from the role, the role removed).

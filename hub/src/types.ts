@@ -1550,22 +1550,19 @@ export interface OmadaStateDoc {
   pollError?: string;
 }
 
-// esphome (homelab#352): the ESPHome devices seen on the brokers it listens to (esphome.ts), carried by the hub. brokers:
-// the mqtt-broker roles listened to; siteId: the site of the devices found on it, when it is not the one of the host of the
-// broker (a broker of a site that runs on another, as the one of jarsay at vouille).
-export interface EsphomeBroker {
-  brokerId: string;
-  siteId?: string;
-}
-// silentHours: an ESP online whose
-// logs are on and that sent no line for that long is mute (0: not watched; absent: ESPHOME_SILENT_HOURS).
+// esphome (homelab#352, #358): one role per site, carried by the hub. brokerId: the one mqtt-broker role that carries the
+// detection of the ESPHome devices of the site (esphome.ts); siteId: the site of the devices found on it (a broker of a
+// site that runs on another, as the one of jarsay at vouille, is fine). One role per site, one role per broker.
+// silentHours: an ESP online whose logs are on and that sent no line for that long is mute (0: not watched; absent:
+// ESPHOME_SILENT_HOURS).
 export interface EsphomeConfig {
-  brokers: EsphomeBroker[];
+  siteId: string;
+  brokerId: string;
   silentHours?: number;
 }
 
 export interface EsphomeRole {
-  _id: 'esphome';
+  _id: string;
   type: 'esphome';
   name: string;
   carrier: HubCarrier;

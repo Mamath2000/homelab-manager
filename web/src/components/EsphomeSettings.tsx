@@ -1,54 +1,46 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router';
-import { Copy, Cpu, Plus, Radio, Save, ScrollText, SlidersHorizontal, Trash2 } from 'lucide-react';
-import { api, type EsphomeBroker, type EsphomeBrokerView, type EsphomeDevice, type EsphomeSettings as Settings } from '../lib/api';
+import { Link } from 'react-router';
+import { Copy, Cpu, Plus, Save, ScrollText, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { api, type EsphomeDevice, type EsphomeRoleView, type EsphomeSettings as Settings } from '../lib/api';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useSites } from '../lib/queries';
 import { roleStatus } from '../lib/roles';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Checkbox, ConfirmModal, Modal, Panel, Spinner, StatusDot, Tabs } from './ui';
+import { Badge, Button, Checkbox, ConfirmModal, Modal, Panel, Spinner, StatusDot } from './ui';
 
-// Rôles › ESPHome (homelab#352): the esphome role, carried by the hub. Paramétrage: the brokers listened to (mqtt-broker
-// roles), each with the site of its devices; then one tab per broker, its devices as their messages left them
-// (esphome/<unique_id>/LWT, info, log_level).
+// Rôles › ESPHome (homelab#352, #358): one esphome role per site, carried by the hub. Its window: the devices found on
+// its broker as their messages left them (esphome/<unique_id>/LWT, info, log_level).
 
 const QUERY = ['settings', 'esphome'] as const;
 
-// what is saved, as the setup edits it: broker -> site set for it ('' : the one of its host)
-const savedOf = (data: Settings) => new Map((data.role?.brokers ?? []).map((b) => [b.brokerId, b.siteId ?? '']));
-
-// Paramétrage: which brokers are listened to, and the site of the devices of each (empty: the one of the host of the broker).
-// Mounted again when what is saved changes (key), not when the devices do: what is being edited stays.
-function BrokersSetup({ data }: { data: Settings }) {
+// Declares (role null) or edits the role of a site: the site, the broker that carries the detection of its devices, a name
+// (empty: "ESPHome — <site>") and the delay after which a silent ESP is mute. One role per site, one per broker.
+export function EsphomeRoleModal({ role, onClose, onSaved }: { role: EsphomeRoleView | null; onClose: () => void; onSaved: (id: string) => void }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const { data } = useQuery({ queryKey: QUERY, queryFn: api.esphomeSettings });
   const { data: sites = [] } = useSites();
-  const [saved] = useState(() => savedOf(data));
-  const [chosen, setChosen] = useState(saved);
-  const [silent, setSilent] = useState(String(data.role?.silentHours ?? 2));
+  const [siteId, setSiteId] = useState(role?.siteId ?? '');
+  const [brokerId, setBrokerId] = useState(role?.brokerId ?? '');
+  const [name, setName] = useState(role?.name ?? '');
+  const [silent, setSilent] = useState(String(role?.silentHours ?? 2));
   const [saving, setSaving] = useState(false);
-  const siteName = (id: string | null) => (id ? sites.find((s) => s.id === id)?.name ?? id : null);
+  const others = (data?.roles ?? []).filter((r) => r.id !== role?.id);
   const hours = Number(silent);
   const hoursOk = /^\d+$/.test(silent) && hours >= 0 && hours <= 48;
-  const dirty = hours !== data.role?.silentHours || chosen.size !== saved.size || [...chosen].some(([id, site]) => saved.get(id) !== site);
-  const toggle = (id: string, on: boolean) =>
-    setChosen((m) => {
-      const next = new Map(m);
-      if (on) next.set(id, '');
-      else next.delete(id);
-      return next;
-    });
-  const setSite = (id: string, site: string) => setChosen((m) => new Map(m).set(id, site));
+  const siteTaken = (id: string) => others.some((r) => r.siteId === id);
+  const brokerTaken = (id: string) => others.some((r) => r.brokerId === id);
+  const ok = !!siteId && !!brokerId && hoursOk && !siteTaken(siteId) && !brokerTaken(brokerId);
   const save = async () => {
     setSaving(true);
     try {
-      // in the order of the brokers of the hub, as they are listed
-      const brokers: EsphomeBroker[] = data.brokers.filter((b) => chosen.has(b.id)).map((b) => ({ brokerId: b.id, ...(chosen.get(b.id) ? { siteId: chosen.get(b.id) } : {}) }));
-      await api.saveEsphome(brokers, hours);
-      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.roles })]);
-      toast.success('Paramétrage ESPHome enregistré');
+      const body = { siteId, brokerId, ...(name.trim() ? { name: name.trim() } : {}), silentHours: hours };
+      const r = role ? await api.saveEsphome(role.id, body) : await api.declareEsphome(body);
+      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.equipments })]);
+      toast.success(role ? 'Rôle ESPHome enregistré' : 'Rôle ESPHome déclaré');
+      onSaved(r.id);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -56,63 +48,57 @@ function BrokersSetup({ data }: { data: Settings }) {
     }
   };
   return (
-    <Panel title="Brokers écoutés" icon={SlidersHorizontal} bodyClassName="">
-      <p className="border-b border-line px-4 py-3 text-xs text-muted">
-        Le hub s'abonne à <code>esphome/+/LWT</code>, <code>esphome/+/info</code> et <code>esphome/+/log_level</code> sur chaque broker coché. Un appareil
-        découvert prend le site de son broker : celui de l'hôte du broker, sauf si un autre site est choisi ici (broker d'un site hébergé sur un autre). Un
-        broker se déclare dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link> ; retiré d'ici, ses
-        appareils sont oubliés.
-      </p>
-      {!data.brokers.length ? (
-        <p className="p-4 text-sm text-muted">Aucun rôle Broker MQTT déclaré.</p>
-      ) : (
-        <ul>
-          {data.brokers.map((b) => {
-            const on = chosen.has(b.id);
-            return (
-              <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-sm first:border-t-0">
-                <Checkbox checked={on} onChange={(v) => toggle(b.id, v)} label={`Écouter ${b.name}`} />
-                <span className="font-medium text-zinc-100">{b.name}</span>
-                <span className="font-mono text-xs text-muted">{b.id}</span>
-                <label className="ml-auto flex items-center gap-2 text-xs text-muted">
-                  Site des appareils
-                  <select className="input py-1" disabled={!on} value={chosen.get(b.id) ?? ''} onChange={(e) => setSite(b.id, e.target.value)}>
-                    <option value="">{siteName(b.siteId) ? `site de l'hôte (${siteName(b.siteId)})` : "site de l'hôte (aucun)"}</option>
-                    {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div className="space-y-2 border-t border-line px-4 py-3 text-sm">
-        <label className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-zinc-100">Serveur de logs</span>
-          {data.role?.logServer ? (
-            <span className="text-xs text-muted">le serveur de logs du homelab ({data.role.logServer})</span>
-          ) : (
-            <span className="text-xs text-amber-300">aucun : les logs des appareils ne peuvent pas être activés (déclarer un rôle Serveur de logs)</span>
-          )}
+    <Modal open onClose={onClose} title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />{role ? `Rôle ${role.name}` : 'Déclarer un rôle ESPHome'}</span>}>
+      <div className="space-y-3 text-sm">
+        <p className="text-xs text-muted">
+          Un rôle par site : le hub s'abonne à <code>esphome/+/LWT</code>, <code>esphome/+/info</code> et <code>esphome/+/log_level</code> sur le broker choisi,
+          et les appareils découverts prennent le site du rôle (le broker peut être celui d'un autre site). Un broker se déclare dans{' '}
+          <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
+        </p>
+        <label className="block space-y-1">
+          <span className="font-medium text-zinc-100">Site</span>
+          <select className="input w-full" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
+            <option value="" disabled>Choisir un site</option>
+            {sites.map((x) => <option key={x.id} value={x.id} disabled={siteTaken(x.id)}>{x.name}{siteTaken(x.id) ? ' (déjà un rôle)' : ''}</option>)}
+          </select>
+        </label>
+        <label className="block space-y-1">
+          <span className="font-medium text-zinc-100">Broker de la détection</span>
+          <select className="input w-full" value={brokerId} onChange={(e) => setBrokerId(e.target.value)}>
+            <option value="" disabled>Choisir un broker</option>
+            {(data?.brokers ?? []).map((b) => <option key={b.id} value={b.id} disabled={brokerTaken(b.id)}>{b.name}{brokerTaken(b.id) ? ' (déjà écouté)' : ''}</option>)}
+          </select>
+        </label>
+        <label className="block space-y-1">
+          <span className="font-medium text-zinc-100">Nom</span>
+          <input className="input w-full" maxLength={64} value={name} onChange={(e) => setName(e.target.value)} placeholder={`ESPHome — ${sites.find((x) => x.id === siteId)?.name ?? '<site>'}`} />
         </label>
         <label className="flex flex-wrap items-center gap-2">
           <span className="font-medium text-zinc-100">Muet après</span>
           <input className="input w-20 py-1" inputMode="numeric" value={silent} onChange={(e) => setSilent(e.target.value)} aria-label="Heures sans ligne avant muet" />
           <span className="text-xs text-muted">h sans ligne pour un ESP en ligne aux logs activés (0 : pas de surveillance ; le package envoie un heartbeat toutes les heures)</span>
         </label>
-        <p className="text-xs text-muted">
-          Les lignes des appareils dont les logs sont activés (onglet du broker) y sont écrites par le hub (<code>source=esphome</code>, champ <code>device</code>
-          pour un sous-appareil).
-          {data.role?.shipping && (
-            <> Écrites depuis le démarrage du hub : {data.role.shipping.sent}, en attente : {data.role.shipping.waiting}, perdues : {data.role.shipping.dropped}.</>
-          )}
-        </p>
-        {data.role?.shipping?.error && <p className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-200">Écriture en échec : {data.role.shipping.error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <Button onClick={onClose}>Annuler</Button>
+          <Button variant="primary" icon={Save} loading={saving} disabled={!ok} onClick={save}>{role ? 'Enregistrer' : 'Déclarer'}</Button>
+        </div>
       </div>
-      <div className="flex justify-end border-t border-line px-4 py-3">
-        <Button variant="primary" icon={Save} loading={saving} disabled={!dirty || !hoursOk} onClick={save}>Enregistrer</Button>
-      </div>
-    </Panel>
+    </Modal>
+  );
+}
+
+// Where the lines of the devices go, and how the writing goes.
+function LogsInfo({ data }: { data: Settings }) {
+  return (
+    <div className="space-y-1 border-b border-line px-4 py-3 text-xs text-muted">
+      <p>
+        <span className="font-medium text-zinc-100">Serveur de logs</span>{' '}
+        {data.logServer ? `le serveur de logs du homelab (${data.logServer})` : <span className="text-amber-300">aucun : les logs des appareils ne peuvent pas être activés (déclarer un rôle Serveur de logs)</span>}
+        . Les lignes des appareils dont les logs sont activés y sont écrites par le hub (<code>source=esphome</code>, champ <code>device</code> pour un sous-appareil).
+        {data.shipping && <> Écrites depuis le démarrage du hub : {data.shipping.sent}, en attente : {data.shipping.waiting}, perdues : {data.shipping.dropped}.</>}
+      </p>
+      {data.shipping?.error && <p className="rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-red-200">Écriture en échec : {data.shipping.error}</p>}
+    </div>
   );
 }
 
@@ -357,7 +343,7 @@ function DeviceCard({ d, canLog, levels, defaultLevel, selected, onSelect, onUnt
 // The devices that publish their LWT / info on the broker and are not equipments yet, several picked at once: each becomes
 // an equipment under its name, or is linked to a manual equipment that looks like it. Its sub-devices are then switched on
 // from its card.
-function AddDevicesModal({ b, onClose }: { b: EsphomeBrokerView; onClose: () => void }) {
+function AddDevicesModal({ b, onClose }: { b: EsphomeRoleView; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const offered = b.devices.filter((d) => !d.equipment);
@@ -396,7 +382,7 @@ function AddDevicesModal({ b, onClose }: { b: EsphomeBrokerView; onClose: () => 
       wide
       scroll
       onClose={onClose}
-      title={`Ajouter des appareils · ${b.name}`}
+      title={`Ajouter des appareils · ${b.brokerName}`}
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose}>Annuler</Button>
@@ -527,7 +513,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
   );
 }
 
-function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerView; canLog: boolean; levels: string[]; defaultLevel: string }) {
+function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView; canLog: boolean; levels: string[]; defaultLevel: string }) {
   const { data: sites = [] } = useSites();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
@@ -554,7 +540,7 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerVi
       setRemoveBusy(false);
     }
   };
-  const site = b.site ? sites.find((s) => s.id === b.site)?.name ?? b.site : null;
+  const site = sites.find((s) => s.id === b.siteId)?.name ?? b.siteId;
   // devices forgotten since the selection was made drop out of it
   const picked = followed.filter((d) => selected.has(d.key));
   const toggle = (key: string, on: boolean) =>
@@ -565,7 +551,7 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerVi
       return next;
     });
   return (
-    <Panel title={`Appareils de ${b.name}`} icon={Cpu} bodyClassName="" actions={<span className="inline-flex items-center gap-2"><Badge tone={st.tone}>{st.label}</Badge><Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>Ajouter des appareils{offered ? ` (${offered})` : ''}</Button></span>}>
+    <Panel title={`Appareils de ${b.brokerName}`} icon={Cpu} bodyClassName="" actions={<span className="inline-flex items-center gap-2"><Badge tone={st.tone}>{st.label}</Badge><Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>Ajouter des appareils{offered ? ` (${offered})` : ''}</Button></span>}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-3 text-xs text-muted">
         {followed.length > 0 && (
           <Checkbox
@@ -576,8 +562,7 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerVi
           />
         )}
         <p>
-          {followed.length} appareil{followed.length > 1 ? 's' : ''} · {online} en ligne · site {site ?? 'aucun'}
-          {b.siteId ? ' (choisi pour ce broker)' : " (celui de l'hôte du broker)"}
+          {followed.length} appareil{followed.length > 1 ? 's' : ''} · {online} en ligne · site {site}
         </p>
       </div>
       {picked.length > 0 && <GroupBar devices={picked} canLog={canLog} levels={levels} onClear={() => setSelected(new Set())} />}
@@ -602,28 +587,22 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeBrokerVi
   );
 }
 
-export function EsphomeSettings() {
+// The window of a role: its devices, and its settings (the role modal).
+export function EsphomeSettings({ roleId }: { roleId: string }) {
   const { data, isLoading, error } = useQuery({ queryKey: QUERY, queryFn: api.esphomeSettings });
-  // sub-tab kept in the URL (?sub=…): coming back from another screen restores it
-  const [params, setParams] = useSearchParams();
-  const tab = params.get('sub') ?? 'setup';
-  const setTab = (id: string) => {
-    const next = new URLSearchParams(params);
-    if (id === 'setup') next.delete('sub');
-    else next.set('sub', id);
-    setParams(next, { replace: true });
-  };
+  const [editing, setEditing] = useState(false);
   if (isLoading) return <div className="flex justify-center p-6"><Spinner /></div>;
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
-  if (!data?.role) return <p className="p-4 text-sm text-muted">Rôle ESPHome non déclaré : le déclarer dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.</p>;
-  const brokers = data.role.brokers;
-  const tabs = [{ id: 'setup', label: 'Paramétrage', icon: SlidersHorizontal }, ...brokers.map((b) => ({ id: b.brokerId, label: `${b.name} (${b.devices.filter((d) => d.equipment).length})`, icon: Radio }))];
-  const current = tabs.some((t) => t.id === tab) ? tab : 'setup';
-  const broker = brokers.find((b) => b.brokerId === current);
+  const role = data?.roles.find((r) => r.id === roleId);
+  if (!data || !role) return <p className="p-4 text-sm text-muted">Rôle ESPHome inconnu : le déclarer dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.</p>;
   return (
     <div>
-      <Tabs tabs={tabs} value={current} onChange={setTab} />
-      {broker ? <BrokerDevices b={broker} canLog={!!data.role.logServer} levels={data.levels} defaultLevel={data.defaultLevel} /> : <BrokersSetup key={JSON.stringify([[...savedOf(data)], data.role.silentHours])} data={data} />}
+      <div className="flex items-center justify-end border-b border-line px-4 py-2">
+        <Button size="sm" icon={SlidersHorizontal} onClick={() => setEditing(true)}>Modifier le rôle</Button>
+      </div>
+      <LogsInfo data={data} />
+      <BrokerDevices b={role} canLog={!!data.logServer} levels={data.levels} defaultLevel={data.defaultLevel} />
+      {editing && <EsphomeRoleModal role={role} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
     </div>
   );
 }

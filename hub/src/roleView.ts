@@ -1,6 +1,6 @@
 import { securityOf } from './mqttSecurity.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
-import { esphomeCount } from './esphome.js';
+import { esphomeDevices } from './esphome.js';
 import { bridgeStatusOf } from './homeassistant/bridge.js';
 import { logPollOf, logTarget } from './logs.js';
 import { omadaPollOf } from './omadaSync.js';
@@ -111,10 +111,10 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
         summary: p && !p.pollError ? `${p.senders.length} émetteur${p.senders.length > 1 ? 's' : ''} sur 24 h` : null,
       };
     }
-    // the brokers it listens to (esphome.ts): connected when all of them are, the worst one else
+    // the broker it listens to (esphome.ts)
     case 'esphome': {
-      const states = r.config.brokers.map((b) => probeEngine()?.pool.status(b.brokerId) ?? null);
-      const n = esphomeCount();
+      const states = [probeEngine()?.pool.status(r.config.brokerId) ?? null];
+      const n = esphomeDevices(r.config.brokerId).length;
       return {
         ...base,
         config: r.config,
@@ -122,7 +122,7 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
         url: '',
         account: '',
         status: worst(states),
-        summary: `${r.config.brokers.length} broker${r.config.brokers.length > 1 ? 's' : ''} écouté${r.config.brokers.length > 1 ? 's' : ''}, ${n} appareil${n > 1 ? 's' : ''} découvert${n > 1 ? 's' : ''}`,
+        summary: `${n} appareil${n > 1 ? 's' : ''} découvert${n > 1 ? 's' : ''}`,
       };
     }
   }

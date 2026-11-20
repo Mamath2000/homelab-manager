@@ -18,7 +18,7 @@ import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
-import { EsphomeSettings } from './EsphomeSettings';
+import { EsphomeRoleModal, EsphomeSettings } from './EsphomeSettings';
 import { HomeAssistantPanel } from './HomeAssistantPanel';
 import { LogHostsSettings } from './LogHosts';
 import { BrokerCardControls, MqttAccountsModal, type BrokerCardSlots } from './MqttSecurity';
@@ -1263,7 +1263,7 @@ export function RolesSettings() {
         const r = await api.deletePveCluster(removing.config.cluster);
         toast.success(r.revoked ? `Rôle ${removing.name} supprimé, jeton ${r.revoked} révoqué${r.userDeleted ? ' (utilisateur supprimé)' : ''}` : `Rôle ${removing.name} supprimé`);
       } else if (removing.type === 'esphome') {
-        await api.deleteEsphome();
+        await api.deleteEsphome(removing.id);
         toast.success(`Rôle ${removing.name} supprimé`);
       } else {
         await api.deleteRole(removing.id);
@@ -1277,8 +1277,10 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
-  // the role of the hub is declared at once, then its settings open in a window (like every other role)
-  const [esphomeOpen, setEsphomeOpen] = useState(false);
+  // ESPHome (one role per site, carried by the hub): its window of devices (role id), and its declaration form
+  const { data: homelabSitesAll } = useSites();
+  const [esphomeOpen, setEsphomeOpen] = useState<string | null>(null);
+  const [declaringEsphome, setDeclaringEsphome] = useState(false);
   // the options of a role are a window over this screen, set by the URL: /roles/<page>?role=<role id>
   const { page } = useParams();
   const [params] = useSearchParams();
@@ -1293,17 +1295,8 @@ export function RolesSettings() {
     if (page && roles && optionRole === null || (page && !ROLE_PAGES.some((p) => p.id === page))) closeOption();
   }, [page, roles, optionRole]); // eslint-disable-line react-hooks/exhaustive-deps
   const optionTitle = (icon: React.ReactNode, label: string) => <span className="flex items-center gap-2">{icon}{label}{optionRole ? <span className="text-muted">· {optionRole.name}</span> : null}</span>;
-  const declareEsphome = async () => {
-    try {
-      await api.declareEsphome();
-      await refresh();
-      setEsphomeOpen(true);
-    } catch (err) {
-      toast.error((err as Error).message);
-    }
-  };
   const edit = (r: HubRole) =>
-    r.type === 'esphome' ? setEsphomeOpen(true) : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
+    r.type === 'esphome' ? setEsphomeOpen(r.id) : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1337,8 +1330,8 @@ export function RolesSettings() {
       </div>
     );
   };
-  // the brokers the role of the hub listens to, by name
-  const esphomeBrokers = (r: Extract<HubRole, { type: 'esphome' }>) => r.config.brokers.map((b) => roles?.find((x) => x.id === b.brokerId)?.name ?? b.brokerId).join(', ');
+  // the site and the broker of the role of the hub, by name
+  const esphomeTarget = (r: Extract<HubRole, { type: 'esphome' }>) => `${homelabSitesAll?.find((s) => s.id === r.config.siteId)?.name ?? r.config.siteId} · ${roles?.find((x) => x.id === r.config.brokerId)?.name ?? r.config.brokerId}`;
   const dot: Record<string, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', info: 'bg-sky-500', neutral: 'bg-zinc-500' };
   // one card per role: two a row at most (they share its width), a lone one takes all of it
   const cardOf = (r: HubRole, c?: BrokerCardSlots) => {
@@ -1358,7 +1351,7 @@ export function RolesSettings() {
           </span>
         </div>
         {r.type === 'esphome' ? (
-          <p className="mt-1.5 break-all text-xs text-muted">{esphomeBrokers(r) || 'aucun broker écouté'}</p>
+          <p className="mt-1.5 break-all text-xs text-muted">{esphomeTarget(r)}</p>
         ) : (
           <p className="mt-1.5 break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
         )}
@@ -1398,7 +1391,7 @@ export function RolesSettings() {
           Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
           cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal
           reçoit les sauvegardes, le PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur
-          de logs reçoit les journaux des hôtes et ouvre la page Logs ; le rôle ESPHome, porté par le hub, découvre les appareils ESPHome sur les brokers choisis.
+          de logs reçoit les journaux des hôtes et ouvre la page Logs ; les rôles ESPHome, portés par le hub (un par site), découvrent les appareils ESPHome sur le broker choisi.
           Les réglages d'un type de rôle (comptes MQTT, Home Assistant, inventaires…) s'ouvrent depuis les boutons de sa section. Un rôle utilisé ne peut pas être
           supprimé, ni l'hôte ou l'équipement qui le porte.
         </p>
@@ -1442,7 +1435,7 @@ export function RolesSettings() {
         <TypePicker
           roles={roles ?? []}
           onClose={() => setPicking(false)}
-          onPick={(t) => (setPicking(false), t === 'esphome' ? void declareEsphome() : setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
+          onPick={(t) => (setPicking(false), t === 'esphome' ? setDeclaringEsphome(true) : setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
         />
       )}
       {editing?.type === 'pbs-primary' && pbs && <PbsModal data={pbs} open onClose={() => (setEditing(null), void refresh())} />}
@@ -1471,9 +1464,12 @@ export function RolesSettings() {
           <LogHostsSettings roleId={optionRole.id} />
         </Modal>
       )}
-      <Modal open={esphomeOpen || page === 'esphome'} onClose={() => (setEsphomeOpen(false), page === 'esphome' && closeOption(), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome</span>}>
-        <EsphomeSettings />
-      </Modal>
+      {declaringEsphome && <EsphomeRoleModal role={null} onClose={() => setDeclaringEsphome(false)} onSaved={(id) => (setDeclaringEsphome(false), setEsphomeOpen(id), void refresh())} />}
+      {(esphomeOpen || (page === 'esphome' && optionRole)) && (
+        <Modal open onClose={() => (setEsphomeOpen(null), page === 'esphome' && closeOption(), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome<span className="text-muted">· {roles?.find((r) => r.id === (esphomeOpen ?? optionRole?.id))?.name}</span></span>}>
+          <EsphomeSettings roleId={(esphomeOpen ?? optionRole?.id)!} />
+        </Modal>
+      )}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'log-server' && <LogServerWizard role={editing.role} onClose={() => setEditing(null)} />}
@@ -1499,7 +1495,7 @@ export function RolesSettings() {
           </>
         ) : removing?.type === 'esphome' ? (
           <>
-            Le rôle <b>{removing.name}</b> est retiré du hub : les brokers ne sont plus écoutés pour ESPHome et les appareils découverts sont oubliés. Rien
+            Le rôle <b>{removing.name}</b> est retiré du hub : son broker n'est plus écouté pour ESPHome et les appareils découverts sont oubliés. Rien
             n'est changé sur les appareils.
           </>
         ) : removing?.type === 'log-server' ? (

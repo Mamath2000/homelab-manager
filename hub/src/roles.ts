@@ -39,7 +39,7 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     same: (a, b) => a.port === b.port,
     uses: async (id) => {
       const [n, ha] = await Promise.all([probes.countDocuments({ 'target.type': 'mqtt', 'target.brokerId': id }), settings.countDocuments({ _id: 'homeassistant', brokerRoleId: id } as never)]);
-      const esphome = esphomeRole()?.config.brokers.some((b) => b.brokerId === id);
+      const esphome = esphomeRoles().some((r) => r.config.brokerId === id);
       return [...(n ? [`${n} sonde${n > 1 ? 's' : ''}`] : []), ...(ha ? ['Home Assistant'] : []), ...(esphome ? ['ESPHome'] : [])];
     },
   },
@@ -100,13 +100,14 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
       return [...(std ? ['standardisation (envoi des journaux)'] : []), ...(n ? [`${n} hôte${n > 1 ? 's' : ''} (valeur propre)`] : [])];
     },
   },
-  // carried by the hub, declared and set through routes/esphome.ts: the devices of the brokers it listens to (esphome.ts)
+  // carried by the hub, declared and set through routes/esphome.ts: one per site, the devices of its broker (esphome.ts #358)
   esphome: {
     label: 'ESPHome',
     carriers: ['hub'],
-    single: true,
+    single: false,
     carrierError: () => null,
-    same: () => true,
+    // the site and the broker are checked by routes/esphome.ts (a hub role has no carrier to compare)
+    same: (a, b) => a.siteId === b.siteId,
     uses: async () => [],
   },
 };
@@ -144,7 +145,7 @@ async function settingsRoles() {
 
 export const allRoles = () => cache;
 export const carriedBy = (id: ObjectId) => cache.filter((r) => r.carrier.kind !== 'hub' && r.carrier.id.equals(id));
-export const esphomeRole = () => cache.find((r): r is EsphomeRole => r.type === 'esphome');
+export const esphomeRoles = () => cache.filter((r): r is EsphomeRole => r.type === 'esphome');
 
 // Why a carrier cannot be deleted while it carries roles (null: it carries none): they are moved or removed first.
 export function carrierDeleteError(kind: CarrierKind, carried: Pick<RoleDoc, 'name'>[]) {

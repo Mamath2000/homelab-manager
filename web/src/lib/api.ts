@@ -1836,20 +1836,16 @@ export type HubRole =
   // a VictoriaLogs: url, its query API; address (null: the one of its host), port and protocol, where the hosts send their
   // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
   | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string })
-  // carried by the hub: the brokers it listens to for ESPHome devices (Rôles › ESPHome)
-  | (HubRoleBase & { type: 'esphome'; config: { brokers: EsphomeBroker[] } });
+  // carried by the hub, one per site: the broker that carries the detection of the ESPHome devices of the site (Rôles › ESPHome)
+  | (HubRoleBase & { type: 'esphome'; config: { siteId: string; brokerId: string; silentHours?: number } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 export type LogHubRole = Extract<HubRole, { type: 'log-server' }>;
 
-// ESPHome (homelab#352, Rôles › ESPHome): the brokers the role listens to, and the devices found on each.
-// siteId: the site set for the broker (absent: the one of its host); site: the one its devices are in.
-export interface EsphomeBroker {
-  brokerId: string;
-  siteId?: string;
-}
+// ESPHome (homelab#352, #358, Rôles › ESPHome): one role per site, the devices found on its broker.
+export type EsphomeRoleInput = { siteId: string; brokerId: string; name?: string; silentHours?: number };
 export interface EsphomeSubDevice {
   id: string;
   name?: string;
@@ -1881,27 +1877,25 @@ export interface EsphomeDevice {
   subEquipments: Record<string, { id: string; name: string }>;
   candidates: { id: string; name: string; ip: string | null }[];
 }
-export interface EsphomeBrokerView {
-  brokerId: string;
+export interface EsphomeRoleView {
+  id: string;
   name: string;
-  siteId: string | null;
-  site: string | null;
+  siteId: string;
+  brokerId: string;
+  brokerName: string;
+  // hours without a line before an ESP online is mute (0: not watched)
+  silentHours: number;
   status: { state: 'connecting' | 'connected' | 'error'; error: string | null } | null;
   devices: EsphomeDevice[];
 }
 export interface EsphomeSettings {
   // logServer: the log server the lines go to (null: none declared); shipping: the
   // lines written, dropped and waiting, and the last error of the writing
-  role: {
-    name: string;
-    brokers: EsphomeBrokerView[];
-    logServer: string | null;
-    // hours without a line before an ESP online is mute (0: not watched)
-    silentHours: number;
-    shipping: { sent: number; dropped: number; waiting: number; error: string | null } | null;
-  } | null;
-  // the mqtt-broker roles that may be listened to, with the site of their host
-  brokers: { id: string; name: string; siteId: string | null }[];
+  logServer: string | null;
+  shipping: { sent: number; dropped: number; waiting: number; error: string | null } | null;
+  roles: EsphomeRoleView[];
+  // the mqtt-broker roles that may be listened to
+  brokers: { id: string; name: string }[];
   // the levels of the logger, and the one a device boots at
   levels: string[];
   defaultLevel: string;
@@ -2291,11 +2285,11 @@ export const api = {
   setVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<{ ok: true }>('PUT', `/api/settings/omada/vpn-probes/${id}`, b),
   testVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<ProbeMeasure>('POST', `/api/settings/omada/vpn-probes/${id}/test`, b),
   esphomeSettings: () => request<EsphomeSettings>('GET', '/api/settings/esphome'),
-  declareEsphome: () => request<{ id: string }>('POST', '/api/settings/esphome'),
-  saveEsphome: (brokers: EsphomeBroker[], silentHours: number) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, silentHours }),
+  declareEsphome: (r: EsphomeRoleInput) => request<{ id: string }>('POST', '/api/settings/esphome', r),
+  saveEsphome: (id: string, r: EsphomeRoleInput) => request<{ id: string }>('PUT', `/api/settings/esphome/${encodeURIComponent(id)}`, r),
   setEsphomeLevel: (key: string, level: string) => request<{ key: string; level: string }>('PUT', '/api/settings/esphome/level', { key, level }),
   setEsphomeLogs: (key: string, enabled: boolean) => request<{ key: string; logs: boolean }>('PUT', '/api/settings/esphome/logs', { key, enabled }),
-  deleteEsphome: () => request<void>('DELETE', '/api/settings/esphome'),
+  deleteEsphome: (id: string) => request<void>('DELETE', `/api/settings/esphome/${encodeURIComponent(id)}`),
   // the equipment of an ESP (made, or a manual one linked: equipmentId) and the ones of the sub-devices chosen
   createEsphomeEquipments: (b: { key: string; name?: string; equipmentId?: string; devices: string[] }) =>
     request<{ id: string; linked: boolean; created: number }>('POST', '/api/settings/esphome/equipments', b),

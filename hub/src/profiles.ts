@@ -110,8 +110,8 @@ export const SENSITIVE_ACTIONS = new Set([
   'DELETE /api/roles/:id/mqtt-accounts/:username',
   // the hub listens to the brokers chosen there (homelab#352)
   'POST /api/settings/esphome',
-  'PUT /api/settings/esphome',
-  'DELETE /api/settings/esphome',
+  'PUT /api/settings/esphome/:id',
+  'DELETE /api/settings/esphome/:id',
   // standardisation and access manifest
   'PUT /api/settings/setup',
   'PUT /api/hosts/:id/setup',

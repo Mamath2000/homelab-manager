@@ -7,10 +7,10 @@ import { MqttPool } from '../src/mqttPool.js';
 import { authorize, sensitiveAction } from '../src/profiles.js';
 import { roleView } from '../src/roleView.js';
 import { ROLE_DEFS, roleConflict } from '../src/roles.js';
-import { brokersError, registerEsphomeRoutes, toEsphomeConfig } from '../src/routes/esphome.js';
+import { esphomeError, registerEsphomeRoutes, toEsphomeConfig } from '../src/routes/esphome.js';
 import type { EsphomeDeviceDoc, EsphomeRole, RoleDoc } from '../src/types.js';
 
-const role = (brokers: EsphomeRole['config']['brokers'] = []): EsphomeRole => ({ _id: 'esphome', type: 'esphome', name: 'ESPHome', carrier: { kind: 'hub' }, config: { brokers }, createdAt: new Date() });
+const role = (siteId = 'vouille', brokerId = 'vouille'): EsphomeRole => ({ _id: `esphome-${siteId}`, type: 'esphome', name: `ESPHome — ${siteId}`, carrier: { kind: 'hub' }, config: { siteId, brokerId }, createdAt: new Date() });
 
 test('esphome: the topics of a device, nothing else', () => {
   assert.deepEqual(parseTopic('esphome/command_portail/LWT'), { uniqueId: 'command_portail', kind: 'LWT' });
@@ -56,11 +56,13 @@ test('esphome: a message changes the device only when what it says changes', () 
   assert.equal(applyMessage(lvl, 'vouille', 'four', 'log_level', 'DEBUG', t1), null);
 });
 
-test('esphome: a single role, carried by the hub, never a conflict of carrier', () => {
-  assert.equal(ROLE_DEFS.esphome.single, true);
+test('esphome: one role per site, carried by the hub, never a conflict of carrier', () => {
+  assert.equal(ROLE_DEFS.esphome.single, false);
   assert.deepEqual(ROLE_DEFS.esphome.carriers, ['hub']);
-  assert.equal(roleConflict([], 'esphome', 'ESPHome', null, { brokers: [] }), null);
-  assert.equal(roleConflict([role()], 'esphome', 'ESPHome', null, { brokers: [] }), 'un rôle ESPHome est déjà déclaré');
+  const cfg = { siteId: 'jarsay', brokerId: 'jar' };
+  assert.equal(roleConflict([], 'esphome', 'ESPHome — jarsay', null, cfg), null);
+  assert.equal(roleConflict([role()], 'esphome', 'ESPHome — jarsay', null, cfg), null);
+  assert.equal(roleConflict([role()], 'esphome', 'esphome — vouille', null, cfg), 'un rôle de ce type porte déjà ce nom');
   // a broker on a host next to the role of the hub: the carrier of the hub is never compared
   const host = new ObjectId();
   const broker: RoleDoc = { _id: 'v', type: 'mqtt-broker', name: 'V', carrier: { kind: 'host', id: host }, config: { scheme: 'mqtt', port: 1883, username: '', password: '' }, createdAt: new Date() };
@@ -68,40 +70,42 @@ test('esphome: a single role, carried by the hub, never a conflict of carrier', 
 });
 
 test('esphome: the role as the UI shows it, the hub as its carrier', () => {
-  const v = roleView(role([{ brokerId: 'vouille' }, { brokerId: 'jar', siteId: 'jarsay' }]), null);
+  const v = roleView(role('jarsay', 'jar'), null);
   assert.deepEqual(v.carrier, { kind: 'hub', id: '', name: 'Hub' });
   assert.equal(v.url, '');
   assert.equal(v.status, null);
-  assert.equal(v.summary, '2 brokers écoutés, 0 appareil découvert');
+  assert.equal(v.summary, '0 appareil découvert');
 });
 
-test('esphome: the brokers listened to are known roles, once each, on known sites', () => {
+test('esphome: a role names a known site and a known broker, each used once', () => {
   const brokers = new Set(['vouille', 'jar']);
   const sites = new Set(['vouille', 'jarsay']);
-  assert.equal(brokersError([{ brokerId: 'vouille' }, { brokerId: 'jar', siteId: 'jarsay' }], brokers, sites), null);
-  assert.equal(brokersError([{ brokerId: 'x' }], brokers, sites), 'broker inconnu : x');
-  assert.equal(brokersError([{ brokerId: 'jar' }, { brokerId: 'jar' }], brokers, sites), 'broker en double : jar');
-  assert.equal(brokersError([{ brokerId: 'jar', siteId: 'mars' }], brokers, sites), 'site inconnu : mars');
-  // "" is the site of the host of the broker
-  assert.deepEqual(toEsphomeConfig([{ brokerId: 'jar', siteId: '' }, { brokerId: 'vouille', siteId: 'vouille' }]), { brokers: [{ brokerId: 'jar' }, { brokerId: 'vouille', siteId: 'vouille' }] });
+  assert.equal(esphomeError({ siteId: 'jarsay', brokerId: 'jar' }, brokers, sites, [role()]), null);
+  // the broker of jarsay may carry the devices of vouille
+  assert.equal(esphomeError({ siteId: 'vouille', brokerId: 'jar' }, brokers, sites, []), null);
+  assert.equal(esphomeError({ siteId: 'mars', brokerId: 'jar' }, brokers, sites, []), 'site inconnu : mars');
+  assert.equal(esphomeError({ siteId: 'jarsay', brokerId: 'x' }, brokers, sites, []), 'broker inconnu : x');
+  assert.equal(esphomeError({ siteId: 'vouille', brokerId: 'jar' }, brokers, sites, [role()]), 'un rôle ESPHome est déjà déclaré pour ce site');
+  assert.equal(esphomeError({ siteId: 'jarsay', brokerId: 'vouille' }, brokers, sites, [role()]), 'ce broker est déjà écouté par un autre rôle ESPHome');
+  assert.deepEqual(toEsphomeConfig({ siteId: 'jarsay', brokerId: 'jar' }), { siteId: 'jarsay', brokerId: 'jar' });
+  assert.deepEqual(toEsphomeConfig({ siteId: 'jarsay', brokerId: 'jar' }, 0), { siteId: 'jarsay', brokerId: 'jar', silentHours: 0 });
 });
 
 test('esphome: bad bodies are refused, a role not declared is unknown', async () => {
   const a = Fastify();
   registerEsphomeRoutes(a);
-  const put = (payload: unknown) => a.inject({ method: 'PUT', url: '/api/settings/esphome', payload });
-  assert.equal((await put({})).statusCode, 400);
-  assert.equal((await put({ brokers: [{ siteId: 'x' }] })).statusCode, 400);
-  assert.equal((await put({ brokers: [{ brokerId: 'x'.repeat(33) }] })).statusCode, 400);
+  const post = (payload: unknown) => a.inject({ method: 'POST', url: '/api/settings/esphome', payload });
+  assert.equal((await post({})).statusCode, 400);
+  assert.equal((await post({ siteId: 'x' })).statusCode, 400);
+  assert.equal((await post({ siteId: 'x', brokerId: 'x'.repeat(33) })).statusCode, 400);
+  assert.equal((await post({ siteId: 'x', brokerId: 'y', silentHours: 99 })).statusCode, 400);
   // past the schema: no role in the cache (no database)
-  assert.equal((await put({ brokers: [] })).statusCode, 404);
-  assert.equal((await a.inject({ method: 'DELETE', url: '/api/settings/esphome' })).statusCode, 404);
-  // no broker role: nothing to listen to
-  assert.equal((await a.inject({ method: 'POST', url: '/api/settings/esphome' })).statusCode, 409);
+  assert.equal((await a.inject({ method: 'PUT', url: '/api/settings/esphome/nope', payload: { siteId: 'x', brokerId: 'y' } })).statusCode, 404);
+  assert.equal((await a.inject({ method: 'DELETE', url: '/api/settings/esphome/nope' })).statusCode, 404);
 });
 
 test('esphome: settings of the admins, sensitive when written', () => {
-  for (const [m, r] of [['GET', '/api/settings/esphome'], ['POST', '/api/settings/esphome'], ['PUT', '/api/settings/esphome'], ['DELETE', '/api/settings/esphome']]) {
+  for (const [m, r] of [['GET', '/api/settings/esphome'], ['POST', '/api/settings/esphome'], ['PUT', '/api/settings/esphome/:id'], ['DELETE', '/api/settings/esphome/:id']]) {
     assert.ok(authorize('admin', m, r), `admin ${m} ${r}`);
     assert.ok(!authorize('operator', m, r), `operator ${m} ${r}`);
     assert.ok(!authorize('viewer', m, r), `viewer ${m} ${r}`);
@@ -315,6 +319,5 @@ test('esphome level: a known level, for a device the hub knows', async () => {
   assert.equal((await put({ key: 'v/four', level: 'LOUD' })).statusCode, 400);
   assert.equal((await put({ key: 'v/four' })).statusCode, 400);
   assert.equal((await put({ key: 'v/four', level: 'DEBUG' })).statusCode, 404);
-  assert.equal((await a.inject({ method: 'PUT', url: '/api/settings/esphome', payload: { brokers: [], silentHours: 99 } })).statusCode, 400);
   assert.ok(!authorize('operator', 'PUT', '/api/settings/esphome/level'));
 });
