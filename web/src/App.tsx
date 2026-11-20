@@ -14,7 +14,6 @@ import { ForcePasskey, ForcePasswordChange, Login } from './pages/Login';
 const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) => lazy(() => load().then((m) => ({ default: m[name] })));
 const Accounts = page(() => import('./pages/Accounts'), 'Accounts');
 const Activity = page(() => import('./pages/Activity'), 'Activity');
-const About = page(() => import('./pages/About'), 'About');
 const Backups = page(() => import('./pages/Backups'), 'Backups');
 const Dashboard = page(() => import('./pages/Dashboard'), 'Dashboard');
 const Docker = page(() => import('./pages/Docker'), 'Docker');
@@ -103,12 +102,10 @@ export default function App() {
             {me.isSuperAdmin ? (
               <>
                 <Route path="accounts" element={<Accounts />} />
-                <Route path="about" element={<About />} />
                 <Route path="*" element={<Navigate to="/accounts" replace />} />
               </>
             ) : (
               <>
-                <Route path="about" element={<About />} />
                 <Route index element={<Dashboard />} />
                 <Route path="hosts" element={<Hosts />} />
                 <Route path="hosts/:id" element={<HostDetail />} />
