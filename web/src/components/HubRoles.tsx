@@ -1270,11 +1270,11 @@ export function RolesSettings() {
   // the brokers the role of the hub listens to, by name
   const esphomeBrokers = (r: Extract<HubRole, { type: 'esphome' }>) => r.config.brokers.map((b) => roles?.find((x) => x.id === b.brokerId)?.name ?? b.brokerId).join(', ');
   const dot: Record<string, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', info: 'bg-sky-500', neutral: 'bg-zinc-500' };
-  // one card per role: the ones of a row share its width, a lone one takes all of it
+  // one card per role: two a row at most (they share its width), a lone one takes all of it
   const cardOf = (r: HubRole, c?: BrokerCardSlots) => {
     const st = roleStatus(r);
     return (
-      <article key={r.id} className={clsx('min-w-0 flex-[1_1_20rem] rounded-lg border border-t-[3px] border-line bg-raised/40 px-3.5 py-3', roleAccent[r.type].edge)}>
+      <article key={r.id} className={clsx('min-w-[20rem] max-w-full flex-[1_1_calc(50%-0.375rem)] rounded-lg border border-t-[3px] border-line bg-raised/40 px-3.5 py-3', roleAccent[r.type].edge)}>
         <div className="flex min-w-0 items-center gap-2">
           <span className={clsx('h-2 w-2 shrink-0 rounded-full', dot[st.tone] ?? dot.neutral)} aria-hidden />
           <span className="truncate font-medium text-zinc-100" title={r.name}>{r.name}</span>
