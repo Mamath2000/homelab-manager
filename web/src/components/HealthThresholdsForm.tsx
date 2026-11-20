@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import type { HealthEnabled, HealthEnabledKey } from '../lib/api';
 import { THRESHOLD_ROWS, type ThresholdForm, type ThresholdKey, type ThresholdRow } from '../lib/healthThresholds';
 
-function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"

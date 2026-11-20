@@ -22,7 +22,7 @@ export function RangeSlider({ min, max, step, warning, alert, format, current, o
   const ticks = Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4);
   const common = { min: lo, max: hi, step, disabled, className: 'range-thumb absolute inset-0 h-full w-full' };
   return (
-    <div className={clsx('relative h-14 select-none px-0', disabled && 'opacity-50')}>
+    <div className="relative h-14 select-none">
       <div className="absolute inset-x-0 top-8 h-1.5 overflow-hidden rounded-full">
         <span className="absolute inset-y-0 left-0 bg-emerald-900" style={{ width: at(pw) }} />
         <span className="absolute inset-y-0 bg-amber-700" style={{ left: at(pw), width: `calc(${at(pa)} - ${at(pw)})` }} />

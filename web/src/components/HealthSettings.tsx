@@ -6,8 +6,10 @@ import { useToast } from '../lib/toast';
 import clsx from 'clsx';
 import { Button, Panel, Spinner } from './ui';
 import { useSettingsDraft } from './settingsDraft';
-import { THRESHOLD_ROWS, invalidThreshold, type ThresholdRow } from '../lib/healthThresholds';
-import { RangeSlider, StepSlider, Stepper } from './HealthSliders';
+import { THRESHOLD_ROWS, invalidThreshold } from '../lib/healthThresholds';
+import { SCALES, barOf, num } from '../lib/healthScales';
+import { Indicator } from './HealthIndicator';
+import { StepSlider } from './HealthSliders';
 
 type Form = Omit<HealthSettingsValues, 'retentionHours'>;
 const fmtSeconds = (s: number) => (s < 60 ? `${s} s` : s < 3600 ? `${s / 60} min` : s <= 86400 ? `${s / 3600} h` : `${s / 86400} j`);
@@ -17,15 +19,6 @@ const intervals: { key: keyof Form; label: string; icon: LucideIcon; role: strin
   { key: 'smartIntervalSeconds', label: 'SMART', icon: HeartPulse, role: 'Santé des disques via smartctl, sur ceux activés dans la fiche hôte.', feeds: 'alertes température et usure NVMe', hint: 'recommandé 24 h, sans disque virtualisé', values: [600, 3600, 21600, 86400, 604800, 2592000] },
 ];
 // Per indicator: usual scale of the slider (widened when a stored value goes outside), step, unit and what it measures.
-interface Scale { min: number; max: number; step: number; unit: string; what: string; subject: string; duration: string }
-const SCALES: Record<string, Scale> = {
-  cpuWarningThreshold: { min: 0, max: 100, step: 1, unit: '%', what: 'Utilisation processeur moyenne de l’hôte', subject: 'le CPU', duration: 'Partagée avec la mémoire.' },
-  memoryWarningThreshold: { min: 0, max: 100, step: 1, unit: '%', what: 'Mémoire utilisée sur la mémoire totale de l’hôte', subject: 'la mémoire', duration: 'Partagée avec le CPU.' },
-  loadWarningThreshold: { min: 0, max: 2, step: 0.05, unit: '×', what: 'load5 rapporté au nombre de CPU, sans alerte sur les conteneurs', subject: 'la charge', duration: 'Propre à la charge Unix.' },
-  diskWarningThreshold: { min: 50, max: 100, step: 1, unit: '%', what: 'Espace utilisé par volume. Les seuils sont immédiats ; la durée est un délai de réactivation après la levée', subject: 'un volume', duration: '0 = aucun délai de réactivation.' },
-  smartTemperatureWarningThreshold: { min: 30, max: 90, step: 1, unit: '°C', what: 'Température des disques relevée par SMART', subject: 'la température', duration: 'Partagée avec l’usure NVMe.' },
-  smartWearWarningThreshold: { min: 0, max: 100, step: 1, unit: '%', what: 'Usure des disques NVMe relevée par SMART', subject: 'l’usure', duration: 'Partagée avec la température.' },
-};
 function formOf(s: HealthSettingsValues): Form {
   return {
     systemIntervalSeconds: s.systemIntervalSeconds,
@@ -50,14 +43,6 @@ function formOf(s: HealthSettingsValues): Form {
   };
 }
 
-const barOf = (r: ThresholdRow, f: Form) => {
-  const sc = SCALES[r.warning];
-  const lo = Math.min(sc.min, f[r.warning]);
-  const hi = Math.max(sc.max, f[r.alert]);
-  const p = (v: number) => ((v - lo) / (hi - lo)) * 100;
-  return { w: p(f[r.warning]), a: p(f[r.alert]) };
-};
-const num = (v: number, unit: string) => `${String(v).replace('.', ',')} ${unit}`;
 
 function Measures({ form, set }: { form: Form; set: (key: keyof Form, value: number) => void }) {
   return (
@@ -76,64 +61,6 @@ function Measures({ form, set }: { form: Form; set: (key: keyof Form, value: num
           <StepSlider values={values} value={form[key]} format={fmtSeconds} onChange={(v) => set(key, v)} />
         </div>
       ))}
-    </div>
-  );
-}
-
-function Indicator({ row, form, set }: { row: ThresholdRow; form: Form; set: (key: keyof Form, value: number) => void }) {
-  const sc = SCALES[row.warning];
-  const w = form[row.warning];
-  const a = form[row.alert];
-  const durKey = row.duration ?? row.rearm!;
-  const d = form[durKey];
-  const unit = sc.unit;
-  const durLabel = row.rearm ? 'Délai de réactivation' : 'Pendant au moins';
-  const bad = w >= a;
-  const max = row.max;
-  return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold text-zinc-100">{row.label}</h3>
-        <p className="text-sm text-muted">{sc.what}</p>
-      </div>
-      <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">Seuils</p>
-        <RangeSlider min={sc.min} max={sc.max} step={sc.step} warning={w} alert={a} format={(v) => num(v, unit)}
-          onChange={(nw, na) => { set(row.warning, nw); set(row.alert, na); }} />
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-line border-l-2 border-l-amber-400 bg-raised/30 px-3 py-2.5">
-          <p className="mb-1.5 text-xs text-muted">Warning à partir de</p>
-          <Stepper label="Warning" value={w} min={row.min ?? 1} max={max} step={sc.step} unit={unit} onChange={(v) => set(row.warning, v)} />
-        </div>
-        <div className="rounded-lg border border-line border-l-2 border-l-red-500 bg-raised/30 px-3 py-2.5">
-          <p className="mb-1.5 text-xs text-muted">Alerte à partir de</p>
-          <Stepper label="Alerte" value={a} min={row.min ?? 1} max={max} step={sc.step} unit={unit} onChange={(v) => set(row.alert, v)} />
-        </div>
-        <div className="rounded-lg border border-line bg-raised/30 px-3 py-2.5">
-          <p className="mb-1.5 text-xs text-muted">{durLabel}</p>
-          <Stepper label={durLabel} value={d} min={0} max={row.durationMax ?? 2880} unit="min" onChange={(v) => set(durKey, v)} />
-        </div>
-      </div>
-      {bad && <p className="text-xs text-red-300">Le seuil Warning doit rester inférieur au seuil Alerte.</p>}
-      <div>
-        <p className="mb-1 text-[11px] uppercase tracking-wide text-muted">Ce que ça donne</p>
-        <div className="space-y-1 rounded-lg border border-line bg-raised/30 px-4 py-3 text-sm text-zinc-300">
-          {row.rearm ? (
-            <>
-              <p><span className="mr-2 inline-block h-2 w-2 rounded-full bg-amber-400" />Dès que {sc.subject} dépasse <b className="text-zinc-100">{num(w, unit)}</b> → <b className="text-amber-300">warning</b>, immédiatement.</p>
-              <p><span className="mr-2 inline-block h-2 w-2 rounded-full bg-red-500" />Au-dessus de <b className="text-zinc-100">{num(a, unit)}</b> → <b className="text-red-300">alerte</b>, immédiatement.</p>
-              <p className="text-muted">{d ? `Après la levée, pas de nouvelle alerte au même niveau (ou inférieur) pendant ${d} min.` : 'Aucun délai de réactivation après la levée.'}</p>
-            </>
-          ) : (
-            <>
-              <p><span className="mr-2 inline-block h-2 w-2 rounded-full bg-amber-400" />Si {sc.subject} reste <b className="text-zinc-100">au-dessus de {num(w, unit)}</b>{d ? ` pendant ${d} min` : ''} → <b className="text-amber-300">warning</b>.</p>
-              <p><span className="mr-2 inline-block h-2 w-2 rounded-full bg-red-500" />Au-dessus de <b className="text-zinc-100">{num(a, unit)}</b>{d ? ` pendant ${d} min` : ''} → <b className="text-red-300">alerte</b>.</p>
-              <p className="text-muted">Retour sous le seuil → l’alerte se lève immédiatement. {sc.duration}</p>
-            </>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
