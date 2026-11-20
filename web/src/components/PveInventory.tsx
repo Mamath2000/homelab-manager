@@ -8,7 +8,7 @@ import { dateTime, timeAgo } from '../lib/format';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Modal, Panel, ResponsiveList, Spinner } from './ui';
 
-// Paramètres › Proxmox VE: the inventory of each cluster (pve-cluster role), node by node, read at each poll. A VM or a
+// Rôles › Proxmox VE: the inventory of each cluster (pve-cluster role), node by node, read at each poll. A VM or a
 // CT is a host of the hub when one of its MAC addresses is the one of an agent; otherwise it is unmanaged and only
 // shown here. Nothing about health or backup results: that is the subject of the hosts.
 
@@ -291,7 +291,7 @@ export function PveInventory() {
       <p className="text-sm text-muted">
         Inventaire relu à chaque relevé (toutes les 15 minutes). Une VM ou un CT est un hôte quand l'une de ses adresses MAC est celle d'un agent ; sinon il est{' '}
         <b className="text-zinc-300">non géré</b> et n'apparaît qu'ici. Le cluster se déclare et se modifie dans{' '}
-        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
+        <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
       </p>
       {data?.clusters.map((c) => <ClusterPanel key={c.id} c={c} />)}
     </div>

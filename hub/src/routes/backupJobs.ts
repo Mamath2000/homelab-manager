@@ -125,7 +125,7 @@ function jobDoc(hostId: ObjectId, body: ReturnType<typeof normInput> & { ns: str
 // its own), else the default one. Nothing to do when the host has one.
 export async function restoreCredential(host: HostDoc, pbs: PbsSettings) {
   if (host.pbsCredential) return;
-  if (!pbs.agent) throw new PbsAgentError("PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)");
+  if (!pbs.agent) throw new PbsAgentError("PBS principal non relié à son agent : le déclarer dans Rôles (PBS principal)");
   const t = await ensurePbsToken(pbs.agent, host.backupCache?.tokenId ?? defaultHostTokenId(host.name), PBS_TOKEN_ACLS.host, null);
   await hosts.updateOne({ _id: host._id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
 }
@@ -135,7 +135,7 @@ export async function restoreCredential(host: HostDoc, pbs: PbsSettings) {
 // gets the new one right away (backup_sync); missed, it gets it at its next connection (the hash covers the secret).
 export async function rotateCredential(host: HostDoc, pbs: PbsSettings) {
   if (!host.pbsCredential) throw new PbsAgentError('aucun jeton PBS enregistré pour cet hôte');
-  if (!pbs.agent) throw new PbsAgentError("PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)");
+  if (!pbs.agent) throw new PbsAgentError("PBS principal non relié à son agent : le déclarer dans Rôles (PBS principal)");
   if (!isOnline(host._id.toHexString())) throw new PbsAgentError("hôte hors ligne : il ne recevrait pas le nouveau secret, l'ancien serait déjà révoqué");
   const t = await ensurePbsToken(pbs.agent, host.pbsCredential.tokenId, PBS_TOKEN_ACLS.host, null);
   await hosts.updateOne({ _id: host._id }, { $set: { pbsCredential: { tokenId: t.tokenId, tokenSecret: t.tokenSecret, updatedAt: new Date(), store: '*' } } });
@@ -221,7 +221,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
       const host = _id && (await hosts.findOne({ _id }));
       if (!host) return reply.code(404).send({ error: 'host not found' });
       const pbs = await loadPbsSettings();
-      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)" });
+      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Rôles (PBS principal)" });
       let t;
       try {
         t = await ensurePbsToken(pbs.agent, req.body.tokenId.trim(), PBS_TOKEN_ACLS.host, openCredential(host.pbsCredential));
@@ -273,7 +273,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     { schema: { body: { type: 'object', additionalProperties: false, properties: { hostIds: hostIdList } } } },
     async (req, reply) => {
       const pbs = await loadPbsSettings();
-      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)" });
+      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Rôles (PBS principal)" });
       const report = { rotated: [] as string[], skipped: [] as string[], errors: [] as { name: string; error: string }[] };
       const done: ObjectId[] = [];
       // one after the other: the agent of the PBS runs its commands in turn anyway
@@ -308,7 +308,7 @@ export function registerBackupJobRoutes(app: FastifyInstance) {
     if (!host) return reply.code(404).send({ error: 'host not found' });
     if (host.pbsCredential) {
       const pbs = await loadPbsSettings();
-      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Paramètres › Rôles (PBS principal)" });
+      if (!pbs.agent) return reply.code(409).send({ error: "PBS principal non relié à son agent : le déclarer dans Rôles (PBS principal)" });
       try {
         await deletePbsToken(pbs.agent, host.pbsCredential.tokenId);
       } catch (err) {

@@ -381,7 +381,7 @@ export function registerBackupRoutes(app: FastifyInstance) {
     return { clusters: s.clusters.map(pveDto) };
   });
 
-  // Inventory of the clusters (Paramètres › Proxmox VE): their nodes with the agent on each, their guests with the host
+  // Inventory of the clusters (Rôles › Proxmox VE): their nodes with the agent on each, their guests with the host
   // each one is (or why none), their jobs. Nothing about health or backup results: that is the subject of the hosts.
   app.get('/api/settings/pve/inventory', async () => {
     const s = await loadPveSettings();

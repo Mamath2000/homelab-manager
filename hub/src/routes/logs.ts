@@ -203,7 +203,7 @@ function withHosts(rows: LogRow[], known: KnownHost[]) {
   });
 }
 
-// --- hosts that send to a log server (Paramètres › Logs) ---------------------------------------------------------------
+// --- hosts that send to a log server (Rôles › Logs) ---------------------------------------------------------------
 
 // How a host sends to the server: through the standard value, its own value, or set by hand on the host (the server
 // receives from it, the standardisation does not send it there). null: it does not send there.
@@ -249,7 +249,7 @@ export function registerLogRoutes(app: FastifyInstance) {
     }
     const role = logRole(id);
     if (!role) {
-      reply.code(404).send({ error: logRoles().length ? 'serveur de logs inconnu' : 'aucun serveur de logs déclaré (Paramètres › Rôles)' });
+      reply.code(404).send({ error: logRoles().length ? 'serveur de logs inconnu' : 'aucun serveur de logs déclaré (Rôles)' });
       return null;
     }
     return role;

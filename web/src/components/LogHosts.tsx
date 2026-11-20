@@ -12,7 +12,7 @@ import { useToast } from '../lib/toast';
 import { Button, Checkbox, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot } from './ui';
 import type { Tone } from '../lib/status';
 
-// Paramètres › Logs: the hosts that send their journals to each log server, one card per host, green while journals
+// Rôles › Logs: the hosts that send their journals to each log server, one card per host, green while journals
 // arrive. Adding a host installs and configures rsyslog on it (option « Envoi des journaux » of the standardisation,
 // applied at once); the bin stops it (the agent removes its file). A host with Docker stacks also sends the journals of
 // its containers from its card (homelab#347): always to the server of the host, stopped with them.

@@ -1489,7 +1489,7 @@ export interface PveCluster {
   guests?: number;
 }
 
-// Inventory of a cluster (Paramètres › Proxmox VE, hub/src/routes/backups.ts): its nodes with their agent, its guests
+// Inventory of a cluster (Rôles › Proxmox VE, hub/src/routes/backups.ts): its nodes with their agent, its guests
 // with the host each one is. host null: no agent (unmanaged); ambiguous: a MAC shared with another guest.
 export interface OmadaDeviceView {
   mac: string;
@@ -1829,7 +1829,7 @@ export type HubRole =
   // a VictoriaLogs: url, its query API; address (null: the one of its host), port and protocol, where the hosts send their
   // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
   | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string })
-  // carried by the hub: the brokers it listens to for ESPHome devices (Paramètres › ESPHome)
+  // carried by the hub: the brokers it listens to for ESPHome devices (Rôles › ESPHome)
   | (HubRoleBase & { type: 'esphome'; config: { brokers: EsphomeBroker[] } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
@@ -1837,7 +1837,7 @@ export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 export type LogHubRole = Extract<HubRole, { type: 'log-server' }>;
 
-// ESPHome (homelab#352, Paramètres › ESPHome): the brokers the role listens to, and the devices found on each.
+// ESPHome (homelab#352, Rôles › ESPHome): the brokers the role listens to, and the devices found on each.
 // siteId: the site set for the broker (absent: the one of its host); site: the one its devices are in.
 export interface EsphomeBroker {
   brokerId: string;
@@ -1982,7 +1982,7 @@ export interface LogSource {
   count: number;
   errors: number;
 }
-// A host that sends its journals to a log server (Paramètres › Logs). mode: through the standard value, its own value,
+// A host that sends its journals to a log server (Rôles › Logs). mode: through the standard value, its own value,
 // or set by hand on the host (received, not sent by the standardisation). state: ok, received lately; pending, being
 // installed; drift, to apply; error, the agent cannot apply it; silent, nothing received.
 export interface LogHost {

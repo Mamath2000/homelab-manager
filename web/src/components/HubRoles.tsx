@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, Radio, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
+import { rolePagesOf } from '../lib/roleSettings';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
@@ -16,7 +17,7 @@ import { RemoteModal } from './OffsiteSettings';
 import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
-import { Badge, Button, ConfirmModal, CopyField, Modal, Panel, Spinner } from './ui';
+import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
@@ -92,7 +93,7 @@ function generatePassword() {
 
 const DYNSEC_INFO: Record<'unavailable' | 'available' | 'active', string> = {
   unavailable: 'gestion des comptes par HLM indisponible',
-  available: 'gestion des comptes par HLM possible (dynamic-security), à activer dans Paramètres › MQTT',
+  available: 'gestion des comptes par HLM possible (dynamic-security), à activer dans Rôles › Comptes MQTT',
   active: 'dynamic-security chargé',
 };
 
@@ -1093,12 +1094,12 @@ function DynsecIcon({ role }: { role: MqttHubRole }) {
   if (s.state === 'unavailable') return null;
   const managed = s.state === 'active' && !!s.managed;
   const title = managed
-    ? 'Comptes gérés par HLM (dynamic-security) : Paramètres › MQTT'
+    ? 'Comptes gérés par HLM (dynamic-security) : Rôles › Comptes MQTT'
     : s.state === 'active'
       ? 'dynamic-security chargé, mais géré en dehors de HLM'
-      : `Gestion des comptes par HLM possible${s.version ? ` (Mosquitto ${s.version})` : ''} : à activer dans Paramètres › MQTT`;
+      : `Gestion des comptes par HLM possible${s.version ? ` (Mosquitto ${s.version})` : ''} : à activer dans Rôles › Comptes MQTT`;
   return (
-    <Link to="/settings?tab=mqtt" title={title} aria-label={title} className="shrink-0">
+    <Link to="/roles/mqtt" title={title} aria-label={title} className="shrink-0">
       <ShieldCheck className={clsx('h-3.5 w-3.5', managed ? 'text-emerald-400' : 'text-zinc-500')} aria-hidden />
     </Link>
   );
@@ -1137,7 +1138,7 @@ type Editing =
   | { type: 'log-server'; role: LogHubRole | null }
   | { type: 'pbs-primary' | 'pbs-offsite' };
 
-// Paramètres › Rôles: every role of the hub, declared, edited and removed here.
+// Rôles: every role of the hub, declared, edited and removed here.
 export function RolesSettings() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -1181,18 +1182,18 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
-  // the role of the hub is set in its own screen (Paramètres › ESPHome): declared at once, then opened there
+  // the role of the hub is set in its own screen (Rôles › ESPHome): declared at once, then opened there
   const declareEsphome = async () => {
     try {
       await api.declareEsphome();
       await refresh();
-      navigate('/settings?tab=esphome');
+      navigate('/roles/esphome');
     } catch (err) {
       toast.error((err as Error).message);
     }
   };
   const edit = (r: HubRole) =>
-    r.type === 'esphome' ? navigate('/settings?tab=esphome') : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
+    r.type === 'esphome' ? navigate('/roles/esphome') : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1218,11 +1219,17 @@ export function RolesSettings() {
   const sectionTitle = (g: (typeof sections)[number]) => {
     const Icon = roleIcon[g.type];
     return (
-      <div className="mb-2.5 flex items-center gap-2.5">
+      <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
         <span className={clsx('inline-flex h-7 w-7 items-center justify-center rounded-md ring-1 ring-inset', roleTint[g.type])}><Icon className="h-4 w-4" aria-hidden /></span>
         <h3 className="font-medium text-zinc-100">{g.label}</h3>
         <span className="rounded-full bg-raised px-2 text-xs text-muted">{g.list.length}</span>
-        <span className={clsx('h-px flex-1 bg-gradient-to-r to-transparent', roleAccent[g.type].rule)} aria-hidden />
+        <span className={clsx('h-px min-w-4 flex-1 bg-gradient-to-r to-transparent', roleAccent[g.type].rule)} aria-hidden />
+        {rolePagesOf(g.type, roles ?? []).map((p) => (
+          <Link key={p.id} to={`/roles/${p.id}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs text-zinc-300 transition hover:border-emerald-500/50 hover:bg-raised hover:text-emerald-300">
+            <p.icon className="h-3.5 w-3.5" aria-hidden />
+            {p.action}
+          </Link>
+        ))}
       </div>
     );
   };
@@ -1266,16 +1273,20 @@ export function RolesSettings() {
   const cluster = editing?.type === 'pve-cluster' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
 
   return (
-    <Panel title="Rôles du hub" icon={Radio} bodyClassName="" actions={<Button size="sm" icon={Plus} onClick={() => setPicking(true)}>Déclarer un rôle</Button>}>
-      <p className="border-b border-line px-4 py-3 text-xs text-muted">
-        Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
-        cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal reçoit les sauvegardes, le
-        PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur de logs reçoit les journaux des hôtes et ouvre la page Logs ; le rôle ESPHome, porté par le hub, découvre les
-        appareils ESPHome sur les brokers choisis. Un rôle utilisé ne peut pas être
-        supprimé, ni l'hôte ou l'équipement qui le porte.
-      </p>
+    <>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start">
+        <p className="max-w-5xl flex-1 text-sm text-muted">
+          Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
+          cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal
+          reçoit les sauvegardes, le PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur
+          de logs reçoit les journaux des hôtes et ouvre la page Logs ; le rôle ESPHome, porté par le hub, découvre les appareils ESPHome sur les brokers choisis.
+          Les réglages d'un type de rôle (comptes MQTT, Home Assistant, inventaires…) s'ouvrent depuis les boutons de sa section. Un rôle utilisé ne peut pas être
+          supprimé, ni l'hôte ou l'équipement qui le porte.
+        </p>
+        <Button className="shrink-0 self-start" variant="primary" icon={Plus} onClick={() => setPicking(true)}>Déclarer un rôle</Button>
+      </div>
       {!!pbs?.pinRefused?.length && (
-        <div className="space-y-2 border-b border-line bg-amber-500/5 px-4 py-3 text-xs">
+        <div className="mb-5 space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs">
           <p className="text-amber-300">
             Le PBS principal est refusé par {pbs.pinRefused.length > 1 ? `${pbs.pinRefused.length} hôtes` : 'un hôte'} : un autre PBS y est épinglé par la politique locale,
             leurs sauvegardes échouent. Le hub ne peut pas lever ce verrou : sur chaque hôte, supprimer le fichier d'épinglage (le PBS suivant est retenu) ou ajouter
@@ -1299,7 +1310,7 @@ export function RolesSettings() {
         <p className="p-4 text-sm text-muted">Aucun rôle : pas de sauvegarde, de sonde MQTT, d'intégration Home Assistant ni d'inventaire Proxmox VE.</p>
       ) : (
         // two columns of sections on a wide screen, one below; a section is never split
-        <div className="gap-x-8 p-4 2xl:columns-2">
+        <div className="gap-x-8 2xl:columns-2">
           {sections.map((g) => (
             <section key={g.type} className="mb-5 break-inside-avoid">
               {sectionTitle(g)}
@@ -1357,6 +1368,6 @@ export function RolesSettings() {
           <>Le rôle <b>{removing?.name}</b> est retiré du hub : le broker n'est plus écouté.</>
         )}
       </ConfirmModal>
-    </Panel>
+    </>
   );
 }

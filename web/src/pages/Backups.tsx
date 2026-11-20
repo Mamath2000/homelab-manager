@@ -211,7 +211,7 @@ export function Backups() {
         <div className="panel">
           <Empty icon={DatabaseBackup} title="Aucune sauvegarde suivie">
             Déclare ton Proxmox Backup Server comme rôle PBS principal
-            {canSettings ? <> dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link></> : ' (Paramètres › Rôles, administrateur)'}.
+            {canSettings ? <> dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link></> : ' (Rôles, administrateur)'}.
           </Empty>
         </div>
       ) : (

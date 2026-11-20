@@ -315,7 +315,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
             ) : (
               'non suivis'
             )}
-            {canSettings && <> (<Link to="/settings?tab=logs" className="text-emerald-400 hover:underline">Paramètres › Logs</Link>)</>}
+            {canSettings && <> (<Link to="/roles/logs" className="text-emerald-400 hover:underline">Rôles › Logs</Link>)</>}
           </>
         )}
       </p>

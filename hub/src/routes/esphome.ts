@@ -10,7 +10,7 @@ import { rolesSaved } from '../roleEvents.js';
 import { allRoles, esphomeRole, roleConflict } from '../roles.js';
 import type { EquipmentDoc, EsphomeBroker, EsphomeConfig, EsphomeDeviceDoc, EsphomeRole, MqttBrokerRole } from '../types.js';
 
-// Paramètres › ESPHome (admin, homelab#352): the esphome role, carried by the hub, declared and removed here, and the
+// Rôles › ESPHome (admin, homelab#352): the esphome role, carried by the hub, declared and removed here, and the
 // brokers it listens to (mqtt-broker roles), each with the site of its devices when it is not the one of its host. The
 // devices found on each broker, as their messages left them (esphome.ts).
 

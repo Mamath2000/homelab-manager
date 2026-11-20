@@ -124,7 +124,7 @@ export function AlertZone({ hosts, groups }: { hosts: Host[]; groups: BackupGrou
     { key: 'rei', level: 'bad' as const, n: reinstall, label: plural(reinstall, 'hôte à réinstaller', 'hôtes à réinstaller'), to: '/hosts?f=reinstall' },
     { key: 'late', level: 'warn' as const, n: backupLate, label: plural(backupLate, 'sauvegarde en retard', 'sauvegardes en retard'), to: '/backups?f=late' },
     { key: 'log', level: 'warn' as const, n: hasLogs ? logHostsErrors : 0, label: `${plural(logHostsErrors, 'hôte')} avec des erreurs de logs · 24 h`, to: canLogs ? '/logs?sev=3&from=24h' : '/hosts' },
-    { key: 'mute', level: 'warn' as const, n: hasLogs ? logSilent : 0, label: plural(logSilent, 'hôte sans journaux', 'hôtes sans journaux'), to: '/settings?tab=logs' },
+    { key: 'mute', level: 'warn' as const, n: hasLogs ? logSilent : 0, label: plural(logSilent, 'hôte sans journaux', 'hôtes sans journaux'), to: '/roles/logs' },
   ].filter((a) => a.n > 0);
   const bad = alerts.filter((a) => a.level === 'bad');
   const warn = alerts.filter((a) => a.level === 'warn');

@@ -53,7 +53,7 @@ export function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boo
       qc.invalidateQueries({ queryKey: ['backups'] });
       toast.success(saved.hasSecret ? 'Enregistré : relevé du PBS en cours' : 'Enregistré');
       // another PBS pinned on these hosts: their backups fail until it is unlocked there (policy.json of the agent)
-      if (next.pinRefused?.length) toast.error(`Ce PBS sera refusé par ${next.pinRefused.map((h) => h.name).join(', ')} (autre PBS épinglé) : le déverrouiller sur chaque hôte, voir Paramètres › Rôles`);
+      if (next.pinRefused?.length) toast.error(`Ce PBS sera refusé par ${next.pinRefused.map((h) => h.name).join(', ')} (autre PBS épinglé) : le déverrouiller sur chaque hôte, voir Rôles`);
       onClose();
       return true;
     } catch (err) {

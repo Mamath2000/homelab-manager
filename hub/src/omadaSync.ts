@@ -150,7 +150,7 @@ export async function pollRole(role: OmadaControllerRole) {
     if (kept) lastPolls.set(role._id, pollStateOf(kept));
   }
   publish('omada', {});
-  // the state of the role changed with it (Paramètres › Rôles, badge of its carrier)
+  // the state of the role changed with it (Rôles, badge of its carrier)
   publish('roles', {});
 }
 

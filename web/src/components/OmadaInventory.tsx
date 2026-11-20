@@ -10,7 +10,7 @@ import { useToast } from '../lib/toast';
 import { Badge, Button, Panel, Spinner, StatusDot } from './ui';
 import { VpnProbeModal } from './VpnProbeModal';
 
-// Paramètres › Omada: the devices of each controller (omada-controller role), site by site. An Omada site is matched to a
+// Rôles › Omada: the devices of each controller (omada-controller role), site by site. An Omada site is matched to a
 // site of the homelab; a device is an equipment of the hub once created from it, or linked to a manual equipment (a hub
 // equipment has no MAC: the ones proposed share its address or its name). Presence and checks then come from the controller.
 
@@ -214,7 +214,7 @@ export function OmadaInventory() {
       <p className="text-sm text-muted">
         Appareils relus toutes les 5 minutes, site par site. Associez chaque site Omada à un site du homelab, puis créez l'équipement d'un appareil ou reliez-le à un
         équipement manuel existant (proposé s'il a la même adresse IP ou le même nom) : sa présence vient alors du contrôleur. Le contrôleur se déclare dans{' '}
-        <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
+        <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
       </p>
       {data && <VpnPanel controllers={data.controllers} />}
       {data?.controllers.map((c) => <ControllerPanel key={c.id} c={c} />)}

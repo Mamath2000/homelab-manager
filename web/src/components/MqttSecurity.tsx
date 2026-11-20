@@ -19,7 +19,7 @@ const PAGE_SIZE = 15;
 const rowText = (r: AccountRow) => (r.kind === 'account' ? r.a.username : r.kind === 'refused' ? `${r.c.clientId} ${r.c.address} ${r.c.account ?? ''}` : `${r.c.clientId} ${r.c.address}`).toLowerCase();
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('fr-FR') : '—');
 
-// Paramètres › MQTT: the security of the MQTT brokers whose management of accounts is available or active
+// Rôles › Comptes MQTT: the security of the MQTT brokers whose management of accounts is available or active
 // (dynamic-security, run by the agent of the host), one panel per broker role.
 export function MqttSecuritySettings() {
   const { data: roles = [] } = useRoles();
@@ -104,7 +104,7 @@ function BrokerSecurity({ role }: { role: MqttHubRole }) {
               <p className="text-muted">
                 Les comptes se gèrent depuis la fiche de l'hôte <Link className="underline" to={`/hosts/${role.carrier.id}`}>{role.carrier.name}</Link>.{' '}
                 Le hub administre le broker en TLS mutuel (port 8883) avec son propre certificat, sans mot de passe, à part du rôle : les sondes et le pont Home Assistant
-                utilisent la connexion du rôle (Paramètres › Rôles), dont le compte est créé sur le broker à son enregistrement. Les clients anonymes restent acceptés (rôle <code>legacy</code>) ; un client qui se connecte avec un compte
+                utilisent la connexion du rôle (Rôles), dont le compte est créé sur le broker à son enregistrement. Les clients anonymes restent acceptés (rôle <code>legacy</code>) ; un client qui se connecte avec un compte
                 inconnu est refusé.
               </p>
             )}

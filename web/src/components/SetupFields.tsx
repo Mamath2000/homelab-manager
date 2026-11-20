@@ -56,7 +56,7 @@ function LogServerSelect({ value, onChange, disabled }: { value: string; onChang
           <option key={r.id} value={r.id}>{r.name} ({r.target || 'adresse inconnue'})</option>
         ))}
       </select>
-      {!servers.length && <p className="text-xs text-amber-300">Aucun serveur de logs déclaré (Paramètres › Rôles).</p>}
+      {!servers.length && <p className="text-xs text-amber-300">Aucun serveur de logs déclaré (Rôles).</p>}
     </div>
   );
 }

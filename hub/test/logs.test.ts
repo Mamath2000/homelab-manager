@@ -274,7 +274,7 @@ test('log routes: 404 without a log server, never with an API key, filters check
   await app.close();
 });
 
-test('Paramètres › Logs: how a host sends to a server, and the values that make it send or stop', async () => {
+test('Rôles › Logs: how a host sends to a server, and the values that make it send or stop', async () => {
   const { overridesSending, sendMode } = await import('../src/routes/logs.js');
   const { config: hubConfig } = await import('../src/config.js');
   const was = hubConfig.featureStandardisation;

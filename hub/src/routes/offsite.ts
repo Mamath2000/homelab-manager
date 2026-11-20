@@ -130,7 +130,7 @@ export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
   const why = notCopiable(b);
   if (why) return { ok: false, error: why };
   const r = await loadRemoteSettings();
-  if (!remoteReady(r)) return { ok: false, error: 'PBS hors site non connecté (Paramètres › Rôles)' };
+  if (!remoteReady(r)) return { ok: false, error: 'PBS hors site non connecté (Rôles)' };
   const others = await backups.find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1 } }).toArray();
   const twin = sameGroupElsewhere(b, others);
   if (twin) return { ok: false, error: `${b.ns || 'racine'}/${b.type}/${b.backupId} est déjà copié depuis le datastore ${twin.store} : une seule copie par groupe` };
@@ -244,7 +244,7 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     { schema: { body: { type: 'object', required: ['tokenId'], additionalProperties: false, properties: { tokenId: { type: 'string', maxLength: 128 } } } } },
     async (req, reply) => {
       const main = await loadPbsSettings();
-      if (!main.agent) return reply.code(409).send({ error: 'PBS principal non relié à son agent (Paramètres › Rôles)' });
+      if (!main.agent) return reply.code(409).send({ error: 'PBS principal non relié à son agent (Rôles)' });
       const current = await loadRemoteSettings();
       let t;
       try {

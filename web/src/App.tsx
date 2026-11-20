@@ -26,6 +26,8 @@ const Health = page(() => import('./pages/Health'), 'Health');
 const Logs = page(() => import('./pages/Logs'), 'Logs');
 const Probes = page(() => import('./pages/Probes'), 'Probes');
 const JobDetail = page(() => import('./pages/JobDetail'), 'JobDetail');
+const Roles = page(() => import('./pages/Roles'), 'Roles');
+const RolePage = page(() => import('./pages/Roles'), 'RolePage');
 const Settings = page(() => import('./pages/Settings'), 'Settings');
 const Stack = page(() => import('./pages/Stack'), 'Stack');
 const Updates = page(() => import('./pages/Updates'), 'Updates');
@@ -123,6 +125,8 @@ export default function App() {
                 <Route path="jobs/:id" element={<JobDetail />} />
                 {me.canAccounts && <Route path="accounts" element={<Accounts />} />}
                 {me.canSettings && <Route path="settings" element={<Settings />} />}
+                {me.canSettings && <Route path="roles" element={<Roles />} />}
+                {me.canSettings && <Route path="roles/:page" element={<RolePage />} />}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </>
             )}

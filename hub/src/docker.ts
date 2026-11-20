@@ -163,7 +163,7 @@ export function dockerView(h: HostDoc): DockerView | null {
   };
 }
 
-// The journals of the containers on the card of the host in Paramètres › Logs (homelab#347). null: no stack, nothing to
+// The journals of the containers on the card of the host in Rôles › Logs (homelab#347). null: no stack, nothing to
 // show. unavailable: the agent cannot set it up; off: not turned on; pending: being set up or removed; ok: received
 // lately; drift: to look at (daemon.json changed, stacks to recreate); error: nothing can be sent; silent: nothing received.
 export type DockerLogsCardState = 'unavailable' | 'off' | 'pending' | 'ok' | 'drift' | 'error' | 'silent';

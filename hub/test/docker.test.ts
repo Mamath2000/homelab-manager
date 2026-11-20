@@ -188,7 +188,7 @@ test('journals of the containers: followed, to recreate, or nothing while the co
   assert.ok(!isDockerReport({ checkedAt: 1, engine: '', compose: '', stacks: [], images: [], logCollect: { address: 1 } }));
 });
 
-test('journals of the containers on the card of Paramètres › Logs', () => {
+test('journals of the containers on the card of Rôles › Logs', () => {
   const ok = { address: '192.168.100.172', port: 517, daemon: 'ok' as const, collector: 'running' as const };
   const host = (logCollect?: typeof ok | Record<string, unknown>, enabled = true, followed = true, caps = ['docker', 'docker_log_collect']) => {
     const h = dockerHost({ stacks: [stack('web', 'running', [['app', 'app:1', 'running']])], ...(logCollect ? { logCollect } : {}) });

@@ -138,7 +138,7 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
                 {e.roles.map((r) => {
                   const Icon = roleIcon[r.type];
                   return (
-                    <Link key={r.id} to="/settings?tab=roles" title={`Rôle du hub ${r.name} : Paramètres › Rôles`} className={clsx('inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset', roleTint[r.type])}>
+                    <Link key={r.id} to="/roles" title={`Rôle du hub ${r.name} : Rôles`} className={clsx('inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-medium ring-1 ring-inset', roleTint[r.type])}>
                       <Icon className="h-3.5 w-3.5" aria-hidden />
                       {roleTypeLabel(r.type)} {r.name}
                     </Link>
@@ -179,7 +179,7 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
         {e.roles.length > 0 ? (
           <>
             <b>{e.name}</b> porte {e.roles.length > 1 ? 'les rôles' : 'le rôle'} {e.roles.map((r) => `${roleTypeLabel(r.type)} ${r.name}`).join(', ')} : le réaffecter à un autre porteur ou le supprimer
-            d'abord, dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.
+            d'abord, dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
           </>
         ) : (
           <>

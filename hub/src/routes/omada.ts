@@ -37,7 +37,7 @@ interface Selection {
   host: string;
 }
 
-// Paramètres › Omada (admin): the sites and devices of each omada-controller role as the last poll read them, and what the
+// Rôles › Omada (admin): the sites and devices of each omada-controller role as the last poll read them, and what the
 // admin decides: which site of the homelab each Omada site is, which devices are equipments (created, or linked to a
 // manual one). Read by site, as the page shows it.
 

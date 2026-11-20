@@ -561,7 +561,7 @@ export function Logs() {
     return (
       <>
         <HeaderTitle icon={ScrollText} title="Logs" />
-        <Empty icon={ScrollText} title="Aucun serveur de logs">Déclarer un rôle « Serveur de logs » dans Paramètres › Rôles : les hôtes y envoient leurs journaux, lisibles ici.</Empty>
+        <Empty icon={ScrollText} title="Aucun serveur de logs">Déclarer un rôle « Serveur de logs » dans Rôles : les hôtes y envoient leurs journaux, lisibles ici.</Empty>
       </>
     );
   }

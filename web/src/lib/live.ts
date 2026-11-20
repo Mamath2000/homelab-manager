@@ -53,9 +53,9 @@ export function useLiveEvents(enabled: boolean) {
       qc.setQueryData<Job>(keys.job(job.id), (old) => (old ? { ...old, ...job, log: old.log } : old));
       if (job.status !== 'running') qc.invalidateQueries({ queryKey: keys.job(job.id) });
     });
-    // the sites and devices of an Omada controller (Paramètres › Omada)
+    // the sites and devices of an Omada controller (Rôles › Omada)
     es.addEventListener('omada', () => qc.invalidateQueries({ queryKey: ['settings', 'omada'] }));
-    // ESPHome devices seen or changed on the brokers of the esphome role (Paramètres › ESPHome, summary of the role)
+    // ESPHome devices seen or changed on the brokers of the esphome role (Rôles › ESPHome, summary of the role)
     es.addEventListener('esphome', () => {
       qc.invalidateQueries({ queryKey: ['settings', 'esphome'] });
       qc.invalidateQueries({ queryKey: keys.roles });
@@ -69,7 +69,7 @@ export function useLiveEvents(enabled: boolean) {
       // state of the last poll of the PBS and of the secondary PBS (Paramètres › Sauvegardes)
       qc.invalidateQueries({ queryKey: ['settings', 'pbs'] });
       qc.invalidateQueries({ queryKey: ['settings', 'pbs-remote'] });
-      // inventory of the Proxmox VE clusters, polled with the backups (Paramètres › Proxmox VE)
+      // inventory of the Proxmox VE clusters, polled with the backups (Rôles › Proxmox VE)
       qc.invalidateQueries({ queryKey: ['settings', 'pve'] });
     });
     // a snapshot mounted or unmounted (the hosts carry it): the mount window
@@ -87,7 +87,7 @@ export function useLiveEvents(enabled: boolean) {
       }
       qc.invalidateQueries({ queryKey: keys.alerts });
     });
-    // a PBS connected, disconnected or polled: the roles of the hub (Paramètres › Rôles)
+    // a PBS connected, disconnected or polled: the roles of the hub (Rôles)
     es.addEventListener('roles', () => {
       qc.invalidateQueries({ queryKey: keys.roles });
     });

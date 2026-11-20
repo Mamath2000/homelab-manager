@@ -176,7 +176,7 @@ function lockoutError(v: Partial<SetupValues>) {
 // The journals are sent to a log server that exists; no server ('') only as the own value of a host (it sends nothing).
 function logForwardError(v: SetupValues['log_forward'] | undefined, standard: boolean) {
   if (!v) return null;
-  if (!v.role) return standard ? "envoi des journaux : choisir un serveur de logs (Paramètres › Rôles)" : null;
+  if (!v.role) return standard ? "envoi des journaux : choisir un serveur de logs (Rôles)" : null;
   return logRole(v.role) ? null : "envoi des journaux : ce serveur de logs n'existe plus";
 }
 

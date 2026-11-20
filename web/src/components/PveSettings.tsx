@@ -25,7 +25,7 @@ const hostOf = (url: string) => {
 // Corosync cluster of a node, announced by its agent (`pve_cluster:<name>`).
 const clusterOf = (caps: string[]) => caps.find((c) => c.startsWith('pve_cluster:'))?.slice('pve_cluster:'.length);
 
-// One cluster (a pve-cluster role of the hub, Paramètres › Rôles), declared from one of its nodes in four steps
+// One cluster (a pve-cluster role of the hub, Rôles), declared from one of its nodes in four steps
 // (PbsDialog.tsx): node and Détecter, what its agent found and the interface the hub reaches the API at, token created
 // by the agent, test. Choosing another node of the cluster moves the role. The secret is never sent back by the hub.
 export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null; others: PveCluster[]; onClose: () => void }) {
@@ -243,5 +243,5 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
   );
 }
 
-// Paramètres › Sauvegardes: the Proxmox VE clusters are roles of the hub (Cluster Proxmox VE), declared in Paramètres › Rôles,
-// their inventory in Paramètres › Proxmox VE.
+// Paramètres › Sauvegardes: the Proxmox VE clusters are roles of the hub (Cluster Proxmox VE), declared in Rôles,
+// their inventory in Rôles › Proxmox VE.

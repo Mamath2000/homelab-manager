@@ -400,7 +400,7 @@ export interface HostDoc {
   // automatic security updates chosen in its options (autoUpgrade.ts)
   autoSecurityUpdates?: boolean;
   // journals of the containers sent too (homelab#346, #347): always to the log server of the host (its option « Envoi des
-  // journaux »), turned on from Paramètres › Logs
+  // journaux »), turned on from Rôles › Logs
   dockerLogs?: { enabled: true };
   // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
   haExcluded?: boolean;

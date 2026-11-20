@@ -35,7 +35,7 @@ export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'pbs-offsite', label: 'PBS hors site', hint: 'un second PBS, distant, qui copie chaque jour les sauvegardes choisies du principal' },
   { id: 'omada-controller', label: 'Contrôleur Omada', hint: 'l’Open API du contrôleur Omada (application en mode client) : source des équipements réseau et des VPN site à site' },
   { id: 'log-server', label: 'Serveur de logs', hint: 'un VictoriaLogs qui reçoit les journaux des hôtes en syslog (option « Envoi des journaux » de la standardisation) : ouvre la page Logs' },
-  { id: 'esphome', label: 'ESPHome', hint: 'porté par le hub : les appareils ESPHome découverts sur les brokers MQTT choisis (LWT, info), ouvre Paramètres › ESPHome' },
+  { id: 'esphome', label: 'ESPHome', hint: 'porté par le hub : les appareils ESPHome découverts sur les brokers MQTT choisis (LWT, info), ouvre Rôles › ESPHome' },
 ];
 // one role of these types in the homelab
 export const SINGLE_ROLES: HubRoleType[] = ['pbs-primary', 'pbs-offsite', 'esphome'];

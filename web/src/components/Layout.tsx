@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, Info, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, Info, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Radio, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { useLogServers } from '../lib/queries';
@@ -174,6 +174,7 @@ function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onN
       ))}
       {(me.canAccounts || me.canSettings) && (
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-3">
+          {me.canSettings && <SideLink item={{ to: '/roles', label: 'Rôles', icon: Radio }} onClick={onNavigate} collapsed={collapsed} />}
           {me.canAccounts && <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} collapsed={collapsed} />}
           {me.canSettings && <SideLink item={{ to: '/settings', label: 'Paramètres', icon: Settings }} onClick={onNavigate} collapsed={collapsed} />}
         </div>

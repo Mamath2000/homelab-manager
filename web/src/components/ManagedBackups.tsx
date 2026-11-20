@@ -63,7 +63,7 @@ function CredentialPanel({ host, view }: { host: Host; view: HostBackupJobs }) {
           }}
         />
       ) : (
-        <p className="text-amber-400">Le PBS n'est pas relié à son agent : déclarer le rôle PBS principal dans Paramètres › Rôles, puis revenir créer le jeton.</p>
+        <p className="text-amber-400">Le PBS n'est pas relié à son agent : déclarer le rôle PBS principal dans Rôles, puis revenir créer le jeton.</p>
       )}
       {view.credential && (
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -874,7 +874,7 @@ export function BackupAgentSection({ host, windowsClient }: { host: Host; window
   const { canManage } = useMe();
   const { data } = useQuery({ queryKey: ['backup-jobs', host.id], queryFn: () => api.hostBackupJobs(host.id), enabled: !!backups?.connected });
   if (!backups) return <div className="flex justify-center p-4"><Spinner /></div>;
-  if (!backups.connected) return <p className="text-sm text-muted">PBS principal non connecté : déclarer le rôle PBS principal dans Paramètres › Rôles.</p>;
+  if (!backups.connected) return <p className="text-sm text-muted">PBS principal non connecté : déclarer le rôle PBS principal dans Rôles.</p>;
   if (!data) return <div className="flex justify-center p-4"><Spinner /></div>;
   return (
     <div className="space-y-5">

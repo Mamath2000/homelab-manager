@@ -128,8 +128,8 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
               <p className="text-xs text-amber-300">Broker saisi avant les rôles : <code>{data.legacyBroker}</code>. Choisir le rôle qui lui correspond.</p>
             )}
             {roles && !brokers.length && (
-              <button type="button" className="text-xs text-emerald-400 hover:underline" onClick={() => navigate('/settings?tab=roles')}>
-                Aucun broker : en déclarer un dans Paramètres › Rôles
+              <button type="button" className="text-xs text-emerald-400 hover:underline" onClick={() => navigate('/roles')}>
+                Aucun broker : en déclarer un dans Rôles
               </button>
             )}
           </Step>

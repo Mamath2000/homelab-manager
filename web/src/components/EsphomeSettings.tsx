@@ -10,7 +10,7 @@ import { roleStatus } from '../lib/roles';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Modal, Panel, Spinner, StatusDot, Tabs } from './ui';
 
-// Paramètres › ESPHome (homelab#352): the esphome role, carried by the hub. Paramétrage: the brokers listened to (mqtt-broker
+// Rôles › ESPHome (homelab#352): the esphome role, carried by the hub. Paramétrage: the brokers listened to (mqtt-broker
 // roles), each with the site of its devices; then one tab per broker, its devices as their messages left them
 // (esphome/<unique_id>/LWT, info, log_level).
 
@@ -62,7 +62,7 @@ function BrokersSetup({ data }: { data: Settings }) {
       <p className="border-b border-line px-4 py-3 text-xs text-muted">
         Le hub s'abonne à <code>esphome/+/LWT</code>, <code>esphome/+/info</code> et <code>esphome/+/log_level</code> sur chaque broker coché. Un appareil
         découvert prend le site de son broker : celui de l'hôte du broker, sauf si un autre site est choisi ici (broker d'un site hébergé sur un autre). Un
-        broker se déclare dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link> ; retiré d'ici, ses
+        broker se déclare dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link> ; retiré d'ici, ses
         appareils sont oubliés.
       </p>
       {!data.brokers.length ? (
@@ -620,7 +620,7 @@ export function EsphomeSettings() {
   };
   if (isLoading) return <div className="flex justify-center p-6"><Spinner /></div>;
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
-  if (!data?.role) return <p className="p-4 text-sm text-muted">Rôle ESPHome non déclaré : le déclarer dans <Link to="/settings?tab=roles" className="text-emerald-400 hover:underline">Paramètres › Rôles</Link>.</p>;
+  if (!data?.role) return <p className="p-4 text-sm text-muted">Rôle ESPHome non déclaré : le déclarer dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.</p>;
   const brokers = data.role.brokers;
   const tabs = [{ id: 'setup', label: 'Paramétrage', icon: SlidersHorizontal }, ...brokers.map((b) => ({ id: b.brokerId, label: `${b.name} (${b.devices.filter((d) => d.equipment).length})`, icon: Radio }))];
   const current = tabs.some((t) => t.id === tab) ? tab : 'setup';
