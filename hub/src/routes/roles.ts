@@ -5,6 +5,7 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, omadaSites, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { loadSites } from '../catalog.js';
+import { pollOmada } from '../omadaSync.js';
 import { checkLogServer, LOG_URL_RE, logTarget, pollLogServers, testReception } from '../logs.js';
 import { checkAllHosts } from '../setup.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
@@ -240,6 +241,12 @@ function logServerSaved(log: FastifyBaseLogger) {
     .catch((err) => log.warn({ err }, 'log server: check after a change failed'));
 }
 
+// An Omada role written or removed: the controllers are read at once (the state of a role removed is dropped, a role
+// declared again under the same name does not keep the error of the previous one until the next poll, every 5 minutes).
+function omadaSaved(log: FastifyBaseLogger) {
+  pollOmada(log).catch((err) => log.warn({ err }, 'omada: poll after a change failed'));
+}
+
 export function registerRoleRoutes(app: FastifyInstance) {
   app.get('/api/roles', async () => {
     const list = allRoles();
@@ -275,6 +282,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     req.auditNote = { target: { kind: 'role', id, name }, details: { type, carrier: host.name, config: settingsDiff({}, c).values } };
     await rolesSaved([host._id]);
     if (type === 'log-server') logServerSaved(req.log);
+    if (type === 'omada-controller') omadaSaved(req.log);
     return reply.code(201).send({ id });
   });
 
@@ -333,6 +341,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     };
     await rolesSaved(moved ? [current.carrier.id, host._id] : [host._id]);
     if (current.type === 'log-server') logServerSaved(req.log);
+    if (current.type === 'omada-controller') omadaSaved(req.log);
     return { id: current._id };
   });
 
@@ -349,6 +358,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type } };
     await rolesSaved([current.carrier.id]);
     if (current.type === 'log-server') logServerSaved(req.log);
+    if (current.type === 'omada-controller') omadaSaved(req.log);
     return reply.code(204).send();
   });
 
