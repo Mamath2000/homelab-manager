@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { Activity, ChevronRight, Info, MapPin, Radio, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronRight, MapPin, Radio, Server, Settings as SettingsIcon, Shield, Tags, Terminal, Wand2, type LucideIcon } from 'lucide-react';
 import { AgentAutoUpdate, AgentHubSettings, AgentManualCommands, AgentTlsInfo } from '../components/AgentSettings';
 import { SettingsDraftProvider, type SettingsDraft } from '../components/settingsDraft';
 import { SitesSettings } from '../components/SitesSettings';
@@ -154,7 +154,6 @@ export function Settings() {
       ))}
       <Group title="Voir aussi">
         <Tile icon={Radio} label="Rôles" hint="Brokers MQTT, Proxmox, PBS, Omada, logs, ESPHome et leurs réglages" to="/roles" />
-        <Tile icon={Info} label="À propos" hint="Versions du hub et de l’agent, composants utilisés" to="/about" />
       </Group>
       {open && (
         <Modal
