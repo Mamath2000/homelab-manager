@@ -168,7 +168,7 @@ export function Docker() {
                       </Link>
                       <div className="flex flex-wrap items-center gap-2">
                         <StackStatusBadge stack={s} />
-                        {s.managed && <ImageUpdateBadge update={s.update} count={s.updates} />}
+                        {s.managed && <ImageUpdateBadge update={s.update} count={s.updates} newer={s.newer} />}
                       </div>
                       {s.problems.length > 0 && <p className="break-words text-xs text-amber-300">{s.problems.join(' · ')}</p>}
                       {s.services.length > 0 && <ServiceTags services={s.services} />}
@@ -201,7 +201,7 @@ export function Docker() {
                         </Link>
                       </td>
                       <td className="td"><StackStatusBadge stack={s} /></td>
-                      <td className="td">{s.managed && <ImageUpdateBadge update={s.update} count={s.updates} />}</td>
+                      <td className="td">{s.managed && <ImageUpdateBadge update={s.update} count={s.updates} newer={s.newer} />}</td>
                       <td className="td">
                         <ServiceTags services={s.services} />
                       </td>

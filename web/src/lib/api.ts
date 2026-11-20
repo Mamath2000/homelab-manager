@@ -267,8 +267,9 @@ export interface DockerContainer {
 }
 
 // available: newer image on the registry; recreate: pulled, container not redeployed yet;
-// unknown: never checked or not checkable (local build, pinned digest, private registry...)
-export type ImageUpdate = 'available' | 'recreate' | 'uptodate' | 'unknown';
+// pinned: image@sha256:…, fixed on purpose (no check, no update);
+// unknown: never checked or not checkable (local build, private registry...)
+export type ImageUpdate = 'available' | 'recreate' | 'uptodate' | 'pinned' | 'unknown';
 export type StackStatus = 'running' | 'partial' | 'stopped' | 'down';
 
 export interface DockerService {
@@ -281,6 +282,8 @@ export interface DockerService {
   localDigest: string | null;
   remoteDigest: string | null;
   checkError: string | null;
+  // pinned image: a newer version came out under its tag
+  newer?: boolean;
 }
 
 export interface DockerStack {
@@ -295,6 +298,7 @@ export interface DockerStack {
   running: number;
   total: number;
   update: ImageUpdate;
+  newer: boolean;
   updates: number;
   problems: string[];
   // journals of the containers, while the collector is set up on the host (homelab#346): followed, every container

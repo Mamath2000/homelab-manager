@@ -27,12 +27,14 @@ export function StackStatusBadge({ stack }: { stack: Pick<DockerStack, 'managed'
   );
 }
 
-export function ImageUpdateBadge({ update, count }: { update: ImageUpdate; count?: number }) {
+export function ImageUpdateBadge({ update, count, newer }: { update: ImageUpdate; count?: number; newer?: boolean }) {
   const m = imageUpdateMeta[update];
+  // pinned: fixed on purpose, but a newer version under its tag is worth knowing
+  const news = update === 'pinned' && newer;
   return (
-    <span title={m.hint}>
-      <Badge tone={m.tone}>
-        {update === 'available' && count ? `${count} MAJ` : m.label}
+    <span title={news ? 'Image épinglée par digest : une version plus récente est publiée sous son tag. Pour monter de version, changer le digest dans le compose (rien ne se met à jour tout seul).' : m.hint}>
+      <Badge tone={news ? 'warn' : m.tone}>
+        {update === 'available' && count ? `${count} MAJ` : news ? 'Figée · nouvelle version' : m.label}
       </Badge>
     </span>
   );
@@ -95,7 +97,10 @@ export function StackActions({
   const what = service ? `le service ${service} de ${stack.name}` : `la stack ${stack.name}`;
   const off = disabled || !host.online;
   const recreate = recreateOffered(host, stack, service);
-  const actions: StackAction[] = stack.status === 'down' ? ['docker_up'] : ['docker_up', 'docker_restart', 'docker_stop', 'docker_update', ...(recreate ? (['docker_recreate'] as const) : [])];
+  // an image pinned by digest cannot be updated: a pull would change nothing
+  const pinned = (service ? stack.services.find((s) => s.name === service)?.update : stack.update) === 'pinned';
+  const all: StackAction[] = ['docker_up', 'docker_restart', 'docker_stop', ...(pinned ? [] : (['docker_update'] as const)), ...(recreate ? (['docker_recreate'] as const) : [])];
+  const actions: StackAction[] = stack.status === 'down' ? ['docker_up'] : all;
   const highlight = (a: StackAction) => (a === 'docker_update' && stack.updates > 0 && !service) || a === 'docker_recreate';
   const start = (a: StackAction) =>
     run.mutate(
@@ -121,7 +126,7 @@ export function StackActions({
     <>
       {compact ? (
         <IconGroup
-          actions={(['docker_up', 'docker_restart', 'docker_stop', 'docker_update', ...(recreate ? (['docker_recreate'] as const) : [])] as StackAction[]).map((a) => {
+          actions={all.map((a) => {
             const w = why(a);
             const label = a === 'docker_update' && stack.updates > 0 && !service ? `${actionText[a].label} (${stack.updates} MAJ)` : actionText[a].label;
             return {
@@ -179,7 +184,9 @@ export function StackActions({
 export function CheckImagesButton({ host, disabled, onStarted }: { host: Host; disabled?: boolean; onStarted?: (jobId: string) => void }) {
   const { canWrite } = useMe();
   const run = useRunJob();
-  if (!canWrite) return null;
+  // nothing to compare when every stack of the host is pinned by digest
+  const checkable = !host.docker?.stacks.length || host.docker.stacks.some((st) => st.update !== 'pinned');
+  if (!canWrite || !checkable) return null;
   return (
     <Button
       size="sm"
@@ -256,7 +263,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <StackStatusBadge stack={st} />
-                  {st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}
+                  {st.managed && <ImageUpdateBadge update={st.update} count={st.updates} newer={st.newer} />}
                   {collecting && <StackLogsBadge stack={st} />}
                 </div>
                 {st.problems.length > 0 && <p className="break-words text-xs text-amber-300">{st.problems.join(' · ')}</p>}
@@ -286,7 +293,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                     {st.problems.length > 0 && <p className="text-xs text-amber-300">{st.problems.join(' · ')}</p>}
                   </td>
                   <td className="td"><StackStatusBadge stack={st} /></td>
-                  <td className="td">{st.managed && <ImageUpdateBadge update={st.update} count={st.updates} />}</td>
+                  <td className="td">{st.managed && <ImageUpdateBadge update={st.update} count={st.updates} newer={st.newer} />}</td>
                   {collecting && <td className="td"><StackLogsBadge stack={st} /></td>}
                   <td className="td hidden md:table-cell">
                     <ServiceTags services={st.services} />

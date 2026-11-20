@@ -291,11 +291,18 @@ func (d *dockerModule) check(ctx context.Context, emit func(string)) (*DockerUpd
 	for _, img := range r.Images {
 		c := ImageCheck{Ref: img.Ref}
 		ref, err := parseRef(img.Ref)
+		// pinned (image[:tag]@sha256:…): the digest the tag points to now is read, to tell the hub whether a newer
+		// version came out under that tag (it never updates it: the pin is on purpose)
+		pinned := err == nil && ref.Digest != ""
+		if pinned {
+			ref.Digest = ""
+			if ref.Tag == "" {
+				ref.Tag = "latest"
+			}
+		}
 		switch {
 		case err != nil:
 			c.Error = err.Error()
-		case ref.Digest != "":
-			c.Error = "pinned by digest"
 		case img.ID == "":
 			c.Error = "image not present locally"
 		case img.Digest == "":
@@ -314,6 +321,8 @@ func (d *dockerModule) check(ctx context.Context, emit func(string)) (*DockerUpd
 			emit(fmt.Sprintf("%s: %s\n", img.Ref, c.Error))
 		case slices.Contains(img.Digests, c.Digest):
 			emit(fmt.Sprintf("%s: up to date\n", img.Ref))
+		case pinned:
+			emit(fmt.Sprintf("%s: pinned, a newer version is published under the tag (%s → %s)\n", img.Ref, short(img.Digest), short(c.Digest)))
 		default:
 			emit(fmt.Sprintf("%s: update available (%s → %s)\n", img.Ref, short(img.Digest), short(c.Digest)))
 		}

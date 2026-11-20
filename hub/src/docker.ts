@@ -24,13 +24,15 @@ export function isDockerUpdates(u: unknown): u is DockerUpdates {
 // available: a newer image is on the registry; recreate: the new image is already pulled but the
 // container still runs the old one; unknown: never checked, not checkable (local build, pinned
 // digest, private registry...) or failed.
-export type ImageUpdate = 'available' | 'recreate' | 'uptodate' | 'unknown';
+export type ImageUpdate = 'available' | 'recreate' | 'uptodate' | 'pinned' | 'unknown';
 
 export interface ServiceView extends DockerService {
   update: ImageUpdate;
   localDigest: string | null;
   remoteDigest: string | null;
   checkError: string | null;
+  // pinned image: a newer version came out under its tag (the pin is bumped by hand)
+  newer?: boolean;
 }
 
 export interface StackView extends Omit<DockerStack, 'services'> {
@@ -40,6 +42,8 @@ export interface StackView extends Omit<DockerStack, 'services'> {
   running: number;
   total: number;
   update: ImageUpdate;
+  // a pinned image of the stack has a newer version under its tag
+  newer: boolean;
   // services with an update to install (available or recreate)
   updates: number;
   // what needs attention: partial stack, unhealthy or restarting container
@@ -90,6 +94,9 @@ function serviceUpdate(svc: DockerService, report: DockerReport, updates?: Docke
   const local = (remote && digests.includes(remote) ? remote : digests[0]) || null;
   const base = { localDigest: local, remoteDigest: remote, checkError: check?.error || null };
   const recreate = !!img?.id && svc.containers.some((c) => c.imageId && c.imageId !== img.id);
+  // image[:tag]@sha256:…: fixed on purpose, never updated (a pull would change nothing). The registry digest is the one the
+  // tag points to now: another one means a newer version came out under that tag, to bump the pin by hand
+  if (svc.image.includes('@sha256:') && !recreate) return { ...base, update: 'pinned', newer: !!remote && !digests.includes(remote) };
   if (local && remote && local !== remote) return { ...base, update: 'available' };
   if (recreate) return { ...base, update: 'recreate' };
   if (local && remote) return { ...base, update: 'uptodate' };
@@ -131,11 +138,12 @@ export function dockerView(h: HostDoc): DockerView | null {
   const stacks = r.stacks.map((st): StackView => {
     const services = st.services.map((svc) => ({ ...svc, ...serviceUpdate(svc, r, h.dockerUpdates) }));
     const has = (u: ImageUpdate) => services.some((s) => s.update === u);
-    const update: ImageUpdate = has('available') ? 'available' : has('recreate') ? 'recreate' : has('uptodate') ? 'uptodate' : 'unknown';
+    const update: ImageUpdate = has('available') ? 'available' : has('recreate') ? 'recreate' : has('uptodate') ? 'uptodate' : has('pinned') ? 'pinned' : 'unknown';
+    const newer = services.some((s) => s.newer);
     const updates = services.filter((s) => s.update === 'available' || s.update === 'recreate').length;
     // unmanaged: only the image updates (for information), nothing of the containers' state
     if (isUnmanaged(h, st.name)) {
-      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, updates, problems: [], logs: stackLogs(st, collecting) };
+      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, newer, updates, problems: [], logs: stackLogs(st, collecting) };
     }
     const containers = services.flatMap((s) => s.containers);
     const running = containers.filter((c) => c.state === 'running').length;
@@ -146,6 +154,7 @@ export function dockerView(h: HostDoc): DockerView | null {
       running,
       total: containers.length,
       update,
+      newer,
       updates,
       problems: [] as string[],
       logs: stackLogs(st, collecting),

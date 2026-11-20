@@ -113,7 +113,8 @@ export const imageUpdateMeta: Record<ImageUpdate, { label: string; tone: Tone; h
   available: { label: 'Mise à jour', tone: 'warn', hint: 'Une image plus récente est disponible sur le registre' },
   recreate: { label: 'À redéployer', tone: 'info', hint: "Nouvelle image déjà téléchargée, le conteneur tourne encore sur l'ancienne" },
   uptodate: { label: 'À jour', tone: 'ok', hint: 'Image identique à celle du registre' },
-  unknown: { label: 'Inconnu', tone: 'unknown', hint: 'Jamais vérifiée, ou non vérifiable (image locale, digest épinglé, registre privé)' },
+  pinned: { label: 'Figée', tone: 'neutral', hint: 'Image épinglée par digest (image@sha256:…) : volontairement fixe, ni vérifiée au registre ni mise à jour' },
+  unknown: { label: 'Inconnu', tone: 'unknown', hint: 'Jamais vérifiée, ou non vérifiable (image locale, registre privé)' },
 };
 
 export interface HostStack extends DockerStack {
