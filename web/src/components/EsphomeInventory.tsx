@@ -310,7 +310,7 @@ function AddDevicesModal({ b, onClose }: { b: EsphomeRoleView; onClose: () => vo
       wide
       scroll
       onClose={onClose}
-      title={`Ajouter des appareils · ${b.brokerName}`}
+      title={`Ajouter des équipements · ${b.brokerName}`}
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose}>Annuler</Button>
@@ -434,7 +434,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
           {list.map((d) => <li key={d.key}><span className="text-zinc-100">{name(d)}</span> <span className="font-mono text-xs text-muted">{d.uniqueId}</span></li>)}
         </ul>
         {action === 'level' && <p className="mt-3 text-xs text-muted">Jusqu'au prochain redémarrage des appareils (la commande n'est pas conservée).</p>}
-        {action === 'remove' && <p className="mt-3 text-xs text-muted">Leurs logs sont coupés et leurs équipements supprimés (sondes et historique avec). Ils redeviennent disponibles dans « Ajouter des appareils ».</p>}
+        {action === 'remove' && <p className="mt-3 text-xs text-muted">Leurs logs sont coupés et leurs équipements supprimés (sondes et historique avec). Ils redeviennent disponibles dans « Ajouter des équipements ».</p>}
         {skipped.length > 0 && <p className="mt-3 text-xs text-muted">Non concernés : {skipped.map(name).join(', ')}.</p>}
       </ConfirmModal>
     </div>
@@ -450,9 +450,8 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView
   const [removing, setRemoving] = useState<EsphomeDevice | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const st = roleStatus({ status: b.status, url: '', carrier: { kind: 'hub', id: '', name: '' } });
-  // only the devices that are equipments are listed; the others are offered in « Ajouter des appareils »
+  // only the devices that are equipments are listed; the others are offered in « Ajouter des équipements »
   const followed = b.devices.filter((d) => d.equipment);
-  const offered = b.devices.length - followed.length;
   const online = followed.filter((d) => d.lwt === 'online').length;
   const remove = async () => {
     if (!removing) return;
@@ -479,7 +478,7 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView
       return next;
     });
   return (
-    <Panel title={`Appareils de ${b.brokerName}`} icon={Cpu} bodyClassName="" actions={<span className="inline-flex items-center gap-2"><Badge tone={st.tone}>{st.label}</Badge><Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>Ajouter des appareils{offered ? ` (${offered})` : ''}</Button></span>}>
+    <Panel title={`Équipements ESPHome · ${b.brokerName}`} icon={Cpu} bodyClassName="" actions={<span className="inline-flex items-center gap-2"><Badge tone={st.tone}>{st.label}</Badge><Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>Ajouter des équipements</Button></span>}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-3 text-xs text-muted">
         {followed.length > 0 && (
           <Checkbox
@@ -490,14 +489,14 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView
           />
         )}
         <p>
-          {followed.length} appareil{followed.length > 1 ? 's' : ''} · {online} en ligne · site {site}
+          {followed.length} équipement{followed.length > 1 ? 's' : ''} · {online} en ligne · site {site}
         </p>
       </div>
       {picked.length > 0 && <GroupBar devices={picked} canLog={canLog} levels={levels} onClear={() => setSelected(new Set())} />}
       {b.status?.error && <p className="mx-4 my-3 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-200">{b.status.error}</p>}
       {!followed.length ? (
         <p className="p-4 text-sm text-muted">
-          {offered ? `Aucun appareil ajouté : ${offered} vu${offered > 1 ? 's' : ''} sur le broker, à ajouter.` : <>Aucun appareil : un ESP apparaît dès qu'il publie son LWT sur <code>esphome/&lt;unique_id&gt;/LWT</code>.</>}
+          Aucun équipement : en ajouter depuis ce que le broker montre.
         </p>
       ) : (
         <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -508,7 +507,7 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Retirer l'appareil" confirmLabel="Retirer" danger loading={removeBusy}>
         <p>
           Retirer <b>{removing?.name ?? removing?.uniqueId}</b> ? Ses logs sont coupés et son équipement{removing && Object.keys(removing.subEquipments).length ? ` et ceux de ses ${Object.keys(removing.subEquipments).length} sous-appareil(s)` : ''} supprimés,
-          avec leurs sondes et leur historique. L'appareil reste visible dans « Ajouter des appareils » tant qu'il publie sur le broker.
+          avec leurs sondes et leur historique. L'appareil reste visible dans « Ajouter des équipements » tant qu'il publie sur le broker.
         </p>
       </ConfirmModal>
     </Panel>

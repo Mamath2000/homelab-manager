@@ -74,7 +74,7 @@ test('esphome: the role as the UI shows it, the hub as its carrier', () => {
   assert.deepEqual(v.carrier, { kind: 'hub', id: '', name: 'Hub' });
   assert.equal(v.url, '');
   assert.equal(v.status, null);
-  assert.equal(v.summary, '0 appareil découvert');
+  assert.equal(v.summary, null);
 });
 
 test('esphome: a role names a known site and a known broker, each used once', () => {

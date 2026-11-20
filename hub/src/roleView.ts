@@ -1,6 +1,5 @@
 import { securityOf } from './mqttSecurity.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
-import { esphomeDevices } from './esphome.js';
 import { bridgeStatusOf } from './homeassistant/bridge.js';
 import { logPollOf, logTarget } from './logs.js';
 import { omadaPollOf } from './omadaSync.js';
@@ -114,7 +113,6 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
     // the broker it listens to (esphome.ts)
     case 'esphome': {
       const states = [probeEngine()?.pool.status(r.config.brokerId) ?? null];
-      const n = esphomeDevices(r.config.brokerId).length;
       return {
         ...base,
         config: r.config,
@@ -122,7 +120,7 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
         url: '',
         account: '',
         status: worst(states),
-        summary: `${n} appareil${n > 1 ? 's' : ''} découvert${n > 1 ? 's' : ''}`,
+        summary: null,
       };
     }
   }
