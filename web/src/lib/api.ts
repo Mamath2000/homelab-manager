@@ -1793,7 +1793,8 @@ export interface Equipment {
   // an equipment of ESPHome: the name its lines carry, its sub-device (null: the ESP), its logs on
   esphome: { key: string; hostname: string; device: string | null; logs: boolean } | null;
   createdAt: string;
-  probes: { id: string; name: string; state: ProbeState; message: string | null }[];
+  // vpn: the probe of a site-to-site tunnel, configured once its source and target are chosen (it goes with the equipment)
+  probes: { id: string; name: string; state: ProbeState; message: string | null; vpn: { configured: boolean } | null }[];
 }
 // "" clears siteId, ip, uplinkId; ping (creation): a ping probe on the IP
 export interface EquipmentInput {

@@ -50,7 +50,8 @@ export function equipmentDto(e: EquipmentDoc, own: ProbeDoc[] = []) {
     roles: carriedBy(e._id).map((r) => ({ id: r._id, type: r.type, name: r.name })),
     createdAt: e.createdAt,
     // what the lists and the dashboard show of its probes, one square each
-    probes: own.map((p) => ({ id: p._id.toHexString(), name: p.name, state: p.state ?? 'unknown', message: p.message ?? null })),
+    // vpn: the probe of a site-to-site tunnel (vpnProbes.ts), configured once its source and target are chosen
+    probes: own.map((p) => ({ id: p._id.toHexString(), name: p.name, state: p.state ?? 'unknown', message: p.message ?? null, vpn: p.target.type === 'vpn' ? { configured: p.runFrom !== 'hub' && !!p.target.host } : null })),
   };
 }
 

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowLeft, RefreshCw, Router, ScrollText, Settings, Trash2 } from 'lucide-react';
 import { AlertTimeline } from '../components/AlertTimeline';
-import { EquipmentModal } from '../components/Equipment';
+import { EquipmentModal, VpnProbesWarning } from '../components/Equipment';
 import { SOURCE_LABELS, TYPE_LABELS, equipmentTone, useSiteName } from '../lib/equipment';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { StripItem } from '../components/StripItem';
@@ -185,6 +185,7 @@ function EquipmentPage({ equipment: e }: { equipment: Equipment }) {
           <>
             <b>{e.name}</b>, {e.probes.length ? `ses ${e.probes.length} sonde(s)` : 'ses sondes'} et son historique d'alertes seront supprimés.
             {below.length > 0 && <> Les équipements en aval ({below.map((x) => x.name).join(', ')}) n'auront plus d'amont.</>}
+            <VpnProbesWarning items={[e]} />
           </>
         )}
       </ConfirmModal>

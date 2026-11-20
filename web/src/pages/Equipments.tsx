@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Router, Search, Trash2 } from 'lucide-react';
-import { EquipmentModal, ProbeSquares } from '../components/Equipment';
+import { EquipmentModal, ProbeSquares, VpnProbesWarning } from '../components/Equipment';
 import { EQUIPMENT_TYPES, SOURCE_LABELS, TYPE_LABELS, equipmentTone } from '../lib/equipment';
 import { EquipmentsOverview } from '../components/EquipmentsOverview';
 import { HeaderTitle } from '../components/HeaderSlot';
@@ -261,6 +261,7 @@ export function Equipments() {
       >
         <p className="mb-2">Les équipements, leurs sondes et leur historique sont supprimés. Un équipement d'une source automatique (Omada, ESPHome) réapparaît à la prochaine synchronisation s'il y est encore listé.</p>
         <div className="flex max-h-60 flex-wrap gap-1.5 overflow-y-auto">{chosen.map((e) => <Tag key={e.id}>{e.name}</Tag>)}</div>
+        <VpnProbesWarning items={chosen} />
       </ConfirmModal>
       {adding && <EquipmentModal equipment={null} onClose={() => setAdding(false)} />}
     </>

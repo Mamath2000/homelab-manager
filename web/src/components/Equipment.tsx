@@ -12,6 +12,26 @@ import { SiteSelect } from './HostTags';
 import { field } from './ProxmoxServer';
 import { Button, ConfirmModal, Modal } from './ui';
 
+// What deleting these equipments does to the VPN probes they carry (a gateway of Omada): the probe of each tunnel goes with
+// the equipment, with the source and the target chosen, and the tunnel is no longer watched. Nothing when none carries one.
+export function VpnProbesWarning({ items }: { items: Equipment[] }) {
+  const carrying = items.map((e) => ({ e, vpn: e.probes.filter((p) => p.vpn) })).filter((x) => x.vpn.length);
+  if (!carrying.length) return null;
+  return (
+    <div className="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-amber-200">
+      <p className="font-medium">Sondes VPN supprimées avec leur passerelle : les tunnels ne seront plus surveillés.</p>
+      <ul className="mt-1 list-disc pl-5 text-xs">
+        {carrying.map(({ e, vpn }) => (
+          <li key={e.id}>
+            {e.name} : {vpn.map((p) => `${p.name}${p.vpn!.configured ? ' (source et cible perdues)' : ''}`).join(', ')}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs">Recréer l'équipement de la passerelle refait les sondes, à configurer de nouveau.</p>
+    </div>
+  );
+}
+
 // Equipment (hub/src/equipments.ts): the squares of its probes and the form of a manual one.
 
 const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+:[0-9a-fA-F:.]*$/;
