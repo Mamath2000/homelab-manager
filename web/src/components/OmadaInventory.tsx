@@ -14,7 +14,8 @@ import { VpnProbeModal } from './VpnProbeModal';
 // site of the homelab; a device is an equipment of the hub once created from it, or linked to a manual equipment (a hub
 // equipment has no MAC: the ones proposed share its address or its name). Presence and checks then come from the controller.
 
-function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }) {
+// tunnels: the VPNs this device carries as a gateway (their probes go with its equipment)
+function DeviceRow({ controller, d, tunnels }: { controller: string; d: OmadaDeviceView; tunnels: OmadaVpnView[] }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -95,7 +96,21 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
       </span>
       {d.equipment && (
         <ConfirmModal open={removing} onClose={() => busy !== 'remove' && setRemoving(false)} onConfirm={() => void remove()} title="Supprimer l'équipement" confirmLabel="Supprimer" danger loading={busy === 'remove'}>
-          L'équipement « {d.equipment.name} » et ses sondes sont supprimés. L'appareil reste dans l'inventaire Omada, non géré : il peut être recréé.
+          <p>L'équipement « {d.equipment.name} » et ses sondes sont supprimés. L'appareil reste dans l'inventaire Omada, non géré : il peut être recréé.</p>
+          {tunnels.length > 0 && (
+            <div className="mt-3 rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-amber-200">
+              <p className="font-medium">Cette passerelle porte {tunnels.length > 1 ? `${tunnels.length} tunnels VPN` : 'un tunnel VPN'} :</p>
+              <ul className="mt-1 list-disc pl-5 text-xs">
+                {tunnels.map((v) => (
+                  <li key={v.id}>
+                    {v.name}
+                    {v.probe ? (v.probe.configured ? ' : sonde supprimée, sa source et sa cible sont perdues' : ' : sonde supprimée (pas encore configurée)') : ''}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs">Sans l'équipement de la passerelle, les tunnels ne sont plus surveillés ; recréer l'équipement refait les sondes, à configurer de nouveau.</p>
+            </div>
+          )}
         </ConfirmModal>
       )}
     </li>
@@ -167,7 +182,7 @@ function VpnPanel({ controllers }: { controllers: OmadaController[] }) {
   );
 }
 
-function SiteBlock({ controller, site }: { controller: string; site: OmadaSiteView }) {
+function SiteBlock({ controller, site, vpns }: { controller: string; site: OmadaSiteView; vpns: OmadaVpnView[] }) {
   const { data: sites } = useSites();
   const managed = site.devices.filter((d) => d.equipment).length;
   const homelab = sites?.find((s) => s.id === site.homelabSiteId)?.name;
@@ -179,7 +194,7 @@ function SiteBlock({ controller, site }: { controller: string; site: OmadaSiteVi
         <span className="text-xs text-muted">{site.devices.length} appareil{site.devices.length > 1 ? 's' : ''} · {managed} suivi{managed > 1 ? 's' : ''}</span>
         <span className="ml-auto text-xs text-muted">Site du homelab : {homelab ?? 'inconnu'}</span>
       </div>
-      <ul>{site.devices.map((d) => <DeviceRow key={d.mac} controller={controller} d={d} />)}</ul>
+      <ul>{site.devices.map((d) => <DeviceRow key={d.mac} controller={controller} d={d} tunnels={vpns.filter((v) => v.gateway?.mac === d.mac)} />)}</ul>
     </section>
   );
 }
@@ -208,7 +223,7 @@ function ControllerPanel({ c }: { c: OmadaController }) {
     >
       <p className="px-4 py-3 text-xs text-muted" title={c.polledAt ? dateTime(c.polledAt) : undefined}>{c.polledAt ? `relevé ${timeAgo(c.polledAt)}` : 'jamais relevé'}</p>
       {c.pollError && <p className="mx-4 mb-3 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-200">Dernier relevé en échec : {c.pollError}</p>}
-      {c.sites.map((s) => <SiteBlock key={s.id} controller={c.id} site={s} />)}
+      {c.sites.map((s) => <SiteBlock key={s.id} controller={c.id} site={s} vpns={c.vpns} />)}
     </Panel>
   );
 }
