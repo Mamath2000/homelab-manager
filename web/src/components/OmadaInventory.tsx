@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { AlertTriangle, ArrowRight, MapPin, RefreshCw, Waypoints } from 'lucide-react';
+import { AlertTriangle, ArrowRight, MapPin, RefreshCw, Trash2, Waypoints } from 'lucide-react';
 import { api, type OmadaController, type OmadaDeviceView, type OmadaSiteView, type OmadaVpnView } from '../lib/api';
 import { TYPE_LABELS } from '../lib/equipment';
 import { dateTime, timeAgo } from '../lib/format';
 import { useSites } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { Badge, Button, Panel, Spinner, StatusDot } from './ui';
+import { Badge, Button, ConfirmModal, Panel, Spinner, StatusDot } from './ui';
 import { VpnProbeModal } from './VpnProbeModal';
 
 // Rôles › Omada: the devices of each controller (omada-controller role), site by site. An Omada site is matched to a
@@ -18,6 +18,7 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
   const qc = useQueryClient();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   // the name of the equipment: typed before it is created, saved when edited (Enter or leaving the field)
   const [name, setName] = useState(d.equipment?.name ?? d.name);
   const rename = async () => {
@@ -45,6 +46,21 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
       setBusy(null);
     }
   };
+  // deletes the equipment (its probes with it): the device comes back as « non géré », to create again if wanted
+  const remove = async () => {
+    if (!d.equipment) return;
+    setBusy('remove');
+    try {
+      await api.deleteEquipment(d.equipment.id);
+      qc.invalidateQueries({ queryKey: ['settings', 'omada'] });
+      qc.invalidateQueries({ queryKey: ['equipments'] });
+      setRemoving(false);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-sm">
       <span className={d.connected ? 'text-emerald-400' : 'text-red-400'} title={d.connected ? 'connecté' : 'déconnecté'}>●</span>
@@ -63,7 +79,10 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
       <span className="text-xs text-muted">{d.model}{d.ip && <> · <span className="font-mono">{d.ip}</span></>}{d.firmware && ` · ${d.firmware.split(' ')[0]}`}</span>
       <span className="ml-auto inline-flex flex-wrap items-center gap-1.5">
         {d.equipment ? (
-          <Link className="underline" to={`/equipments/${d.equipment.id}`}>Voir l'équipement</Link>
+          <>
+            <Link className="underline" to={`/equipments/${d.equipment.id}`}>Voir l'équipement</Link>
+            <Button size="sm" variant="danger" icon={Trash2} aria-label={`Supprimer l'équipement ${d.equipment.name}`} title="Supprimer l'équipement" disabled={!!busy} onClick={() => setRemoving(true)} />
+          </>
         ) : (
           <>
             <Badge tone="neutral">non géré</Badge>
@@ -74,6 +93,11 @@ function DeviceRow({ controller, d }: { controller: string; d: OmadaDeviceView }
           </>
         )}
       </span>
+      {d.equipment && (
+        <ConfirmModal open={removing} onClose={() => busy !== 'remove' && setRemoving(false)} onConfirm={() => void remove()} title="Supprimer l'équipement" confirmLabel="Supprimer" danger loading={busy === 'remove'}>
+          L'équipement « {d.equipment.name} » et ses sondes sont supprimés. L'appareil reste dans l'inventaire Omada, non géré : il peut être recréé.
+        </ConfirmModal>
+      )}
     </li>
   );
 }
