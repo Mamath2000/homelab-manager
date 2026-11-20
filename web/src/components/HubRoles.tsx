@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
@@ -1266,7 +1266,7 @@ export function RolesSettings() {
           <dd className="truncate" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</dd>
         </dl>
         {r.status?.error && <p className="mt-1 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
-        {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-1 text-xs text-red-300" title={ANONYMOUS_HINT}>Connexions anonymes acceptées : {ANONYMOUS_HINT}</p>}
+        {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted" title={`Connexions anonymes acceptées : ${ANONYMOUS_HINT}`}><TriangleAlert size={12} className="shrink-0 text-red-400" aria-hidden />Connexions anonymes acceptées</p>}
       </article>
     );
   };
