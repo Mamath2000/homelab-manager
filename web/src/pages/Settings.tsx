@@ -161,7 +161,6 @@ export function Settings() {
           open
           onClose={close}
           wide={open.width}
-          fixed={open.width === 'screen'}
           scroll
           title={<span className="flex items-center gap-2"><open.icon className="h-4 w-4 text-muted" aria-hidden />{open.label}</span>}
         >
