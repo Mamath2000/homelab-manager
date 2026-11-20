@@ -909,13 +909,6 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       setBusy(null);
     }
   };
-  // editing: the API is tested on opening; when it answers, the window opens on the summary
-  const autoTested = useRef(false);
-  useEffect(() => {
-    if (autoTested.current || !role || !carrier || !apiOk) return;
-    autoTested.current = true;
-    void runTest(true);
-  });
   const save = async () => {
     setBusy('save');
     try {
@@ -943,6 +936,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   // the reception test (summary) is optional and never stops the save: the hub may not see the server as the hosts do
   // the configuration (step 3) is implicit: nothing to validate, reached when needed; the summary (step 4) follows the API test
   const [carried, reached, summary] = stepStates([!!carrier, apiOk && tested, false]);
+  // editing: the API is tested on opening; when it answers, the window opens on the summary
+  const autoTested = useRef(false);
+  useEffect(() => {
+    if (autoTested.current || !role || !carrier || !apiOk) return;
+    autoTested.current = true;
+    void runTest(true);
+  });
   const destination = dest ? tcpUrl(dest.address, dest.port) : '';
   const sub = 'text-xs font-medium uppercase tracking-wide text-muted';
 
