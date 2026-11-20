@@ -1283,6 +1283,7 @@ export function RolesSettings() {
           {r.type === 'pbs-offsite' && <Badge tone="info">Hors site</Badge>}
           <span className="ml-auto flex shrink-0 items-center gap-2">
             <Badge tone={st.tone}>{st.label}</Badge>
+            {c?.anonymous}
             {actions(r)}
           </span>
         </div>
@@ -1291,16 +1292,20 @@ export function RolesSettings() {
         ) : (
           <p className="mt-1.5 break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
         )}
-        <dl className="mt-2 grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
-          <dt className="text-muted">Porteur</dt>
-          <dd className="truncate">{carrierLink(r)}</dd>
-          <dt className="text-muted">Compte</dt>
-          <dd className="truncate" title={r.account || undefined}>{r.account || (r.carrier.kind === 'hub' ? '—' : 'anonyme')}</dd>
-          <dt className="text-muted">Utilisé par</dt>
-          <dd className="truncate" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</dd>
-          {c?.anonymous}
-        </dl>
-        {c?.reset}
+        <div className="mt-2 flex flex-wrap items-start gap-x-8 gap-y-2">
+          <div className="min-w-0 flex-1 basis-60">
+            <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+              <dt className="text-muted">Porteur</dt>
+              <dd className="truncate">{carrierLink(r)}</dd>
+              <dt className="text-muted">Compte</dt>
+              <dd className="truncate" title={r.account || undefined}>{r.account || (r.carrier.kind === 'hub' ? '—' : 'anonyme')}</dd>
+              <dt className="text-muted">Utilisé par</dt>
+              <dd className="truncate" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</dd>
+            </dl>
+            {c?.reset}
+          </div>
+          {c?.stats}
+        </div>
         {r.status?.error && <p className="mt-1 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
         {r.type === 'mqtt-broker' && r.anonymous && !c?.anonymous && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted" title={`Connexions anonymes acceptées : ${ANONYMOUS_HINT}`}><TriangleAlert size={12} className="shrink-0 text-red-400" aria-hidden />Connexions anonymes acceptées</p>}
         {/* what the role unlocks: its options, opened in a window over this screen */}

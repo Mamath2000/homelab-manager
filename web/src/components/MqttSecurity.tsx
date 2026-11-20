@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Activity, ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Users, X } from 'lucide-react';
+import { Activity, ChevronLeft, ChevronRight, Ghost, KeyRound, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Users, X } from 'lucide-react';
 import { api, type MqttAccount, type MqttAnonymous, type MqttHubRole, type MqttRefused } from '../lib/api';
 import { timeAgo } from '../lib/format';
-import { stillRefused } from '../lib/roles';
+import { brokerCounts, stillRefused } from '../lib/roles';
 import { keys } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Segmented, Spinner } from './ui';
@@ -18,15 +18,33 @@ const rowText = (r: AccountRow) => (r.kind === 'account' ? r.a.username : r.kind
 // The options of a broker role, in the foot of its card: to secure it (certificates by the CA of the hub, listener TLS, hub
 // account by certificate, dynamic-security run by the agent of the host); once secured, to reset it, to accept or refuse the
 // anonymous clients and to manage its accounts. Nothing when the management of accounts is not available on this broker.
+// The clients of a broker the hub runs the accounts of, as on the page of its host: read when the card shows, no polling
+function BrokerStats({ role }: { role: MqttHubRole }) {
+  const q = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), refetchOnWindowFocus: false });
+  if (q.error) return <p className="max-w-xs text-xs text-red-400">{(q.error as Error).message}</p>;
+  const { accounts, connected, anonymous, refused } = brokerCounts(q.data);
+  const n = (v: number) => (q.isLoading ? '…' : v);
+  return (
+    <ul className="min-w-44 space-y-1 text-xs">
+      <li><b className="text-zinc-100">{n(accounts)}</b> <span className="text-muted">compte{accounts > 1 ? 's' : ''} enregistré{accounts > 1 ? 's' : ''}</span></li>
+      <li><b className="text-zinc-100">{n(connected)}</b> <span className="text-muted">connecté{connected > 1 ? 's' : ''}</span></li>
+      <li>{anonymous > 0 ? <Badge tone="warn">{anonymous} anonyme{anonymous > 1 ? 's' : ''} connecté{anonymous > 1 ? 's' : ''}</Badge> : <span className="text-muted">aucun anonyme connecté</span>}</li>
+      <li>{refused > 0 ? <Badge tone="bad">{refused} client{refused > 1 ? 's' : ''} refusé{refused > 1 ? 's' : ''}</Badge> : <span className="text-muted">aucun client refusé</span>}</li>
+    </ul>
+  );
+}
+
 // The pieces are handed to the card (children) to place where they belong: the anonymous state in its details, the reset as a
 // discreet link, the buttons in its foot; the confirmation windows are rendered here.
 export interface BrokerCardSlots {
   // foot of the card, right-aligned
   buttons: ReactNode;
-  // line of the details: « Anonymes » with its state and the button that changes it
+  // icon button of the header, beside the pencil: the anonymous clients (green: refused, red: accepted), a click switches
   anonymous: ReactNode;
   // discreet link under the details
   reset: ReactNode;
+  // the clients of the broker, beside the details: accounts, connected, anonymous, refused
+  stats: ReactNode;
 }
 export function BrokerCardControls({ role, onAccounts, children }: { role: MqttHubRole; onAccounts: () => void; children: (slots: BrokerCardSlots) => ReactNode }) {
   const qc = useQueryClient();
@@ -68,7 +86,7 @@ export function BrokerCardControls({ role, onAccounts, children }: { role: MqttH
       await api.setMqttAnonymous(role.id, allowed);
       toast.success(allowed ? 'Connexions anonymes acceptées' : 'Connexions anonymes refusées');
       setConfirm(null);
-      await Promise.all([qc.invalidateQueries({ queryKey: ['mqtt-anonymous', role.id] }), qc.invalidateQueries({ queryKey: keys.roles })]);
+      await Promise.all([qc.invalidateQueries({ queryKey: ['mqtt-anonymous', role.id] }), qc.invalidateQueries({ queryKey: ['mqtt-accounts', role.id] }), qc.invalidateQueries({ queryKey: keys.roles })]);
     } catch (err) {
       toast.error((err as Error).message);
       setConfirm(null);
@@ -87,23 +105,22 @@ export function BrokerCardControls({ role, onAccounts, children }: { role: MqttH
       </>
     ),
     anonymous: manageable ? (
-      <>
-        <dt className="self-center text-muted">Anonymes</dt>
-        <dd className="flex min-w-0 items-center gap-2">
-          <span className={clsx(allowed ? 'text-amber-300' : 'text-zinc-200')}>{anon.data ? (allowed ? 'acceptés' : 'refusés') : '…'}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="!h-6 !px-2 !text-xs"
-            disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
-            title={anon.data?.configurable === false ? "L'agent de l'hôte ne répond pas ou est trop ancien" : anon.error ? (anon.error as Error).message : undefined}
-            onClick={() => setConfirm(allowed ? 'anonymous-off' : 'anonymous-on')}
-          >
-            {allowed ? 'Refuser' : 'Accepter'}
-          </Button>
-        </dd>
-      </>
+      <Button
+        size="sm"
+        icon={Ghost}
+        aria-label={anon.data ? `Connexions anonymes ${allowed ? 'acceptées' : 'refusées'}` : 'Connexions anonymes'}
+        title={
+          anon.data?.configurable === false ? "L'agent de l'hôte ne répond pas ou est trop ancien"
+            : anon.error ? (anon.error as Error).message
+              : !anon.data ? 'Connexions anonymes : lecture…'
+                : allowed ? 'Connexions anonymes acceptées : cliquer pour les refuser' : 'Connexions anonymes refusées : cliquer pour les accepter'
+        }
+        disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
+        className={clsx(anon.data && (allowed ? '!border-red-500/50 !text-red-400 hover:!bg-red-500/10' : '!border-emerald-500/50 !text-emerald-400 hover:!bg-emerald-500/10'))}
+        onClick={() => setConfirm(allowed ? 'anonymous-off' : 'anonymous-on')}
+      />
     ) : null,
+    stats: manageable ? <BrokerStats role={role} /> : null,
     reset: manageable ? (
       <button type="button" disabled={busy} onClick={() => setConfirm('reset')} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted underline decoration-dotted underline-offset-2 transition hover:text-red-300 disabled:opacity-50">
         <RotateCcw className="h-3 w-3" aria-hidden />
@@ -111,7 +128,7 @@ export function BrokerCardControls({ role, onAccounts, children }: { role: MqttH
       </button>
     ) : null,
   };
-  if (!wanted) return <>{children({ buttons: null, anonymous: null, reset: null })}</>;
+  if (!wanted) return <>{children({ buttons: null, anonymous: null, reset: null, stats: null })}</>;
   return (
     <>
       {children(slots)}

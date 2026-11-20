@@ -1,4 +1,4 @@
-import type { Host, HubRole, HubRoleType, MqttHubRole, MqttRefused, RoleCandidate } from './api';
+import type { Host, HubRole, HubRoleType, MqttAccount, MqttAnonymous, MqttHubRole, MqttRefused, RoleCandidate } from './api';
 import type { Tone } from './status';
 
 // Services the agent found that are not a role yet (a role on the same port counts as activated); the ones that
@@ -57,3 +57,17 @@ export function hostMqttBrokers(host: Host) {
 // A client whose last message in the log of the broker is a refusal: not one an account was made for since, until it is
 // refused again (wrong name or password)
 export const stillRefused = (c: MqttRefused) => !c.account || c.lastAt > (c.accountAt ?? 0);
+
+// What the hub reads of the clients of a broker it runs the accounts of: shown on its card and on its host
+export function brokerCounts(d?: { accounts: MqttAccount[]; refused: MqttRefused[]; anonymous: MqttAnonymous[]; anonymousAllowed: boolean | null; anonymousAccepted: boolean | null }) {
+  const accounts = (d?.accounts ?? []).filter((a) => !a.protected);
+  // without rights for the anonymous group a client that connects anonymously is refused, for the administrator
+  const mute = d?.anonymousAllowed === false && d?.anonymousAccepted !== false;
+  const anonymousClients = d?.anonymous ?? [];
+  return {
+    accounts: accounts.length,
+    connected: accounts.filter((a) => a.connected).length,
+    anonymous: mute ? 0 : anonymousClients.filter((a) => a.connected).length,
+    refused: (d?.refused ?? []).filter(stillRefused).length + (mute ? anonymousClients.length : 0),
+  };
+}

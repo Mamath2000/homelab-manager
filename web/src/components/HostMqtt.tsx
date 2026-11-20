@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { Radio, RefreshCw, Users } from 'lucide-react';
 import { api, type MqttHubRole } from '../lib/api';
-import { stillRefused } from '../lib/roles';
+import { brokerCounts } from '../lib/roles';
 import { Badge, Button, Panel } from './ui';
 import { MqttAccountsModal } from './MqttSecurity';
 
@@ -11,13 +11,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
   const [open, setOpen] = useState(false);
   // read when the page opens and on demand: no polling of the broker while the page stays open
   const q = useQuery({ queryKey: ['mqtt-accounts', role.id], queryFn: () => api.mqttAccounts(role.id), refetchOnWindowFocus: false });
-  const accounts = (q.data?.accounts ?? []).filter((a) => !a.protected);
-  const connected = accounts.filter((a) => a.connected).length;
-  // without rights for the anonymous group a client that connects anonymously is refused, for the administrator
-  const mute = q.data?.anonymousAllowed === false && q.data?.anonymousAccepted !== false;
-  const anonymousClients = q.data?.anonymous ?? [];
-  const anonymous = mute ? 0 : anonymousClients.filter((a) => a.connected).length;
-  const refused = (q.data?.refused ?? []).filter(stillRefused).length + (mute ? anonymousClients.length : 0);
+  const { accounts, connected, anonymous, refused } = brokerCounts(q.data);
   return (
     <div className="space-y-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -30,7 +24,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
       ) : (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
           <span>
-            <b className="text-zinc-100">{q.isLoading ? '…' : accounts.length}</b> <span className="text-muted">compte{accounts.length > 1 ? 's' : ''} enregistré{accounts.length > 1 ? 's' : ''}</span>
+            <b className="text-zinc-100">{q.isLoading ? '…' : accounts}</b> <span className="text-muted">compte{accounts > 1 ? 's' : ''} enregistré{accounts > 1 ? 's' : ''}</span>
           </span>
           <span>
             <b className="text-zinc-100">{q.isLoading ? '…' : connected}</b> <span className="text-muted">connecté{connected > 1 ? 's' : ''}</span>
