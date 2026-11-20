@@ -31,6 +31,7 @@ function StatusIcon({ status, className = '' }: { status: SecurityStatus; classN
 
 // one check of a group: its state, what it looks at, and its items (one per broker, per agent…) below
 function CheckRow({ check }: { check: SecurityCheck }) {
+  const many = (check.items?.length ?? 0) > 1;
   return (
     <li className="flex items-start gap-2.5 border-t border-line/60 py-2.5 first:border-t-0">
       <StatusIcon status={check.status} className="mt-0.5" />
@@ -41,11 +42,15 @@ function CheckRow({ check }: { check: SecurityCheck }) {
         </div>
         <p className="mt-0.5 text-xs leading-relaxed text-muted">{check.detail}</p>
         {check.items && (
-          <ul className="mt-2 space-y-1">
+          <ul className={many ? 'mt-2 flex flex-wrap gap-x-4 gap-y-1' : 'mt-2 space-y-1'}>
             {check.items.map((item) => (
-              <li key={item.name} className="flex items-start gap-2 text-xs">
+              // several items: the name only, the explanation in the tooltip; a single one keeps its text
+              <li key={item.name} className="flex items-start gap-2 text-xs" title={many ? item.detail : undefined}>
                 <StatusIcon status={item.status} className="mt-px !h-3.5 !w-3.5" />
-                <span className="min-w-0"><span className="font-medium text-zinc-200">{item.name}</span> <span className="text-muted">· {item.detail}</span></span>
+                <span className="min-w-0">
+                  <span className={many ? 'cursor-help font-medium text-zinc-200 underline decoration-dotted decoration-zinc-600 underline-offset-2' : 'font-medium text-zinc-200'}>{item.name}</span>
+                  {!many && <span className="text-muted"> · {item.detail}</span>}
+                </span>
               </li>
             ))}
           </ul>
@@ -79,7 +84,7 @@ export function SecurityHealthPanel() {
       }
     >
       {/* every group at once, one card each: the ones that need attention stand out by their edge and badge */}
-      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {groups.map((g) => {
           const Icon = GROUP_ICON[g.id] ?? Shield;
           const state = worst(g.checks.map((c) => c.status));

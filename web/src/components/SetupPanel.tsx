@@ -200,10 +200,10 @@ export function SetupModal({ host, open, onClose, running, onStarted }: { host: 
   // a unit action: launched at once, the job console shows the result (see CLAUDE.md)
   // nothing to apply: conformity checked, no gap, no change in progress
   const footer = !canWrite || (host.setup && !drift && !draft) ? (
-    <Button onClick={close}>Fermer</Button>
+    <Button variant="ghost" onClick={close}>Fermer</Button>
   ) : (
     <>
-      <Button onClick={close}>Annuler</Button>
+      <Button variant="ghost" onClick={close}>Annuler</Button>
       <Button variant="primary" icon={Wand2} loading={busy === 'apply'} disabled={!host.online || running} onClick={apply}>
         {draft ? 'Enregistrer et appliquer' : 'Appliquer'}
       </Button>
@@ -346,7 +346,7 @@ export function BulkSetupModal({ hosts, open, onClose }: { hosts: Host[]; open: 
       title={`Standardiser ${targets.length} hôte(s)`}
       footer={
         <>
-          <Button onClick={close}>Annuler</Button>
+          <Button variant="ghost" onClick={close}>Annuler</Button>
           <Button
             variant="primary"
             icon={Wand2}

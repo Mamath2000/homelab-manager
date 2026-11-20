@@ -175,7 +175,7 @@ export function NextcloudPluginModal({ host, open, onClose }: { host: Host; open
               Oublier cette configuration
             </Button>
           )}
-          <Button onClick={close}>Annuler</Button>
+          <Button variant="ghost" onClick={close}>Annuler</Button>
           <Button variant="primary" icon={Save} loading={busy} disabled={!form || !d || !host.online} onClick={save}>Enregistrer</Button>
         </>
       }

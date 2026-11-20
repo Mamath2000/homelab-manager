@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plug, Save } from 'lucide-react';
 import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
@@ -78,6 +78,14 @@ export function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boo
   };
 
   const [host, detected, token, tested] = stepStates([!!form.agent, !!form.url, saved.hasSecret, test?.level === 'ok']);
+  // opened on a role already declared: it is tested on opening, the window shows its state at once
+  const [editing] = useState(() => !!data.url && data.hasSecret);
+  const autoTested = useRef(false);
+  useEffect(() => {
+    if (autoTested.current || !editing || !(form.url && saved.hasSecret)) return;
+    autoTested.current = true;
+    void runTest();
+  });
 
   const options = (
     <>
@@ -107,7 +115,7 @@ export function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boo
         footer={
           <>
             <div className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm lg:flex">{options}</div>
-            <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>Enregistrer</Button>
           </>
         }

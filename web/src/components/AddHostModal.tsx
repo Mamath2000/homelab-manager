@@ -85,7 +85,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
       wide="screen"
       wider
       fixed
-      dismissable={false}
+      dismissable={!result || connected}
       title={result ? `Ajouter ${name}` : 'Ajouter un hôte'}
       footer={
         <>
@@ -94,7 +94,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
               <Spinner className="h-4 w-4" /> En attente de la connexion de l'agent…
             </span>
           )}
-          <Button onClick={close}>Annuler</Button>
+          <Button variant="ghost" onClick={close}>Annuler</Button>
           <Button variant="primary" icon={CheckCircle2} disabled={!connected} onClick={reset}>
             Terminé
           </Button>

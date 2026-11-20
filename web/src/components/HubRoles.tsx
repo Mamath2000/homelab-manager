@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
-import { Link, useNavigate } from 'react-router';
+import { Cpu, KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
@@ -18,6 +18,7 @@ import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
+import { EsphomeSettings } from './EsphomeSettings';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
@@ -215,7 +216,15 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const portOk = !form.port.trim() || (/^\d{1,5}$/.test(form.port.trim()) && +form.port >= 1 && +form.port <= 65535);
   const connectionOk = addressOk && portOk && !!url;
   // the account is optional (anonymous broker): done with the connection
-  const [picked, connected, account, tested] = stepStates([!!broker, connectionOk, connectionOk, test?.level === 'ok' || test?.level === 'warn']);
+  // the account (step 3) is optional: nothing to validate, reached when needed
+  const [picked, connected, tested] = stepStates([!!broker, connectionOk, test?.level === 'ok' || test?.level === 'warn']);
+  // editing: the broker is tested on opening, the window shows its state at once
+  const autoTested = useRef(false);
+  useEffect(() => {
+    if (autoTested.current || !role || !broker || !connectionOk) return;
+    autoTested.current = true;
+    void runTest();
+  });
   const dynsecInfo = info ?? (broker?.dynsec ? { state: 'active' as const, managed } : null);
 
   return (
@@ -223,14 +232,13 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
       <Modal
         open
         onClose={requestClose}
-        dismissable={false}
         wide="screen"
         wider
         fixed
         title={role ? `Broker MQTT · ${role.name}` : 'Nouveau rôle Broker MQTT'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !nameOk || !test || test.level === 'error'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
@@ -293,7 +301,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
               <Step
                 n={3}
                 title="Identifiants"
-                state={account}
+                state="optional"
                 intro={managed ? 'Les comptes de ce broker sont gérés par HLM : le compte est créé, ou son mot de passe changé, sur le broker à l\'enregistrement.' : 'Facultatif : laisser vide pour un broker anonyme. Le compte doit exister sur le broker.'}
               >
                 <label className="block">
@@ -590,20 +598,26 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const controllerOk = nameOk && addressOk && portOk && fingerprintOk;
   const appOk = form.clientId.trim().length > 0 && (!!secret || !!role?.hasSecret);
   const [carried, configured, application, tested] = stepStates([!!carrier, controllerOk, appOk, test?.level === 'ok']);
+  // editing: the controller is tested on opening, the window shows its state at once
+  const autoTested = useRef(false);
+  useEffect(() => {
+    if (autoTested.current || !role || !carrier || !controllerOk || !appOk) return;
+    autoTested.current = true;
+    void runTest();
+  });
 
   return (
     <>
       <Modal
         open
         onClose={requestClose}
-        dismissable={false}
         wide="screen"
         wider
         fixed
         title={role ? `Contrôleur Omada · ${role.name}` : 'Nouveau rôle Contrôleur Omada'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || test?.level !== 'ok'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
@@ -857,7 +871,8 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
     silentHours: /^\d{1,2}$/.test(form.silentHours) ? Math.min(+form.silentHours, 24) : 6,
     ...(form.dockerPort && portValid(form.dockerPort) ? { dockerPort: +form.dockerPort } : {}),
   });
-  const runTest = async () => {
+  // auto: the test made on opening a role to edit; it leaves the destination of the hosts as saved
+  const runTest = async (auto = false) => {
     setBusy('test');
     setTest(null);
     try {
@@ -867,7 +882,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       // (published by Docker when the agent sees it, else read in its flags)
       const tcp = r.ok ? (r.syslog?.tcp ?? []) : [];
       const port = syslogPorts.find((p) => tcp.includes(p)) ?? syslogPorts[0] ?? tcp[0];
-      if (r.ok && port) {
+      if (r.ok && port && !auto) {
         setForm((f) => ({ ...f, destination: tcpUrl(f.apiAddress, port) }));
         setReception(null);
       }
@@ -889,6 +904,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       setBusy(null);
     }
   };
+  // editing: the API is tested on opening; when it answers, the window opens on the summary
+  const autoTested = useRef(false);
+  useEffect(() => {
+    if (autoTested.current || !role || !carrier || !apiOk) return;
+    autoTested.current = true;
+    void runTest(true);
+  });
   const save = async () => {
     setBusy('save');
     try {
@@ -913,9 +935,9 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   const destinationOk = !!dest;
   const configOk = silentOk && destinationOk && dockerPortOk;
   const tested = test?.level === 'ok';
-  // the reception test guides (the step is done once it passed) without stopping the save: the hub may not see the server as
-  // the hosts do
-  const [carried, reached, configured, summary] = stepStates([!!carrier, apiOk && tested, configOk && reception?.level === 'ok', false]);
+  // the reception test (summary) is optional and never stops the save: the hub may not see the server as the hosts do
+  // the configuration (step 3) is implicit: nothing to validate, reached when needed; the summary (step 4) follows the API test
+  const [carried, reached, summary] = stepStates([!!carrier, apiOk && tested, false]);
   const destination = dest ? tcpUrl(dest.address, dest.port) : '';
   const sub = 'text-xs font-medium uppercase tracking-wide text-muted';
 
@@ -924,14 +946,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       <Modal
         open
         onClose={requestClose}
-        dismissable={false}
         wide="screen"
         wider
         fixed
         title={role ? `Serveur de logs · ${role.name}` : 'Nouveau rôle Serveur de logs'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !carrier || !apiOk || !tested || !configOk} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
@@ -1017,16 +1038,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
             {!accountOk && <span className="block text-xs text-amber-300">Mot de passe sans utilisateur</span>}
             <CheckLine label="API" check={test} idle={apiOk ? url : undefined} />
           </Step>
-          <Step
-            n={3}
-            title="Configuration"
-            state={configured}
-            footer={
-              <Button className="w-full" variant={configured === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'reception'} disabled={busy !== null || !carrier || !apiOk || !tested || !destinationOk} onClick={() => void runReception()}>
-                {reception ? 'Tester la réception à nouveau' : 'Tester la réception'}
-              </Button>
-            }
-          >
+          <Step n={3} title="Configuration" state="optional">
             <section className="space-y-2">
               <h4 className={sub}>Hôte muet</h4>
               <label className="flex flex-wrap items-center gap-2 text-sm text-zinc-200">
@@ -1048,7 +1060,6 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
                 seulement si les hôtes le joignent autrement.
               </p>
               {form.destination && !dest && <p className="text-xs text-amber-300">Format attendu : tcp://serveur:port</p>}
-              <CheckLine label="Réception syslog" check={reception} idle={destination ? `le hub envoie une ligne de test à ${destination}, puis la cherche par l'API` : undefined} />
             </section>
             <section className="space-y-2 border-t border-line pt-3">
               <h4 className={sub}>Journaux des conteneurs</h4>
@@ -1063,7 +1074,16 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
               {!dockerPortOk && <p className="text-xs text-amber-300">Port invalide (1 à 65535)</p>}
             </section>
           </Step>
-          <Step n={4} title="Récapitulatif" state={summary}>
+          <Step
+            n={4}
+            title="Récapitulatif"
+            state={summary}
+            footer={
+              <Button className="w-full" variant="secondary" icon={Plug} loading={busy === 'reception'} disabled={busy !== null || !carrier || !apiOk || !tested || !destinationOk} onClick={() => void runReception()}>
+                {reception ? 'Tester la réception à nouveau' : 'Tester la réception'}
+              </Button>
+            }
+          >
             <DetectedRows
               rows={[
                 { label: 'Nom', value: form.name, empty: 'non renseigné' },
@@ -1075,6 +1095,7 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
                 { label: 'Conteneurs', value: dockerPortOk ? (form.dockerPort ? `port ${form.dockerPort}` : 'port lu sur le serveur') : '', empty: 'à corriger (étape 3)' },
               ]}
             />
+            <CheckLine label="Réception syslog" check={reception} idle={destination ? `test facultatif : le hub envoie une ligne à ${destination}, puis la cherche par l'API` : undefined} />
             {!tested && <p className="text-xs text-amber-300">L'enregistrement demande un test de l'API réussi (étape 2).</p>}
           </Step>
         </Steps>
@@ -1151,7 +1172,6 @@ export function RolesSettings() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<HubRole | null>(null);
   const [busy, setBusy] = useState(false);
-  const navigate = useNavigate();
 
   const refresh = () =>
     Promise.all([
@@ -1182,18 +1202,19 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
-  // the role of the hub is set in its own screen (Rôles › ESPHome): declared at once, then opened there
+  // the role of the hub is declared at once, then its settings open in a window (like every other role)
+  const [esphomeOpen, setEsphomeOpen] = useState(false);
   const declareEsphome = async () => {
     try {
       await api.declareEsphome();
       await refresh();
-      navigate('/roles/esphome');
+      setEsphomeOpen(true);
     } catch (err) {
       toast.error((err as Error).message);
     }
   };
   const edit = (r: HubRole) =>
-    r.type === 'esphome' ? navigate('/roles/esphome') : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
+    r.type === 'esphome' ? setEsphomeOpen(true) : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1331,6 +1352,9 @@ export function RolesSettings() {
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
       {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
+      <Modal open={esphomeOpen} onClose={() => (setEsphomeOpen(false), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome</span>}>
+        <EsphomeSettings />
+      </Modal>
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'log-server' && <LogServerWizard role={editing.role} onClose={() => setEditing(null)} />}

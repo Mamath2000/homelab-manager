@@ -109,7 +109,7 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
         title={data.enabled ? 'Broker MQTT' : 'Nouveau broker MQTT'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || test?.level !== 'ok'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }

@@ -597,7 +597,7 @@ function JobModal({ host, view, job, cached, open, onClose, tab: initialTab }: {
           <span className={clsx('mr-auto min-w-0 self-center truncate text-xs', taken || archiveError ? 'text-amber-400' : 'hidden text-muted sm:block')} title={summary}>
             {archiveError ?? (taken ? 'Identifiant déjà pris sur le PBS (onglet Destination)' : summary)}
           </span>
-          <Button onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" onClick={onClose}>Annuler</Button>
           <Button variant="primary" icon={Save} loading={busy} disabled={!!taken} onClick={save}>Enregistrer</Button>
         </>
       }

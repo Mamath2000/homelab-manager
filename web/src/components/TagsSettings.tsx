@@ -4,7 +4,7 @@ import { Plus, Tags, Trash2 } from 'lucide-react';
 import { api, type TagColor, type TagConfig } from '../lib/api';
 import { keys, useHosts, useTags } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { ColorSwatches, TagChip } from './HostTags';
+import { ColorPicker, TagChip } from './HostTags';
 import { SettingsFormActions } from './SettingsForm';
 import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Panel, Spinner } from './ui';
@@ -113,39 +113,38 @@ export function TagsSettings() {
           Retirer un tag l’enlève des hôtes concernés.
         </p>
         {currentTags.length === 0 && <p className="text-xs text-muted">Aucun tag configuré.</p>}
-        <div className="space-y-2">
+        <div className="grid gap-2 xl:grid-cols-2">
           {currentTags.map((tag) => (
-            <div key={tag.id} className="flex flex-wrap items-center gap-3 rounded-md border border-line bg-raised/20 p-2 lg:grid lg:grid-cols-[minmax(8rem,auto)_minmax(18rem,1fr)_auto_minmax(6rem,auto)_auto]">
-              <TagChip tag={{ ...tag, name: tag.name || 'Nouveau tag' }} />
+            <div key={tag.id} className="flex items-center gap-3 rounded-md border border-line bg-raised/20 p-2">
+              <span className="w-32 shrink-0 truncate"><TagChip tag={{ ...tag, name: tag.name || 'Nouveau tag' }} /></span>
               <input
-                className="input w-full min-w-0 flex-1 lg:w-full"
+                className="input min-w-0 flex-1"
                 value={tag.name}
                 maxLength={32}
                 aria-label="Nom du tag"
                 placeholder="Nom du tag"
                 onChange={(event) => setTagDraft(currentTags.map((item) => item.id === tag.id ? { ...item, name: event.target.value } : item))}
               />
-              <ColorSwatches value={tag.color} onChange={(color) => setTagDraft(currentTags.map((item) => item.id === tag.id ? { ...item, color } : item))} />
-              <span className="text-xs text-muted lg:text-center">{tag.id.startsWith('new-') ? 'nouveau' : `${countTagHosts(tag.id)} hôte(s)`}</span>
-              <Button size="sm" variant="ghost" icon={Trash2} disabled={saving} className="ml-auto hover:text-red-400 lg:ml-0" onClick={() => setTagDraft(currentTags.filter((item) => item.id !== tag.id))} aria-label={`Retirer ${tag.name || 'le tag'}`} />
+              <ColorPicker value={tag.color} onChange={(color) => setTagDraft(currentTags.map((item) => item.id === tag.id ? { ...item, color } : item))} />
+              <span className="w-16 shrink-0 text-xs text-muted">{tag.id.startsWith('new-') ? 'nouveau' : `${countTagHosts(tag.id)} hôte(s)`}</span>
+              <Button size="sm" variant="ghost" icon={Trash2} disabled={saving} className="shrink-0 hover:text-red-400" onClick={() => setTagDraft(currentTags.filter((item) => item.id !== tag.id))} aria-label={`Retirer ${tag.name || 'le tag'}`} />
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2 lg:grid lg:grid-cols-[minmax(8rem,auto)_minmax(18rem,1fr)_auto_minmax(6rem,auto)_auto]">
-          <span aria-hidden="true" className="hidden lg:block" />
+        <div className="flex items-center gap-3 border-t border-line pt-4">
           <input
-            className="input w-full min-w-0 flex-1 lg:w-full"
+            className="input min-w-0 max-w-sm flex-1"
             maxLength={32}
             value={newTagName}
             onChange={(event) => setNewTagName(event.target.value)}
             placeholder="Nom du nouveau tag"
             aria-label="Nom du nouveau tag"
           />
-          <ColorSwatches value={newTagColor} onChange={setNewTagColor} />
-          <span aria-hidden="true" className="hidden lg:block" />
+          <ColorPicker value={newTagColor} onChange={setNewTagColor} />
           <Button
             size="sm"
             icon={Plus}
+            className="whitespace-nowrap"
             disabled={!newTagName.trim() || saving || currentTags.some((tag) => tag.name.trim().toLocaleLowerCase() === newTagName.trim().toLocaleLowerCase())}
             onClick={() => {
               setTagDraft([...currentTags, { id: `new-${Date.now()}`, name: newTagName.trim(), color: newTagColor }]);
