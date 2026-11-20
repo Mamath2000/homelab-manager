@@ -1,15 +1,18 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { MapPin, Plus, Router, Search } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { MapPin, Plus, Router, Search, Trash2 } from 'lucide-react';
 import { EquipmentModal, ProbeSquares } from '../components/Equipment';
 import { EQUIPMENT_TYPES, SOURCE_LABELS, TYPE_LABELS, equipmentTone } from '../lib/equipment';
 import { EquipmentsOverview } from '../components/EquipmentsOverview';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { equipmentTodo, inSite } from '../lib/equipmentOverview';
-import { Badge, Button, Empty, Panel, ResponsiveList, Spinner, StatusDot } from '../components/ui';
+import { Badge, Button, ConfirmModal, Empty, Panel, ResponsiveList, Spinner, StatusDot, Tag } from '../components/ui';
 import type { Equipment, EquipmentSource, SiteConfig, StatusView } from '../lib/api';
 import { useMe } from '../lib/auth';
-import { useEquipments, useSites, useStatus } from '../lib/queries';
+import { api } from '../lib/api';
+import { keys, useEquipments, useSites, useStatus } from '../lib/queries';
+import { useToast } from '../lib/toast';
 import { NO_SITE } from '../lib/sites';
 
 // Sites in the order of the settings, equipment without (known) site last; empty sites are left out.
@@ -21,7 +24,14 @@ function bySite(list: Equipment[], config: SiteConfig[]) {
   ].filter((s) => s.items.length > 0);
 }
 
-function SiteEquipment({ name, items, all, status }: { name: string; items: Equipment[]; all: Equipment[]; status: StatusView | undefined }) {
+// selection: ticked equipments (admins only, absent: no tick boxes), toggled one by one or for the whole site
+interface Selection {
+  ids: Set<string>;
+  toggle: (ids: string[], on: boolean) => void;
+}
+
+function SiteEquipment({ name, items, all, status, selection }: { name: string; items: Equipment[]; all: Equipment[]; status: StatusView | undefined; selection?: Selection }) {
+  const ticked = selection ? items.filter((e) => selection.ids.has(e.id)).length : 0;
   const upName = (e: Equipment) => all.find((x) => x.id === e.uplinkId)?.name ?? null;
   return (
     <Panel title={<>{name} <span className="text-muted">({items.length})</span></>} icon={MapPin} bodyClassName="">
@@ -43,6 +53,7 @@ function SiteEquipment({ name, items, all, status }: { name: string; items: Equi
       <ResponsiveList mode="desktop">
         <table className="w-full table-fixed text-sm">
           <colgroup>
+            {selection && <col className="w-10" />}
             <col className="w-[26%]" />
             <col className="w-[14%]" />
             <col className="w-[15%]" />
@@ -52,6 +63,19 @@ function SiteEquipment({ name, items, all, status }: { name: string; items: Equi
           </colgroup>
           <thead className="border-b border-line">
             <tr>
+              {selection && (
+                <th className="th">
+                  <input
+                    type="checkbox"
+                    aria-label={`Tout sélectionner : ${name}`}
+                    checked={ticked === items.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = ticked > 0 && ticked < items.length;
+                    }}
+                    onChange={(e) => selection.toggle(items.map((x) => x.id), e.target.checked)}
+                  />
+                </th>
+              )}
               <th className="th">Équipement</th>
               <th className="th">Type</th>
               <th className="th">Adresse</th>
@@ -63,6 +87,11 @@ function SiteEquipment({ name, items, all, status }: { name: string; items: Equi
           <tbody className="divide-y divide-line">
             {items.map((e) => (
               <tr key={e.id} className="hover:bg-raised/40">
+                {selection && (
+                  <td className="td">
+                    <input type="checkbox" aria-label={`Sélectionner ${e.name}`} checked={selection.ids.has(e.id)} onChange={(ev) => selection.toggle([e.id], ev.target.checked)} />
+                  </td>
+                )}
                 <td className="td">
                   <Link to={`/equipments/${e.id}`} className="flex items-center gap-2.5 font-medium text-zinc-100 hover:text-emerald-300">
                     <StatusDot tone={equipmentTone(status, e)} />
@@ -91,6 +120,12 @@ export function Equipments() {
   const { canManage } = useMe();
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(false);
+  const qc = useQueryClient();
+  const toast = useToast();
+  // bulk deletion: the ticked equipments, then the confirmation that lists them
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const q = params.get('q') ?? '';
   const source = params.get('source') ?? '';
   const type = params.get('type') ?? '';
@@ -118,6 +153,38 @@ export function Equipments() {
         (!words || `${e.name} ${e.ip ?? ''}`.toLowerCase().includes(words)),
     );
   }, [equipments, q, source, type, site, filter, sites, status]);
+  // a filter that hides a ticked equipment unticks it: only what is shown is deleted
+  const shown = new Set(list.map((e) => e.id));
+  const chosen = (equipments ?? []).filter((e) => ticked.has(e.id) && shown.has(e.id));
+  const selection: Selection | undefined = canManage
+    ? {
+        ids: new Set(chosen.map((e) => e.id)),
+        toggle: (ids, on) =>
+          setTicked((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) {
+              if (on) next.add(id);
+              else next.delete(id);
+            }
+            return next;
+          }),
+      }
+    : undefined;
+  const removeChosen = async () => {
+    setDeleting(true);
+    try {
+      const r = await api.deleteEquipments(chosen.map((e) => e.id));
+      await qc.invalidateQueries({ queryKey: keys.equipments });
+      setTicked(new Set(r.skipped.map((x) => x.id)));
+      if (r.skipped.length) toast.error(`${r.deleted} supprimé${r.deleted > 1 ? 's' : ''}, ${r.skipped.length} refusé${r.skipped.length > 1 ? 's' : ''} : ${r.skipped.map((x) => `${x.name ?? x.id} (${x.error})`).join(' ; ')}`);
+      else toast.success(`${r.deleted} équipement${r.deleted > 1 ? 's' : ''} supprimé${r.deleted > 1 ? 's' : ''}`);
+      setConfirming(false);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  };
   // the source filter only matters once an automatic source exists
   const sources = [...new Set((equipments ?? []).map((e) => e.source))] as EquipmentSource[];
 
@@ -171,17 +238,36 @@ export function Equipments() {
                 {(Object.keys(SOURCE_LABELS) as EquipmentSource[]).map((s) => <option key={s} value={s}>{SOURCE_LABELS[s]}</option>)}
               </select>
             )}
-            {canManage && <div className="ml-auto"><Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un équipement</Button></div>}
+            {canManage && (
+              <div className="ml-auto flex items-center gap-2">
+                {chosen.length > 0 && (
+                  <Button icon={Trash2} variant="danger" onClick={() => setConfirming(true)}>Supprimer ({chosen.length})</Button>
+                )}
+                <Button icon={Plus} variant="primary" onClick={() => setAdding(true)}>Ajouter un équipement</Button>
+              </div>
+            )}
           </div>
           {list.length === 0 ? (
             <div className="panel"><Empty icon={Search} title="Aucun équipement ne correspond aux filtres" /></div>
           ) : (
             <div className="space-y-4">
-              {bySite(list, sites ?? []).map((s) => <SiteEquipment key={s.id} name={s.name} items={s.items} all={equipments} status={status} />)}
+              {bySite(list, sites ?? []).map((s) => <SiteEquipment key={s.id} name={s.name} items={s.items} all={equipments} status={status} selection={selection} />)}
             </div>
           )}
         </>
       )}
+      <ConfirmModal
+        open={confirming}
+        onClose={() => !deleting && setConfirming(false)}
+        onConfirm={() => void removeChosen()}
+        title="Supprimer des équipements"
+        confirmLabel={`Supprimer ${chosen.length} équipement${chosen.length > 1 ? 's' : ''}`}
+        danger
+        loading={deleting}
+      >
+        <p className="mb-2">Les équipements, leurs sondes et leur historique sont supprimés. Un équipement d'une source automatique (Omada, ESPHome) réapparaît à la prochaine synchronisation s'il y est encore listé.</p>
+        <div className="flex max-h-60 flex-wrap gap-1.5 overflow-y-auto">{chosen.map((e) => <Tag key={e.id}>{e.name}</Tag>)}</div>
+      </ConfirmModal>
       {adding && <EquipmentModal equipment={null} onClose={() => setAdding(false)} />}
     </>
   );

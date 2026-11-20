@@ -37,6 +37,10 @@ Un équipement d'une source automatique est créé et tenu à jour par la synchr
 
 Pour un équipement Omada, la **présence** vient du contrôleur, la sonde vérifie le **service rendu** (interface, API).
 
+### Suppression en masse
+
+Sur la page **Équipements**, les administrateurs cochent des lignes (case d'en-tête : tout un site ; la sélection suit les filtres) puis **Supprimer (n)**. La confirmation liste les équipements ; leurs sondes et leur historique partent avec eux. Un équipement qui porte un [rôle](roles.md) est refusé et signalé, les autres sont supprimés. Un équipement d'une source automatique réapparaît à la synchronisation suivante tant que sa source le liste encore.
+
 ### Omada
 
 **Paramètres › Omada** présente un panneau par [rôle Contrôleur Omada](roles.md) : un rôle lit **un site** du contrôleur, rattaché à un site du homelab (celui des équipements qu'on en crée). Il présente en tête les **VPN site à site** de chaque contrôleur (tunnels IPsec, relus à chaque relevé) : réseaux locaux → distants, tunnel établi ou non selon le contrôleur, passerelle qui le porte et état de sa [sonde VPN](sondes.md#sondes-vpn). Une icône d'avertissement, avec son explication au survol, signale ce qui demande une intervention : passerelle à créer ou relier comme équipement, source et cible de la sonde à choisir (bouton **Configurer**). Une passerelle a un check natif « Tunnel _nom_ » par tunnel activé de son site (alerte sans associations de sécurité en entrée et en sortie pendant 3 relevés consécutifs, voir [Sondes VPN](sondes.md#sondes-vpn)).

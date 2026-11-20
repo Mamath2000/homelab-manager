@@ -2181,6 +2181,8 @@ export const api = {
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),
   updateEquipment: (id: string, e: EquipmentInput) => request<Equipment>('PATCH', `/api/equipments/${id}`, e),
   deleteEquipment: (id: string) => request<void>('DELETE', `/api/equipments/${id}`),
+  // bulk: the ones that cannot go (they carry a role) are in skipped, the others are deleted
+  deleteEquipments: (ids: string[]) => request<{ deleted: number; skipped: { id: string; name: string | null; error: string }[] }>('POST', '/api/equipments/delete', { ids }),
   equipmentAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/equipments/${id}/alerts`),
   hostHealth:  (id: string, hours = 1) => request<{ samples: { category: 'system' | 'disks' | 'smart' | 'raid'; sampledAt: string; report: HealthSystem | HealthDisks | HealthSmart | HealthRaid }[] }>('GET', `/api/hosts/${id}/health?hours=${hours}`),
   saveHostSmartDevices: (id: string, devices: string[]) => request<{ devices: string[] }>('PUT', `/api/hosts/${id}/health/smart`, { devices }),

@@ -156,6 +156,35 @@ export function registerEquipmentRoutes(app: FastifyInstance) {
     return (await withProbes([e]))[0];
   });
 
+  // Bulk deletion (a list ticked in the page): the same rules as one deletion, each equipment on its own; one that cannot
+  // be deleted (it carries a role) is reported and the others go on. Equipments of an automatic source come back at the
+  // next poll of their source if it still lists them.
+  app.post<{ Body: { ids: string[] } }>(
+    '/api/equipments/delete',
+    { schema: { body: { type: 'object', required: ['ids'], additionalProperties: false, properties: { ids: { type: 'array', minItems: 1, maxItems: 500, uniqueItems: true, items: { type: 'string', maxLength: 24 } } } } } },
+    async (req) => {
+      const deleted: string[] = [];
+      const skipped: { id: string; name: string | null; error: string }[] = [];
+      for (const id of req.body.ids) {
+        const _id = parseId(id);
+        const e = _id ? await equipments.findOne({ _id }, { projection: { name: 1 } }) : null;
+        if (!_id || !e) {
+          skipped.push({ id, name: null, error: 'équipement introuvable' });
+          continue;
+        }
+        const carried = carrierDeleteError('equipment', carriedBy(_id));
+        if (carried) {
+          skipped.push({ id, name: e.name, error: carried });
+          continue;
+        }
+        await removeEquipment(_id);
+        deleted.push(id);
+      }
+      req.auditNote = { target: { kind: 'equipment', id: 'bulk', name: `${deleted.length} équipement${deleted.length > 1 ? 's' : ''}` }, details: { deleted: deleted.length, skipped: skipped.length } };
+      return { deleted: deleted.length, skipped };
+    },
+  );
+
   app.delete<{ Params: { id: string } }>('/api/equipments/:id', async (req, reply) => {
     const _id = parseId(req.params.id);
     if (!_id || !(await equipments.countDocuments({ _id }, { limit: 1 }))) return reply.code(404).send({ error: 'equipment not found' });
