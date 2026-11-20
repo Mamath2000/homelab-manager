@@ -385,7 +385,7 @@ export function MqttAccountsModal({ role, onClose }: { role: MqttHubRole; onClos
               </Button>
             )}
             <Button icon={RefreshCw} loading={q.isFetching} disabled={q.isFetching} onClick={() => void q.refetch()}>Actualiser</Button>
-            <Button onClick={onClose}>Fermer</Button>
+            <Button variant="ghost" onClick={onClose}>Fermer</Button>
           </>
         }
       >

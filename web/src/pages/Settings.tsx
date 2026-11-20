@@ -14,7 +14,7 @@ import { Button, FlatPanels, Modal, Panel } from '../components/ui';
 import { useMe } from '../lib/auth';
 import { ROLE_PAGES } from '../lib/roleSettings';
 
-type ModalWidth = true | 'xl' | 'screen';
+type ModalWidth = true | 'xl' | 'screen' | 'screen-wide';
 
 // Paramètres: one tile per setting, always the same ones (Standardisation greyed when the hub has it off); a click opens
 // the setting in a window centred on the page. The tile stays in the address (?tab=…) so that links open it.
@@ -23,8 +23,13 @@ const groups = [
     title: 'Hub',
     items: [
       { id: 'hub', label: 'Hub', icon: Server, hint: 'Adresse du hub, port des agents, vérification des mises à jour', width: true },
-      { id: 'sites', label: 'Sites', icon: MapPin, hint: 'Sites des hôtes, leur ordre et leur couleur', width: true },
-      { id: 'tags', label: 'Tags', icon: Tags, hint: 'Étiquettes posées sur les hôtes', width: true },
+      { id: 'sites', label: 'Sites', icon: MapPin, hint: 'Sites des hôtes, leur ordre et leur couleur', width: 'screen-wide' },
+      { id: 'tags', label: 'Tags', icon: Tags, hint: 'Étiquettes posées sur les hôtes', width: 'screen-wide' },
+    ],
+  },
+  {
+    title: 'Infra',
+    items: [
       { id: 'agents', label: 'Agents', icon: Terminal, hint: 'Installation, mise à jour automatique et connexion des agents', width: 'xl' },
       { id: 'setup', label: 'Standardisation', icon: Wand2, hint: 'Configuration standard proposée aux hôtes', width: 'xl' },
     ],
@@ -33,7 +38,7 @@ const groups = [
     title: 'Surveillance',
     items: [
       { id: 'health', label: 'Santé', icon: Activity, hint: 'Collecte des mesures et seuils d’alerte', width: 'xl' },
-      { id: 'security', label: 'Sécurité', icon: Shield, hint: 'Posture de sécurité de l’installation, vue par le hub', width: 'screen' },
+      { id: 'security', label: 'Sécurité', icon: Shield, hint: 'Posture de sécurité de l’installation, vue par le hub', width: 'screen-wide' },
     ],
   },
 ] as const satisfies readonly { title: string; items: readonly { id: string; label: string; icon: LucideIcon; hint: string; width: ModalWidth }[] }[];

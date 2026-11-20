@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
@@ -78,6 +79,71 @@ export function ColorSwatches({ value, onChange, disabled }: { value: TagColor; 
         />
       ))}
     </span>
+  );
+}
+
+// Compact colour selector: a dot showing the current colour; a click opens the palette in a floating window
+// (fixed + portal: not cut by a scrolling dialog). Closed by a pick, a click outside or Escape (Escape stops there).
+export function ColorPicker({ value, onChange, disabled }: { value: TagColor; onChange: (c: TagColor) => void; disabled?: boolean }) {
+  const button = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !button.current) return;
+    const r = button.current.getBoundingClientRect();
+    const w = pop.current?.offsetWidth ?? 200;
+    const h = pop.current?.offsetHeight ?? 100;
+    const top = r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - 6 - h) : r.bottom + 6;
+    setPos({ top, left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) });
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const down = (e: MouseEvent) => !pop.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node) && close();
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      close();
+      button.current?.focus();
+    };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key, true);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', down);
+      document.removeEventListener('keydown', key, true);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={`Couleur : ${value}`}
+        title="Changer la couleur"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line bg-raised/40 hover:border-zinc-500 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span className={clsx('h-5 w-5 rounded-full', tagSwatch[value])} />
+      </button>
+      {open && createPortal(
+        <div
+          ref={pop}
+          className="fixed z-50 rounded-md border border-line bg-panel p-3 shadow-2xl shadow-black/60"
+          style={pos ?? { top: -9999, left: -9999 }}
+        >
+          <ColorSwatches value={value} onChange={(c) => { onChange(c); setOpen(false); }} />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

@@ -223,14 +223,13 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
       <Modal
         open
         onClose={requestClose}
-        dismissable={false}
         wide="screen"
         wider
         fixed
         title={role ? `Broker MQTT · ${role.name}` : 'Nouveau rôle Broker MQTT'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !nameOk || !test || test.level === 'error'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
@@ -596,14 +595,13 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
       <Modal
         open
         onClose={requestClose}
-        dismissable={false}
         wide="screen"
         wider
         fixed
         title={role ? `Contrôleur Omada · ${role.name}` : 'Nouveau rôle Contrôleur Omada'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || test?.level !== 'ok'} onClick={() => void save()}>Enregistrer</Button>
           </>
         }
@@ -924,14 +922,13 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
       <Modal
         open
         onClose={requestClose}
-        dismissable={false}
         wide="screen"
         wider
         fixed
         title={role ? `Serveur de logs · ${role.name}` : 'Nouveau rôle Serveur de logs'}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !carrier || !apiOk || !tested || !configOk} onClick={() => void save()}>Enregistrer</Button>
           </>
         }

@@ -370,7 +370,7 @@ function ProbeModal({ owner, probe, onClose }: { owner: ProbeOwner; probe: Probe
         title={probe ? `Modifier la sonde · ${subject.name}` : `Ajouter une sonde · ${subject.name}`}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !nameOk || !sourceOk || !target || !optionsOk || (!!probe && !dirty)} onClick={() => void save()}>
               {probe ? 'Enregistrer' : 'Ajouter la sonde'}
             </Button>

@@ -79,7 +79,7 @@ function Body({ d, onClose }: { d: VpnProbeDetail; onClose: () => void }) {
         title={`Sonde du tunnel ${v.name}`}
         footer={
           <>
-            <Button disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !dirty || !sourceKnown || !targetKnown} onClick={() => void save()}>
               Enregistrer
             </Button>

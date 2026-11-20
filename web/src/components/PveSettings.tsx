@@ -122,7 +122,7 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
         footer={
           <>
             <div className="mr-auto hidden min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-sm lg:flex">{options}</div>
-            <Button disabled={busy !== null} onClick={onClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy !== null} onClick={onClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !saved?.hasSecret} onClick={() => void save()}>Enregistrer</Button>
           </>
         }

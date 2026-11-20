@@ -285,7 +285,7 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
       <div
         className={clsx(
           'panel my-auto w-full min-w-0 bg-panel shadow-2xl shadow-black/60',
-          wide === 'xl' || screenWide ? clsx('max-w-[calc(100vw-2rem)]', wide === 'screen-wide' ? 'sm:max-w-7xl' : wider ? 'sm:max-w-6xl' : 'sm:max-w-5xl') : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
+          wide === 'xl' || screenWide ? clsx('max-w-[calc(100vw-2rem)]', wide === 'screen-wide' ? 'sm:max-w-[96rem]' : wider ? 'sm:max-w-6xl' : 'sm:max-w-5xl') : wide ? 'max-w-[calc(100vw-2rem)] sm:max-w-2xl' : 'max-w-[calc(100vw-2rem)] sm:max-w-md',
           // at most 70vh high: the window keeps a margin above and below
           screenWide
             ? clsx('flex flex-col', fixed ? (tall ? 'h-[calc(100vh-2rem)]' : 'h-[min(52rem,calc(100vh-2rem))]') : 'max-h-[calc(100vh-2rem)] min-h-[20rem]')

@@ -272,7 +272,7 @@ function AddHostModal({ role, listed, onClose }: { role: LogHubRole; listed: Log
       title={`Ajouter des hôtes · ${role.name}`}
       footer={
         <>
-          <Button disabled={busy} onClick={onClose}>Annuler</Button>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>Annuler</Button>
           <Button variant="primary" icon={Plus} loading={busy} disabled={!picked.size} onClick={() => void add()}>
             {picked.size ? `Ajouter ${picked.size} hôte${picked.size > 1 ? 's' : ''}` : 'Ajouter'}
           </Button>

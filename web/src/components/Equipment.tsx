@@ -101,7 +101,7 @@ export function EquipmentModal({ equipment, onClose }: { equipment: Equipment | 
         title={equipment ? `Modifier · ${equipment.name}` : 'Ajouter un équipement'}
         footer={
           <>
-            <Button disabled={busy} onClick={requestClose}>Annuler</Button>
+            <Button variant="ghost" disabled={busy} onClick={requestClose}>Annuler</Button>
             <Button variant="primary" icon={Save} loading={busy} disabled={busy || !nameOk || !ipOk || (!!equipment && !dirty)} onClick={() => void save()}>
               {equipment ? 'Enregistrer' : "Ajouter l'équipement"}
             </Button>

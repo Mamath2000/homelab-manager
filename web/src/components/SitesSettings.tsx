@@ -5,7 +5,7 @@ import { api, type SiteConfig, type SiteFormat, type SiteKind } from '../lib/api
 import { keys, useHosts, useSites } from '../lib/queries';
 import { siteFormatMeta, siteKindMeta } from '../lib/sites';
 import { useToast } from '../lib/toast';
-import { ColorSwatches } from './HostTags';
+import { ColorPicker } from './HostTags';
 import { SettingsFormActions } from './SettingsForm';
 import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Panel, Spinner } from './ui';
@@ -113,7 +113,7 @@ export function SitesSettings() {
               >
                 {FORMATS.map((format) => <option key={format} value={format}>{siteFormatMeta[format].label}</option>)}
               </select>
-              <ColorSwatches value={site.color ?? 'zinc'} onChange={(color) => setSiteDraft(currentSites.map((item, i) => i === index ? { ...item, color } : item))} />
+              <ColorPicker value={site.color ?? 'zinc'} onChange={(color) => setSiteDraft(currentSites.map((item, i) => i === index ? { ...item, color } : item))} />
               <Button size="sm" variant="ghost" icon={ArrowUp} disabled={index === 0 || saving} onClick={() => {
                 const next = currentSites.slice();
                 [next[index - 1], next[index]] = [next[index], next[index - 1]];

@@ -134,7 +134,7 @@ function AttachModal({ host, groups, orphans, open, onClose }: { host: Host; gro
       title={`Sauvegardes de ${host.name}`}
       footer={
         <>
-          <Button onClick={close}>Annuler</Button>
+          <Button variant="ghost" onClick={close}>Annuler</Button>
           <Button variant="primary" icon={Link2} loading={busy} onClick={save}>Enregistrer</Button>
         </>
       }
