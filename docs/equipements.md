@@ -39,7 +39,7 @@ Pour un équipement Omada, la **présence** vient du contrôleur, la sonde véri
 
 ### Suppression en masse
 
-Sur la page **Équipements**, les administrateurs cochent des lignes (case d'en-tête : tout un site ; la sélection suit les filtres) puis **Supprimer (n)**. La confirmation liste les équipements ; leurs sondes et leur historique partent avec eux. Un équipement qui porte un [rôle](roles.md) est refusé et signalé, les autres sont supprimés. Un équipement d'une source automatique réapparaît à la synchronisation suivante tant que sa source le liste encore.
+Sur la page **Équipements**, les administrateurs cochent des lignes (case d'en-tête : toute la liste filtrée ; la sélection suit les filtres) puis **Supprimer (n)**. La confirmation liste les équipements ; leurs sondes et leur historique partent avec eux. Un équipement qui porte un [rôle](roles.md) est refusé et signalé, les autres sont supprimés. Un équipement d'une source automatique réapparaît à la synchronisation suivante tant que sa source le liste encore.
 
 ### Omada
 
@@ -58,7 +58,7 @@ Un équipement manuel n'a donc que ses sondes. Son niveau est le pire de ses dom
 
 ## Où le voir
 
-- **Équipements** : la liste par site, filtrable par type, source (dès qu'il y a plusieurs sources) et recherche (nom, IP). Chaque ligne montre l'état, le type, l'adresse, l'équipement amont et un carré par sonde.
+- **Équipements** : la liste en un seul tableau, filtrable par site, type, source (dès qu'il y a plusieurs sources) et recherche (nom, IP). Chaque ligne montre l'état, le type, le site, l'adresse, l'équipement amont et un carré par sonde.
 - **Fiche équipement** : informations, frise des alertes sur 30 jours, état remonté par la source (équipement synchronisé) et panneau **Sondes**.
 - **Tableau de bord** : le bloc **Équipements**, sous les sites, groupé par site. Une colonne par équipement, **un carré par sonde** (haut → bas, vert / rouge / gris) ; la connexion remontée par la source vient en premier. Un équipement sans sonde a un carré vide. Les équipements ne comptent pas dans la couleur des sites ni dans la frise « arrivée des alertes ».
 

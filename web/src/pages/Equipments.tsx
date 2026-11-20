@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { MapPin, Plus, Router, Search, Trash2 } from 'lucide-react';
+import { Plus, Router, Search, Trash2 } from 'lucide-react';
 import { EquipmentModal, ProbeSquares } from '../components/Equipment';
 import { EQUIPMENT_TYPES, SOURCE_LABELS, TYPE_LABELS, equipmentTone } from '../lib/equipment';
 import { EquipmentsOverview } from '../components/EquipmentsOverview';
@@ -15,33 +15,26 @@ import { keys, useEquipments, useSites, useStatus } from '../lib/queries';
 import { useToast } from '../lib/toast';
 import { NO_SITE } from '../lib/sites';
 
-// Sites in the order of the settings, equipment without (known) site last; empty sites are left out.
-function bySite(list: Equipment[], config: SiteConfig[]) {
-  const known = new Set(config.map((c) => c.id));
-  return [
-    ...config.map((c) => ({ id: c.id, name: c.name, items: list.filter((e) => e.siteId === c.id) })),
-    { id: 'none', name: NO_SITE, items: list.filter((e) => !e.siteId || !known.has(e.siteId)) },
-  ].filter((s) => s.items.length > 0);
-}
-
-// selection: ticked equipments (admins only, absent: no tick boxes), toggled one by one or for the whole site
+// selection: ticked equipments (admins only, absent: no tick boxes), toggled one by one or for the whole list
 interface Selection {
   ids: Set<string>;
   toggle: (ids: string[], on: boolean) => void;
 }
 
-function SiteEquipment({ name, items, all, status, selection }: { name: string; items: Equipment[]; all: Equipment[]; status: StatusView | undefined; selection?: Selection }) {
+// The equipments the filters keep, one list (the site filter at the top replaces the grouping by site)
+function EquipmentList({ items, all, sites, status, selection }: { items: Equipment[]; all: Equipment[]; sites: SiteConfig[]; status: StatusView | undefined; selection?: Selection }) {
+  const siteName = (e: Equipment) => sites.find((s) => s.id === e.siteId)?.name ?? NO_SITE;
   const ticked = selection ? items.filter((e) => selection.ids.has(e.id)).length : 0;
   const upName = (e: Equipment) => all.find((x) => x.id === e.uplinkId)?.name ?? null;
   return (
-    <Panel title={<>{name} <span className="text-muted">({items.length})</span></>} icon={MapPin} bodyClassName="">
+    <Panel title={<>Équipements <span className="text-muted">({items.length})</span></>} icon={Router} bodyClassName="">
       <ResponsiveList mode="mobile">
         {items.map((e) => (
           <Link key={e.id} to={`/equipments/${e.id}`} className="block min-w-0 space-y-1.5 p-4 hover:bg-raised/40">
             <span className="flex min-w-0 items-center gap-2.5">
               <StatusDot tone={equipmentTone(status, e)} />
               <span className="min-w-0 truncate font-medium text-zinc-100">{e.name}</span>
-              <span className="ml-auto shrink-0 text-xs text-muted">{TYPE_LABELS[e.type]}</span>
+              <span className="ml-auto shrink-0 text-xs text-muted">{TYPE_LABELS[e.type]} · {siteName(e)}</span>
             </span>
             <span className="flex items-center justify-between gap-3 text-xs text-muted">
               <span className="font-mono">{e.ip ?? '—'}</span>
@@ -54,12 +47,13 @@ function SiteEquipment({ name, items, all, status, selection }: { name: string; 
         <table className="w-full table-fixed text-sm">
           <colgroup>
             {selection && <col className="w-10" />}
-            <col className="w-[26%]" />
-            <col className="w-[14%]" />
-            <col className="w-[15%]" />
-            <col className="w-[16%]" />
-            <col className="w-[16%]" />
+            <col className="w-[22%]" />
+            <col className="w-[12%]" />
             <col className="w-[13%]" />
+            <col className="w-[14%]" />
+            <col className="w-[14%]" />
+            <col className="w-[13%]" />
+            <col className="w-[12%]" />
           </colgroup>
           <thead className="border-b border-line">
             <tr>
@@ -67,7 +61,7 @@ function SiteEquipment({ name, items, all, status, selection }: { name: string; 
                 <th className="th">
                   <input
                     type="checkbox"
-                    aria-label={`Tout sélectionner : ${name}`}
+                    aria-label="Tout sélectionner"
                     checked={ticked === items.length}
                     ref={(el) => {
                       if (el) el.indeterminate = ticked > 0 && ticked < items.length;
@@ -78,6 +72,7 @@ function SiteEquipment({ name, items, all, status, selection }: { name: string; 
               )}
               <th className="th">Équipement</th>
               <th className="th">Type</th>
+              <th className="th">Site</th>
               <th className="th">Adresse</th>
               <th className="th">Amont</th>
               <th className="th">Sondes</th>
@@ -99,6 +94,7 @@ function SiteEquipment({ name, items, all, status, selection }: { name: string; 
                   </Link>
                 </td>
                 <td className="td text-muted">{TYPE_LABELS[e.type]}</td>
+                <td className="td text-muted">{siteName(e)}</td>
                 <td className="td font-mono text-xs text-zinc-300">{e.ip ?? '—'}</td>
                 <td className="td text-muted">{upName(e) ?? '—'}</td>
                 <td className="td"><ProbeSquares equipment={e} status={status} /></td>
@@ -112,7 +108,7 @@ function SiteEquipment({ name, items, all, status, selection }: { name: string; 
   );
 }
 
-// Equipment by site, filtered by source and type. Admins add the manual ones.
+// Equipment, filtered by site, source and type. Admins add the manual ones.
 export function Equipments() {
   const { data: equipments, isLoading } = useEquipments();
   const { data: sites } = useSites();
@@ -250,9 +246,7 @@ export function Equipments() {
           {list.length === 0 ? (
             <div className="panel"><Empty icon={Search} title="Aucun équipement ne correspond aux filtres" /></div>
           ) : (
-            <div className="space-y-4">
-              {bySite(list, sites ?? []).map((s) => <SiteEquipment key={s.id} name={s.name} items={s.items} all={equipments} status={status} selection={selection} />)}
-            </div>
+            <EquipmentList items={list} all={equipments} sites={sites ?? []} status={status} selection={selection} />
           )}
         </>
       )}
