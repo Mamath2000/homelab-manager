@@ -37,7 +37,7 @@ const groups = [
   {
     title: 'Surveillance',
     items: [
-      { id: 'health', label: 'Santé', icon: Activity, hint: 'Collecte des mesures et seuils d’alerte', width: 'xl' },
+      { id: 'health', label: 'Santé', icon: Activity, hint: 'Collecte des mesures et seuils d’alerte', width: 'screen' },
       { id: 'security', label: 'Sécurité', icon: Shield, hint: 'Posture de sécurité de l’installation, vue par le hub', width: 'screen-wide' },
     ],
   },
