@@ -159,10 +159,12 @@ test('log-server role: config, target of the hosts, view without its password', 
   assert.ok(!JSON.stringify(view).includes('secret'));
   assert.equal(view.hasSecret, true);
   assert.equal((view as { target: string }).target, 'tcp://192.168.100.21:29514');
-  // several servers may exist, not twice the same one on a host
-  assert.equal(ROLE_DEFS['log-server'].single, false);
+  // one log server for the whole homelab (#357): a second one is refused, wherever it is
+  assert.equal(ROLE_DEFS['log-server'].single, true);
   assert.ok(roleConflict([role], 'log-server', 'Autre', id, server('http://192.168.100.21:9428/')));
-  assert.equal(roleConflict([role], 'log-server', 'Autre', id, server('http://192.168.100.22:9428')), null);
+  assert.ok(roleConflict([role], 'log-server', 'Autre', id, server('http://192.168.100.22:9428')));
+  // the role itself can still be edited
+  assert.equal(roleConflict([role], 'log-server', 'Logs', id, server('http://192.168.100.21:9428'), 'logs'), null);
 });
 
 test('log-server candidates reported by an agent are kept', () => {

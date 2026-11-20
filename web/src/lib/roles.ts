@@ -38,7 +38,7 @@ export const ROLE_TYPES: { id: HubRoleType; label: string; hint: string }[] = [
   { id: 'esphome', label: 'ESPHome', hint: 'porté par le hub : les appareils ESPHome découverts sur les brokers MQTT choisis (LWT, info), ouvre Rôles › ESPHome' },
 ];
 // one role of these types in the homelab
-export const SINGLE_ROLES: HubRoleType[] = ['pbs-primary', 'pbs-offsite', 'esphome'];
+export const SINGLE_ROLES: HubRoleType[] = ['pbs-primary', 'pbs-offsite', 'log-server', 'esphome'];
 export const roleTypeLabel = (t: HubRoleType) => ROLE_TYPES.find((x) => x.id === t)?.label ?? t;
 
 // a role of the hub (esphome) reaches no address of its own: its state is the one of its brokers

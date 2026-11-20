@@ -86,7 +86,8 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
   'log-server': {
     label: 'Serveur de logs',
     carriers: ['host'],
-    single: false,
+    // one log server for the whole homelab (#357)
+    single: true,
     carrierError: () => null,
     same: (a, b) => sameUrl(a.url, b.url),
     // the hosts whose journals are sent to it by the standardisation (standard value, or the own value of a host)

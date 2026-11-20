@@ -18,6 +18,16 @@ navigateur ──► hub ──API HTTP de requête─────────�
 - Le serveur de logs est un [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) installé à la main sur un hôte, déclaré comme [rôle du hub](roles.md#serveur-de-logs).
 - Le hub est le seul à interroger le serveur. L'entrée **Logs** du menu n'apparaît qu'avec un rôle **Serveur de logs**.
 
+## Un seul serveur de logs
+
+Le homelab n'a qu'**un** rôle Serveur de logs : en déclarer un second est refusé. Les journaux de tous les sites sont lus au même endroit (une seule page Logs, une recherche globale), et plus aucun choix de serveur n'est à faire : l'option standardisation « Envoi des journaux » se règle sur ce serveur ou sur « Aucun envoi », et les appareils ESPHome suivent le même serveur.
+
+Un serveur par site n'apporterait que l'isolation des volumes, au prix d'une lecture éclatée. Pas de relais local non plus : voir ci-dessous. (homelab#357)
+
+### Coupure du serveur ou du VPN
+
+Pour les hôtes, **rsyslog garde les journaux** pendant la coupure : file sur disque (`queue.type="LinkedList"`, `homelab_fwd`, 100 Mo au plus, conservée à l'arrêt) et réessais sans limite, puis rejeu au retour du serveur. Les sites distants (VPN site à site) n'ont donc pas besoin d'un relais. Limites : au-delà de 100 Mo d'attente (hôte bavard, longue coupure) les plus anciennes lignes sont perdues, et les appareils sans agent (ESPHome, équipements en syslog) n'ont aucun tampon.
+
 ## Mise en place
 
 1. Installer VictoriaLogs sur un hôte (ci-dessous).

@@ -1883,20 +1883,18 @@ export interface EsphomeBrokerView {
   devices: EsphomeDevice[];
 }
 export interface EsphomeSettings {
-  // logServer: where the lines go (null: no log server); logServerSet: the one chosen (null: the first one); shipping: the
+  // logServer: the log server the lines go to (null: none declared); shipping: the
   // lines written, dropped and waiting, and the last error of the writing
   role: {
     name: string;
     brokers: EsphomeBrokerView[];
     logServer: string | null;
-    logServerSet: string | null;
     // hours without a line before an ESP online is mute (0: not watched)
     silentHours: number;
     shipping: { sent: number; dropped: number; waiting: number; error: string | null } | null;
   } | null;
-  // the mqtt-broker roles that may be listened to, with the site of their host; the log servers the lines may go to
+  // the mqtt-broker roles that may be listened to, with the site of their host
   brokers: { id: string; name: string; siteId: string | null }[];
-  logServers: { id: string; name: string }[];
   // the levels of the logger, and the one a device boots at
   levels: string[];
   defaultLevel: string;
@@ -2280,7 +2278,7 @@ export const api = {
   setOmadaSite: (controller: string, siteId: string, homelabSiteId: string) => request<{ ok: true }>('PUT', `/api/settings/omada/${controller}/sites/${siteId}`, { siteId: homelabSiteId }),
   esphomeSettings: () => request<EsphomeSettings>('GET', '/api/settings/esphome'),
   declareEsphome: () => request<{ id: string }>('POST', '/api/settings/esphome'),
-  saveEsphome: (brokers: EsphomeBroker[], logServer: string, silentHours: number) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, silentHours, ...(logServer ? { logServer } : {}) }),
+  saveEsphome: (brokers: EsphomeBroker[], silentHours: number) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, silentHours }),
   setEsphomeLevel: (key: string, level: string) => request<{ key: string; level: string }>('PUT', '/api/settings/esphome/level', { key, level }),
   setEsphomeLogs: (key: string, enabled: boolean) => request<{ key: string; logs: boolean }>('PUT', '/api/settings/esphome/logs', { key, enabled }),
   deleteEsphome: () => request<void>('DELETE', '/api/settings/esphome'),

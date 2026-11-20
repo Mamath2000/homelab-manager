@@ -22,7 +22,7 @@ Les droits d'un compte s'appellent des **profils** (`admin`, `operator`, `viewer
 | **PBS principal** (`pbs-primary`) | l'hôte du Proxmox Backup Server (son agent, PBS installé ou en conteneur) | non, un seul | les [sauvegardes](sauvegardes.md) : groupes relevés, jobs des agents, montages |
 | **PBS hors site** (`pbs-offsite`) | l'hôte du PBS distant | non, un seul, **après** le PBS principal | la [copie déportée](sauvegardes.md) des sauvegardes choisies |
 | **Contrôleur Omada** (`omada-controller`) | un **hôte** (contrôleur en Docker, détecté par l'agent sur ses ports de service) ou un **équipement** avec une adresse IP (contrôleur dédié, OC200…) | oui | Paramètres › Omada : [équipements](equipements.md#omada) synchronisés et [sondes VPN](sondes.md#sondes-vpn) |
-| **Serveur de logs** (`log-server`) | l'hôte d'un VictoriaLogs (installé à la main ; l'agent signale celui qu'il voit en écoute) | oui, un par site si besoin | la page [Logs](logs.md) et l'option **Envoi des journaux** de la [standardisation](standardisation.md#envoi-des-journaux) |
+| **Serveur de logs** (`log-server`) | l'hôte d'un VictoriaLogs (installé à la main ; l'agent signale celui qu'il voit en écoute) | non, un seul pour tout le homelab ([pourquoi](logs.md#un-seul-serveur-de-logs)) | la page [Logs](logs.md) et l'option **Envoi des journaux** de la [standardisation](standardisation.md#envoi-des-journaux) |
 
 Le contrôleur Omada est le seul rôle qu'un **équipement** peut porter : il passe par une API (adresse, empreinte du certificat épinglée, application Open API en mode client), sans agent. Sans contrôleur déclaré, l'onglet Paramètres › Omada n'apparaît pas et rien n'est relu.
 

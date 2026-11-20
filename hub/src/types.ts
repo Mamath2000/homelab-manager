@@ -1552,11 +1552,10 @@ export interface EsphomeBroker {
   brokerId: string;
   siteId?: string;
 }
-// logServer: the log-server role the lines of the devices go to (absent: the first one). silentHours: an ESP online whose
+// silentHours: an ESP online whose
 // logs are on and that sent no line for that long is mute (0: not watched; absent: ESPHOME_SILENT_HOURS).
 export interface EsphomeConfig {
   brokers: EsphomeBroker[];
-  logServer?: string;
   silentHours?: number;
 }
 

@@ -208,7 +208,7 @@ export function startEsphome(log: FastifyBaseLogger, onInfo?: (d: EsphomeDeviceD
     }, NOTIFY_MS);
   };
 
-  const ship = new LogShipper(() => esphomeRole()?.config.logServer, log);
+  const ship = new LogShipper(() => undefined, log);
   shipper = ship;
 
   const onMessage = (brokerId: string, topic: string, payload: Buffer) => {

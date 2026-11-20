@@ -27,14 +27,12 @@ function BrokersSetup({ data }: { data: Settings }) {
   const { data: sites = [] } = useSites();
   const [saved] = useState(() => savedOf(data));
   const [chosen, setChosen] = useState(saved);
-  // '' : the first log server
-  const [server, setServer] = useState(data.role?.logServerSet ?? '');
   const [silent, setSilent] = useState(String(data.role?.silentHours ?? 2));
   const [saving, setSaving] = useState(false);
   const siteName = (id: string | null) => (id ? sites.find((s) => s.id === id)?.name ?? id : null);
   const hours = Number(silent);
   const hoursOk = /^\d+$/.test(silent) && hours >= 0 && hours <= 48;
-  const dirty = hours !== data.role?.silentHours || server !== (data.role?.logServerSet ?? '') || chosen.size !== saved.size || [...chosen].some(([id, site]) => saved.get(id) !== site);
+  const dirty = hours !== data.role?.silentHours || chosen.size !== saved.size || [...chosen].some(([id, site]) => saved.get(id) !== site);
   const toggle = (id: string, on: boolean) =>
     setChosen((m) => {
       const next = new Map(m);
@@ -48,7 +46,7 @@ function BrokersSetup({ data }: { data: Settings }) {
     try {
       // in the order of the brokers of the hub, as they are listed
       const brokers: EsphomeBroker[] = data.brokers.filter((b) => chosen.has(b.id)).map((b) => ({ brokerId: b.id, ...(chosen.get(b.id) ? { siteId: chosen.get(b.id) } : {}) }));
-      await api.saveEsphome(brokers, server, hours);
+      await api.saveEsphome(brokers, hours);
       await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.roles })]);
       toast.success('Paramétrage ESPHome enregistré');
     } catch (err) {
@@ -91,11 +89,8 @@ function BrokersSetup({ data }: { data: Settings }) {
       <div className="space-y-2 border-t border-line px-4 py-3 text-sm">
         <label className="flex flex-wrap items-center gap-2">
           <span className="font-medium text-zinc-100">Serveur de logs</span>
-          {data.logServers.length ? (
-            <select className="input py-1" value={server} onChange={(e) => setServer(e.target.value)}>
-              <option value="">{`le premier (${data.logServers[0].name})`}</option>
-              {data.logServers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+          {data.role?.logServer ? (
+            <span className="text-xs text-muted">le serveur de logs du homelab ({data.role.logServer})</span>
           ) : (
             <span className="text-xs text-amber-300">aucun : les logs des appareils ne peuvent pas être activés (déclarer un rôle Serveur de logs)</span>
           )}
@@ -628,7 +623,7 @@ export function EsphomeSettings() {
   return (
     <div>
       <Tabs tabs={tabs} value={current} onChange={setTab} />
-      {broker ? <BrokerDevices b={broker} canLog={!!data.role.logServer} levels={data.levels} defaultLevel={data.defaultLevel} /> : <BrokersSetup key={JSON.stringify([[...savedOf(data)], data.role.logServerSet, data.role.silentHours])} data={data} />}
+      {broker ? <BrokerDevices b={broker} canLog={!!data.role.logServer} levels={data.levels} defaultLevel={data.defaultLevel} /> : <BrokersSetup key={JSON.stringify([[...savedOf(data)], data.role.silentHours])} data={data} />}
     </div>
   );
 }

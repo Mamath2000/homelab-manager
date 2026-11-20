@@ -3,7 +3,7 @@ import { settingsDiff } from '../audit.js';
 import { loadSites } from '../catalog.js';
 import { equipments, parseId, roles } from '../db.js';
 import { brokerSites, DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
-import { logRole, logRoles } from '../logs.js';
+import { logRole } from '../logs.js';
 import { candidatesFor, createEsphomeEquipments, EsphomeLinkError, subKey, syncAllEsphomeEquipments } from '../esphomeEquipments.js';
 import { probeEngine } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
@@ -32,8 +32,6 @@ const configBody = {
         properties: { brokerId: { type: 'string', maxLength: 32 }, siteId: { type: 'string', maxLength: 24 } },
       },
     },
-    // the log-server role the lines go to ("" or absent: the first one)
-    logServer: { type: 'string', maxLength: 32 },
     // hours without a line before an ESP online is mute (0: not watched)
     silentHours: { type: 'integer', minimum: 0, maximum: 48 },
   },
@@ -51,9 +49,8 @@ export function brokersError(list: EsphomeBroker[], brokerIds: Set<string>, site
   return null;
 }
 
-export const toEsphomeConfig = (list: EsphomeBroker[], logServer?: string, silentHours?: number): EsphomeConfig => ({
+export const toEsphomeConfig = (list: EsphomeBroker[], silentHours?: number): EsphomeConfig => ({
   brokers: list.map((b) => ({ brokerId: b.brokerId, ...(b.siteId ? { siteId: b.siteId } : {}) })),
-  ...(logServer ? { logServer } : {}),
   ...(silentHours !== undefined ? { silentHours } : {}),
 });
 
@@ -106,8 +103,7 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
         ? {
             name: role.name,
             // where the lines go (null: no log server, the logs cannot be turned on), and how the writing goes
-            logServer: logRole(role.config.logServer)?._id ?? null,
-            logServerSet: role.config.logServer ?? null,
+            logServer: logRole()?._id ?? null,
             silentHours: role.config.silentHours ?? ESPHOME_SILENT_HOURS,
             shipping: (() => {
               const s = esphomeShipper();
@@ -124,9 +120,8 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
             })),
           }
         : null,
-      // the brokers that may be listened to, the log servers the lines may go to
+      // the brokers that may be listened to
       brokers,
-      logServers: logRoles().map((r) => ({ id: r._id, name: r.name })),
       // the levels a device may be set to, and the one it boots at
       levels: LOG_LEVELS,
       defaultLevel: DEFAULT_LEVEL,
@@ -145,14 +140,13 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     return reply.code(201).send({ id: doc._id });
   });
 
-  app.put<{ Body: { brokers: EsphomeBroker[]; logServer?: string; silentHours?: number } }>('/api/settings/esphome', { schema: { body: configBody } }, async (req, reply) => {
+  app.put<{ Body: { brokers: EsphomeBroker[]; silentHours?: number } }>('/api/settings/esphome', { schema: { body: configBody } }, async (req, reply) => {
     const current = esphomeRole();
     if (!current) return reply.code(404).send({ error: 'rôle ESPHome non déclaré' });
     const sites = await loadSites();
     const bad = brokersError(req.body.brokers, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)));
     if (bad) return reply.code(400).send({ error: bad });
-    if (req.body.logServer && !logRoles().some((r) => r._id === req.body.logServer)) return reply.code(400).send({ error: `serveur de logs inconnu : ${req.body.logServer}` });
-    const config = toEsphomeConfig(req.body.brokers, req.body.logServer, req.body.silentHours ?? current.config.silentHours);
+    const config = toEsphomeConfig(req.body.brokers, req.body.silentHours ?? current.config.silentHours);
     await roles.replaceOne({ _id: current._id }, { ...current, config });
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type, ...settingsDiff(current.config, config) } };
     await rolesSaved([]);
@@ -172,7 +166,7 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
       const d = esphomeDevices().find((x) => x._id === req.body.key);
       if (!d) return reply.code(404).send({ error: 'appareil inconnu' });
       if (req.body.enabled) {
-        if (!logRole(role.config.logServer)) return reply.code(409).send({ error: 'aucun serveur de logs : déclarer un rôle Serveur de logs' });
+        if (!logRole()) return reply.code(409).send({ error: 'aucun serveur de logs : déclarer un rôle Serveur de logs' });
         if (!(await equipments.countDocuments({ source: 'esphome', externalId: d._id }, { limit: 1 }))) return reply.code(409).send({ error: "créer d'abord l'équipement de l'appareil" });
       }
       await setDeviceLogs(d._id, req.body.enabled);
