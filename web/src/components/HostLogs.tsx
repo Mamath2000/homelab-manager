@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { Host } from '../lib/api';
 import { timeAgo } from '../lib/format';
@@ -15,12 +16,11 @@ export function HostLogsStatus({ host }: { host: Host }) {
   const errors = logs.errors ? `${logs.errors} erreur${logs.errors > 1 ? 's' : ''} sur 24 h` : 'aucune erreur sur 24 h';
   return (
     <span title={server ? `Envoyés à ${server.name}` : undefined}>
-      <span className={check?.silent ? 'text-amber-300' : undefined}>reçu {timeAgo(logs.lastAt)}</span>
-      {' · '}
+      <span className={clsx('block', check?.silent && 'text-amber-300')}>reçu {timeAgo(logs.lastAt)}</span>
       {canLogs && logs.errors ? (
-        <Link to={hostLogsPath(host.id, '&sev=3&from=24h')} className="text-red-300 hover:underline">{errors}</Link>
+        <Link to={hostLogsPath(host.id, '&sev=3&from=24h')} className="block text-xs text-red-300 hover:underline">{errors}</Link>
       ) : (
-        <span className={logs.errors ? 'text-red-300' : 'text-muted'}>{errors}</span>
+        <span className={clsx('block text-xs', logs.errors ? 'text-red-300' : 'text-muted')}>{errors}</span>
       )}
     </span>
   );

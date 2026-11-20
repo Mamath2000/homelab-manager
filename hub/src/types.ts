@@ -386,6 +386,8 @@ export interface HostDoc {
   dockerRecheck?: boolean;
   // compose stacks managed elsewhere (own update system...): listed, but no state nor action
   unmanagedStacks?: string[];
+  // stacks whose container journals are left out on purpose (not « to recreate »): the choice of the admin
+  logIgnoredStacks?: string[];
   // standardisation: what this host does differently from the standard configuration, last check
   setupOverrides?: SetupOverrides;
   setup?: SetupState;
