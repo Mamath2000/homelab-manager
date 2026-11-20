@@ -5,7 +5,8 @@ import { equipments, parseId, roles } from '../db.js';
 import { DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
 import { logRole } from '../logs.js';
 import { candidatesFor, createEsphomeEquipments, EsphomeLinkError, subKey, syncAllEsphomeEquipments } from '../esphomeEquipments.js';
-import { probeEngine } from '../probes.js';
+import { testConnection } from '../homeassistant/bridge.js';
+import { loadMqttBrokers, probeEngine } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
 import { allRoles, esphomeRoles, newRoleId, roleConflict } from '../roles.js';
 import type { EquipmentDoc, EsphomeConfig, EsphomeDeviceDoc, EsphomeRole, MqttBrokerRole } from '../types.js';
@@ -37,6 +38,19 @@ export function esphomeError(c: { siteId: string; brokerId: string }, brokerIds:
   if (others.some((r) => r.config.siteId === c.siteId)) return 'un rôle ESPHome est déjà déclaré pour ce site';
   if (others.some((r) => r.config.brokerId === c.brokerId)) return 'ce broker est déjà écouté par un autre rôle ESPHome';
   return null;
+}
+
+// null: the broker answers (a real connection with its account, whether or not the hub listens to it yet), else why not
+export async function brokerOnline(brokerId: string) {
+  const b = (await loadMqttBrokers()).brokers.find((x) => x.id === brokerId);
+  if (!b) return `broker inconnu : ${brokerId}`;
+  if (!b.url) return "adresse du broker inconnue (hôte sans adresse relevée)";
+  try {
+    await testConnection(b.url, b.username, b.password, b.tls);
+    return null;
+  } catch (err) {
+    return `broker injoignable : ${(err as Error).message}`;
+  }
 }
 
 export const toEsphomeConfig = (c: { siteId: string; brokerId: string }, silentHours?: number): EsphomeConfig => ({
@@ -110,10 +124,22 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     };
   });
 
+  // The broker of a role answers, from the hub (the wizard asks it before saving).
+  app.post<{ Body: { brokerId: string } }>(
+    '/api/settings/esphome/test',
+    { schema: { body: { type: 'object', required: ['brokerId'], additionalProperties: false, properties: { brokerId: { type: 'string', minLength: 1, maxLength: 32 } } } } },
+    async (req) => {
+      const error = await brokerOnline(req.body.brokerId);
+      return error ? { ok: false, error } : { ok: true };
+    },
+  );
+
   app.post<{ Body: { siteId: string; brokerId: string; name?: string; silentHours?: number } }>('/api/settings/esphome', { schema: { body: roleBody } }, async (req, reply) => {
     const sites = await loadSites();
     const bad = esphomeError(req.body, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)), esphomeRoles());
     if (bad) return reply.code(409).send({ error: bad });
+    const offline = await brokerOnline(req.body.brokerId);
+    if (offline) return reply.code(409).send({ error: offline });
     const name = req.body.name?.trim() || `ESPHome — ${sites.find((s) => s.id === req.body.siteId)?.name ?? req.body.siteId}`;
     const why = roleConflict(allRoles(), 'esphome', name, null, toEsphomeConfig(req.body));
     if (why) return reply.code(409).send({ error: why });
@@ -132,6 +158,9 @@ export function registerEsphomeRoutes(app: FastifyInstance) {
     const sites = await loadSites();
     const bad = esphomeError(req.body, new Set(brokerRoles().map((b) => b._id)), new Set(sites.map((s) => s.id)), esphomeRoles().filter((r) => r._id !== current._id));
     if (bad) return reply.code(409).send({ error: bad });
+    // the broker is checked again only when it changes (a role keeps working while its broker is down for a while)
+    const offline = req.body.brokerId === current.config.brokerId ? null : await brokerOnline(req.body.brokerId);
+    if (offline) return reply.code(409).send({ error: offline });
     const name = req.body.name?.trim() || current.name;
     const why = roleConflict(allRoles(), 'esphome', name, null, toEsphomeConfig(req.body), current._id);
     if (why) return reply.code(409).send({ error: why });

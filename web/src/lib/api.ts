@@ -2290,6 +2290,7 @@ export const api = {
   saveEsphome: (id: string, r: EsphomeRoleInput) => request<{ id: string }>('PUT', `/api/settings/esphome/${encodeURIComponent(id)}`, r),
   setEsphomeLevel: (key: string, level: string) => request<{ key: string; level: string }>('PUT', '/api/settings/esphome/level', { key, level }),
   setEsphomeLogs: (key: string, enabled: boolean) => request<{ key: string; logs: boolean }>('PUT', '/api/settings/esphome/logs', { key, enabled }),
+  testEsphomeBroker: (brokerId: string) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/esphome/test', { brokerId }),
   deleteEsphome: (id: string) => request<void>('DELETE', `/api/settings/esphome/${encodeURIComponent(id)}`),
   // the equipment of an ESP (made, or a manual one linked: equipmentId) and the ones of the sub-devices chosen
   createEsphomeEquipments: (b: { key: string; name?: string; equipmentId?: string; devices: string[] }) =>

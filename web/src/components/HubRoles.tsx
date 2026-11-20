@@ -18,7 +18,7 @@ import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
-import { EsphomeInventory } from './EsphomeSettings';
+import { EsphomeInventory } from './EsphomeInventory';
 import { HomeAssistantPanel } from './HomeAssistantPanel';
 import { LogHostsSettings } from './LogHosts';
 import { BrokerCardControls, MqttAccountsModal, type BrokerCardSlots } from './MqttSecurity';
@@ -1196,15 +1196,6 @@ const ESPHOME_TOPICS = 'esphome/+/LWT, esphome/+/info, esphome/+/log_level';
 
 // What the hub reads of the broker chosen, as the check of the summary: the role of the broker is already listened to by
 // the hub, its state says whether the devices can be found now.
-function brokerCheck(b: HubRole | undefined): CheckState {
-  if (!b) return null;
-  const url = b.url || 'adresse inconnue';
-  if (!b.status) return { level: 'warn', title: 'Broker non écouté par le hub', detail: url };
-  if (b.status.state === 'connected') return { level: 'ok', title: 'Broker connecté', detail: url };
-  if (b.status.state === 'connecting') return { level: 'info', title: 'Connexion au broker en cours', detail: url };
-  return { level: 'warn', title: 'Broker injoignable', detail: b.status.error ?? url };
-}
-
 // Declares an ESPHome role, or edits one: the same dialog. Carried by the hub, one per site and one per broker (homelab#358).
 // Four steps: the site of the devices, the broker the hub listens to for them (a mqtt-broker role, possibly of another
 // site), the settings (name, mute delay), and a summary with the state of the broker. Its devices are then managed from
@@ -1246,15 +1237,22 @@ export function EsphomeWizard({ role, onClose }: { role: EsphomeHubRole | null; 
   const hoursOk = /^\d{1,2}$/.test(form.silentHours) && hours <= 48;
   const siteOk = !!form.siteId && sites.some((s) => s.id === form.siteId) && !siteOwner(form.siteId);
   const brokerOk = !!broker && !brokerOwner(broker.id);
-  const ok = siteOk && brokerOk && hoursOk;
-  const [sited, brokered, configured, summary] = stepStates([siteOk, brokerOk, hoursOk, false]);
-  const check = brokerCheck(broker);
+  // the broker must answer to the hub: tested here (a real connection), and again by the hub when it is saved. An edit that
+  // keeps its broker is not tested again.
+  const [tested, setTested] = useState<{ brokerId: string; check: CheckState } | null>(null);
+  const check = tested && tested.brokerId === form.brokerId ? tested.check : null;
+  const online = check?.level === 'ok' || (!!role && role.config.brokerId === form.brokerId);
+  const ok = siteOk && brokerOk && hoursOk && online;
+  const [sited, brokered, configured, summary] = stepStates([siteOk, brokerOk, hoursOk, online]);
 
-  // the state of the broker comes with the roles: read again
   const recheck = async () => {
+    if (!broker) return;
     setBusy('check');
     try {
-      await qc.invalidateQueries({ queryKey: keys.roles });
+      const r = await api.testEsphomeBroker(broker.id);
+      setTested({ brokerId: broker.id, check: r.ok ? { level: 'ok', title: 'Broker connecté', detail: broker.url } : { level: 'error', title: 'Broker injoignable', detail: r.error } });
+    } catch (err) {
+      setTested({ brokerId: broker.id, check: { level: 'error', title: 'Test impossible', detail: (err as Error).message } });
     } finally {
       setBusy(null);
     }
@@ -1355,7 +1353,7 @@ export function EsphomeWizard({ role, onClose }: { role: EsphomeHubRole | null; 
             intro="Le hub s'abonne aux messages des appareils sur le broker ; ils apparaissent ensuite dans l'inventaire du rôle."
             footer={
               <Button className="w-full" variant="secondary" icon={Plug} loading={busy === 'check'} disabled={busy !== null || !broker} onClick={() => void recheck()}>
-                Vérifier le broker à nouveau
+                Tester le broker
               </Button>
             }
           >
@@ -1368,8 +1366,8 @@ export function EsphomeWizard({ role, onClose }: { role: EsphomeHubRole | null; 
                 { label: 'Muet après', value: hoursOk ? (hours ? `${hours} h sans ligne` : 'pas de surveillance') : '', empty: 'à corriger (étape 3)' },
               ]}
             />
-            <CheckLine label="Broker MQTT" check={check} idle={broker ? undefined : 'broker non choisi'} />
-            {check && check.level !== 'ok' && <p className="text-xs text-muted">Le rôle peut être enregistré : le hub découvre les appareils dès que le broker est joignable.</p>}
+            <CheckLine label="Broker MQTT" check={check} idle={broker ? (online ? 'inchangé' : 'à tester') : 'broker non choisi'} />
+            {!online && broker && <p className="text-xs text-muted">Le broker doit répondre au hub pour enregistrer le rôle : lancer le test.</p>}
           </Step>
         </Steps>
       </Modal>
