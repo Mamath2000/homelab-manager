@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Save, ScrollText, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Equipment, type EsphomeHubRole, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles, useSites } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
@@ -18,7 +18,7 @@ import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
-import { EsphomeRoleModal, EsphomeSettings } from './EsphomeSettings';
+import { EsphomeInventory } from './EsphomeSettings';
 import { HomeAssistantPanel } from './HomeAssistantPanel';
 import { LogHostsSettings } from './LogHosts';
 import { BrokerCardControls, MqttAccountsModal, type BrokerCardSlots } from './MqttSecurity';
@@ -418,11 +418,12 @@ function splitUrl(url: string) {
 }
 
 // One line of the choice of the carrier: a radio (inside the scrolling list, which is `relative`: the hidden input
-// must not extend the window) and what the carrier is.
-function CarrierRow({ on, onPick, title, children }: { on: boolean; onPick: () => void; title: string; children: React.ReactNode }) {
+// must not extend the window) and what the carrier is. group: the radio group, when a window has several lists; disabled:
+// a choice offered but taken.
+function CarrierRow({ on, onPick, title, children, group = 'role-carrier', disabled }: { on: boolean; onPick: () => void; title: string; children: React.ReactNode; group?: string; disabled?: boolean }) {
   return (
-    <label className={clsx('block cursor-pointer rounded-md border px-3 py-2 hover:bg-raised/40', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line')}>
-      <input type="radio" name="role-carrier" className="sr-only" checked={on} onChange={onPick} />
+    <label className={clsx('block rounded-md border px-3 py-2', on ? 'border-emerald-500/60 bg-emerald-500/5' : 'border-line', disabled ? 'opacity-50' : 'cursor-pointer hover:bg-raised/40')}>
+      <input type="radio" name={group} className="sr-only" checked={on} disabled={disabled} onChange={onPick} />
       <div className="truncate font-medium text-zinc-100">{title}</div>
       <div className="text-xs text-muted">{children}</div>
     </label>
@@ -1182,6 +1183,203 @@ export function LogServerWizard({ role, onClose }: { role: LogHubRole | null; on
   );
 }
 
+interface EsphomeForm {
+  siteId: string;
+  brokerId: string;
+  name: string;
+  silentHours: string;
+}
+
+// the delay after which an ESP online without a line is mute, when the role sets none (hub/src/esphome.ts)
+const ESPHOME_SILENT_HOURS = 2;
+const ESPHOME_TOPICS = 'esphome/+/LWT, esphome/+/info, esphome/+/log_level';
+
+// What the hub reads of the broker chosen, as the check of the summary: the role of the broker is already listened to by
+// the hub, its state says whether the devices can be found now.
+function brokerCheck(b: HubRole | undefined): CheckState {
+  if (!b) return null;
+  const url = b.url || 'adresse inconnue';
+  if (!b.status) return { level: 'warn', title: 'Broker non écouté par le hub', detail: url };
+  if (b.status.state === 'connected') return { level: 'ok', title: 'Broker connecté', detail: url };
+  if (b.status.state === 'connecting') return { level: 'info', title: 'Connexion au broker en cours', detail: url };
+  return { level: 'warn', title: 'Broker injoignable', detail: b.status.error ?? url };
+}
+
+// Declares an ESPHome role, or edits one: the same dialog. Carried by the hub, one per site and one per broker (homelab#358).
+// Four steps: the site of the devices, the broker the hub listens to for them (a mqtt-broker role, possibly of another
+// site), the settings (name, mute delay), and a summary with the state of the broker. Its devices are then managed from
+// « Inventaire » on its card.
+export function EsphomeWizard({ role, onClose }: { role: EsphomeHubRole | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: roles = [] } = useRoles();
+  const { data: sites = [] } = useSites();
+  const [initial] = useState<EsphomeForm>(() => ({
+    siteId: role?.config.siteId ?? '',
+    brokerId: role?.config.brokerId ?? '',
+    name: role?.name ?? '',
+    silentHours: String(role?.config.silentHours ?? ESPHOME_SILENT_HOURS),
+  }));
+  const [form, setForm] = useState<EsphomeForm>(initial);
+  const [busy, setBusy] = useState<'save' | 'check' | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
+  const autoName = (id: string) => `ESPHome — ${siteName(id)}`;
+  // the other ESPHome roles: a site and a broker each
+  const others = roles.filter((r): r is EsphomeHubRole => r.type === 'esphome' && r.id !== role?.id);
+  const siteOwner = (id: string) => others.find((r) => r.config.siteId === id);
+  const brokerOwner = (id: string) => others.find((r) => r.config.brokerId === id);
+  const brokers = roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker');
+  const broker = brokers.find((b) => b.id === form.brokerId);
+  // the name follows the site while it is the one given by default (or empty)
+  const pickSite = (id: string) => setForm({ ...form, siteId: id, name: !form.name.trim() || (form.siteId && form.name === autoName(form.siteId)) ? autoName(id) : form.name });
+  const name = form.name.trim() || (form.siteId ? autoName(form.siteId) : '');
+
+  const hours = Number(form.silentHours);
+  const hoursOk = /^\d{1,2}$/.test(form.silentHours) && hours <= 48;
+  const siteOk = !!form.siteId && sites.some((s) => s.id === form.siteId) && !siteOwner(form.siteId);
+  const brokerOk = !!broker && !brokerOwner(broker.id);
+  const ok = siteOk && brokerOk && hoursOk;
+  const [sited, brokered, configured, summary] = stepStates([siteOk, brokerOk, hoursOk, false]);
+  const check = brokerCheck(broker);
+
+  // the state of the broker comes with the roles: read again
+  const recheck = async () => {
+    setBusy('check');
+    try {
+      await qc.invalidateQueries({ queryKey: keys.roles });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const save = async () => {
+    setBusy('save');
+    try {
+      const body = { siteId: form.siteId, brokerId: form.brokerId, name, silentHours: hours };
+      if (role) await api.saveEsphome(role.id, body);
+      else await api.declareEsphome(body);
+      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: ['settings', 'esphome'] }), qc.invalidateQueries({ queryKey: keys.equipments })]);
+      toast.success(role ? `Rôle ${name} modifié` : `Rôle ${name} déclaré`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <Modal
+        open
+        onClose={requestClose}
+        wide="screen"
+        wider
+        fixed
+        title={role ? `ESPHome · ${role.name}` : 'Nouveau rôle ESPHome'}
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !ok} onClick={() => void save()}>Enregistrer</Button>
+          </>
+        }
+      >
+        <Steps fill>
+          <Step n={1} title="Site" state={sited} intro={role ? 'Changer de site : les équipements des appareils passent au nouveau site.' : 'Le site des appareils découverts : un rôle ESPHome par site.'}>
+            {!sites.length ? (
+              <p className="text-sm text-muted">Aucun site.</p>
+            ) : (
+              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                {sites.map((s) => {
+                  const owner = siteOwner(s.id);
+                  return (
+                    <CarrierRow key={s.id} group="esphome-site" on={form.siteId === s.id} disabled={!!owner} onPick={() => pickSite(s.id)} title={s.name}>
+                      {owner ? `déjà un rôle : ${owner.name}` : 'libre'}
+                    </CarrierRow>
+                  );
+                })}
+              </div>
+            )}
+          </Step>
+          <Step
+            n={2}
+            title="Broker"
+            state={brokered}
+            intro={role ? "Changer de broker : les appareils découverts sur l'ancien sont oubliés, ceux du nouveau apparaissent dans l'inventaire." : "Le broker MQTT où les appareils du site publient. Il peut être celui d'un autre site ; un broker n'est écouté que par un rôle ESPHome."}
+          >
+            {!brokers.length ? (
+              <p className="text-sm text-muted">Aucun broker MQTT déclaré : déclarer d'abord un rôle Broker MQTT.</p>
+            ) : (
+              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                {brokers.map((b) => {
+                  const owner = brokerOwner(b.id);
+                  return (
+                    <CarrierRow key={b.id} group="esphome-broker" on={form.brokerId === b.id} disabled={!!owner} onPick={() => setForm({ ...form, brokerId: b.id })} title={b.name}>
+                      {owner ? `déjà écouté par ${owner.name}` : `${b.carrier.name || 'porteur introuvable'} · ${b.url || 'adresse inconnue'} · ${roleStatus(b).label}`}
+                    </CarrierRow>
+                  );
+                })}
+              </div>
+            )}
+          </Step>
+          <Step n={3} title="Réglages" state={configured}>
+            <label className="block">
+              <span className={field}>Nom du rôle</span>
+              <input className="input" maxLength={64} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={form.siteId ? autoName(form.siteId) : 'ESPHome — <site>'} />
+              <span className="mt-1 block text-xs text-muted">Vide : « ESPHome — &lt;site&gt; ».</span>
+            </label>
+            <label className="block">
+              <span className={field}>Muet après</span>
+              <span className="flex items-center gap-2 text-sm text-zinc-200">
+                <input className="input w-16 py-1 text-center font-mono text-xs" inputMode="numeric" value={form.silentHours} onChange={(e) => setForm({ ...form, silentHours: e.target.value.trim() })} aria-label="Heures sans ligne avant muet" />
+                heures sans ligne
+              </span>
+              <span className="mt-1 block text-xs text-muted">
+                Pour un ESP en ligne dont les logs sont activés : son équipement passe en alerte « muet ». 0 : pas de surveillance ; le package envoie un heartbeat
+                toutes les heures.
+              </span>
+            </label>
+            {!hoursOk && <p className="text-xs text-amber-300">De 0 à 48 heures</p>}
+          </Step>
+          <Step
+            n={4}
+            title="Récapitulatif"
+            state={summary}
+            intro="Le hub s'abonne aux messages des appareils sur le broker ; ils apparaissent ensuite dans l'inventaire du rôle."
+            footer={
+              <Button className="w-full" variant="secondary" icon={Plug} loading={busy === 'check'} disabled={busy !== null || !broker} onClick={() => void recheck()}>
+                Vérifier le broker à nouveau
+              </Button>
+            }
+          >
+            <DetectedRows
+              rows={[
+                { label: 'Nom', value: name, empty: 'non renseigné' },
+                { label: 'Site', value: form.siteId ? siteName(form.siteId) : '', empty: 'non choisi (étape 1)' },
+                { label: 'Broker', value: broker ? `${broker.name}${broker.url ? ` · ${broker.url}` : ''}` : '', empty: 'non choisi (étape 2)' },
+                { label: 'Écoute', value: broker ? ESPHOME_TOPICS : '', empty: '—' },
+                { label: 'Muet après', value: hoursOk ? (hours ? `${hours} h sans ligne` : 'pas de surveillance') : '', empty: 'à corriger (étape 3)' },
+              ]}
+            />
+            <CheckLine label="Broker MQTT" check={check} idle={broker ? undefined : 'broker non choisi'} />
+            {check && check.level !== 'ok' && <p className="text-xs text-muted">Le rôle peut être enregistré : le hub découvre les appareils dès que le broker est joignable.</p>}
+          </Step>
+        </Steps>
+      </Modal>
+      <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
+        Les paramètres du rôle modifiés ne seront pas enregistrés.
+      </ConfirmModal>
+    </>
+  );
+}
+
 // Why a role of this type cannot be declared now (null: it can).
 // The management of the accounts of a broker (dynamic-security), as an icon beside its name: green when HLM runs it, grey
 // when it is only possible (or loaded but run outside HLM); nothing when unavailable.
@@ -1232,6 +1430,7 @@ type Editing =
   | { type: 'pve-cluster'; role: PveHubRole | null }
   | { type: 'omada-controller'; role: OmadaHubRole | null }
   | { type: 'log-server'; role: LogHubRole | null }
+  | { type: 'esphome'; role: EsphomeHubRole | null }
   | { type: 'pbs-primary' | 'pbs-offsite' };
 
 // Rôles: every role of the hub, declared, edited and removed here.
@@ -1277,10 +1476,8 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
-  // ESPHome (one role per site, carried by the hub): its window of devices (role id), and its declaration form
+  // the sites, by name on the cards of the ESPHome roles
   const { data: homelabSitesAll } = useSites();
-  const [esphomeOpen, setEsphomeOpen] = useState<string | null>(null);
-  const [declaringEsphome, setDeclaringEsphome] = useState(false);
   // the options of a role are a window over this screen, set by the URL: /roles/<page>?role=<role id>
   const { page } = useParams();
   const [params] = useSearchParams();
@@ -1296,7 +1493,7 @@ export function RolesSettings() {
   }, [page, roles, optionRole]); // eslint-disable-line react-hooks/exhaustive-deps
   const optionTitle = (icon: React.ReactNode, label: string) => <span className="flex items-center gap-2">{icon}{label}{optionRole ? <span className="text-muted">· {optionRole.name}</span> : null}</span>;
   const edit = (r: HubRole) =>
-    r.type === 'esphome' ? setEsphomeOpen(r.id) : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
+    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : r.type === 'esphome' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1435,7 +1632,7 @@ export function RolesSettings() {
         <TypePicker
           roles={roles ?? []}
           onClose={() => setPicking(false)}
-          onPick={(t) => (setPicking(false), t === 'esphome' ? setDeclaringEsphome(true) : setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
+          onPick={(t) => (setPicking(false), setEditing(t === 'pbs-primary' || t === 'pbs-offsite' ? { type: t } : { type: t, role: null }))}
         />
       )}
       {editing?.type === 'pbs-primary' && pbs && <PbsModal data={pbs} open onClose={() => (setEditing(null), void refresh())} />}
@@ -1464,15 +1661,15 @@ export function RolesSettings() {
           <LogHostsSettings roleId={optionRole.id} />
         </Modal>
       )}
-      {declaringEsphome && <EsphomeRoleModal role={null} onClose={() => setDeclaringEsphome(false)} onSaved={(id) => (setDeclaringEsphome(false), setEsphomeOpen(id), void refresh())} />}
-      {(esphomeOpen || (page === 'esphome' && optionRole)) && (
-        <Modal open onClose={() => (setEsphomeOpen(null), page === 'esphome' && closeOption(), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome<span className="text-muted">· {roles?.find((r) => r.id === (esphomeOpen ?? optionRole?.id))?.name}</span></span>}>
-          <EsphomeSettings roleId={(esphomeOpen ?? optionRole?.id)!} />
+      {optionRole?.type === 'esphome' && page === 'esphome' && (
+        <Modal open onClose={closeOption} wide="screen-wide" title={optionTitle(<Cpu className="h-4 w-4 text-muted" aria-hidden />, 'Inventaire ESPHome')}>
+          <EsphomeInventory roleId={optionRole.id} />
         </Modal>
       )}
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'log-server' && <LogServerWizard role={editing.role} onClose={() => setEditing(null)} />}
+      {editing?.type === 'esphome' && <EsphomeWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-cluster' && (!editing.role || cluster) && (
         <ClusterModal
           key={editing.role?.id ?? 'new'}

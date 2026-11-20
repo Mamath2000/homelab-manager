@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
-import { Copy, Cpu, Plus, Save, ScrollText, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Copy, Cpu, Plus, ScrollText, Trash2 } from 'lucide-react';
 import { api, type EsphomeDevice, type EsphomeRoleView, type EsphomeSettings as Settings } from '../lib/api';
 import { dateTime, timeAgo } from '../lib/format';
 import { keys, useSites } from '../lib/queries';
@@ -10,82 +10,10 @@ import { roleStatus } from '../lib/roles';
 import { useToast } from '../lib/toast';
 import { Badge, Button, Checkbox, ConfirmModal, Modal, Panel, Spinner, StatusDot } from './ui';
 
-// Rôles › ESPHome (homelab#352, #358): one esphome role per site, carried by the hub. Its window: the devices found on
+// Rôles › ESPHome (homelab#352, #358): one esphome role per site, carried by the hub. Its inventory: the devices found on
 // its broker as their messages left them (esphome/<unique_id>/LWT, info, log_level).
 
 const QUERY = ['settings', 'esphome'] as const;
-
-// Declares (role null) or edits the role of a site: the site, the broker that carries the detection of its devices, a name
-// (empty: "ESPHome — <site>") and the delay after which a silent ESP is mute. One role per site, one per broker.
-export function EsphomeRoleModal({ role, onClose, onSaved }: { role: EsphomeRoleView | null; onClose: () => void; onSaved: (id: string) => void }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const { data } = useQuery({ queryKey: QUERY, queryFn: api.esphomeSettings });
-  const { data: sites = [] } = useSites();
-  const [siteId, setSiteId] = useState(role?.siteId ?? '');
-  const [brokerId, setBrokerId] = useState(role?.brokerId ?? '');
-  const [name, setName] = useState(role?.name ?? '');
-  const [silent, setSilent] = useState(String(role?.silentHours ?? 2));
-  const [saving, setSaving] = useState(false);
-  const others = (data?.roles ?? []).filter((r) => r.id !== role?.id);
-  const hours = Number(silent);
-  const hoursOk = /^\d+$/.test(silent) && hours >= 0 && hours <= 48;
-  const siteTaken = (id: string) => others.some((r) => r.siteId === id);
-  const brokerTaken = (id: string) => others.some((r) => r.brokerId === id);
-  const ok = !!siteId && !!brokerId && hoursOk && !siteTaken(siteId) && !brokerTaken(brokerId);
-  const save = async () => {
-    setSaving(true);
-    try {
-      const body = { siteId, brokerId, ...(name.trim() ? { name: name.trim() } : {}), silentHours: hours };
-      const r = role ? await api.saveEsphome(role.id, body) : await api.declareEsphome(body);
-      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.equipments })]);
-      toast.success(role ? 'Rôle ESPHome enregistré' : 'Rôle ESPHome déclaré');
-      onSaved(r.id);
-    } catch (err) {
-      toast.error((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-  return (
-    <Modal open onClose={onClose} title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />{role ? `Rôle ${role.name}` : 'Déclarer un rôle ESPHome'}</span>}>
-      <div className="space-y-3 text-sm">
-        <p className="text-xs text-muted">
-          Un rôle par site : le hub s'abonne à <code>esphome/+/LWT</code>, <code>esphome/+/info</code> et <code>esphome/+/log_level</code> sur le broker choisi,
-          et les appareils découverts prennent le site du rôle (le broker peut être celui d'un autre site). Un broker se déclare dans{' '}
-          <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
-        </p>
-        <label className="block space-y-1">
-          <span className="font-medium text-zinc-100">Site</span>
-          <select className="input w-full" value={siteId} onChange={(e) => setSiteId(e.target.value)}>
-            <option value="" disabled>Choisir un site</option>
-            {sites.map((x) => <option key={x.id} value={x.id} disabled={siteTaken(x.id)}>{x.name}{siteTaken(x.id) ? ' (déjà un rôle)' : ''}</option>)}
-          </select>
-        </label>
-        <label className="block space-y-1">
-          <span className="font-medium text-zinc-100">Broker de la détection</span>
-          <select className="input w-full" value={brokerId} onChange={(e) => setBrokerId(e.target.value)}>
-            <option value="" disabled>Choisir un broker</option>
-            {(data?.brokers ?? []).map((b) => <option key={b.id} value={b.id} disabled={brokerTaken(b.id)}>{b.name}{brokerTaken(b.id) ? ' (déjà écouté)' : ''}</option>)}
-          </select>
-        </label>
-        <label className="block space-y-1">
-          <span className="font-medium text-zinc-100">Nom</span>
-          <input className="input w-full" maxLength={64} value={name} onChange={(e) => setName(e.target.value)} placeholder={`ESPHome — ${sites.find((x) => x.id === siteId)?.name ?? '<site>'}`} />
-        </label>
-        <label className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-zinc-100">Muet après</span>
-          <input className="input w-20 py-1" inputMode="numeric" value={silent} onChange={(e) => setSilent(e.target.value)} aria-label="Heures sans ligne avant muet" />
-          <span className="text-xs text-muted">h sans ligne pour un ESP en ligne aux logs activés (0 : pas de surveillance ; le package envoie un heartbeat toutes les heures)</span>
-        </label>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button onClick={onClose}>Annuler</Button>
-          <Button variant="primary" icon={Save} loading={saving} disabled={!ok} onClick={save}>{role ? 'Enregistrer' : 'Déclarer'}</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 // Where the lines of the devices go, and how the writing goes.
 function LogsInfo({ data }: { data: Settings }) {
@@ -587,22 +515,18 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView
   );
 }
 
-// The window of a role: its devices, and its settings (the role modal).
-export function EsphomeSettings({ roleId }: { roleId: string }) {
+// The inventory of a role (Rôles › ESPHome, « Inventaire » on its card): the devices found on its broker. Its settings
+// are edited by its wizard (the pencil of the card, EsphomeWizard).
+export function EsphomeInventory({ roleId }: { roleId: string }) {
   const { data, isLoading, error } = useQuery({ queryKey: QUERY, queryFn: api.esphomeSettings });
-  const [editing, setEditing] = useState(false);
   if (isLoading) return <div className="flex justify-center p-6"><Spinner /></div>;
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
   const role = data?.roles.find((r) => r.id === roleId);
   if (!data || !role) return <p className="p-4 text-sm text-muted">Rôle ESPHome inconnu : le déclarer dans <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.</p>;
   return (
     <div>
-      <div className="flex items-center justify-end border-b border-line px-4 py-2">
-        <Button size="sm" icon={SlidersHorizontal} onClick={() => setEditing(true)}>Modifier le rôle</Button>
-      </div>
       <LogsInfo data={data} />
       <BrokerDevices b={role} canLog={!!data.logServer} levels={data.levels} defaultLevel={data.defaultLevel} />
-      {editing && <EsphomeRoleModal role={role} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
     </div>
   );
 }

@@ -1843,6 +1843,7 @@ export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 export type LogHubRole = Extract<HubRole, { type: 'log-server' }>;
+export type EsphomeHubRole = Extract<HubRole, { type: 'esphome' }>;
 
 // ESPHome (homelab#352, #358, Rôles › ESPHome): one role per site, the devices found on its broker.
 export type EsphomeRoleInput = { siteId: string; brokerId: string; name?: string; silentHours?: number };
