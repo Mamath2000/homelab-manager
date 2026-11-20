@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, Info, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { useLogServers } from '../lib/queries';
@@ -172,18 +172,22 @@ function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onN
           ))}
         </div>
       ))}
-      {me.canAccounts && (
+      {(me.canAccounts || me.canSettings) && (
         <div className="mt-auto flex flex-col gap-1 border-t border-line pt-3">
-          <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} collapsed={collapsed} />
+          {me.canAccounts && <SideLink item={{ to: '/accounts', label: 'Comptes', icon: Users }} onClick={onNavigate} collapsed={collapsed} />}
+          {me.canSettings && <SideLink item={{ to: '/settings', label: 'Paramètres', icon: Settings }} onClick={onNavigate} collapsed={collapsed} />}
         </div>
       )}
-      <div className={clsx('flex gap-1 border-t border-line pt-3', collapsed ? 'flex-col' : 'items-center', !me.canAccounts && 'mt-auto')}>
-        <UserMenu collapsed={collapsed} onAccount={() => { onAccount(); onNavigate?.(); }} onLogout={() => { onLogout(); onNavigate?.(); }} />
-        {onToggle && (
-          <button onClick={onToggle} title={collapsed ? 'Déplier le menu' : 'Réduire le menu'} aria-label={collapsed ? 'Déplier le menu' : 'Réduire le menu'} className={clsx('flex min-h-10 items-center justify-center rounded-md px-3 py-2 text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', !collapsed && 'shrink-0')}>
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </button>
-        )}
+      <div className={clsx('flex flex-col gap-1 border-t border-line pt-3', !me.canAccounts && !me.canSettings && 'mt-auto')}>
+        <div className={clsx('flex gap-1', collapsed ? 'flex-col' : 'items-center')}>
+          <UserMenu collapsed={collapsed} onAccount={() => { onAccount(); onNavigate?.(); }} onLogout={() => { onLogout(); onNavigate?.(); }} />
+          {onToggle && (
+            <button onClick={onToggle} title={collapsed ? 'Déplier le menu' : 'Réduire le menu'} aria-label={collapsed ? 'Déplier le menu' : 'Réduire le menu'} className={clsx('flex min-h-10 items-center justify-center rounded-md px-3 py-2 text-zinc-400 hover:bg-raised hover:text-zinc-100 md:min-h-0', !collapsed && 'shrink-0')}>
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
+        <SideLink item={{ to: '/about', label: 'À propos', icon: Info }} onClick={onNavigate} collapsed={collapsed} />
       </div>
     </nav>
   );
@@ -254,11 +258,6 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
             </button>
           )}
           <Versions />
-          {me.canSettings && (
-            <NavLink to="/settings" aria-label="Paramètres" title="Paramètres" className={({ isActive }) => clsx('inline-flex h-10 w-10 items-center justify-center rounded-sm transition hover:bg-raised hover:text-zinc-100 md:h-7 md:w-7', isActive ? 'text-emerald-300' : 'text-zinc-400')}>
-              <Settings className="h-4 w-4" />
-            </NavLink>
-          )}
           {!me.isSuperAdmin && (
             <span title={live ? 'Temps réel connecté' : 'Temps réel déconnecté'} className="flex items-center">
               <StatusDot tone={live ? 'ok' : 'bad'} />
