@@ -9,6 +9,7 @@ import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { useLogServers } from '../lib/queries';
 import { AddHostModal } from './AddHostModal';
 import { AccountDialog } from './AccountDialog';
+import { AboutModal } from './AboutModal';
 import { HostQuickSwitch } from './HostQuickSwitch';
 import { TransportBanner } from './TransportBanner';
 import { Spinner, StatusDot } from './ui';
@@ -54,6 +55,7 @@ function Logo() {
 }
 
 const COLLAPSED_KEY = 'sidebar-collapsed';
+const ABOUT_STARTUP_KEY = 'hide-about-at-startup';
 
 function useSidebarCollapsed() {
   const [collapsed, setCollapsed] = useState(() => {
@@ -151,7 +153,7 @@ function UserMenu({ collapsed, onAccount, onLogout }: { collapsed?: boolean; onA
 // Entries that exist only with what they show: the journals of the hosts need a log server role, and the right to read them.
 const logsItem: NavItem = { to: '/logs', label: 'Logs', icon: ScrollText };
 
-function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onAccount: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
+function Sidebar({ onNavigate, onAccount, onAbout, onLogout, collapsed, onToggle }: { onNavigate?: () => void; onAccount: () => void; onAbout: () => void; onLogout: () => void; collapsed?: boolean; onToggle?: () => void }) {
   const me = useMe();
   const { data: logServers = [] } = useLogServers(!me.isSuperAdmin && me.canLogs);
   const withLogs = logServers.length > 0;
@@ -187,7 +189,16 @@ function Sidebar({ onNavigate, onAccount, onLogout, collapsed, onToggle }: { onN
             </button>
           )}
         </div>
-        <SideLink item={{ to: '/about', label: 'À propos', icon: Info }} onClick={onNavigate} collapsed={collapsed} />
+        <button
+          type="button"
+          onClick={() => { onAbout(); onNavigate?.(); }}
+          title={collapsed ? 'À propos' : undefined}
+          aria-label={collapsed ? 'À propos' : undefined}
+          className={clsx('flex items-center gap-2.5 rounded-md px-3 py-3 text-sm font-medium text-zinc-400 transition hover:bg-raised/60 hover:text-zinc-100 md:py-2', collapsed && 'justify-center')}
+        >
+          <Info className="h-4 w-4 shrink-0" />
+          {!collapsed && 'À propos'}
+        </button>
       </div>
     </nav>
   );
@@ -209,6 +220,15 @@ function Versions() {
 export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void }) {
   const me = useMe();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [about, setAbout] = useState(() => {
+    let dontShowAtStartup = false;
+    try { dontShowAtStartup = localStorage.getItem(ABOUT_STARTUP_KEY) === '1'; } catch { /* private mode: show on startup */ }
+    return { open: !dontShowAtStartup, dontShowAtStartup };
+  });
+  const updateAboutPreference = (dontShowAtStartup: boolean) => {
+    try { localStorage.setItem(ABOUT_STARTUP_KEY, dontShowAtStartup ? '1' : '0'); } catch { /* private mode: not remembered */ }
+    setAbout((current) => ({ ...current, dontShowAtStartup }));
+  };
   const [addingHost, setAddingHost] = useState(false);
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
   const [extraSlot, setExtraSlot] = useState<HTMLElement | null>(null);
@@ -267,18 +287,24 @@ export function Layout({ live, onLogout }: { live: boolean; onLogout: () => void
       </header>
 
       <aside className={clsx('fixed bottom-0 left-0 top-14 hidden border-r border-line bg-bg lg:block', collapsed ? 'w-16' : 'w-60')}>
-        <Sidebar onAccount={() => setAccountOpen(true)} onLogout={onLogout} collapsed={collapsed} onToggle={toggleCollapsed} />
+        <Sidebar onAccount={() => setAccountOpen(true)} onAbout={() => setAbout((current) => ({ ...current, open: true }))} onLogout={onLogout} collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
       {drawer && (
         <div className="fixed inset-0 top-14 z-20 bg-black/60 lg:hidden" onClick={() => setDrawer(false)}>
           <aside className="h-full w-64 border-r border-line bg-bg" onClick={(e) => e.stopPropagation()}>
-            <Sidebar onNavigate={() => setDrawer(false)} onAccount={() => setAccountOpen(true)} onLogout={onLogout} />
+            <Sidebar onNavigate={() => setDrawer(false)} onAccount={() => setAccountOpen(true)} onAbout={() => setAbout((current) => ({ ...current, open: true }))} onLogout={onLogout} />
           </aside>
         </div>
       )}
 
       <AddHostModal open={addingHost} onClose={() => setAddingHost(false)} />
       {accountOpen && <AccountDialog target={{ kind: 'self' }} onClose={() => setAccountOpen(false)} />}
+      <AboutModal
+        open={about.open}
+        onClose={() => setAbout((current) => ({ ...current, open: false }))}
+        dontShowAtStartup={about.dontShowAtStartup}
+        onDontShowAtStartupChange={updateAboutPreference}
+      />
       {!me.isSuperAdmin && <HostQuickSwitch open={quickSwitchOpen} onOpen={openQuickSwitch} onClose={closeQuickSwitch} />}
 
       <main className={clsx('px-4 py-6 lg:px-8', collapsed ? 'lg:ml-16' : 'lg:ml-60')}>

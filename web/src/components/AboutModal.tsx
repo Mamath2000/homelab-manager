@@ -1,21 +1,44 @@
 import { useQuery } from '@tanstack/react-query';
-import { Cloud, Database, DatabaseBackup, ExternalLink, Files, Home, Info, Server } from 'lucide-react';
-import { HeaderTitle } from '../components/HeaderSlot';
-import { Panel } from '../components/ui';
+import { Cloud, Cpu, Database, DatabaseBackup, ExternalLink, Files, Home, Info, Network, ScrollText, Server, Users } from 'lucide-react';
+import { Button, Modal, Panel } from './ui';
 import { api } from '../lib/api';
 import { useMe } from '../lib/auth';
 
-export function About() {
+export function AboutModal({ open, onClose, dontShowAtStartup, onDontShowAtStartupChange }: {
+  open: boolean;
+  onClose: () => void;
+  dontShowAtStartup: boolean;
+  onDontShowAtStartupChange: (value: boolean) => void;
+}) {
   const { isSuperAdmin } = useMe();
   const { data: agentSettings } = useQuery({
     queryKey: ['settings', 'agents'],
     queryFn: api.agentSettings,
-    enabled: !isSuperAdmin,
+    enabled: open && !isSuperAdmin,
   });
 
   return (
-    <>
-      <HeaderTitle icon={Info} title="À propos" />
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="À propos"
+      wide="screen-wide"
+      scroll
+      footer={
+        <>
+          <label className="mr-auto flex cursor-pointer items-center gap-2 text-sm text-muted">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-emerald-500"
+              checked={dontShowAtStartup}
+              onChange={(event) => onDontShowAtStartupChange(event.target.checked)}
+            />
+            Ne plus afficher au démarrage
+          </label>
+          <Button variant="ghost" onClick={onClose}>Fermer</Button>
+        </>
+      }
+    >
       <div className="space-y-4">
         <Panel title="Homelab Manager" icon={Info}>
           <div className="space-y-5 text-sm">
@@ -23,7 +46,7 @@ export function About() {
               Un outil simple, pensé pour les makers qui ont quelques machines à la maison et veulent les garder en bon état sans multiplier les interfaces.
               Depuis un hub léger et des agents sur les hôtes, Homelab Manager rassemble la supervision, les mises à jour APT, le suivi des images Docker et les sauvegardes.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <article className="rounded-md border border-line bg-raised/30 p-4">
                 <h3 className="mb-1 flex items-center gap-2 font-medium text-zinc-100"><DatabaseBackup className="h-4 w-4 text-emerald-400" />Proxmox Backup Server</h3>
                 <p className="text-xs leading-relaxed text-muted">
@@ -62,6 +85,30 @@ export function About() {
                   Un plugin dédié permet de sauvegarder une instance Nextcloud All-in-One, notamment sa base de données, sa configuration et les données de ses utilisateurs.
                 </p>
               </article>
+              <article className="rounded-md border border-line bg-raised/30 p-4">
+                <h3 className="mb-1 flex items-center gap-2 font-medium text-zinc-100"><Users className="h-4 w-4 text-fuchsia-400" />MQTT</h3>
+                <p className="text-xs leading-relaxed text-muted">
+                  Gestion des utilisateurs du broker MQTT et de leurs accès.
+                </p>
+              </article>
+              <article className="rounded-md border border-line bg-raised/30 p-4">
+                <h3 className="mb-1 flex items-center gap-2 font-medium text-zinc-100"><Network className="h-4 w-4 text-blue-400" />Omada</h3>
+                <p className="text-xs leading-relaxed text-muted">
+                  Récupération des équipements du contrôleur Omada et suivi de leur état.
+                </p>
+              </article>
+              <article className="rounded-md border border-line bg-raised/30 p-4">
+                <h3 className="mb-1 flex items-center gap-2 font-medium text-zinc-100"><ScrollText className="h-4 w-4 text-amber-400" />Logs</h3>
+                <p className="text-xs leading-relaxed text-muted">
+                  Centralisation des journaux des hôtes dans VictoriaLogs pour les retrouver au même endroit.
+                </p>
+              </article>
+              <article className="rounded-md border border-line bg-raised/30 p-4">
+                <h3 className="mb-1 flex items-center gap-2 font-medium text-zinc-100"><Cpu className="h-4 w-4 text-orange-400" />ESPHome</h3>
+                <p className="text-xs leading-relaxed text-muted">
+                  Suivi de la disponibilité (availability) des appareils ESPHome et centralisation de leurs journaux.
+                </p>
+              </article>
             </div>
           </div>
         </Panel>
@@ -92,7 +139,8 @@ export function About() {
                   className="h-20 w-20 rounded-full border-2 border-line object-cover shadow-lg shadow-black/20"
                   src="https://avatars.githubusercontent.com/u/15641879?v=4"
                   alt="Photo de profil de Mamath"
-                  loading="lazy"
+                  width={80}
+                  height={80}
                 />
                 <span className="text-sm font-medium">Mamath</span>
               </a>
@@ -108,6 +156,6 @@ export function About() {
           </Panel>
         </div>
       </div>
-    </>
+    </Modal>
   );
 }
