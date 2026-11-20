@@ -71,13 +71,14 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     same: () => true,
     uses: async () => [],
   },
-  // typed by hand (address and application of the Open API); its host only tells where the controller runs
+  // typed by hand (address and application of the Open API, site read); its host only tells where the controller runs
   'omada-controller': {
     label: 'Contrôleur Omada',
     carriers: ['host', 'equipment'],
     single: false,
     carrierError: () => null,
-    same: (a, b) => sameUrl(a.url, b.url),
+    // one role per site of a controller (#360): the same controller may be declared once for each of its sites
+    same: (a, b) => sameUrl(a.url, b.url) && (a.omadaSite ?? '').trim().toLowerCase() === (b.omadaSite ?? '').trim().toLowerCase(),
     // nothing yet: the equipment source of the controller (#231) will be its use
     uses: async () => [],
   },

@@ -144,33 +144,17 @@ function VpnPanel({ controllers }: { controllers: OmadaController[] }) {
 }
 
 function SiteBlock({ controller, site }: { controller: string; site: OmadaSiteView }) {
-  const qc = useQueryClient();
-  const toast = useToast();
   const { data: sites } = useSites();
-  const change = async (homelabSiteId: string) => {
-    try {
-      await api.setOmadaSite(controller, site.id, homelabSiteId);
-      qc.invalidateQueries({ queryKey: ['settings', 'omada'] });
-    } catch (err) {
-      toast.error((err as Error).message);
-    }
-  };
   const managed = site.devices.filter((d) => d.equipment).length;
+  const homelab = sites?.find((s) => s.id === site.homelabSiteId)?.name;
   return (
     <section className="border-t border-line">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-surface-2/40 px-4 py-2">
         <MapPin className="h-4 w-4 text-muted" />
         <h3 className="font-medium text-zinc-100">{site.name}</h3>
         <span className="text-xs text-muted">{site.devices.length} appareil{site.devices.length > 1 ? 's' : ''} · {managed} suivi{managed > 1 ? 's' : ''}</span>
-        <label className="ml-auto flex items-center gap-2 text-xs text-muted">
-          Site du homelab
-          <select className="input py-1" value={site.homelabSiteId ?? ''} onChange={(e) => change(e.target.value)}>
-            <option value="">— aucun —</option>
-            {sites?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
+        <span className="ml-auto text-xs text-muted">Site du homelab : {homelab ?? 'inconnu'}</span>
       </div>
-      {!site.homelabSiteId && <p className="px-4 py-2 text-xs text-amber-300">Sans site du homelab, les équipements créés n'ont pas de site.</p>}
       <ul>{site.devices.map((d) => <DeviceRow key={d.mac} controller={controller} d={d} />)}</ul>
     </section>
   );
@@ -213,7 +197,7 @@ export function OmadaInventory({ controllerId }: { controllerId?: string }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted">
-        Appareils relus toutes les 5 minutes, site par site. Associez chaque site Omada à un site du homelab, puis créez l'équipement d'un appareil ou reliez-le à un
+        Appareils relus toutes les 5 minutes : un rôle lit un site du contrôleur, rattaché à un site du homelab. Créez l'équipement d'un appareil ou reliez-le à un
         équipement manuel existant (proposé s'il a la même adresse IP ou le même nom) : sa présence vient alors du contrôleur. Le contrôleur se déclare dans{' '}
         <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
       </p>

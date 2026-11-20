@@ -37,9 +37,9 @@ interface Selection {
   host: string;
 }
 
-// Rôles › Omada (admin): the sites and devices of each omada-controller role as the last poll read them, and what the
-// admin decides: which site of the homelab each Omada site is, which devices are equipments (created, or linked to a
-// manual one). Read by site, as the page shows it.
+// Rôles › Omada (admin): the site and devices of each omada-controller role (one role per site, #360) as the last poll
+// read them, and what the admin decides: which devices are equipments (created, or linked to a manual one). The site of
+// the homelab is the one of the role.
 
 const roleOf = (id: string) => allRoles().find((r): r is OmadaControllerRole => r._id === id && r.type === 'omada-controller');
 
@@ -71,7 +71,7 @@ export function registerOmadaRoutes(app: FastifyInstance) {
               };
             }),
             sites: (s?.sites ?? []).map((site) => {
-              const siteId = s?.siteMap[site.id] ?? null;
+              const siteId = r.config.siteId ?? null;
               return {
                 id: site.id,
                 name: site.name,
@@ -137,23 +137,6 @@ export function registerOmadaRoutes(app: FastifyInstance) {
     await pollOmada(app.log);
     return { ok: true };
   });
-
-  // the site of the homelab an Omada site is ("" : none); the equipments already linked follow at the next poll
-  app.put<{ Params: { id: string; siteId: string }; Body: { siteId: string } }>(
-    '/api/settings/omada/:id/sites/:siteId',
-    { schema: { body: { type: 'object', required: ['siteId'], additionalProperties: false, properties: { siteId: { type: 'string', maxLength: 24 } } } } },
-    async (req, reply) => {
-      if (!roleOf(req.params.id)) return reply.code(404).send({ error: 'rôle inconnu' });
-      const state = await omada.findOne({ _id: req.params.id });
-      if (!state?.sites.some((s) => s.id === req.params.siteId)) return reply.code(404).send({ error: 'site Omada inconnu' });
-      const target = req.body.siteId;
-      if (target && !(await loadSites()).some((s) => s.id === target)) return reply.code(400).send({ error: 'site inconnu' });
-      const key = `siteMap.${req.params.siteId}`;
-      await omada.updateOne({ _id: req.params.id }, target ? { $set: { [key]: target } } : { $unset: { [key]: '' } });
-      await pollOmada(app.log);
-      return { ok: true };
-    },
-  );
 
   // an Omada device becomes an equipment: created, or linked to the manual one equipmentId
   app.post<{ Params: { id: string }; Body: { mac: string; equipmentId?: string; name?: string } }>(

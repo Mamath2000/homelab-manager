@@ -17,8 +17,8 @@ test('native checks: connected or not', () => {
 });
 
 test('provided by the source: type, site of the homelab (when matched), address', () => {
-  assert.deepEqual(providedBy(device(), { o1: 'vouille' }), { type: 'switch', siteId: 'vouille', ip: '192.168.0.4' });
-  assert.deepEqual(providedBy(device({ ip: undefined }), {}), { type: 'switch' });
+  assert.deepEqual(providedBy(device(), 'vouille'), { type: 'switch', siteId: 'vouille', ip: '192.168.0.4' });
+  assert.deepEqual(providedBy(device({ ip: undefined })), { type: 'switch' });
 });
 
 test('candidates: the address first, else the name on the same site; linked ones are never offered', () => {

@@ -20,6 +20,8 @@ const omadaRoles = () => allRoles().filter((r): r is OmadaControllerRole => r.ty
 // What the last poll of each controller gave, for the state of its role (roleView.ts), kept in memory: read again from the
 // collection when the hub starts, before its first poll.
 export interface OmadaPollState {
+  // the site of the role, as the controller names it
+  site?: string;
   polledAt?: Date;
   pollError?: string;
   vpnError?: string;
@@ -31,6 +33,7 @@ const lastPolls = new Map<string, OmadaPollState>();
 export const omadaPollOf = (roleId: string) => lastPolls.get(roleId) ?? null;
 
 const pollStateOf = (s: Pick<OmadaStateDoc, 'polledAt' | 'pollError' | 'vpnError' | 'sites' | 'devices' | 'vpns'>): OmadaPollState => ({
+  ...(s.sites[0] ? { site: s.sites[0].name } : {}),
   polledAt: s.polledAt,
   ...(s.pollError ? { pollError: s.pollError } : {}),
   ...(s.vpnError ? { vpnError: s.vpnError } : {}),
@@ -94,8 +97,7 @@ async function addProbes(e: EquipmentDoc) {
 }
 
 // What the source provides of an equipment (SOURCE_FIELDS of equipments.ts, except the uplink the list does not give).
-export function providedBy(d: OmadaDevice, siteMap: Record<string, string>) {
-  const siteId = siteMap[d.siteId];
+export function providedBy(d: OmadaDevice, siteId?: string) {
   return { type: d.type, ...(siteId ? { siteId } : {}), ...(d.ip ? { ip: d.ip } : {}) };
 }
 
@@ -109,12 +111,12 @@ export function candidatesFor(d: OmadaDevice, list: Pick<EquipmentDoc, '_id' | '
 }
 
 // Rewrites, for each device of the state that is an equipment, what its source provides and its native checks.
-export async function syncEquipments(state: OmadaStateDoc) {
+export async function syncEquipments(state: OmadaStateDoc, homelabSiteId?: string) {
   const linked = await equipments.find({ source: 'omada', externalId: { $in: state.devices.map((d) => d.mac) } }).toArray();
   const now = new Date();
   for (const e of linked) {
     const d = state.devices.find((x) => x.mac === e.externalId)!;
-    const p = providedBy(d, state.siteMap);
+    const p = providedBy(d, homelabSiteId);
     const unset: Record<string, ''> = {};
     if (!p.siteId) unset.siteId = '';
     if (!p.ip) unset.ip = '';
@@ -133,7 +135,6 @@ export async function pollRole(role: OmadaControllerRole) {
       _id: role._id,
       omadacId: snap.omadacId,
       sites: snap.sites,
-      siteMap: before?.siteMap ?? {},
       devices: snap.devices,
       ...(vpns ? { vpns } : {}),
       ...(snap.vpnError ? { vpnError: snap.vpnError } : {}),
@@ -141,11 +142,11 @@ export async function pollRole(role: OmadaControllerRole) {
     };
     await omada.replaceOne({ _id: role._id }, state, { upsert: true });
     lastPolls.set(role._id, pollStateOf(state));
-    await syncEquipments(state);
+    await syncEquipments(state, role.config.siteId);
     // only after a read of the VPNs: a failed one removes nothing
     if (snap.vpns) await syncVpnProbes(state);
   } catch (err) {
-    await omada.updateOne({ _id: role._id }, { $set: { pollError: (err as Error).message, polledAt: new Date() }, $setOnInsert: { sites: [], siteMap: {}, devices: [] } }, { upsert: true });
+    await omada.updateOne({ _id: role._id }, { $set: { pollError: (err as Error).message, polledAt: new Date() }, $setOnInsert: { sites: [], devices: [] } }, { upsert: true });
     const kept = await omada.findOne({ _id: role._id });
     if (kept) lastPolls.set(role._id, pollStateOf(kept));
   }
@@ -194,9 +195,10 @@ export class OmadaLinkError extends Error {}
 export async function linkDevice(roleId: string, mac: string, equipmentId?: ObjectId, name?: string): Promise<EquipmentDoc> {
   const state = await omada.findOne({ _id: roleId });
   const d = state?.devices.find((x) => x.mac === mac);
-  if (!state || !d) throw new OmadaLinkError('appareil inconnu du contrôleur');
+  const role = omadaRoles().find((r) => r._id === roleId);
+  if (!state || !d || !role) throw new OmadaLinkError('appareil inconnu du contrôleur');
   if (await equipments.countDocuments({ source: 'omada', externalId: mac }, { limit: 1 })) throw new OmadaLinkError('cet appareil est déjà un équipement');
-  const provided = providedBy(d, state.siteMap);
+  const provided = providedBy(d, role.config.siteId);
   if (equipmentId) {
     const cur = await equipments.findOne({ _id: equipmentId });
     if (!cur) throw new OmadaLinkError('équipement introuvable');

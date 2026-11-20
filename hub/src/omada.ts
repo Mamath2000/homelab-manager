@@ -44,14 +44,36 @@ async function call<T>(c: Conn, method: 'GET' | 'POST', path: string, opts: { to
   return env.result as T;
 }
 
+export interface OmadaSite {
+  id: string;
+  name: string;
+}
+
+// The site of the list a role reads: omadaSite is its id, else its name (without case). null: none is called that.
+export function matchSite(sites: OmadaSite[], wanted: string | undefined): OmadaSite | null {
+  const w = wanted?.trim();
+  if (!w) return null;
+  return sites.find((s) => s.id === w) ?? sites.find((s) => s.name.trim().toLowerCase() === w.toLowerCase()) ?? null;
+}
+
+// The error of a site the controller does not have (or that was not given), with the ones it has.
+const siteError = (sites: OmadaSite[], wanted: string | undefined) =>
+  new ApiError(
+    !wanted?.trim()
+      ? 'site Omada non renseigné : modifier le rôle pour choisir le site à lire'
+      : `site Omada « ${wanted.trim()} » introuvable sur le contrôleur${sites.length ? ` (sites vus par l'application : ${sites.map((s) => s.name).join(', ')})` : " (l'application ne voit aucun site)"}`,
+  );
+
 export interface OmadaCheck {
   omadacId: string;
   version: string;
   sites: number;
+  // the site of the role, when it names one
+  site?: OmadaSite;
 }
 
 // What a test of the connection does: the id of the controller, a token for the application, then the list of its
-// sites (one route that needs the token).
+// sites (one route that needs the token). A config that names its site (omadaSite) must find it among them.
 export async function omadaCheck(c: OmadaControllerConfig): Promise<OmadaCheck> {
   const info = await call<{ omadacId?: string; controllerVer?: string }>(c, 'GET', '/api/info');
   if (!info?.omadacId) throw new ApiError('omadacId absent de /api/info : est-ce bien un contrôleur Omada ?');
@@ -59,8 +81,20 @@ export async function omadaCheck(c: OmadaControllerConfig): Promise<OmadaCheck> 
     body: { omadacId: info.omadacId, client_id: c.clientId, client_secret: c.clientSecret },
   });
   if (!auth?.accessToken) throw new ApiError('aucun jeton rendu par le contrôleur');
+  if (c.omadaSite !== undefined) {
+    const sites = (await all<{ siteId: string; name: string }>(c, auth.accessToken, `/openapi/v1/${encodeURIComponent(info.omadacId)}/sites`)).map((s) => ({ id: s.siteId, name: s.name }));
+    const site = matchSite(sites, c.omadaSite);
+    if (!site) throw siteError(sites, c.omadaSite);
+    return { omadacId: info.omadacId, version: info.controllerVer ?? '', sites: sites.length, site };
+  }
   const sites = await call<{ totalRows?: number }>(c, 'GET', `/openapi/v1/${encodeURIComponent(info.omadacId)}/sites?page=1&pageSize=1`, { token: auth.accessToken });
   return { omadacId: info.omadacId, version: info.controllerVer ?? '', sites: sites?.totalRows ?? 0 };
+}
+
+// The sites of the controller the application sees (the "get site" of the role form).
+export async function omadaSites(c: Pick<OmadaControllerConfig, 'url' | 'fingerprint' | 'clientId' | 'clientSecret'>): Promise<OmadaSite[]> {
+  const { omadacId, token } = await login(c);
+  return (await all<{ siteId: string; name: string }>(c, token, `/openapi/v1/${encodeURIComponent(omadacId)}/sites`)).map((s) => ({ id: s.siteId, name: s.name }));
 }
 
 // A token for the application of the role, and the id of its controller.
@@ -109,7 +143,8 @@ interface RawDevice {
 
 export interface OmadaSnapshot {
   omadacId: string;
-  sites: { id: string; name: string }[];
+  // the site of the role only
+  sites: OmadaSite[];
   devices: OmadaDevice[];
   vpns?: OmadaVpn[];
   vpnError?: string;
@@ -151,11 +186,15 @@ async function siteVpns(c: Conn, token: string, omadacId: string, siteId: string
   return out;
 }
 
-// What a poll reads: the sites of the controller and the devices of each (status 1: connected).
+// What a poll reads: the site of the role (omadaSite) among the ones of the controller, and its devices (status 1:
+// connected) and VPNs.
 export async function omadaSnapshot(c: OmadaControllerConfig): Promise<OmadaSnapshot> {
   const { omadacId, token } = await login(c);
   const base = `/openapi/v1/${encodeURIComponent(omadacId)}`;
-  const sites = (await all<{ siteId: string; name: string }>(c, token, `${base}/sites`)).map((s) => ({ id: s.siteId, name: s.name }));
+  const all_ = (await all<{ siteId: string; name: string }>(c, token, `${base}/sites`)).map((s) => ({ id: s.siteId, name: s.name }));
+  const found = matchSite(all_, c.omadaSite);
+  if (!found) throw siteError(all_, c.omadaSite);
+  const sites = [found];
   const devices: OmadaDevice[] = [];
   for (const s of sites) {
     for (const d of await all<RawDevice>(c, token, `${base}/sites/${encodeURIComponent(s.id)}/devices`)) {

@@ -1829,7 +1829,9 @@ export type HubRole =
   | (HubRoleBase & { type: 'pbs-primary'; config: { url: string; tailscaleUrl: string; mode: 'native' | 'container'; container: string } })
   | (HubRoleBase & { type: 'pbs-offsite'; config: { url: string; tailscaleUrl: string; store: string; startTime: string } })
   // fingerprint: SHA-256 of its certificate, pinned ("": the system CAs)
-  | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string } })
+  // omadaSite: the site of the controller it reads (id or name), siteId: the site of the homelab of its equipments (#360;
+  // absent on a role declared before, which reads nothing until edited)
+  | (HubRoleBase & { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; omadaSite?: string; siteId?: string } })
   // a VictoriaLogs: url, its query API; address (null: the one of its host), port and protocol, where the hosts send their
   // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
   | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string })
@@ -1910,7 +1912,7 @@ export interface EsphomeSettings {
 export type HubRoleCarrier = { kind: 'host' | 'equipment'; id: string };
 export type HubRoleInput = { carrier?: HubRoleCarrier; name: string } & (
   | { type: 'mqtt-broker'; config: { scheme: BrokerScheme; port: number; address?: string; username: string; password?: string } }
-  | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string } }
+  | { type: 'omada-controller'; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string; omadaSite: string; siteId: string } }
   | { type: 'log-server'; config: { url: string; address?: string; port: number; protocol: 'tcp'; username: string; password?: string; silentHours: number; dockerPort?: number } }
 );
 
@@ -2151,6 +2153,9 @@ export const api = {
   enableMqttSecurity: (roleId: string) => request<{ port: number; notAfter: string }>('POST', `/api/roles/${roleId}/mqtt-security/enable`),
   resetMqttSecurity: (roleId: string) => request<{ ok: true }>('POST', `/api/roles/${roleId}/mqtt-security/reset`),
   testRole: (r: Omit<HubRoleInput, 'name'> & { roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/test', r),
+  // the sites of an Omada controller the application sees (the stored secret when none is typed)
+  omadaSites: (r: { carrier: HubRoleCarrier; config: { url: string; fingerprint: string; clientId: string; clientSecret?: string }; roleId?: string }) =>
+    request<HubRoleTest & { sites?: { id: string; name: string }[] }>('POST', '/api/roles/omada-sites', r),
   testLogReception: (r: { carrier: HubRoleCarrier; config: Extract<HubRoleInput, { type: 'log-server' }>['config']; roleId?: string }) => request<HubRoleTest>('POST', '/api/roles/log-reception', r),
   // journals of the hosts (admins and operators)
   logs: (q: LogQuery, limit: number, before?: string) => request<{ role: string; rows: LogRow[]; more: boolean }>('GET', `/api/logs?${logParams(q, { limit, before })}`),
@@ -2282,7 +2287,6 @@ export const api = {
   vpnProbe: (id: string) => request<VpnProbeDetail>('GET', `/api/settings/omada/vpn-probes/${id}`),
   setVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<{ ok: true }>('PUT', `/api/settings/omada/vpn-probes/${id}`, b),
   testVpnProbe: (id: string, b: { sourceHostId: string; host: string }) => request<ProbeMeasure>('POST', `/api/settings/omada/vpn-probes/${id}/test`, b),
-  setOmadaSite: (controller: string, siteId: string, homelabSiteId: string) => request<{ ok: true }>('PUT', `/api/settings/omada/${controller}/sites/${siteId}`, { siteId: homelabSiteId }),
   esphomeSettings: () => request<EsphomeSettings>('GET', '/api/settings/esphome'),
   declareEsphome: () => request<{ id: string }>('POST', '/api/settings/esphome'),
   saveEsphome: (brokers: EsphomeBroker[], silentHours: number) => request<{ id: string }>('PUT', '/api/settings/esphome', { brokers, silentHours }),

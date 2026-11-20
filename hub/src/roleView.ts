@@ -82,7 +82,7 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
       const p = omadaPollOf(r._id);
       const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
       const summary = p?.polledAt && !p.pollError
-        ? [plural(p.sites, 'site', 'sites'), plural(p.devices, 'appareil', 'appareils'), p.vpnError ? 'lecture des VPN en échec' : p.vpns !== undefined ? plural(p.vpns, 'VPN', 'VPN') : null].filter(Boolean).join(', ')
+        ? [...(p.site ? [`site ${p.site}`] : []), plural(p.devices, 'appareil', 'appareils'), p.vpnError ? 'lecture des VPN en échec' : p.vpns !== undefined ? plural(p.vpns, 'VPN', 'VPN') : null].filter(Boolean).join(', ')
         : null;
       return {
         ...base,

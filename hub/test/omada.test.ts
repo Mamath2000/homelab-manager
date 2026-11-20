@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
-import { checkedFingerprint, omadaCheck, omadaProbe, omadaSnapshot, presentedFingerprint } from '../src/omada.js';
+import { checkedFingerprint, matchSite, omadaCheck, omadaProbe, omadaSites, omadaSnapshot, presentedFingerprint } from '../src/omada.js';
 import { certFingerprint, createPki } from '../src/pki.js';
 import { normalizeFingerprint } from '../src/tlsApi.js';
 
@@ -100,8 +100,26 @@ test('omada: the fingerprint offered is checked against the one the agent of the
   assert.equal((await presentedFingerprint({ url, fingerprint: '' }, err, reads(other)))?.source, 'mismatch');
 });
 
-test('omada: snapshot of the sites and devices, MAC normalised, status 1 = connected', async () => {
-  const snap = await omadaSnapshot(conf(fingerprint));
+test('omada: the site of a role is matched by id, else by name without case', () => {
+  const sites = [{ id: 's1', name: 'vouille' }, { id: 's2', name: 'Jarsay' }];
+  assert.deepEqual(matchSite(sites, 's2'), sites[1]);
+  assert.deepEqual(matchSite(sites, ' VOUILLE '), sites[0]);
+  assert.equal(matchSite(sites, 'dumani'), null);
+  assert.equal(matchSite(sites, ''), null);
+  assert.equal(matchSite(sites, undefined), null);
+});
+
+test('omada: a test with a site checks it exists, and says which ones the application sees', async () => {
+  assert.deepEqual(await omadaCheck({ ...conf(fingerprint), omadaSite: 'Vouille' }), { omadacId: 'abc123', version: '5.15.20', sites: 1, site: { id: 's1', name: 'vouille' } });
+  await assert.rejects(omadaCheck({ ...conf(fingerprint), omadaSite: 'dumani' }), /« dumani » introuvable.*vouille/);
+  await assert.rejects(omadaCheck({ ...conf(fingerprint), omadaSite: '' }), /site Omada non renseigné/);
+  assert.deepEqual(await omadaSites(conf(fingerprint)), [{ id: 's1', name: 'vouille' }]);
+});
+
+test('omada: snapshot of the site of the role: its devices, MAC normalised, status 1 = connected', async () => {
+  await assert.rejects(omadaSnapshot(conf(fingerprint)), /site Omada non renseigné/);
+  await assert.rejects(omadaSnapshot({ ...conf(fingerprint), omadaSite: 'jarsay' }), /introuvable/);
+  const snap = await omadaSnapshot({ ...conf(fingerprint), omadaSite: 'VOUILLE' });
   assert.deepEqual(snap.sites, [{ id: 's1', name: 'vouille' }]);
   assert.deepEqual(snap.devices.map((d) => [d.mac, d.type, d.connected, d.siteId]), [
     ['40:AE:30:E0:02:CC', 'gateway', true, 's1'],

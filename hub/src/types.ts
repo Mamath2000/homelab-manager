@@ -1456,14 +1456,19 @@ export interface PbsOffsiteRole {
   createdAt: Date;
 }
 
-// omada-controller: the Open API of an Omada controller (one per site), reached at url with an application of the
-// controller in client mode (client_credentials). fingerprint: SHA-256 of its certificate, pinned (self-signed by
-// default); "": the system CAs.
+// omada-controller: the Open API of an Omada controller, reached at url with an application of the controller in client
+// mode (client_credentials). One role per site read (homelab#360): the same controller is declared once for each site of
+// the homelab it manages. fingerprint: SHA-256 of its certificate, pinned (self-signed by default); "": the system CAs.
+// omadaSite: the site of the controller this role reads, its id or its name (as typed or picked, matched without case);
+// siteId: the site of the homelab its equipments belong to. A role stored before #360 has neither: it reads nothing until
+// edited.
 export interface OmadaControllerConfig {
   url: string;
   fingerprint: string;
   clientId: string;
   clientSecret: string;
+  omadaSite?: string;
+  siteId?: string;
 }
 
 export interface OmadaControllerRole {
@@ -1504,8 +1509,7 @@ export interface LogServerRole {
 }
 
 // What the hub knows of an Omada controller (collection `omada`, one document per omada-controller role, _id = role id):
-// its sites and devices as read at the last poll, and the sites of the homelab the admin matched to the ones of the
-// controller (siteMap: Omada siteId -> site of the homelab).
+// the site of the role (sites: that one only, as the controller names it) and its devices and VPNs as read at the last poll.
 export interface OmadaDevice {
   mac: string; // normalised: AA:BB:CC:DD:EE:FF
   name: string;
@@ -1538,7 +1542,6 @@ export interface OmadaStateDoc {
   _id: string;
   omadacId?: string;
   sites: { id: string; name: string }[];
-  siteMap: Record<string, string>;
   devices: OmadaDevice[];
   // absent: never read (a controller polled before #261, or the VPN routes failed: vpnError)
   vpns?: OmadaVpn[];

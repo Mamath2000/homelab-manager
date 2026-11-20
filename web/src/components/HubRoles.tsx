@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Save, ScrollText, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
-import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
+import { keys, useEquipments, useHosts, useRoles, useSites } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
 import { ROLE_PAGES, roleOfPage, rolePagesOf } from '../lib/roleSettings';
@@ -390,6 +390,9 @@ interface OmadaForm {
   port: string;
   fingerprint: string;
   clientId: string;
+  // the site of the controller this role reads (typed, or picked among the ones the application sees) and the site of the homelab
+  omadaSite: string;
+  siteId: string;
 }
 
 type OmadaCarrier = { kind: 'host' | 'equipment'; id: string };
@@ -488,11 +491,15 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const type = 'omada-controller' as const;
   const [initialCarrier] = useState<OmadaCarrier | null>(() => (role && role.carrier.kind !== 'hub' ? { kind: role.carrier.kind, id: role.carrier.id } : null));
   const [carrier, setCarrier] = useState<OmadaCarrier | null>(initialCarrier);
-  const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', ...(role ? splitUrl(role.config.url) : { address: '', port: String(OMADA_PORT) }), fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '' }));
+  const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', ...(role ? splitUrl(role.config.url) : { address: '', port: String(OMADA_PORT) }), fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '', omadaSite: role?.config.omadaSite ?? '', siteId: role?.config.siteId ?? '' }));
   const [form, setForm] = useState<OmadaForm>(initial);
   const [secret, setSecret] = useState('');
-  const [busy, setBusy] = useState<'save' | 'test' | 'read' | 'probe' | null>(null);
+  const { data: homelabSites = [] } = useSites();
+  const [busy, setBusy] = useState<'save' | 'test' | 'read' | 'probe' | 'sites' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
+  // the sites of the controller the application sees, read by « Récupérer les sites » (step 3)
+  const [omadaSites, setOmadaSites] = useState<{ id: string; name: string }[] | null>(null);
+  const [sitesError, setSitesError] = useState<string | null>(null);
   // what the controller answers without an account (end of step 2)
   const [probe, setProbe] = useState<CheckState>(null);
   // fingerprint the controller presents, offered when its certificate was refused
@@ -509,6 +516,13 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const set = (patch: Partial<OmadaForm>) => {
     setForm({ ...form, ...patch });
     reset();
+    setOmadaSites(null);
+    setSitesError(null);
+  };
+  // the sites do not change what was checked of the controller, only the test of the connection
+  const setSite = (patch: Partial<Pick<OmadaForm, 'omadaSite' | 'siteId'>>) => {
+    setForm({ ...form, ...patch });
+    setTest(null);
   };
   const dirty = JSON.stringify(form) !== JSON.stringify(initial) || carrier?.id !== initialCarrier?.id || !!secret;
   const requestClose = () => {
@@ -537,8 +551,25 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const ips = carrier?.kind === 'equipment' ? (equipments.find((e) => e.id === carrier.id)?.ip ? [equipments.find((e) => e.id === carrier.id)!.ip!] : []) : (hosts.find((h) => h.id === carrier?.id)?.info?.ips ?? []);
   const addresses = [...new Set([...ips.map((ip) => ip.replace(/\/\d+$/, '')).filter((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)), ...(form.address ? [form.address] : [])])];
   const url = omadaUrl(form);
-  const config = () => ({ url, fingerprint: form.fingerprint.trim(), clientId: form.clientId.trim(), ...(secret ? { clientSecret: secret } : {}) });
-
+  const config = () => ({ url, fingerprint: form.fingerprint.trim(), clientId: form.clientId.trim(), ...(secret ? { clientSecret: secret } : {}), omadaSite: form.omadaSite.trim(), siteId: form.siteId });
+  // « Récupérer les sites »: what the application sees on the controller, to pick the site of the role
+  const getSites = async () => {
+    setBusy('sites');
+    setOmadaSites(null);
+    setSitesError(null);
+    setPresented(null);
+    try {
+      const c = config();
+      const r = await api.omadaSites({ carrier: carrier!, config: { url: c.url, fingerprint: c.fingerprint, clientId: c.clientId, ...(c.clientSecret ? { clientSecret: c.clientSecret } : {}) }, ...(role ? { roleId: role.id } : {}) });
+      if (r.ok) setOmadaSites(r.sites ?? []);
+      else setSitesError(r.error ?? 'échec');
+      setPresented(presentedOf(r));
+    } catch (err) {
+      setSitesError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
   const runProbe = async () => {
     setBusy('probe');
     setProbe(null);
@@ -602,11 +633,12 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const fingerprintOk = !form.fingerprint.trim() || FINGERPRINT_RE.test(normalizeFingerprint(form.fingerprint));
   const controllerOk = nameOk && addressOk && portOk && fingerprintOk;
   const appOk = form.clientId.trim().length > 0 && (!!secret || !!role?.hasSecret);
-  const [carried, configured, application, tested] = stepStates([!!carrier, controllerOk, appOk, test?.level === 'ok']);
+  const siteOk = form.omadaSite.trim().length > 0 && homelabSites.some((x) => x.id === form.siteId);
+  const [carried, configured, application, tested] = stepStates([!!carrier, controllerOk, appOk && siteOk, test?.level === 'ok']);
   // editing: the controller is tested on opening, the window shows its state at once
   const autoTested = useRef(false);
   useEffect(() => {
-    if (autoTested.current || !role || !carrier || !controllerOk || !appOk) return;
+    if (autoTested.current || !role || !carrier || !controllerOk || !appOk || !siteOk) return;
     autoTested.current = true;
     void runTest();
   });
@@ -709,7 +741,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
               </>
             )}
           </Step>
-          <Step n={3} title="Application" state={application} intro="Une application de l'Open API du contrôleur, en mode client (Client Credentials), avec accès aux sites à lire.">
+          <Step n={3} title="Application et site" state={application} intro="Une application de l'Open API du contrôleur, en mode client (Client Credentials). Un rôle lit un seul site du contrôleur : déclarer le contrôleur une fois par site à suivre.">
             <label className="block">
               <span className={field}>Client ID</span>
               <input className="input font-mono text-xs" value={form.clientId} onChange={(e) => set({ clientId: e.target.value })} autoComplete="off" spellCheck={false} />
@@ -720,20 +752,56 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
                 className="input"
                 type="password"
                 value={secret}
-                onChange={(e) => (setSecret(e.target.value), setTest(null), setPresented(null))}
+                onChange={(e) => (setSecret(e.target.value), setTest(null), setPresented(null), setOmadaSites(null), setSitesError(null))}
                 placeholder={role?.hasSecret ? '••••••••' : ''}
                 autoComplete="new-password"
               />
               {role?.hasSecret && <span className="mt-1 block text-xs text-muted">Laisser vide pour garder le secret enregistré</span>}
+            </label>
+            <label className="block">
+              <span className={field}>Site du contrôleur</span>
+              <input className="input" maxLength={128} value={form.omadaSite} onChange={(e) => setSite({ omadaSite: e.target.value })} placeholder="nom du site dans Omada" autoComplete="off" spellCheck={false} />
+              {role && !role.config.omadaSite && <span className="mt-1 block text-xs text-amber-300">Rôle déclaré avant « un rôle par site » : choisir le site à lire</span>}
+            </label>
+            <Button size="sm" variant="secondary" icon={Plug} loading={busy === 'sites'} disabled={busy !== null || !carrier || !controllerOk || !appOk} onClick={() => void getSites()}>
+              Récupérer les sites
+            </Button>
+            {sitesError && <p className="text-xs text-amber-300">{sitesError}</p>}
+            {presented && busy === null && <p className="text-xs text-amber-300">Le certificat du contrôleur est refusé : épingler son empreinte à l'étape 2.</p>}
+            {omadaSites && (
+              <div className="space-y-1.5">
+                <span className={field}>Sites vus par l'application</span>
+                {omadaSites.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {omadaSites.map((s) => (
+                      <Button key={s.id} size="sm" variant={form.omadaSite.trim().toLowerCase() === s.name.toLowerCase() ? 'primary' : 'secondary'} onClick={() => setSite({ omadaSite: s.name })}>
+                        {s.name}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-300">L'application ne voit aucun site : lui donner accès dans Omada.</p>
+                )}
+              </div>
+            )}
+            <label className="block">
+              <span className={field}>Site du homelab</span>
+              <select className="input" value={form.siteId} onChange={(e) => setSite({ siteId: e.target.value })}>
+                <option value="">— choisir —</option>
+                {homelabSites.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs text-muted">Site des équipements créés depuis ce rôle</span>
             </label>
           </Step>
           <Step
             n={4}
             title="Test de connexion"
             state={tested}
-            intro="Le hub demande un jeton au contrôleur avec cette application, puis la liste de ses sites ; l'enregistrement n'est possible qu'après un test réussi."
+            intro="Le hub demande un jeton au contrôleur avec cette application, puis cherche le site dans la liste de ses sites ; l'enregistrement n'est possible qu'après un test réussi."
             footer={
-              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !carrier || !controllerOk || !appOk} onClick={() => void runTest()}>
+              <Button className="w-full" variant={tested === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !carrier || !controllerOk || !appOk || !siteOk} onClick={() => void runTest()}>
                 {test ? 'Tester à nouveau' : 'Tester la connexion'}
               </Button>
             }
@@ -745,6 +813,8 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
                 { label: 'Open API', value: addressOk && portOk ? url : '', empty: 'non renseignée' },
                 { label: 'Empreinte', value: form.fingerprint && fingerprintOk ? normalizeFingerprint(form.fingerprint) : '', empty: 'aucune (autorités système)' },
                 { label: 'Client ID', value: form.clientId, empty: 'non renseigné' },
+                { label: 'Site Omada', value: form.omadaSite.trim(), empty: 'non renseigné (étape 3)' },
+                { label: 'Site du homelab', value: homelabSites.find((x) => x.id === form.siteId)?.name ?? '', empty: 'non choisi (étape 3)' },
               ]}
             />
             <CheckLine label="Contrôleur Omada" check={test} idle={addressOk && portOk ? url : undefined} />

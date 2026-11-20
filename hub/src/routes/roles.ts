@@ -3,7 +3,8 @@ import { agentRequest, isOnline } from '../agents.js';
 import { settingsDiff } from '../audit.js';
 import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
-import { checkedFingerprint, omadaCheck, omadaProbe, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { checkedFingerprint, omadaCheck, omadaProbe, omadaSites, presentedFingerprint, type LocalFingerprint } from '../omada.js';
+import { loadSites } from '../catalog.js';
 import { checkLogServer, LOG_URL_RE, logTarget, pollLogServers, testReception } from '../logs.js';
 import { checkAllHosts } from '../setup.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
@@ -51,6 +52,9 @@ const config = {
     fingerprint: { type: 'string', maxLength: 128 }, // "": the system CAs
     clientId: { type: 'string', maxLength: 128 },
     clientSecret: { type: 'string', maxLength: 256 }, // absent: unchanged
+    // the site of the controller the role reads (id or name) and the site of the homelab its equipments belong to (#360)
+    omadaSite: { type: 'string', maxLength: 128 },
+    siteId: { type: 'string', maxLength: 24 },
     // log-server: url (its query API), address and port (where the hosts send, in syslog), username and password (basic
     // authentication of the API, optional), and
     protocol: { enum: LOG_PROTOCOLS },
@@ -101,6 +105,8 @@ export interface ConfigBody {
   fingerprint?: string;
   clientId?: string;
   clientSecret?: string;
+  omadaSite?: string;
+  siteId?: string;
   protocol?: LogProtocol;
   silentHours?: number;
   dockerPort?: number;
@@ -113,7 +119,7 @@ interface CarrierBody {
 // the fields of each declared type; its secret: kept when absent from an edit
 const FIELDS: Record<DeclaredType, { required: (keyof ConfigBody)[]; optional: (keyof ConfigBody)[]; secret: keyof ConfigBody }> = {
   'mqtt-broker': { required: ['scheme', 'port', 'username'], optional: ['address', 'password', 'caPem', 'clientCertPem', 'clientKeyPem'], secret: 'password' },
-  'omada-controller': { required: ['url', 'clientId'], optional: ['fingerprint', 'clientSecret'], secret: 'clientSecret' },
+  'omada-controller': { required: ['url', 'clientId', 'omadaSite', 'siteId'], optional: ['fingerprint', 'clientSecret'], secret: 'clientSecret' },
   'log-server': { required: ['url', 'port'], optional: ['address', 'protocol', 'username', 'password', 'silentHours', 'dockerPort'], secret: 'password' },
 };
 
@@ -128,6 +134,8 @@ export function configError(type: DeclaredType, c: ConfigBody) {
   if (type === 'omada-controller') {
     if (!SERVER_URL_RE.test(c.url!.trim())) return 'URL invalide (https://contrôleur:8043)';
     if (!c.clientId!.trim()) return 'client_id manquant';
+    if (!c.omadaSite!.trim()) return 'site Omada manquant';
+    if (!c.siteId!.trim()) return 'site du homelab manquant';
     if (c.fingerprint && !FINGERPRINT_RE.test(normalizeFingerprint(c.fingerprint))) return 'empreinte invalide (SHA-256, 32 octets en hexadécimal)';
   }
   if (type === 'log-server') {
@@ -136,6 +144,9 @@ export function configError(type: DeclaredType, c: ConfigBody) {
   }
   return null;
 }
+
+// null: the site of the homelab of an Omada role exists (a catalog read, so apart from configError)
+const homelabSiteError = async (type: DeclaredType, c: ConfigBody) => (type === 'omada-controller' && !(await loadSites()).some((s) => s.id === c.siteId?.trim()) ? 'site du homelab inconnu' : null);
 
 // The carrier of a role: a host, or an equipment (its IP told as the only one of its info, as the address of a host is)
 type Carrier = Pick<HostDoc, '_id' | 'name' | 'info' | 'roleCandidates' | 'capabilities'>;
@@ -186,7 +197,14 @@ export function toConfig(type: DeclaredType, c: ConfigBody, secret: string): Dec
       ...(c.dockerPort ? { dockerPort: c.dockerPort } : {}),
     };
   if (type === 'omada-controller')
-    return { url: c.url!.trim().replace(/\/+$/, ''), fingerprint: c.fingerprint ? normalizeFingerprint(c.fingerprint) : '', clientId: c.clientId!.trim(), clientSecret: secret };
+    return {
+      url: c.url!.trim().replace(/\/+$/, ''),
+      fingerprint: c.fingerprint ? normalizeFingerprint(c.fingerprint) : '',
+      clientId: c.clientId!.trim(),
+      clientSecret: secret,
+      omadaSite: c.omadaSite!.trim(),
+      siteId: c.siteId!.trim(),
+    };
   return {
     scheme: c.scheme!,
     port: c.port!,
@@ -243,6 +261,8 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!def.carriers.includes(req.body.carrier.kind)) return reply.code(400).send({ error: `un rôle ${def.label} ne peut pas être porté par ce type d'élément` });
     const secret = typedSecret(type, req.body.config) ?? '';
     if (type === 'omada-controller' && !secret) return reply.code(400).send({ error: 'client_secret manquant' });
+    const noSite = await homelabSiteError(type, req.body.config);
+    if (noSite) return reply.code(400).send({ error: noSite });
     const host = await carrierOf(req.body.carrier);
     if (!host) return reply.code(404).send({ error: 'host not found' });
     const name = req.body.name.trim();
@@ -268,6 +288,8 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (req.body.carrier && !def.carriers.includes(req.body.carrier.kind)) return reply.code(400).send({ error: `un rôle ${def.label} ne peut pas être porté par ce type d'élément` });
     const secret = typedSecret(current.type, body) ?? storedSecret(current);
     if (current.type === 'omada-controller' && !secret) return reply.code(400).send({ error: 'client_secret manquant' });
+    const noSite = await homelabSiteError(current.type, body);
+    if (noSite) return reply.code(400).send({ error: noSite });
     const host = await carrierOf(req.body.carrier ?? { kind: current.carrier.kind, id: current.carrier.id.toHexString() });
     if (!host) return reply.code(404).send({ error: 'host not found' });
     const name = req.body.name.trim();
@@ -526,6 +548,29 @@ export function registerRoleRoutes(app: FastifyInstance) {
     },
   );
 
+  // The sites of an Omada controller the application sees (the "get site" of the role form): the url and the application
+  // of the form, the stored secret when none is typed. As the test, the fingerprint its certificate presents when it was refused.
+  app.post<{ Body: { carrier: CarrierBody; config: ConfigBody; roleId?: string } }>(
+    '/api/roles/omada-sites',
+    { schema: { body: { type: 'object', required: ['carrier', 'config'], additionalProperties: false, properties: { carrier, config, roleId: { type: 'string', maxLength: 32 } } } } },
+    async (req, reply) => {
+      const c = req.body.config;
+      const stored = req.body.roleId ? declaredRole(req.body.roleId) : undefined;
+      if (!c.url || !SERVER_URL_RE.test(c.url.trim())) return reply.code(400).send({ error: 'URL invalide (https://contrôleur:8043)' });
+      if (!c.clientId?.trim()) return reply.code(400).send({ error: 'client_id manquant' });
+      if (c.fingerprint && !FINGERPRINT_RE.test(normalizeFingerprint(c.fingerprint))) return reply.code(400).send({ error: 'empreinte invalide (SHA-256, 32 octets en hexadécimal)' });
+      const secret = c.clientSecret ?? (stored?.type === 'omada-controller' ? stored.config.clientSecret : '');
+      if (!secret) return { ok: false, error: 'client_secret manquant' };
+      const conf = { url: c.url.trim().replace(/\/+$/, ''), fingerprint: c.fingerprint ? normalizeFingerprint(c.fingerprint) : '', clientId: c.clientId.trim(), clientSecret: secret };
+      try {
+        return { ok: true, sites: await omadaSites(conf) };
+      } catch (err) {
+        const presented = await presentedFingerprint(conf, err, localFingerprint(await carrierOf(req.body.carrier)));
+        return { ok: false, error: (err as Error).message, ...presented };
+      }
+    },
+  );
+
   // connection test of a role being declared or edited. omada-controller: fingerprint, the one its certificate presents
   // when it was refused, and its source (to pin it or not, checkedFingerprint); detail: what the controller answered
   // Reception test of a log server being declared or edited: a syslog line sent where the hosts will send, then read
@@ -567,7 +612,7 @@ export function registerRoleRoutes(app: FastifyInstance) {
       if (!secret) return { ok: false, error: 'client_secret manquant' };
       try {
         const r = await omadaCheck(c);
-        return { ok: true, detail: `${r.version ? `contrôleur ${r.version}, ` : ''}${r.sites} site${r.sites > 1 ? 's' : ''} visible${r.sites > 1 ? 's' : ''} par l'application` };
+        return { ok: true, detail: `${r.version ? `contrôleur ${r.version}, ` : ''}site ${r.site?.name ?? c.omadaSite} trouvé (${r.sites} site${r.sites > 1 ? 's' : ''} visible${r.sites > 1 ? 's' : ''} par l'application)` };
       } catch (err) {
         const presented = await presentedFingerprint(c, err, localFingerprint(await carrierOf(req.body.carrier)));
         return { ok: false, error: (err as Error).message, ...presented };
