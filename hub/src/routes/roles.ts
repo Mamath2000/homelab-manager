@@ -5,7 +5,7 @@ import { equipments, hosts, parseId, roles } from '../db.js';
 import { testConnection } from '../homeassistant/bridge.js';
 import { checkedFingerprint, omadaCheck, omadaProbe, omadaSites, presentedFingerprint, type LocalFingerprint } from '../omada.js';
 import { loadSites } from '../catalog.js';
-import { pollOmada } from '../omadaSync.js';
+import { forgetOmadaRole, pollOmada } from '../omadaSync.js';
 import { checkLogServer, LOG_URL_RE, logTarget, pollLogServers, testReception } from '../logs.js';
 import { checkAllHosts } from '../setup.js';
 import { anonymousOf, clearRefused, forgetAnonymous, forgetRefused, markCreated, refusedOf } from '../refusedLog.js';
@@ -358,7 +358,10 @@ export function registerRoleRoutes(app: FastifyInstance) {
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type } };
     await rolesSaved([current.carrier.id]);
     if (current.type === 'log-server') logServerSaved(req.log);
-    if (current.type === 'omada-controller') omadaSaved(req.log);
+    if (current.type === 'omada-controller') {
+      await forgetOmadaRole(current._id);
+      omadaSaved(req.log);
+    }
     return reply.code(204).send();
   });
 

@@ -155,6 +155,12 @@ export async function pollRole(role: OmadaControllerRole) {
   publish('roles', {});
 }
 
+// The state of a role removed goes with it (a role declared again under the same name has the same id and starts from nothing).
+export async function forgetOmadaRole(roleId: string) {
+  lastPolls.delete(roleId);
+  await omada.deleteOne({ _id: roleId });
+}
+
 let running: Promise<void> | null = null;
 
 // All the controllers, one after the other; a poll already running is the one waited for. The state of a role removed is dropped.
