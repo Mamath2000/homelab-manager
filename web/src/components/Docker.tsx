@@ -1,4 +1,3 @@
-import { HostDockerLogs } from './LogHosts';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { ArrowUpCircle, Container, Eye, EyeOff, Play, RefreshCcw, RefreshCw, RotateCw, ScrollText, Square } from 'lucide-react';
@@ -267,7 +266,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
   const collecting = !!d.logs.state;
   return (
     <Panel
-      title={<span className="flex items-center gap-1">Docker{canSettings && <HostDockerLogs host={host} />}</span>}
+      title="Docker"
       icon={Container}
       bodyClassName=""
       className="@container"

@@ -68,7 +68,7 @@ function DockerOffIcon({ className }: { className?: string }) {
   return (
     <span className="relative inline-flex">
       <Container className={className} />
-      <span aria-hidden className="absolute left-1/2 top-1/2 h-[1.5px] w-5 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-current" />
+      <span aria-hidden className="absolute left-1/2 top-1/2 h-[1.5px] w-[140%] -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-current" />
     </span>
   );
 }
@@ -357,28 +357,6 @@ function DockerDisableModal({ h, role, onClose, onReapply }: { h: LogHost; role:
       toujours. Ce que le serveur a déjà reçu est gardé.
     </ConfirmModal>
   );
-}
-
-function HostDockerLogsOf({ role, host }: { role: LogHubRole; host: Host }) {
-  const { data } = useQuery({ queryKey: ['settings', 'logs', role.id], queryFn: () => api.logHosts(role.id), refetchInterval: 30_000 });
-  const [on, setOn] = useState(false);
-  const [off, setOff] = useState(false);
-  const h = data?.hosts.find((x) => x.hostId === host.id);
-  if (!h?.docker) return null;
-  return (
-    <>
-      <IconGroup actions={[dockerAction(h, data!.silentHours, () => setOn(true), () => setOff(true))]} />
-      {on && <DockerLogsModal h={h} host={host} role={role} onClose={() => setOn(false)} />}
-      {off && <DockerDisableModal h={h} role={role} onClose={() => setOff(false)} onReapply={() => { setOff(false); setOn(true); }} />}
-    </>
-  );
-}
-
-// The same icon and actions on the page of a host (card Docker). Nothing when the host is not in the list of a log
-// server (it does not send its journals): the ones of its containers go with them.
-export function HostDockerLogs({ host }: { host: Host }) {
-  const { data: servers = [] } = useLogServers();
-  return <>{servers.map((r) => <HostDockerLogsOf key={r.id} role={r} host={host} />)}</>;
 }
 
 function ServerPanel({ role }: { role: LogHubRole }) {
