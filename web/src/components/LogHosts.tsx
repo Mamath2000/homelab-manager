@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, Container, Play, Plus, PowerOff, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Container, Plus, RefreshCw, ScrollText, Search, Trash2 } from 'lucide-react';
 import { api, type DockerStack, type Host, type LogHost, type LogHostDocker, type LogHubRole } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
@@ -44,8 +44,6 @@ function stateText(h: LogHost) {
   }
 }
 
-const DOCKER_TEXT: Record<LogHostDocker['state'], string> = { unavailable: 'text-muted', off: 'text-zinc-300', pending: 'text-amber-300', ok: 'text-zinc-400', drift: 'text-amber-300', error: 'text-red-300', silent: 'text-amber-300' };
-
 function dockerText(d: LogHostDocker) {
   switch (d.state) {
     case 'unavailable':
@@ -62,38 +60,31 @@ function dockerText(d: LogHostDocker) {
   }
 }
 
-// The journals of the containers of the host, under the ones of the host: turned on, set again, or off.
-function DockerLine({ h, silentHours, onEnable, onDisable }: { h: LogHost; silentHours: number; onEnable: () => void; onDisable: () => void }) {
-  // drift / error: something of the setting up is missing on the host (collector, daemon.json, stacks to recreate):
-  // setting it up again fixes it. A silence alone is not: everything is in place, the containers just wrote nothing.
+const DOCKER_ICON: Record<LogHostDocker['state'], string> = { unavailable: 'text-zinc-600', off: 'text-zinc-500', pending: 'text-amber-400', ok: 'text-emerald-400', drift: 'text-amber-400', error: 'text-red-400', silent: 'text-amber-400' };
+
+// The journals of the containers of the host, as an icon next to the bin: crossed out = not sent, green = in place and
+// received, orange = set up but nothing received (or to set up again), red = error. The click acts: set up / set up again
+// when off or incomplete (drift / error), stop when in place. A silence alone is not a reason to set up again.
+function DockerButton({ h, silentHours, onEnable, onDisable }: { h: LogHost; silentHours: number; onEnable: () => void; onDisable: () => void }) {
   const d = h.docker!;
-  const busy = !h.online || h.running;
+  const off = !d.enabled;
+  const redo = d.enabled && (d.state === 'error' || d.state === 'drift');
   const why = !h.online ? 'hôte hors ligne' : h.running ? 'une tâche est en cours' : null;
+  const action = d.state === 'unavailable' ? null : d.state === 'pending' ? null : off ? "Cliquer pour envoyer aussi les journaux des conteneurs (redémarre Docker sur l'hôte)" : redo ? 'Cliquer pour refaire la mise en place' : "Cliquer pour arrêter l'envoi des journaux des conteneurs";
+  const text = [`Conteneurs : ${dockerText(d)}`, d.state === 'silent' ? silentText(silentHours) : null, d.state === 'drift' || d.state === 'error' ? d.detail : null, why, action].filter(Boolean).join(' — ');
+  const disabled = !!why || !action;
   return (
-    <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-raised/60 px-2 py-1.5">
-      <p className={clsx('flex min-w-0 items-center gap-1.5 text-xs', DOCKER_TEXT[d.state])} title={d.detail ?? undefined}>
-        <Container className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">Conteneurs : {dockerText(d)}</span>
-        {d.state === 'silent' && <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-label={silentText(silentHours)} />}
-      </p>
-      <div className="flex shrink-0 items-center gap-1">
-        {d.state === 'off' && (
-          <Button size="sm" icon={Play} disabled={busy} title={why ?? "Envoyer aussi les journaux des conteneurs (redémarre Docker sur l'hôte)"} onClick={onEnable}>
-            Activer
-          </Button>
-        )}
-        {d.enabled && (d.state === 'error' || d.state === 'drift') && (
-          <Button size="sm" icon={RefreshCw} disabled={busy} title={why ?? `${d.detail ?? 'Mise en place incomplète'} : la refaire`} onClick={onEnable}>
-            Réappliquer
-          </Button>
-        )}
-        {d.enabled && d.state !== 'pending' && (
-          <button type="button" onClick={onDisable} disabled={busy} title={why ?? "Arrêter l'envoi des journaux des conteneurs"} aria-label={`Arrêter l'envoi des journaux des conteneurs de ${h.name}`} className="rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
-            <PowerOff className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={off || redo ? onEnable : onDisable}
+      disabled={disabled}
+      title={text}
+      aria-label={text}
+      className={clsx('relative shrink-0 rounded p-1 hover:bg-raised disabled:cursor-default disabled:hover:bg-transparent', DOCKER_ICON[d.state], why && 'opacity-50')}
+    >
+      <Container className={clsx('h-3.5 w-3.5', d.state === 'pending' && 'animate-pulse')} />
+      {off && <span aria-hidden className="absolute left-1/2 top-1/2 h-[1.5px] w-[18px] -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-current" />}
+    </button>
   );
 }
 
@@ -187,9 +178,12 @@ function HostCard({ h, site, silentHours, onRemove, onApply, applying, onDockerE
           <StatusDot tone={meta.tone} pulse={h.state === 'pending'} />
           <Link to={`/hosts/${h.hostId}`} className="truncate font-medium text-zinc-100 hover:underline" title={h.name}>{h.name}</Link>
         </div>
-        <button type="button" onClick={onRemove} disabled={h.running} title="Ne plus gérer les journaux de cet hôte" aria-label={`Ne plus gérer les journaux de ${h.name}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex shrink-0 items-center">
+          {h.docker && <DockerButton h={h} silentHours={silentHours} onEnable={onDockerEnable} onDisable={onDockerDisable} />}
+          <button type="button" onClick={onRemove} disabled={h.running} title="Ne plus gérer les journaux de cet hôte" aria-label={`Ne plus gérer les journaux de ${h.name}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <p className={clsx('mt-1.5 line-clamp-2 text-xs', meta.text)} title={h.lastAt ? new Date(h.lastAt).toLocaleString('fr-FR') : (h.detail ?? undefined)}>
         {stateText(h)}
@@ -208,7 +202,6 @@ function HostCard({ h, site, silentHours, onRemove, onApply, applying, onDockerE
           </Button>
         )}
       </div>
-      {h.docker && <DockerLine h={h} silentHours={silentHours} onEnable={onDockerEnable} onDisable={onDockerDisable} />}
     </article>
   );
 }
