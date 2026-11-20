@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
-import { Link, useNavigate } from 'react-router';
+import { Cpu, KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Link } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
@@ -18,6 +18,7 @@ import { PbsDisconnectModal } from './PbsDisconnect';
 import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
+import { EsphomeSettings } from './EsphomeSettings';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
@@ -1148,7 +1149,6 @@ export function RolesSettings() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<HubRole | null>(null);
   const [busy, setBusy] = useState(false);
-  const navigate = useNavigate();
 
   const refresh = () =>
     Promise.all([
@@ -1179,18 +1179,19 @@ export function RolesSettings() {
       setBusy(false);
     }
   };
-  // the role of the hub is set in its own screen (Rôles › ESPHome): declared at once, then opened there
+  // the role of the hub is declared at once, then its settings open in a window (like every other role)
+  const [esphomeOpen, setEsphomeOpen] = useState(false);
   const declareEsphome = async () => {
     try {
       await api.declareEsphome();
       await refresh();
-      navigate('/roles/esphome');
+      setEsphomeOpen(true);
     } catch (err) {
       toast.error((err as Error).message);
     }
   };
   const edit = (r: HubRole) =>
-    r.type === 'esphome' ? navigate('/roles/esphome') : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
+    r.type === 'esphome' ? setEsphomeOpen(true) : setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1328,6 +1329,9 @@ export function RolesSettings() {
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
       {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
+      <Modal open={esphomeOpen} onClose={() => (setEsphomeOpen(false), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome</span>}>
+        <EsphomeSettings />
+      </Modal>
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'log-server' && <LogServerWizard role={editing.role} onClose={() => setEditing(null)} />}
