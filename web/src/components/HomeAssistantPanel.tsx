@@ -191,7 +191,8 @@ function BrokerModal({ data, onClose }: { data: HomeAssistantSettings; onClose: 
 }
 
 // Home Assistant through MQTT discovery: the broker link at the top (BrokerModal), what is published below it.
-export function HomeAssistantPanel() {
+// onLeave: in a window, closes it (else the save and cancel buttons go back to the page before)
+export function HomeAssistantPanel({ onLeave }: { onLeave?: () => void } = {}) {
   const toast = useToast();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -237,6 +238,7 @@ export function HomeAssistantPanel() {
   };
   // save and cancel both leave the settings screen, back to where the user came from (home when opened directly)
   const leave = () => {
+    if (onLeave) return onLeave();
     if (window.history.state?.idx > 0) navigate(-1);
     else navigate('/');
   };

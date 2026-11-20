@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Cpu, KeyRound, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
-import { Link } from 'react-router';
+import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Save, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
-import { rolePagesOf } from '../lib/roleSettings';
+import { ROLE_PAGES, roleOfPage, rolePagesOf } from '../lib/roleSettings';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { CheckLine, DetectedRows, Step, Steps, type CheckState } from './PbsDialog';
@@ -19,6 +19,11 @@ import { PbsRotateModal } from './PbsRotate';
 import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
 import { EsphomeSettings } from './EsphomeSettings';
+import { HomeAssistantPanel } from './HomeAssistantPanel';
+import { LogHostsSettings } from './LogHosts';
+import { BrokerCardActions, MqttAccountsModal } from './MqttSecurity';
+import { OmadaInventory } from './OmadaInventory';
+import { PveInventory } from './PveInventory';
 
 // Roles of the hub (hub/src/roles.ts): what the hub can do through a host of the homelab, declared here. Without a
 // role, what consumes it is off (no MQTT broker: no probe on MQTT, no Home Assistant integration).
@@ -94,7 +99,7 @@ function generatePassword() {
 
 const DYNSEC_INFO: Record<'unavailable' | 'available' | 'active', string> = {
   unavailable: 'gestion des comptes par HLM indisponible',
-  available: 'gestion des comptes par HLM possible (dynamic-security), à activer dans Rôles › Comptes MQTT',
+  available: 'gestion des comptes par HLM possible (dynamic-security), à activer dans la carte du rôle',
   active: 'dynamic-security chargé',
 };
 
@@ -1115,12 +1120,12 @@ function DynsecIcon({ role }: { role: MqttHubRole }) {
   if (s.state === 'unavailable') return null;
   const managed = s.state === 'active' && !!s.managed;
   const title = managed
-    ? 'Comptes gérés par HLM (dynamic-security) : Rôles › Comptes MQTT'
+    ? 'Comptes gérés par HLM (dynamic-security) : la carte du rôle'
     : s.state === 'active'
       ? 'dynamic-security chargé, mais géré en dehors de HLM'
-      : `Gestion des comptes par HLM possible${s.version ? ` (Mosquitto ${s.version})` : ''} : à activer dans Rôles › Comptes MQTT`;
+      : `Gestion des comptes par HLM possible${s.version ? ` (Mosquitto ${s.version})` : ''} : à activer dans la carte du rôle`;
   return (
-    <Link to="/roles/mqtt" title={title} aria-label={title} className="shrink-0">
+    <Link to={`/roles/mqtt?role=${encodeURIComponent(role.id)}`} title={title} aria-label={title} className="shrink-0">
       <ShieldCheck className={clsx('h-3.5 w-3.5', managed ? 'text-emerald-400' : 'text-zinc-500')} aria-hidden />
     </Link>
   );
@@ -1204,6 +1209,20 @@ export function RolesSettings() {
   };
   // the role of the hub is declared at once, then its settings open in a window (like every other role)
   const [esphomeOpen, setEsphomeOpen] = useState(false);
+  // the options of a role are a window over this screen, set by the URL: /roles/<page>?role=<role id>
+  const { page } = useParams();
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const { data: ha } = useQuery({ queryKey: ['settings', 'homeassistant'], queryFn: api.homeAssistant, refetchOnWindowFocus: false });
+  const haBrokerId = ha?.brokerRoleId ?? null;
+  const openOption = (id: string, roleId: string) => navigate(`/roles/${id}?role=${encodeURIComponent(roleId)}`);
+  const closeOption = () => navigate('/roles', { replace: true });
+  const optionRole = roles ? roleOfPage(page, params.get('role'), roles) : undefined;
+  // a page that names no role to open (unknown page, role gone, several roles and none asked): back to the roles
+  useEffect(() => {
+    if (page && roles && optionRole === null || (page && !ROLE_PAGES.some((p) => p.id === page))) closeOption();
+  }, [page, roles, optionRole]); // eslint-disable-line react-hooks/exhaustive-deps
+  const optionTitle = (icon: React.ReactNode, label: string) => <span className="flex items-center gap-2">{icon}{label}{optionRole ? <span className="text-muted">· {optionRole.name}</span> : null}</span>;
   const declareEsphome = async () => {
     try {
       await api.declareEsphome();
@@ -1245,12 +1264,6 @@ export function RolesSettings() {
         <h3 className="font-medium text-zinc-100">{g.label}</h3>
         <span className="rounded-full bg-raised px-2 text-xs text-muted">{g.list.length}</span>
         <span className={clsx('h-px min-w-4 flex-1 bg-gradient-to-r to-transparent', roleAccent[g.type].rule)} aria-hidden />
-        {rolePagesOf(g.type, roles ?? []).map((p) => (
-          <Link key={p.id} to={`/roles/${p.id}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs text-zinc-300 transition hover:border-emerald-500/50 hover:bg-raised hover:text-emerald-300">
-            <p.icon className="h-3.5 w-3.5" aria-hidden />
-            {p.action}
-          </Link>
-        ))}
       </div>
     );
   };
@@ -1288,6 +1301,13 @@ export function RolesSettings() {
         </dl>
         {r.status?.error && <p className="mt-1 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
         {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted" title={`Connexions anonymes acceptées : ${ANONYMOUS_HINT}`}><TriangleAlert size={12} className="shrink-0 text-red-400" aria-hidden />Connexions anonymes acceptées</p>}
+        {/* what the role unlocks: its options, opened in a window over this screen */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5 empty:hidden">
+          {r.type === 'mqtt-broker' && <BrokerCardActions role={r} onAccounts={() => openOption('mqtt', r.id)} />}
+          {rolePagesOf(r, haBrokerId).map((p) => (
+            <Button key={p.id} size="sm" icon={p.icon} onClick={() => openOption(p.id, r.id)}>{p.action}</Button>
+          ))}
+        </div>
       </article>
     );
   };
@@ -1352,7 +1372,28 @@ export function RolesSettings() {
       {disconnecting === 'pbs-primary' && <PbsDisconnectModal open onClose={() => (setDisconnecting(null), void refresh())} />}
       {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
-      <Modal open={esphomeOpen} onClose={() => (setEsphomeOpen(false), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome</span>}>
+      {optionRole?.type === 'mqtt-broker' && page === 'mqtt' && <MqttAccountsModal role={optionRole} onClose={closeOption} />}
+      {optionRole?.type === 'mqtt-broker' && page === 'homeassistant' && (
+        <Modal open onClose={closeOption} wide="screen-wide" title={optionTitle(<Home className="h-4 w-4 text-muted" aria-hidden />, 'Home Assistant')}>
+          <HomeAssistantPanel onLeave={closeOption} />
+        </Modal>
+      )}
+      {optionRole?.type === 'pve-cluster' && page === 'pve' && (
+        <Modal open onClose={closeOption} wide="screen-wide" title={optionTitle(<Boxes className="h-4 w-4 text-muted" aria-hidden />, 'Inventaire Proxmox VE')}>
+          <PveInventory cluster={optionRole.config.cluster} />
+        </Modal>
+      )}
+      {optionRole?.type === 'omada-controller' && page === 'omada' && (
+        <Modal open onClose={closeOption} wide="screen-wide" title={optionTitle(<Network className="h-4 w-4 text-muted" aria-hidden />, 'Inventaire Omada')}>
+          <OmadaInventory controllerId={optionRole.id} />
+        </Modal>
+      )}
+      {optionRole?.type === 'log-server' && page === 'logs' && (
+        <Modal open onClose={closeOption} wide="screen-wide" title={optionTitle(<ScrollText className="h-4 w-4 text-muted" aria-hidden />, 'Hôtes émetteurs des logs')}>
+          <LogHostsSettings roleId={optionRole.id} />
+        </Modal>
+      )}
+      <Modal open={esphomeOpen || page === 'esphome'} onClose={() => (setEsphomeOpen(false), page === 'esphome' && closeOption(), void refresh())} wide="screen-wide" title={<span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-muted" aria-hidden />ESPHome</span>}>
         <EsphomeSettings />
       </Modal>
       {editing?.type === 'mqtt-broker' && <BrokerWizard role={editing.role} onClose={() => setEditing(null)} />}

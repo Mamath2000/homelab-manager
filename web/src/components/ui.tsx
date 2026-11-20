@@ -1,4 +1,4 @@
-import { createContext, Fragment, useContext, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, useEffect, useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -265,17 +265,23 @@ export function Modal({ open, onClose, title, children, footer, wide, wider, fix
   // false: a true modal, neither a click outside, Escape nor the cross closes it (the footer does)
   dismissable?: boolean;
 }) {
+  // onClose is often an inline arrow: kept in a ref so that a re-render of the parent does not re-run the effect
+  // (which would push this window back on top of the stack, above the ones opened from it)
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
   useEffect(() => {
     if (!open || !dismissable) return;
     const me = Symbol('modal');
     modalStack.push(me);
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && modalStack[modalStack.length - 1] === me && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && modalStack[modalStack.length - 1] === me && closeRef.current();
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
       modalStack.splice(modalStack.indexOf(me), 1);
     };
-  }, [open, onClose, dismissable]);
+  }, [open, dismissable]);
   if (!open) return null;
   // every window is centered on the page (my-auto: still reachable from the top when taller than the screen);
   const screenWide = wide === 'screen' || wide === 'screen-wide';

@@ -1,10 +1,11 @@
 import { Boxes, Cpu, Home, Network, ScrollText, ShieldCheck, type LucideIcon } from 'lucide-react';
 import type { HubRole, HubRoleType } from './api';
 
-// The settings that come with a type of role, each on its own page under the Rôles screen (/roles/<id>), opened from
-// the section of that type (action: the label of its button there). They used to be tabs of Paramètres, shown or hidden by the roles declared.
+// The options a role unlocks, opened from its card in a window over the Rôles screen: /roles/<id>?role=<role id> (without
+// role: the only role of the type). They used to be tabs of Paramètres, then pages: old links still lead here.
+// mqtt: the accounts of a broker secured by the hub; esphome: the window of the role of the hub (its pencil opens it too).
 export const ROLE_PAGES = [
-  { id: 'mqtt', label: 'Comptes MQTT', action: 'Comptes MQTT', icon: ShieldCheck, type: 'mqtt-broker' },
+  { id: 'mqtt', label: 'Comptes MQTT', action: 'Gérer les comptes', icon: ShieldCheck, type: 'mqtt-broker' },
   { id: 'homeassistant', label: 'Home Assistant', action: 'Home Assistant', icon: Home, type: 'mqtt-broker' },
   { id: 'pve', label: 'Proxmox VE', action: 'Inventaire', icon: Boxes, type: 'pve-cluster' },
   { id: 'omada', label: 'Omada', action: 'Inventaire', icon: Network, type: 'omada-controller' },
@@ -14,7 +15,16 @@ export const ROLE_PAGES = [
 
 export type RolePageId = (typeof ROLE_PAGES)[number]['id'];
 
-// The pages a section of roles offers: the accounts of the brokers only when one of them can manage its accounts.
-export function rolePagesOf(type: HubRoleType, roles: HubRole[]) {
-  return ROLE_PAGES.filter((p) => p.type === type && (p.id !== 'mqtt' || roles.some((r) => r.type === 'mqtt-broker' && r.security.state !== 'unavailable')));
+// The options shown in the foot of the card of a role (the accounts of a broker and the window of ESPHome have their own
+// buttons). Home Assistant: on the broker it uses, or on every broker while it uses none.
+export function rolePagesOf(role: HubRole, haBrokerId: string | null) {
+  return ROLE_PAGES.filter((p) => p.type === role.type && p.id !== 'mqtt' && p.id !== 'esphome' && (p.id !== 'homeassistant' || !haBrokerId || haBrokerId === role.id));
+}
+
+// The role a page of options is opened on: the one asked, else the only one of the type (null: nothing to open).
+export function roleOfPage(page: string | undefined, askedId: string | null, roles: HubRole[]) {
+  const def = ROLE_PAGES.find((p) => p.id === page);
+  if (!def) return undefined;
+  const ofType = roles.filter((r) => r.type === def.type);
+  return ofType.find((r) => r.id === askedId) ?? (!askedId && ofType.length === 1 ? ofType[0] : null);
 }

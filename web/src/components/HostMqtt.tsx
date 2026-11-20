@@ -46,7 +46,7 @@ function BrokerRow({ role }: { role: MqttHubRole }) {
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" icon={Users} onClick={() => setOpen(true)}>Gérer les comptes</Button>
         <Button size="sm" icon={RefreshCw} loading={q.isFetching} disabled={q.isFetching} aria-label="Actualiser" title="Actualiser" onClick={() => void q.refetch()} />
-        <Link className="text-xs text-muted underline" to="/roles/mqtt">Réglages de la sécurité</Link>
+        <Link className="text-xs text-muted underline" to="/roles">Carte du rôle (sécurité)</Link>
       </div>
       {open && <MqttAccountsModal role={role} onClose={() => setOpen(false)} />}
     </div>

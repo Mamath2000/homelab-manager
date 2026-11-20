@@ -319,6 +319,10 @@ export function registerRoleRoutes(app: FastifyInstance) {
     if (!current) return reply.code(404).send({ error: 'rôle inconnu' });
     const uses = await defOf(current.type).uses(current._id);
     if (uses.length) return reply.code(409).send({ error: `utilisé par : ${uses.join(', ')}` });
+    // the identity of the hub (certificate and key) goes with the role: the broker would stay secured, out of reach of HLM
+    if (current.type === 'mqtt-broker' && (current.config as { dynsec?: unknown }).dynsec) {
+      return reply.code(409).send({ error: 'la gestion des comptes est activée sur ce broker : le réinitialiser avant de supprimer le rôle' });
+    }
     await roles.deleteOne({ _id: current._id });
     req.auditNote = { target: { kind: 'role', id: current._id, name: current.name }, details: { type: current.type } };
     await rolesSaved([current.carrier.id]);
@@ -488,6 +492,10 @@ export function registerRoleRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string; username: string } }>('/api/roles/:id/mqtt-accounts/:username', async (req, reply) => {
     const role = brokerRole(req.params.id);
     if (!role) return reply.code(404).send({ error: 'rôle inconnu' });
+    // the account of the connection of the role: the probes, the bridge of Home Assistant and ESPHome use it
+    if (role.config.username && req.params.username === role.config.username) {
+      return reply.code(409).send({ error: "ce compte est celui de la connexion du rôle (sondes, Home Assistant, ESPHome) : le changer dans le rôle avant de le supprimer" });
+    }
     req.auditNote = { target: { kind: 'role', id: role._id, name: role.name }, details: { account: req.params.username } };
     try {
       await deleteAccount(role, req.params.username);

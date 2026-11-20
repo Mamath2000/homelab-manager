@@ -282,7 +282,8 @@ function ClusterPanel({ c }: { c: Cluster }) {
   );
 }
 
-export function PveInventory() {
+// cluster: only that cluster (the one of the role the window is opened from), else all of them
+export function PveInventory({ cluster }: { cluster?: string }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['settings', 'pve', 'inventory'], queryFn: api.pveInventory });
   if (isLoading) return <div className="flex justify-center p-6"><Spinner /></div>;
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
@@ -293,7 +294,7 @@ export function PveInventory() {
         <b className="text-zinc-300">non géré</b> et n'apparaît qu'ici. Le cluster se déclare et se modifie dans{' '}
         <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
       </p>
-      {data?.clusters.map((c) => <ClusterPanel key={c.id} c={c} />)}
+      {data?.clusters.filter((c) => !cluster || c.id === cluster).map((c) => <ClusterPanel key={c.id} c={c} />)}
     </div>
   );
 }

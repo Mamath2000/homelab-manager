@@ -205,7 +205,8 @@ function ControllerPanel({ c }: { c: OmadaController }) {
   );
 }
 
-export function OmadaInventory() {
+// controllerId: only that controller (the role the window is opened from), else all of them
+export function OmadaInventory({ controllerId }: { controllerId?: string }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['settings', 'omada'], queryFn: api.omadaInventory });
   if (isLoading) return <div className="flex justify-center p-6"><Spinner /></div>;
   if (error) return <p className="p-4 text-sm text-red-400">{(error as Error).message}</p>;
@@ -216,8 +217,8 @@ export function OmadaInventory() {
         équipement manuel existant (proposé s'il a la même adresse IP ou le même nom) : sa présence vient alors du contrôleur. Le contrôleur se déclare dans{' '}
         <Link to="/roles" className="text-emerald-400 hover:underline">Rôles</Link>.
       </p>
-      {data && <VpnPanel controllers={data.controllers} />}
-      {data?.controllers.map((c) => <ControllerPanel key={c.id} c={c} />)}
+      {data && <VpnPanel controllers={data.controllers.filter((c) => !controllerId || c.id === controllerId)} />}
+      {data?.controllers.filter((c) => !controllerId || c.id === controllerId).map((c) => <ControllerPanel key={c.id} c={c} />)}
     </div>
   );
 }

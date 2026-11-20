@@ -419,12 +419,13 @@ function ServerPanel({ role }: { role: LogHubRole }) {
   );
 }
 
-export function LogHostsSettings() {
+// roleId: only that server (the role the window is opened from), else all of them
+export function LogHostsSettings({ roleId }: { roleId?: string }) {
   const { data: servers = [], isLoading } = useLogServers();
   if (isLoading) return <div className="flex justify-center p-10"><Spinner /></div>;
   return (
     <div className="space-y-4">
-      {servers.map((r) => <ServerPanel key={r.id} role={r} />)}
+      {servers.filter((r) => !roleId || r.id === roleId).map((r) => <ServerPanel key={r.id} role={r} />)}
     </div>
   );
 }

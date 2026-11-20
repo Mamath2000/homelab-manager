@@ -167,7 +167,7 @@ export function registerSettingsRoutes(app: FastifyInstance, bridge: HomeAssista
       if (!b) return reply.code(400).send({ error: 'broker MQTT inconnu' });
       if (!b.url) return { ok: false, error: "adresse de l'hôte du broker inconnue" };
       try {
-        await testConnection(b.url, b.username, b.password);
+        await testConnection(b.url, b.username, b.password, b.tls);
         return { ok: true };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
