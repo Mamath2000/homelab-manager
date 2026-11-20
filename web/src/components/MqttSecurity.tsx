@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, ChevronLeft, ChevronRight, KeyRound, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, Users, X } from 'lucide-react';
@@ -18,7 +18,17 @@ const rowText = (r: AccountRow) => (r.kind === 'account' ? r.a.username : r.kind
 // The options of a broker role, in the foot of its card: to secure it (certificates by the CA of the hub, listener TLS, hub
 // account by certificate, dynamic-security run by the agent of the host); once secured, to reset it, to accept or refuse the
 // anonymous clients and to manage its accounts. Nothing when the management of accounts is not available on this broker.
-export function BrokerCardActions({ role, onAccounts }: { role: MqttHubRole; onAccounts: () => void }) {
+// The pieces are handed to the card (children) to place where they belong: the anonymous state in its details, the reset as a
+// discreet link, the buttons in its foot; the confirmation windows are rendered here.
+export interface BrokerCardSlots {
+  // foot of the card, right-aligned
+  buttons: ReactNode;
+  // line of the details: « Anonymes » with its state and the button that changes it
+  anonymous: ReactNode;
+  // discreet link under the details
+  reset: ReactNode;
+}
+export function BrokerCardControls({ role, onAccounts, children }: { role: MqttHubRole; onAccounts: () => void; children: (slots: BrokerCardSlots) => ReactNode }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [confirm, setConfirm] = useState<'enable' | 'reset' | 'anonymous-off' | 'anonymous-on' | null>(null);
@@ -67,26 +77,44 @@ export function BrokerCardActions({ role, onAccounts }: { role: MqttHubRole; onA
     }
   };
 
-  if (!wanted) return null;
-  return (
-    <>
+  const allowed = anon.data?.allowed;
+  const slots: BrokerCardSlots = {
+    buttons: (
+      <>
         {state === 'available' && <Button size="sm" icon={ShieldCheck} disabled={busy} onClick={() => setConfirm('enable')}>Sécuriser ce broker</Button>}
         {state === 'active' && !hubManaged && !q.isLoading && <span className="text-xs text-muted">dynamic-security chargé, géré en dehors de HLM</span>}
-        {manageable && (
-          <>
-            <Button size="sm" icon={Users} onClick={onAccounts}>Gérer les comptes</Button>
-            <Button
-              size="sm"
-              icon={ShieldCheck}
-              disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
-              title={anon.data?.configurable === false ? "L'agent de l'hôte ne répond pas ou est trop ancien" : anon.error ? (anon.error as Error).message : undefined}
-              onClick={() => setConfirm(anon.data?.allowed ? 'anonymous-off' : 'anonymous-on')}
-            >
-              Anonymes : {anon.data ? (anon.data.allowed ? 'acceptés' : 'refusés') : '…'}
-            </Button>
-            <Button size="sm" variant="danger" icon={RotateCcw} disabled={busy} onClick={() => setConfirm('reset')}>Réinitialiser</Button>
-          </>
-        )}
+        {manageable && <Button size="sm" icon={Users} onClick={onAccounts}>Gérer les comptes</Button>}
+      </>
+    ),
+    anonymous: manageable ? (
+      <>
+        <dt className="self-center text-muted">Anonymes</dt>
+        <dd className="flex min-w-0 items-center gap-2">
+          <span className={clsx(allowed ? 'text-amber-300' : 'text-zinc-200')}>{anon.data ? (allowed ? 'acceptés' : 'refusés') : '…'}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="!h-6 !px-2 !text-xs"
+            disabled={anon.isLoading || !!anon.error || busy || anon.data?.configurable === false}
+            title={anon.data?.configurable === false ? "L'agent de l'hôte ne répond pas ou est trop ancien" : anon.error ? (anon.error as Error).message : undefined}
+            onClick={() => setConfirm(allowed ? 'anonymous-off' : 'anonymous-on')}
+          >
+            {allowed ? 'Refuser' : 'Accepter'}
+          </Button>
+        </dd>
+      </>
+    ) : null,
+    reset: manageable ? (
+      <button type="button" disabled={busy} onClick={() => setConfirm('reset')} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted underline decoration-dotted underline-offset-2 transition hover:text-red-300 disabled:opacity-50">
+        <RotateCcw className="h-3 w-3" aria-hidden />
+        Réinitialiser le broker
+      </button>
+    ) : null,
+  };
+  if (!wanted) return <>{children({ buttons: null, anonymous: null, reset: null })}</>;
+  return (
+    <>
+      {children(slots)}
       <ConfirmModal
         open={confirm === 'anonymous-off'}
         onClose={() => setConfirm(null)}

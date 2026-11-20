@@ -21,7 +21,7 @@ import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
 import { EsphomeSettings } from './EsphomeSettings';
 import { HomeAssistantPanel } from './HomeAssistantPanel';
 import { LogHostsSettings } from './LogHosts';
-import { BrokerCardActions, MqttAccountsModal } from './MqttSecurity';
+import { BrokerCardControls, MqttAccountsModal, type BrokerCardSlots } from './MqttSecurity';
 import { OmadaInventory } from './OmadaInventory';
 import { PveInventory } from './PveInventory';
 
@@ -1271,7 +1271,7 @@ export function RolesSettings() {
   const esphomeBrokers = (r: Extract<HubRole, { type: 'esphome' }>) => r.config.brokers.map((b) => roles?.find((x) => x.id === b.brokerId)?.name ?? b.brokerId).join(', ');
   const dot: Record<string, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', info: 'bg-sky-500', neutral: 'bg-zinc-500' };
   // one card per role: the ones of a row share its width, a lone one takes all of it
-  const roleCard = (r: HubRole) => {
+  const cardOf = (r: HubRole, c?: BrokerCardSlots) => {
     const st = roleStatus(r);
     return (
       <article key={r.id} className={clsx('min-w-0 flex-[1_1_20rem] rounded-lg border border-t-[3px] border-line bg-raised/40 px-3.5 py-3', roleAccent[r.type].edge)}>
@@ -1298,12 +1298,14 @@ export function RolesSettings() {
           <dd className="truncate" title={r.account || undefined}>{r.account || (r.carrier.kind === 'hub' ? '—' : 'anonyme')}</dd>
           <dt className="text-muted">Utilisé par</dt>
           <dd className="truncate" title={uses(r).join(', ') || r.summary || undefined}>{uses(r).join(', ') || r.summary || '—'}</dd>
+          {c?.anonymous}
         </dl>
+        {c?.reset}
         {r.status?.error && <p className="mt-1 truncate text-xs text-amber-300" title={r.status.error}>{r.status.error}</p>}
-        {r.type === 'mqtt-broker' && r.anonymous && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted" title={`Connexions anonymes acceptées : ${ANONYMOUS_HINT}`}><TriangleAlert size={12} className="shrink-0 text-red-400" aria-hidden />Connexions anonymes acceptées</p>}
+        {r.type === 'mqtt-broker' && r.anonymous && !c?.anonymous && <p className="mt-1 flex items-center gap-1 text-[11px] text-muted" title={`Connexions anonymes acceptées : ${ANONYMOUS_HINT}`}><TriangleAlert size={12} className="shrink-0 text-red-400" aria-hidden />Connexions anonymes acceptées</p>}
         {/* what the role unlocks: its options, opened in a window over this screen */}
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5 empty:hidden">
-          {r.type === 'mqtt-broker' && <BrokerCardActions role={r} onAccounts={() => openOption('mqtt', r.id)} />}
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-line pt-2.5 empty:hidden">
+          {c?.buttons}
           {rolePagesOf(r, haBrokerId).map((p) => (
             <Button key={p.id} size="sm" icon={p.icon} onClick={() => openOption(p.id, r.id)}>{p.action}</Button>
           ))}
@@ -1311,6 +1313,8 @@ export function RolesSettings() {
       </article>
     );
   };
+  const roleCard = (r: HubRole) =>
+    r.type === 'mqtt-broker' ? <BrokerCardControls key={r.id} role={r} onAccounts={() => openOption('mqtt', r.id)}>{(c) => cardOf(r, c)}</BrokerCardControls> : cardOf(r);
   const cluster = editing?.type === 'pve-cluster' && editing.role ? pve?.clusters.find((c) => c.id === editing.role!.config.cluster) ?? null : null;
 
   return (
