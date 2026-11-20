@@ -66,16 +66,16 @@ export function StepSlider({ values, value, format, onChange }: { values: number
   );
 }
 
-export function Stepper({ value, onChange, min, max, step = 1, unit, label }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number; unit: string; label: string }) {
+export function Stepper({ value, onChange, min, max, step = 1, unit, label, disabled }: { value: number; onChange: (v: number) => void; min: number; max: number; step?: number; unit: string; label: string; disabled?: boolean }) {
   const set = (v: number) => onChange(Math.min(max, Math.max(min, Number((Math.round(v / step) * step).toFixed(4)))));
   const btn = 'inline-flex h-8 w-8 items-center justify-center bg-raised text-zinc-300 hover:text-white disabled:opacity-40';
   return (
     <span className="inline-flex items-center overflow-hidden rounded-md border border-line">
-      <button type="button" className={btn} aria-label={`${label} : moins`} disabled={value <= min} onClick={() => set(value - step)}>−</button>
-      <input className="h-8 w-16 border-x border-line bg-bg text-center text-sm tabular-nums text-zinc-100 outline-none" type="number" aria-label={label} min={min} max={max} step={step} value={value}
+      <button type="button" className={btn} aria-label={`${label} : moins`} disabled={disabled || value <= min} onClick={() => set(value - step)}>−</button>
+      <input disabled={disabled} className="h-8 w-16 border-x border-line bg-bg text-center text-sm tabular-nums text-zinc-100 outline-none" type="number" aria-label={label} min={min} max={max} step={step} value={value}
         onChange={(e) => set(Number(e.target.value))} />
       <span className="px-2 text-xs text-muted">{unit}</span>
-      <button type="button" className={btn} aria-label={`${label} : plus`} disabled={value >= max} onClick={() => set(value + step)}>+</button>
+      <button type="button" className={btn} aria-label={`${label} : plus`} disabled={disabled || value >= max} onClick={() => set(value + step)}>+</button>
     </span>
   );
 }
