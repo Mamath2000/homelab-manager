@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, useEffect, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -102,6 +102,13 @@ export function Tag({ children, wrap }: { children: ReactNode; wrap?: boolean })
   );
 }
 
+const FlatPanelContext = createContext(false);
+
+// The first Panel inside is drawn without its frame: for a settings panel shown in a Modal, whose frame and title it takes.
+export function FlatPanels({ children }: { children: ReactNode }) {
+  return <FlatPanelContext.Provider value>{children}</FlatPanelContext.Provider>;
+}
+
 export function Panel({ title, icon: Icon, actions, children, className, bodyClassName }: {
   title?: ReactNode;
   icon?: LucideIcon;
@@ -110,6 +117,19 @@ export function Panel({ title, icon: Icon, actions, children, className, bodyCla
   className?: string;
   bodyClassName?: string;
 }) {
+  const flat = useContext(FlatPanelContext);
+  // in a window that already frames it (Paramètres): no frame nor title of its own, its actions kept; the panels it holds
+  // keep theirs
+  if (flat) {
+    return (
+      <FlatPanelContext.Provider value={false}>
+        <section className={clsx('min-w-0', className)}>
+          {actions && <div className="mb-3 flex flex-wrap items-center justify-end gap-2">{actions}</div>}
+          {children}
+        </section>
+      </FlatPanelContext.Provider>
+    );
+  }
   return (
     <section className={clsx('panel min-w-0', className)}>
       {title && (
