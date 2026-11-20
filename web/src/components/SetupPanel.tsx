@@ -37,10 +37,12 @@ export function SetupStatus({ host, onOpen }: { host: Host; onOpen: () => void }
   if (!host.capabilities.includes('setup')) return <>—</>;
   const drift = host.setup?.drift ?? 0;
   return (
-    <button onClick={onOpen} className="inline-flex items-center gap-1.5 hover:underline" title="Ouvrir la standardisation">
-      {host.setup && drift > 0 && <Wand2 className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />}
-      {!host.setup ? <span className="text-muted">non vérifié</span> : drift ? <span className="text-amber-300">{driftLabel(drift)}</span> : <span className="text-emerald-400">conforme</span>}
-      {hasNewSshKey(host) && <span className="inline-flex items-center gap-1 text-amber-300"><KeyRound className="h-3.5 w-3.5" aria-hidden="true" />nouvelle clé SSH</span>}
+    <button onClick={onOpen} className="flex flex-col items-start hover:underline" title="Ouvrir la standardisation">
+      <span className="inline-flex items-center gap-1.5">
+        {host.setup && drift > 0 && <Wand2 className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />}
+        {!host.setup ? <span className="text-muted">non vérifié</span> : drift ? <span className="text-amber-300">{driftLabel(drift)}</span> : <span className="text-emerald-400">conforme</span>}
+      </span>
+      {hasNewSshKey(host) && <span className="inline-flex items-center gap-1 text-xs text-amber-300"><KeyRound className="h-3.5 w-3.5" aria-hidden="true" />nouvelle clé SSH</span>}
     </button>
   );
 }

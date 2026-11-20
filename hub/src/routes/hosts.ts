@@ -386,7 +386,7 @@ export function registerHostRoutes(app: FastifyInstance) {
   // Journals of the containers of the host (homelab#346, #347), on or off: they go to the log server of the host. Admins
   // only (profiles.ts), with a passkey: turning it on restarts Docker on the host when its daemon.json changes. recreate:
   // the stacks created again in the same job, so that their containers send (the others once recreated).
-  app.put<{ Params: { id: string }; Body: { enabled: boolean; recreate?: string[] } }>(
+  app.put<{ Params: { id: string }; Body: { enabled: boolean; recreate?: string[]; ignore?: string[] } }>(
     '/api/hosts/:id/docker-logs',
     {
       schema: {
@@ -394,7 +394,12 @@ export function registerHostRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['enabled'],
           additionalProperties: false,
-          properties: { enabled: { type: 'boolean' }, recreate: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: STACK_RE.source } } },
+          properties: {
+            enabled: { type: 'boolean' },
+            recreate: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: STACK_RE.source } },
+            // stacks left out of the journals on purpose (not recreated, not « to recreate » afterwards)
+            ignore: { type: 'array', maxItems: 100, uniqueItems: true, items: { type: 'string', pattern: STACK_RE.source } },
+          },
         },
       },
     },
@@ -416,6 +421,11 @@ export function registerHostRoutes(app: FastifyInstance) {
       }
       try {
         const job = await setDockerLogs(host, enabled, recreate);
+        if (enabled) {
+          const ignore = (req.body.ignore ?? []).filter((st) => findStack(host, st) && !recreate.includes(st));
+          if (ignore.length) await hosts.updateOne({ _id: host._id }, { $addToSet: { logIgnoredStacks: { $each: ignore } } });
+          if (recreate.length) await hosts.updateOne({ _id: host._id }, { $pull: { logIgnoredStacks: { $in: recreate } } });
+        }
         req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: { enabled, ...(recreate.length ? { recreate } : {}) } };
         const updated = await hosts.findOne({ _id: host._id });
         if (updated) publish('host', hostDto(updated));
@@ -555,6 +565,33 @@ export function registerHostRoutes(app: FastifyInstance) {
         return agentError(reply, err);
       }
       return reply.code(204).send();
+    },
+  );
+
+  // Leaves a stack out of the journals of the containers on purpose (or follows it again): only what the host card shows,
+  // « not followed » instead of « to recreate ». Nothing is changed on the host.
+  app.put<{ Params: { id: string; stack: string }; Body: { follow: boolean } }>(
+    '/api/hosts/:id/stacks/:stack/log-follow',
+    {
+      schema: {
+        params: stackParams,
+        body: { type: 'object', required: ['follow'], additionalProperties: false, properties: { follow: { type: 'boolean' } } },
+      },
+    },
+    async (req, reply) => {
+      const _id = parseId(req.params.id);
+      const host = _id && (await hosts.findOne({ _id }));
+      if (!host) return reply.code(404).send({ error: 'host not found' });
+      if (!host.capabilities?.includes('docker') || !findStack(host, req.params.stack)) {
+        return reply.code(404).send({ error: 'stack introuvable sur cet hôte' });
+      }
+      const update = req.body.follow ? { $pull: { logIgnoredStacks: req.params.stack } } : { $addToSet: { logIgnoredStacks: req.params.stack } };
+      const updated = await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' });
+      if (!updated) return reply.code(404).send({ error: 'host not found' });
+      req.auditNote = { target: { kind: 'host', id: req.params.id, name: host.name }, details: { stack: req.params.stack, follow: req.body.follow } };
+      const dto = hostDto(updated);
+      publish('host', dto);
+      return dto;
     },
   );
 

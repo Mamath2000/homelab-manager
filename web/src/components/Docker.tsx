@@ -1,12 +1,14 @@
 import { HostDockerLogs } from './LogHosts';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { ArrowUpCircle, Container, Play, RefreshCcw, RefreshCw, RotateCw, ScrollText, Square } from 'lucide-react';
-import type { DockerStack, Host, ImageUpdate, StackAction } from '../lib/api';
+import { ArrowUpCircle, Container, Eye, EyeOff, Play, RefreshCcw, RefreshCw, RotateCw, ScrollText, Square } from 'lucide-react';
+import { api, type DockerStack, type Host, type ImageUpdate, type StackAction } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { hostLogsPath } from '../lib/hostLogs';
 import { timeAgo } from '../lib/format';
-import { useRunJob } from '../lib/queries';
+import { keys, useRunJob } from '../lib/queries';
+import { useToast } from '../lib/toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { imageUpdateMeta, stackMeta, stackPath } from '../lib/status';
 import { Badge, Button, ConfirmModal, IconGroup, Panel, Tag } from './ui';
 
@@ -34,7 +36,7 @@ export function ImageUpdateBadge({ update, count, newer }: { update: ImageUpdate
   return (
     <span title={news ? 'Image épinglée par digest : une version plus récente est publiée sous son tag. Pour monter de version, changer le digest dans le compose (rien ne se met à jour tout seul).' : m.hint}>
       <Badge tone={news ? 'warn' : m.tone}>
-        {update === 'available' && count ? `${count} MAJ` : news ? 'Figée · nouvelle version' : m.label}
+        {update === 'available' && count ? `${count} MAJ` : news ? 'Figée · MAJ' : m.label}
       </Badge>
     </span>
   );
@@ -68,7 +70,45 @@ export function StackLogsBadge({ stack }: { stack: Pick<DockerStack, 'logs'> }) 
       </span>
     );
   }
+  if (stack.logs === 'ignored') {
+    return (
+      <span title="Journaux volontairement non suivis pour cette stack">
+        <Badge tone="neutral">Non suivis</Badge>
+      </span>
+    );
+  }
   return null;
+}
+
+// The badge of the journals of a stack, and (admins) the choice to leave it out on purpose, or to follow it again: a stack
+// the admin does not want in the journals is « not followed », not « to recreate ». Only what is shown, nothing on the host.
+function StackLogsCell({ host, stack }: { host: Host; stack: DockerStack }) {
+  const { canSettings } = useMe();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const toggle = stack.logs === 'recreate' ? { follow: false, icon: EyeOff, title: 'Ne pas suivre les journaux de cette stack (plus « à recréer »)' } : stack.logs === 'ignored' ? { follow: true, icon: Eye, title: 'Suivre de nouveau les journaux de cette stack' } : null;
+  const run = async (follow: boolean) => {
+    setBusy(true);
+    try {
+      await api.setStackLogFollow(host.id, stack.name, follow);
+      await qc.invalidateQueries({ queryKey: keys.hosts });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-1">
+      <StackLogsBadge stack={stack} />
+      {canSettings && toggle && (
+        <button type="button" disabled={busy} title={toggle.title} aria-label={toggle.title} onClick={() => void run(toggle.follow)} className="rounded p-0.5 text-zinc-500 hover:bg-raised hover:text-zinc-200 disabled:opacity-40">
+          <toggle.icon className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
+  );
 }
 
 // Buttons for a stack, or one of its services; only stopping asks for a confirmation.
@@ -184,9 +224,7 @@ export function StackActions({
 export function CheckImagesButton({ host, disabled, onStarted }: { host: Host; disabled?: boolean; onStarted?: (jobId: string) => void }) {
   const { canWrite } = useMe();
   const run = useRunJob();
-  // nothing to compare when every stack of the host is pinned by digest
-  const checkable = !host.docker?.stacks.length || host.docker.stacks.some((st) => st.update !== 'pinned');
-  if (!canWrite || !checkable) return null;
+  if (!canWrite) return null;
   return (
     <Button
       size="sm"
@@ -264,7 +302,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                 <div className="flex flex-wrap items-center gap-2">
                   <StackStatusBadge stack={st} />
                   {st.managed && <ImageUpdateBadge update={st.update} count={st.updates} newer={st.newer} />}
-                  {collecting && <StackLogsBadge stack={st} />}
+                  {collecting && <StackLogsCell host={host} stack={st} />}
                 </div>
                 {st.problems.length > 0 && <p className="break-words text-xs text-amber-300">{st.problems.join(' · ')}</p>}
                 {st.services.length > 0 && <ServiceTags services={st.services} wrap />}
@@ -294,7 +332,7 @@ export function DockerPanel({ host, running, onStarted }: { host: Host; running:
                   </td>
                   <td className="td"><StackStatusBadge stack={st} /></td>
                   <td className="td">{st.managed && <ImageUpdateBadge update={st.update} count={st.updates} newer={st.newer} />}</td>
-                  {collecting && <td className="td"><StackLogsBadge stack={st} /></td>}
+                  {collecting && <td className="td"><StackLogsCell host={host} stack={st} /></td>}
                   <td className="td hidden md:table-cell">
                     <ServiceTags services={st.services} />
                   </td>

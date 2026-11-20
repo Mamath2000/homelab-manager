@@ -119,6 +119,7 @@ export const SENSITIVE_ACTIONS = new Set([
   'DELETE /api/settings/logs/:role/hosts/:hostId',
   // journals of the containers of a host: restarts Docker there, sends them elsewhere (homelab#346)
   'PUT /api/hosts/:id/docker-logs',
+  'PUT /api/hosts/:id/stacks/:stack/log-follow',
   // the lines of an ESPHome device sent to the log server (homelab#352)
   'PUT /api/settings/esphome/logs',
   'PUT /api/hosts/:id/access-keys/ack',

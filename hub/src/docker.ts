@@ -49,11 +49,11 @@ export interface StackView extends Omit<DockerStack, 'services'> {
   // what needs attention: partial stack, unhealthy or restarting container
   problems: string[];
   // journals of the containers, while the collector is set up on the host (homelab#346): followed, every container sends;
-  // recreate, a container created before the log settings sends nothing until recreated; null: not set up, or no container
+  // recreate, a container created before the log settings sends nothing until recreated; ignored, left out on purpose; null: not set up, or no container
   logs: StackLogs;
 }
 
-export type StackLogs = 'followed' | 'recreate' | null;
+export type StackLogs = 'followed' | 'recreate' | 'ignored' | null;
 
 // Journals of the containers of the host (homelab#346, #347): turned on (they go to the log server of the host), and the
 // collector as the agent found it (null: not set up on the host). available: the agent can set it up.
@@ -77,8 +77,9 @@ const LOGGING_STATES = new Set(['running', 'restarting', 'paused']);
 
 // A stack sends its journals once every container of it that runs was created with the log settings of the collector. A
 // stopped stack has no state: recreating it would start it; started again as it is (up -d), it shows to recreate.
-export function stackLogs(st: Pick<DockerStack, 'services'>, collecting: boolean): StackLogs {
+export function stackLogs(st: Pick<DockerStack, 'services'>, collecting: boolean, ignored = false): StackLogs {
   if (!collecting) return null;
+  if (ignored) return 'ignored';
   const marks = st.services.flatMap((s) => s.containers.filter((c) => LOGGING_STATES.has(c.state)).map((c) => c.logFollowed)).filter((m) => m !== undefined);
   if (!marks.length) return null;
   return marks.every(Boolean) ? 'followed' : 'recreate';
@@ -129,6 +130,7 @@ export function stackProblems(st: { status: string; running: number; total: numb
   return out;
 }
 
+const ignoredLogs = (h: Pick<HostDoc, 'logIgnoredStacks'>, stack: string) => !!h.logIgnoredStacks?.includes(stack);
 export const isUnmanaged = (h: Pick<HostDoc, 'unmanagedStacks'>, stack: string) => !!h.unmanagedStacks?.includes(stack);
 
 export function dockerView(h: HostDoc): DockerView | null {
@@ -143,7 +145,7 @@ export function dockerView(h: HostDoc): DockerView | null {
     const updates = services.filter((s) => s.update === 'available' || s.update === 'recreate').length;
     // unmanaged: only the image updates (for information), nothing of the containers' state
     if (isUnmanaged(h, st.name)) {
-      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, newer, updates, problems: [], logs: stackLogs(st, collecting) };
+      return { ...st, managed: false, services: services.map((s) => ({ ...s, containers: [] })), running: 0, total: 0, update, newer, updates, problems: [], logs: stackLogs(st, collecting, ignoredLogs(h, st.name)) };
     }
     const containers = services.flatMap((s) => s.containers);
     const running = containers.filter((c) => c.state === 'running').length;
@@ -157,7 +159,7 @@ export function dockerView(h: HostDoc): DockerView | null {
       newer,
       updates,
       problems: [] as string[],
-      logs: stackLogs(st, collecting),
+      logs: stackLogs(st, collecting, ignoredLogs(h, st.name)),
     };
     view.problems = stackProblems(view);
     return view;

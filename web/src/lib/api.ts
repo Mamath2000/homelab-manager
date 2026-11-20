@@ -303,7 +303,7 @@ export interface DockerStack {
   problems: string[];
   // journals of the containers, while the collector is set up on the host (homelab#346): followed, every container
   // sends; recreate, a container created before sends nothing until recreated; null: not set up, or no container
-  logs: 'followed' | 'recreate' | null;
+  logs: 'followed' | 'recreate' | 'ignored' | null;
 }
 
 // The collector of the journals of the containers as the agent found it (homelab#346)
@@ -2161,7 +2161,10 @@ export const api = {
   logHosts: (role: string) => request<LogHosts>('GET', `/api/settings/logs/${encodeURIComponent(role)}/hosts`),
   addLogHost: (role: string, hostId: string) => request<{ jobId: string }>('POST', `/api/settings/logs/${encodeURIComponent(role)}/hosts`, { hostId }),
   // journals of the containers of a host, to its log server (homelab#347); recreate: stacks created again in the same job
-  setDockerLogs: (hostId: string, enabled: boolean, recreate: string[] = []) => request<{ jobId: string }>('PUT', `/api/hosts/${hostId}/docker-logs`, { enabled, ...(recreate.length ? { recreate } : {}) }),
+  setDockerLogs: (hostId: string, enabled: boolean, recreate: string[] = [], ignore: string[] = []) =>
+    request<{ jobId: string }>('PUT', `/api/hosts/${hostId}/docker-logs`, { enabled, ...(recreate.length ? { recreate } : {}), ...(ignore.length ? { ignore } : {}) }),
+  setStackLogFollow: (hostId: string, stack: string, follow: boolean) =>
+    request<Host>('PUT', `/api/hosts/${hostId}/stacks/${encodeURIComponent(stack)}/log-follow`, { follow }),
   removeLogHost: (role: string, hostId: string) => request<{ jobId: string | null; applied: boolean }>('DELETE', `/api/settings/logs/${encodeURIComponent(role)}/hosts/${hostId}`),
   logCutoffs: (role?: string) => request<{ cutoffs: LogCutoff[] }>('GET', `/api/logs/cutoffs?${logParams({ role })}`),
   logCutoffPreview: (sel: LogSelection) => request<{ cutoffs: LogCutoff[]; hosts: { hostname: string; count: number }[] }>('GET', `/api/logs/cutoffs?${logParams(sel, { preview: 'true' })}`),

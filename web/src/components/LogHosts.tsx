@@ -9,8 +9,9 @@ import { timeAgo } from '../lib/format';
 import { lanAddress } from '../lib/roles';
 import { keys, useHosts, useLogServers, useSites } from '../lib/queries';
 import { useToast } from '../lib/toast';
-import { Button, Checkbox, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot } from './ui';
+import { Button, Checkbox, ConfirmModal, Empty, IconGroup, Modal, Panel, Spinner, StatusDot } from './ui';
 import type { Tone } from '../lib/status';
+import type { IconAction } from './ui';
 
 // Rôles › Logs: the hosts that send their journals to each log server, one card per host, green while journals
 // arrive. Adding a host installs and configures rsyslog on it (option « Envoi des journaux » of the standardisation,
@@ -62,30 +63,33 @@ function dockerText(d: LogHostDocker) {
 
 const DOCKER_ICON: Record<LogHostDocker['state'], string> = { unavailable: 'text-zinc-600', off: 'text-zinc-500', pending: 'text-amber-400', ok: 'text-emerald-400', drift: 'text-amber-400', error: 'text-red-400', silent: 'text-amber-400' };
 
-// The journals of the containers of the host, as an icon next to the bin: crossed out = not sent, green = in place and
-// received, orange = set up but nothing received (or to set up again), red = error. The click acts: set up / set up again
-// when off or incomplete (drift / error), stop when in place. A silence alone is not a reason to set up again.
-function DockerButton({ h, silentHours, onEnable, onDisable }: { h: LogHost; silentHours: number; onEnable: () => void; onDisable: () => void }) {
+// Docker crossed out: the journals of the containers are not sent
+function DockerOffIcon({ className }: { className?: string }) {
+  return (
+    <span className="relative inline-flex">
+      <Container className={className} />
+      <span aria-hidden className="absolute left-1/2 top-1/2 h-[1.5px] w-5 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-current" />
+    </span>
+  );
+}
+
+// The journals of the containers of the host, as an action of the icons next to the bin: crossed out = not sent, green =
+// in place and received, orange = set up but nothing received (or to set up again), red = error. The click acts: set up /
+// set up again when off or incomplete (drift / error), stop when in place. A silence alone is not a reason to set up again.
+function dockerAction(h: LogHost, silentHours: number, onEnable: () => void, onDisable: () => void): IconAction {
   const d = h.docker!;
   const off = !d.enabled;
   const redo = d.enabled && (d.state === 'error' || d.state === 'drift');
   const why = !h.online ? 'hôte hors ligne' : h.running ? 'une tâche est en cours' : null;
-  const action = d.state === 'unavailable' ? null : d.state === 'pending' ? null : off ? "Cliquer pour envoyer aussi les journaux des conteneurs (redémarre Docker sur l'hôte)" : redo ? 'Cliquer pour refaire la mise en place' : "Cliquer pour arrêter l'envoi des journaux des conteneurs";
-  const text = [`Conteneurs : ${dockerText(d)}`, d.state === 'silent' ? silentText(silentHours) : null, d.state === 'drift' || d.state === 'error' ? d.detail : null, why, action].filter(Boolean).join(' — ');
-  const disabled = !!why || !action;
-  return (
-    <button
-      type="button"
-      onClick={off || redo ? onEnable : onDisable}
-      disabled={disabled}
-      title={text}
-      aria-label={text}
-      className={clsx('relative shrink-0 rounded p-1 hover:bg-raised disabled:cursor-default disabled:hover:bg-transparent', DOCKER_ICON[d.state], why && 'opacity-50')}
-    >
-      <Container className={clsx('h-3.5 w-3.5', d.state === 'pending' && 'animate-pulse')} />
-      {off && <span aria-hidden className="absolute left-1/2 top-1/2 h-[1.5px] w-[18px] -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded bg-current" />}
-    </button>
-  );
+  const action = d.state === 'unavailable' || d.state === 'pending' ? null : off ? "Cliquer pour envoyer aussi les journaux des conteneurs (redémarre Docker sur l'hôte)" : redo ? 'Cliquer pour refaire la mise en place' : "Cliquer pour arrêter l'envoi des journaux des conteneurs";
+  const title = [`Conteneurs : ${dockerText(d)}`, d.state === 'silent' ? silentText(silentHours) : null, d.state === 'drift' || d.state === 'error' ? d.detail : null, why, action].filter(Boolean).join(' — ');
+  return {
+    icon: off ? DockerOffIcon : Container,
+    title,
+    iconClass: DOCKER_ICON[d.state],
+    disabled: !!why || !action,
+    onClick: off || redo ? onEnable : onDisable,
+  };
 }
 
 // why a stack cannot be recreated with the setting up (null: it can)
@@ -105,7 +109,7 @@ function DockerLogsModal({ h, host, role, onClose }: { h: LogHost; host: Host | 
   const stacks = host?.docker?.stacks ?? [];
   const canRecreate = !!host?.capabilities.includes('docker_recreate');
   const offered = stacks.map((st) => ({ st, why: cannotRecreate(st, canRecreate) }));
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(offered.filter((x) => !x.why).map((x) => x.st.name)));
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(offered.filter((x) => !x.why && x.st.logs !== 'ignored').map((x) => x.st.name)));
   const [busy, setBusy] = useState(false);
   const state = host?.docker?.logs.state;
   // daemon.json in place: only the collector is set again
@@ -119,7 +123,10 @@ function DockerLogsModal({ h, host, role, onClose }: { h: LogHost; host: Host | 
   const confirm = async () => {
     setBusy(true);
     try {
-      await api.setDockerLogs(h.hostId, true, offered.filter((x) => !x.why && picked.has(x.st.name)).map((x) => x.st.name));
+      await api.setDockerLogs(h.hostId, true, offered.filter((x) => !x.why && picked.has(x.st.name)).map((x) => x.st.name),
+        // unticked: left out on purpose, no longer « to recreate » (a stack already followed has nothing to leave out)
+        offered.filter((x) => !x.why && !picked.has(x.st.name) && x.st.logs !== 'followed').map((x) => x.st.name),
+      );
       await Promise.all([qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] }), qc.invalidateQueries({ queryKey: keys.hosts })]);
       toast.success(`${h.name} : journaux des conteneurs en cours de mise en place`);
       onClose();
@@ -158,7 +165,7 @@ function DockerLogsModal({ h, host, role, onClose }: { h: LogHost; host: Host | 
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-muted">Une stack non recréée n'envoie rien jusqu'à sa recréation (bouton « Recréer » de la fiche de l'hôte).</p>
+            <p className="text-xs text-muted">Une stack décochée est marquée « non suivie » : elle n'est plus signalée « à recréer » (rien ne change sur l'hôte, elle n'envoie rien jusqu'à sa recréation).</p>
           </div>
         )}
       </div>
@@ -179,10 +186,12 @@ function HostCard({ h, site, silentHours, onRemove, onApply, applying, onDockerE
           <Link to={`/hosts/${h.hostId}`} className="truncate font-medium text-zinc-100 hover:underline" title={h.name}>{h.name}</Link>
         </div>
         <div className="flex shrink-0 items-center">
-          {h.docker && <DockerButton h={h} silentHours={silentHours} onEnable={onDockerEnable} onDisable={onDockerDisable} />}
-          <button type="button" onClick={onRemove} disabled={h.running} title="Ne plus gérer les journaux de cet hôte" aria-label={`Ne plus gérer les journaux de ${h.name}`} className="shrink-0 rounded p-1 text-zinc-500 hover:bg-raised hover:text-red-300 disabled:opacity-40">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <IconGroup
+            actions={[
+              ...(h.docker ? [dockerAction(h, silentHours, onDockerEnable, onDockerDisable)] : []),
+              { icon: Trash2, title: 'Ne plus gérer les journaux de cet hôte', disabled: h.running, danger: true, onClick: onRemove },
+            ]}
+          />
         </div>
       </div>
       <p className={clsx('mt-1.5 line-clamp-2 text-xs', meta.text)} title={h.lastAt ? new Date(h.lastAt).toLocaleString('fr-FR') : (h.detail ?? undefined)}>
@@ -358,7 +367,7 @@ function HostDockerLogsOf({ role, host }: { role: LogHubRole; host: Host }) {
   if (!h?.docker) return null;
   return (
     <>
-      <DockerButton h={h} silentHours={data!.silentHours} onEnable={() => setOn(true)} onDisable={() => setOff(true)} />
+      <IconGroup actions={[dockerAction(h, data!.silentHours, () => setOn(true), () => setOff(true))]} />
       {on && <DockerLogsModal h={h} host={host} role={role} onClose={() => setOn(false)} />}
       {off && <DockerDisableModal h={h} role={role} onClose={() => setOff(false)} onReapply={() => { setOff(false); setOn(true); }} />}
     </>

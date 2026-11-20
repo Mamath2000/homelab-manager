@@ -1,4 +1,4 @@
-import { createContext, Fragment, useContext, useEffect, useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, useEffect, useRef, useState, type ButtonHTMLAttributes, type ComponentType, type MouseEvent, type ReactNode } from 'react';
 import clsx from 'clsx';
 import { Check, Copy, Loader2, X, type LucideIcon } from 'lucide-react';
 import { toneBadge, type Tone } from '../lib/status';
@@ -45,12 +45,13 @@ export function Button({
 }
 
 // Joined icon-only buttons (actions of a list row): an action not possible stays shown, greyed.
-export type IconAction = { icon: LucideIcon; title: string; onClick?: (e: MouseEvent<HTMLButtonElement>) => void; disabled?: boolean; loading?: boolean; danger?: boolean };
+// iconClass: colour of the icon itself (a state), instead of the group's one
+export type IconAction = { icon: ComponentType<{ className?: string }>; title: string; onClick?: (e: MouseEvent<HTMLButtonElement>) => void; disabled?: boolean; loading?: boolean; danger?: boolean; iconClass?: string };
 
 export function IconGroup({ actions, className }: { actions: IconAction[]; className?: string }) {
   return (
     <span className={clsx('inline-flex divide-x divide-emerald-500/30 overflow-hidden rounded-md border border-emerald-500/40 bg-emerald-500/10', className)}>
-      {actions.map(({ icon: Icon, title, onClick, disabled, loading, danger }) => (
+      {actions.map(({ icon: Icon, title, onClick, disabled, loading, danger, iconClass }) => (
         <button
           key={title}
           type="button"
@@ -61,9 +62,10 @@ export function IconGroup({ actions, className }: { actions: IconAction[]; class
           className={clsx(
             'inline-flex h-10 w-10 items-center justify-center text-emerald-300 transition disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent md:h-7 md:w-8',
             danger ? 'hover:bg-red-500/20 hover:text-red-300' : 'hover:bg-emerald-500/20 hover:text-emerald-100',
+            iconClass && 'disabled:opacity-60',
           )}
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className={clsx('h-4 w-4', iconClass)} />}
         </button>
       ))}
     </span>
