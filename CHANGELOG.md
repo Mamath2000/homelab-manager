@@ -4,6 +4,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+## 1.4.1 - 2026-11-21
+
 ### Modifié
 
 - **Plus d'état « Figée » pour les images épinglées par digest** : le suivi « Figée · nouvelle version » (badge, avertissement du domaine Docker « digest à monter », « Mettre à jour » masqué) est retiré. Une image `image[:tag]@sha256:…` n'est plus comparée au registre : elle est « Inconnu » (non suivie), comme le dit [Docker](docs/docker.md#mises-à-jour-des-images) ; pour suivre une image, la déclarer par un tag. Champ `newer` et valeur `pinned` retirés de l'API Docker. (homelab#363)
