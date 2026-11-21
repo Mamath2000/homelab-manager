@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { ArrowLeft, ArrowUpCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldCheck, ShieldOff, Terminal, X } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowUpCircle, BatteryCharging, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Container, DatabaseBackup, Globe, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldCheck, ShieldOff, Terminal, Users, X } from 'lucide-react';
 import { FloatingAside } from '../components/FloatingAside';
 import { useAsideDocked } from '../lib/asideDocked';
 import { HostOptionsModal } from '../components/HostOptionsModal';
@@ -23,8 +23,11 @@ import { useToast } from '../lib/toast';
 import { HeaderExtra, HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Checkbox, ConfirmModal, Empty, Modal, Panel, Spinner, StatusDot, Tag } from '../components/ui';
 import { api, type Host, type InstallInfo, type Job } from '../lib/api';
+import type { LucideIcon } from 'lucide-react';
 import { dateTime, groupIps, jobTitle, timeAgo, uptime } from '../lib/format';
-import { keys, useBackups, useHost, useHostJobs, useRunJob, useUpdateHostCache } from '../lib/queries';
+import { keys, useAlertDays, useBackups, useHost, useHostJobs, useProbes, useRunJob, useStatus, useUpdateHostCache } from '../lib/queries';
+import { HostCard } from '../components/HostCard';
+import { aptInfo, backupsInfo, cardColumn, cardState, cardText, dockerInfo, healthInfo, mqttInfo, probesInfo, recentDays, sessionsInfo, upsInfo, useExpandedCards, type CardInfo, type CardKey } from '../lib/hostCards';
 import { useHosts, useSites, useTags } from '../lib/queries';
 import { filterHosts, hostMatchesSearch, parseHostFilter } from '../lib/hostFilters';
 import { HostBackups } from '../components/HostBackups';
@@ -285,6 +288,10 @@ function HostDetailPage({ id }: { id: string }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const hostLogs = useHostLogs(host);
   const backupsData = useBackups().data;
+  const { data: status } = useStatus();
+  const { data: hostProbes } = useProbes('host', id);
+  const { data: alertDays } = useAlertDays('host', id);
+  const cardsOpen = useExpandedCards();
   // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
   const backupsOn = !!backupsData && (backupsData.connected || backupsData.groups.length > 0 || backupsData.clusters.length > 0);
   const [deleting, setDeleting] = useState(false);
@@ -427,29 +434,48 @@ function HostDetailPage({ id }: { id: string }) {
     }
   };
 
-  // Ordered cards flow into balanced columns when there is enough room.
-  const blocks: ReactNode[] = [];
-  if (host.capabilities.includes('health')) blocks.push(<HealthPanel key="health" host={host} canManage={canManage} />);
-  if (host.ups) blocks.push(<UpsPanel key="ups" hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} />);
-  if (hasApt(host)) blocks.push(<PackagesPanel key="apt" host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} />);
-  if (host.docker) blocks.push(<DockerPanel key="docker" host={host} running={!!running} onStarted={setJobId} />);
+  // Cards in the order they are stacked; reduced by default (row of fixed height), opened in place on a click.
+  // On wide screens each one has its own column, so it is always found on the same side.
+  const cards: { key: CardKey; title: string; icon: LucideIcon; info: CardInfo; node: ReactNode }[] = [];
+  const days = (key: CardKey) => recentDays(alertDays?.days, key);
+  if (host.capabilities.includes('health')) cards.push({ key: 'health', title: 'Santé', icon: Activity, info: healthInfo(host), node: <HealthPanel host={host} canManage={canManage} /> });
+  if (host.ups) cards.push({ key: 'ups', title: 'Onduleur', icon: BatteryCharging, info: upsInfo(host), node: <UpsPanel hostId={host.id} ups={host.ups} canControl={!!host.capabilities?.includes('ups_control')} /> });
+  if (hasApt(host)) cards.push({ key: 'apt', title: 'Paquets à mettre à jour', icon: Package, info: aptInfo(host, days('apt')), node: <PackagesPanel host={host} upgrading={jobs?.find((j) => j.status === 'running' && j.action === 'apt_upgrade')} running={!!running} onStarted={setJobId} /> });
+  if (host.docker) cards.push({ key: 'docker', title: 'Docker', icon: Container, info: dockerInfo(host), node: <DockerPanel host={host} running={!!running} onStarted={setJobId} /> });
   const mqttBrokers = hostMqttBrokers(host);
-  if (mqttBrokers.length) blocks.push(<HostMqttPanel key="mqtt" roles={mqttBrokers} />);
-  blocks.push(<ProbesPanel key="probes" owner={{ kind: 'host', host }} />);
-  if (isWindows(host)) blocks.push(<SessionsPanel key="sessions" host={host} />);
+  if (mqttBrokers.length) cards.push({ key: 'mqtt', title: 'MQTT', icon: Radio, info: mqttInfo(host), node: <HostMqttPanel roles={mqttBrokers} /> });
+  // same rule as the panel: without probes, only those who can add one see it
+  if (canManage || hostProbes?.length) cards.push({ key: 'probes', title: 'Sondes & Services', icon: Globe, info: probesInfo(hostProbes), node: <ProbesPanel owner={{ kind: 'host', host }} /> });
+  if (isWindows(host)) cards.push({ key: 'sessions', title: 'Sessions', icon: Users, info: sessionsInfo(host), node: <SessionsPanel host={host} /> });
   else if (!hasApt(host) && !host.docker) {
-    blocks.push(
-      <Panel key="system" title="Système" icon={Package}>
-        <p className="text-sm text-muted">
-          {isHaos(host)
-            ? "Home Assistant OS : système, Core et applications se mettent à jour dans Home Assistant. L'agent tourne dans une application et décrit l'hôte ; sa sauvegarde Proxmox VE s'y rattache par l'adresse MAC."
-            : "Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi."}
-        </p>
-      </Panel>,
-    );
+    const text = isHaos(host)
+      ? "Home Assistant OS : système, Core et applications se mettent à jour dans Home Assistant. L'agent tourne dans une application et décrit l'hôte ; sa sauvegarde Proxmox VE s'y rattache par l'adresse MAC."
+      : "Pas de gestionnaire de paquets APT sur cet hôte : seul l'état du système et de Docker est suivi.";
+    cards.push({
+      key: 'system',
+      title: 'Système',
+      icon: Package,
+      info: { summary: isHaos(host) ? 'Mises à jour gérées dans Home Assistant (système, Core, applications)' : "Pas de gestionnaire de paquets APT : seul l'état du système est suivi" },
+      node: (
+        <Panel title="Système" icon={Package}>
+          <p className="text-sm text-muted">{text}</p>
+        </Panel>
+      ),
+    });
   }
   // Windows: only once the agent found the backup CLI set in the options of the host (homelab#208)
-  if ((backupsOn || !!host.pveLost) && (!isWindows(host) || host.capabilities.includes('backup:cli'))) blocks.push(<HostBackups key="backups" host={host} onStarted={setJobId} />);
+  if ((backupsOn || !!host.pveLost) && (!isWindows(host) || host.capabilities.includes('backup:cli'))) cards.push({ key: 'backups', title: 'Sauvegardes', icon: DatabaseBackup, info: backupsInfo(host, backupsData?.groups, days('backups')), node: <HostBackups host={host} onStarted={setJobId} /> });
+  const allOpen = cards.length > 0 && cards.every((c) => cardsOpen.open.includes(c.key));
+  const cardColumns = [0, 1].map((col) =>
+    cards.filter((c) => cardColumn[c.key] === col).map((c) => {
+      const state = cardState(status?.hosts[host.id], c.key);
+      return (
+        <HostCard key={c.key} title={c.title} icon={c.icon} state={state} info={c.info} text={cardText(state, c.info.summary)} expanded={cardsOpen.open.includes(c.key)} onToggle={() => cardsOpen.toggle(c.key)}>
+          {c.node}
+        </HostCard>
+      );
+    }),
+  );
 
   const hostNav = (
     <>
@@ -701,12 +727,16 @@ function HostDetailPage({ id }: { id: string }) {
             </Panel>
           )}
 
-          <div className="columns-1 gap-5 @xl:columns-2">
-            {blocks.map((block, index) => (
-              <div key={index} className="mb-5 inline-block w-full break-inside-avoid align-top">
-                {block}
-              </div>
-            ))}
+          {cards.length > 1 && (
+            <div className="mb-2 flex justify-end">
+              <Button size="sm" icon={allOpen ? ChevronsDownUp : ChevronsUpDown} onClick={() => cardsOpen.setAll(allOpen ? [] : cards.map((c) => c.key))}>
+                {allOpen ? 'Tout réduire' : 'Tout développer'}
+              </Button>
+            </div>
+          )}
+          {/* two fixed columns when there is room; narrow: the left one, then the right one */}
+          <div className="grid grid-cols-1 items-start gap-3 @xl:grid-cols-2">
+            {cardColumns.map((column, index) => column.length > 0 && <div key={index} className="flex min-w-0 flex-col gap-3 @xl:col-span-1">{column}</div>)}
           </div>
         </div>
 
