@@ -52,7 +52,7 @@ const (
 	daemonConfigPath = "/etc/docker/daemon.json"
 	// compose project of the collector: its own containers are not collected
 	logCollectorProject = "homelab-log-collector"
-	logCollectorImage   = "fluent/fluent-bit:5.1.5@sha256:2740f387f6e68fab66d28e4fa6a853387b9cab6ffb4cb78958f69bba4eb0e7b4"
+	logCollectorImage   = "fluent/fluent-bit:latest"
 	// SD-ID of the structured data of each line: the server names the fields <SD-ID>.<param>. Provisional: 32473 is the
 	// enterprise number of the documentation (RFC 5612), to replace by the IANA number of Homelab Manager.
 	logCollectSDID = "hlm@32473"

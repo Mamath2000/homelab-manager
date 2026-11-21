@@ -146,10 +146,7 @@ export function dockerStatus(h: HostDoc, ctx: Pick<Context, 'online'>): DomainRe
           ? check(st.name, st.name, 'alert', `${st.name} : ${st.problems.join(', ')}`)
           : st.updates > 0
             ? check(st.name, st.name, 'warn', `${st.name} : ${st.updates} image(s) à mettre à jour`)
-            : st.newer
-              ? // pinned by digest: never updated by itself, so the newer version is reported to be bumped by hand
-                check(st.name, st.name, 'warn', `${st.name} : ${st.services.filter((x) => x.newer).length} image(s) figée(s) avec une nouvelle version publiée (digest à monter)`)
-              : check(st.name, st.name, 'ok'),
+            : check(st.name, st.name, 'ok'),
       ),
   );
 }

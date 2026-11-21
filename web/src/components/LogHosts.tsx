@@ -359,6 +359,54 @@ function DockerDisableModal({ h, role, onClose, onReapply }: { h: LogHost; role:
   );
 }
 
+// why the collector of a host is not set again from the role (null: it is). Docker would restart: left to the card of the host.
+function cannotReapply(h: LogHost, host: Host | undefined) {
+  if (!h.docker?.enabled) return null;
+  if (!h.online) return 'hors ligne';
+  if (h.running || h.docker.state === 'pending') return 'une tâche est en cours';
+  if (h.docker.state === 'unavailable') return 'agent à mettre à jour';
+  if (host?.docker?.logs.state?.daemon !== 'ok') return 'Docker redémarrerait : depuis sa carte';
+  return null;
+}
+
+// Every collector of the role set again at once (homelab#363: a new image of the collector reaches the hosts): only the
+// collector is recreated, Docker never restarts, no stack is recreated.
+function CollectorsReapplyModal({ role, list, hosts, onClose }: { role: LogHubRole; list: LogHost[]; hosts: Host[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const rows = list.filter((h) => h.docker?.enabled).map((h) => ({ h, why: cannotReapply(h, hosts.find((x) => x.id === h.hostId)) }));
+  const targets = rows.filter((r) => !r.why).map((r) => r.h);
+  const confirm = async () => {
+    setBusy(true);
+    const res = await Promise.allSettled(targets.map((h) => api.setDockerLogs(h.hostId, true)));
+    const failed = res.flatMap((r, i) => (r.status === 'rejected' ? [`${targets[i].name} : ${(r.reason as Error).message}`] : []));
+    await Promise.all([qc.invalidateQueries({ queryKey: ['settings', 'logs', role.id] }), qc.invalidateQueries({ queryKey: keys.hosts })]);
+    if (failed.length) toast.error(failed.join(' · '));
+    if (targets.length > failed.length) toast.success(`${targets.length - failed.length} collecteur(s) en cours de remise en place`);
+    setBusy(false);
+    onClose();
+  };
+  return (
+    <ConfirmModal open onClose={onClose} onConfirm={() => void confirm()} title={`Réappliquer les collecteurs · ${role.name}`} confirmLabel={`Réappliquer (${targets.length})`} disabled={!targets.length} loading={busy}>
+      <div className="space-y-3">
+        <p>
+          Le collecteur (stack <span className="font-mono">homelab-log-collector</span>) est remis en place avec l'image prévue par l'agent, téléchargée
+          si l'hôte ne l'a pas. Docker ne redémarre pas, aucune stack n'est recréée.
+        </p>
+        <ul className="max-h-[40vh] space-y-1 overflow-y-auto">
+          {rows.map(({ h, why }) => (
+            <li key={h.hostId} className={clsx('flex items-center gap-3 rounded-md border border-line px-3 py-1.5', why && 'opacity-50')}>
+              <span className="min-w-0 truncate font-medium text-zinc-100">{h.name}</span>
+              {why && <span className="ml-auto shrink-0 text-xs text-muted">{why}</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </ConfirmModal>
+  );
+}
+
 function ServerPanel({ role }: { role: LogHubRole }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -373,6 +421,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
   const [dockerOn, setDockerOn] = useState<LogHost | null>(null);
   const [dockerOff, setDockerOff] = useState<LogHost | null>(null);
   const [adding, setAdding] = useState(false);
+  const [reapplying, setReapplying] = useState(false);
   const [removing, setRemoving] = useState<LogHost | null>(null);
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
@@ -408,7 +457,16 @@ function ServerPanel({ role }: { role: LogHubRole }) {
     <Panel
       title={role.name}
       icon={ScrollText}
-      actions={<Button size="sm" icon={Plus} onClick={() => setAdding(true)} disabled={!data}>Ajouter des hôtes</Button>}
+      actions={
+        <>
+          {list.some((h) => h.docker?.enabled) && (
+            <Button size="sm" icon={RefreshCw} onClick={() => setReapplying(true)} title="Remettre en place le collecteur des conteneurs sur tous les hôtes (sans redémarrer Docker)">
+              Réappliquer les collecteurs
+            </Button>
+          )}
+          <Button size="sm" icon={Plus} onClick={() => setAdding(true)} disabled={!data}>Ajouter des hôtes</Button>
+        </>
+      }
     >
       <div className="space-y-3 text-sm">
         <p className="text-xs text-muted">
@@ -431,6 +489,7 @@ function ServerPanel({ role }: { role: LogHubRole }) {
         )}
       </div>
       {adding && data && <AddHostModal role={role} listed={list} onClose={() => setAdding(false)} />}
+      {reapplying && <CollectorsReapplyModal role={role} list={list} hosts={allHosts} onClose={() => setReapplying(false)} />}
       <ConfirmModal open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => void remove()} title="Arrêter l'envoi des journaux" confirmLabel="Arrêter" danger loading={busy}>
         <b>{removing?.name}</b> n'enverra plus ses journaux : l'agent retire <code>/etc/rsyslog.d/90-homelab.conf</code> et redémarre rsyslog (le paquet reste
         installé). Ce que le serveur a déjà reçu est gardé.

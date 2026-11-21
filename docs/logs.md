@@ -67,6 +67,8 @@ Le vert d'une carte ne compte que les journaux de l'hôte : les lignes de ses co
 
 **Réappliquer** (orange ou rouge) remet le collecteur en place et propose de recréer des stacks ; l'icône d'arrêt coupe l'envoi des conteneurs seul. La **corbeille** de la carte arrête les deux.
 
+**Réappliquer les collecteurs** (en-tête du rôle, dès qu'un hôte envoie ses conteneurs) remet en place le collecteur de tous les hôtes d'un coup, par exemple quand une version de l'agent change son image : la confirmation liste les hôtes. Docker ne redémarre pas et aucune stack n'est recréée ; un hôte hors ligne, occupé, ou dont `daemon.json` est à réappliquer (Docker redémarrerait) est écarté et se traite depuis sa carte. Le collecteur suit `fluent/fluent-bit:latest` : ses nouvelles versions passent ensuite par **Mettre à jour**, comme toute stack.
+
 Les émetteurs que le hub ne connaît pas sont listés sous les cartes.
 
 ## Journaux des conteneurs Docker
@@ -81,7 +83,7 @@ Prérequis : un agent qui annonce la capacité `docker_log_collect` (Docker et s
 
 1. vérifie que le serveur accepte la connexion (sinon rien n'est modifié) ;
 2. fusionne `/etc/docker/daemon.json` : pilote `json-file`, rotation `10m` × 3 sauf réglage existant, labels Compose (`com.docker.compose.project`, `com.docker.compose.service`) recopiés dans chaque ligne ; les `log-opts` inconnues de `json-file` sont retirées (affichées dans la tâche), les autres clés gardées. Le fichier est validé par `dockerd --validate`, puis **Docker redémarre** (tous les conteneurs de l'hôte, y compris ceux des stacks non managées et ceux lancés hors Compose). Fichier déjà conforme : pas de redémarrage ;
-3. lance le collecteur : stack `homelab-log-collector`, image `fluent/fluent-bit` épinglée par empreinte, fichiers dans `/var/lib/homelab-agent/log-collector` ;
+3. lance le collecteur : stack `homelab-log-collector`, image `fluent/fluent-bit:latest` (suivie et mise à jour comme toute stack, **Mettre à jour**), fichiers dans `/var/lib/homelab-agent/log-collector` ;
 4. recrée les stacks cochées (`docker compose up -d --force-recreate`).
 
 Une étape qui échoue remet `daemon.json` et le collecteur dans leur état d'avant. Une stack qui ne se recrée pas n'annule pas le reste : la tâche est en échec et la nomme.

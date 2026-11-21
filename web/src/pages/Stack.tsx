@@ -76,7 +76,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
           <article key={s.name} className="min-w-0 space-y-3 p-4">
             <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="min-w-0 flex-1 font-medium text-zinc-100"><ServiceName service={s} /></div>
-              <ImageUpdateBadge update={s.update} newer={s.newer} />
+              <ImageUpdateBadge update={s.update} />
             </div>
             <p className="truncate font-mono text-xs text-zinc-300" title={s.image || '—'}>{s.image || '—'}</p>
             {s.update === 'available' && (
@@ -143,7 +143,7 @@ function ServicesTab({ host, stack, running, onStarted }: { host: Host; stack: D
                 )}
               </td>
               <td className="td">
-                <ImageUpdateBadge update={s.update} newer={s.newer} />
+                <ImageUpdateBadge update={s.update} />
                 {s.checkError && s.update === 'unknown' && <p className="mt-0.5 text-[11px] text-muted">{s.checkError}</p>}
               </td>
               <td className="td">
@@ -346,7 +346,7 @@ export function Stack() {
     <>
       <HeaderTitle icon={Container} title={stack.name}>
         <StackStatusBadge stack={stack} />
-        {stack.managed && <ImageUpdateBadge update={stack.update} count={stack.updates} newer={stack.newer} />}
+        {stack.managed && <ImageUpdateBadge update={stack.update} count={stack.updates} />}
         <Link to={`/hosts/${host.id}`}><Tag>{host.name}</Tag></Link>
         {!host.online && <Badge tone="bad">hôte hors ligne</Badge>}
       </HeaderTitle>

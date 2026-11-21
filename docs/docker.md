@@ -55,6 +55,8 @@ Non vérifiables :
 - les images construites sur l'hôte et absentes de tout registre ;
 - les registres privés dont les identifiants passent par un *credential helper*.
 
+Pour qu'une image soit suivie, la déclarer par un **tag** : `latest`, ou la majeure quand une montée de majeure demande une étape à la main (`mongo:8`). Une image épinglée par digest n'est jamais signalée et **Mettre à jour** ne la change pas : le compose fixe la version (homelab#363).
+
 ![Page d'une stack](./img/docker-stack.png)
 
 ## Actions
