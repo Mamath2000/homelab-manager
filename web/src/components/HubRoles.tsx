@@ -1236,7 +1236,8 @@ export function EsphomeWizard({ role, onClose }: { role: EsphomeHubRole | null; 
   const check = tested && tested.brokerId === form.brokerId ? tested.check : null;
   const online = check?.level === 'ok' || (!!role && role.config.brokerId === form.brokerId);
   const ok = siteOk && brokerOk && hoursOk && online;
-  const [sited, brokered, configured, summary] = stepStates([siteOk, brokerOk, hoursOk, online]);
+  // the summary (step 4) is the one to do once the three others are done (also when editing: the window opens on it); it is never checked
+  const [sited, brokered, configured, summary] = stepStates([siteOk, brokerOk, hoursOk, false]);
 
   const recheck = async () => {
     if (!broker) return;

@@ -257,7 +257,21 @@ export function registerRoleRoutes(app: FastifyInstance) {
     ]);
     const byId = new Map<string, Pick<HostDoc, 'name' | 'info'>>([...carriers, ...boxes.map((e) => ({ _id: e._id, name: e.name, info: { ips: e.ip ? [e.ip] : [] } as unknown as HostDoc['info'] }))].map((h) => [h._id.toHexString(), h]));
     const uses = await Promise.all(list.map((r) => defOf(r.type).uses(r._id)));
-    return { roles: list.map((r, i) => ({ ...roleView(r, r.carrier.kind === 'hub' ? null : byId.get(r.carrier.id.toHexString()) ?? null), uses: uses[i] })) };
+    // ESPHome: the equipments of the broker of the role (chosen in its inventory)
+    const esphomeCounts = new Map(
+      await Promise.all(
+        list.flatMap((r) =>
+          r.type === 'esphome' ? [equipments.countDocuments({ source: 'esphome', externalId: { $regex: `^${r.config.brokerId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/` } }).then((n) => [r._id, n] as const)] : [],
+        ),
+      ),
+    );
+    return {
+      roles: list.map((r, i) => {
+        const view = roleView(r, r.carrier.kind === 'hub' ? null : byId.get(r.carrier.id.toHexString()) ?? null);
+        const n = esphomeCounts.get(r._id);
+        return { ...view, ...(n !== undefined ? { summary: `${n} équipement${n > 1 ? 's' : ''}` } : {}), uses: uses[i] };
+      }),
+    };
   });
 
   app.post<{ Body: { type: DeclaredType; carrier: CarrierBody; name: string; config: ConfigBody } }>('/api/roles', { schema: { body: createBody } }, async (req, reply) => {

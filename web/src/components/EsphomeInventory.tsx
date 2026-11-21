@@ -126,7 +126,7 @@ function SubDevices({ d }: { d: EsphomeDevice }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [removing, setRemoving] = useState<{ id: string; name: string; equipmentId: string } | null>(null);
-  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments })]);
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments }), qc.invalidateQueries({ queryKey: keys.roles })]);
   const make = async (id: string) => {
     setBusy(id);
     try {
@@ -295,7 +295,7 @@ function AddDevicesModal({ b, onClose }: { b: EsphomeRoleView; onClose: () => vo
     const results = await Promise.allSettled(
       targets.map((d) => api.createEsphomeEquipments({ key: d.key, devices: [], ...(link[d.key] ? { equipmentId: link[d.key] } : { name: d.name ?? d.uniqueId }) })),
     );
-    await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments })]);
+    await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments }), qc.invalidateQueries({ queryKey: keys.roles })]);
     const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [`${targets[i].name ?? targets[i].uniqueId} : ${(r.reason as Error).message}`] : []));
     const ok = targets.length - failed.length;
     if (ok) toast.success(`${ok} appareil${ok > 1 ? 's' : ''} ajouté${ok > 1 ? 's' : ''}`);
@@ -396,7 +396,7 @@ function GroupBar({ devices, canLog, levels, onClear }: { devices: EsphomeDevice
         }),
       );
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), ...(action === 'remove' ? [qc.invalidateQueries({ queryKey: keys.equipments })] : [])]);
+      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), ...(action === 'remove' ? [qc.invalidateQueries({ queryKey: keys.equipments }), qc.invalidateQueries({ queryKey: keys.roles })] : [])]);
       const ok = results.length - failed.length;
       if (ok) toast.success(action === 'level' ? `Niveau ${level} demandé à ${ok} appareil${ok > 1 ? 's' : ''}` : `${label[action]} : ${ok} appareil${ok > 1 ? 's' : ''}`);
       if (failed.length) toast.error(`${failed.length} échec${failed.length > 1 ? 's' : ''} : ${(failed[0].reason as Error).message}`);
@@ -463,7 +463,7 @@ function BrokerDevices({ b, canLog, levels, defaultLevel }: { b: EsphomeRoleView
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
-      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments })]);
+      await Promise.all([qc.invalidateQueries({ queryKey: QUERY }), qc.invalidateQueries({ queryKey: keys.equipments }), qc.invalidateQueries({ queryKey: keys.roles })]);
       setRemoveBusy(false);
     }
   };
