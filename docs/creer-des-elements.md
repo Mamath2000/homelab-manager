@@ -35,7 +35,7 @@ Les tags se créent dans **Paramètres › Tags** ou sur place, depuis la fiche 
 
 Selon la machine, d'autres onglets proposent la bonne méthode : **Home Assistant OS** (application), **Unraid**, **Windows**, WSL2. Sur Proxmox VE, l'agent peut s'installer dans un CT ou un nœud **depuis l'inventaire**, sans rien copier ([Proxmox VE](proxmox-ve.md#installer-lagent-depuis-linventaire)).
 
-Ensuite, l'engrenage **Options** règle l'identité, l'itinérance (poste qui s'absente), les mises à jour de sécurité automatiques, le niveau de détail dans Home Assistant, et propose une nouvelle commande d'installation, la révocation de l'agent et la suppression.
+Ensuite, l'engrenage **Options** règle l'identité, l'itinérance (poste qui s'absente), les mises à jour de sécurité automatiques, et propose une nouvelle commande d'installation, la révocation de l'agent et la suppression.
 
 ### Mises à jour de sécurité automatiques
 
@@ -79,8 +79,9 @@ Un rôle est une **fonction du hub portée par un hôte**. **Paramètres › Rô
 | **PBS principal** | suivre les sauvegardes du Proxmox Backup Server | un hôte avec agent portant le PBS (installé ou en conteneur) |
 | **PBS hors site** | copier des sauvegardes choisies vers un PBS distant | le PBS principal d'abord |
 | **Cluster Proxmox VE** | inventaire des VM et CT, jobs vzdump, rattachement des sauvegardes | un nœud avec agent |
-| **Broker MQTT** | sondes MQTT, pont Home Assistant | un hôte avec agent où le broker écoute (détecté, à déclarer d'un clic) |
+| **Broker MQTT** | sondes MQTT, rôles Home Assistant et ESPHome | un hôte avec agent où le broker écoute (détecté, à déclarer d'un clic) |
 | **Contrôleur Omada** | équipements synchronisés, sondes VPN | un hôte (Docker) ou un équipement avec adresse IP |
+| **Home Assistant** | publier tout le homelab ou un site dans un Home Assistant (découverte MQTT) | un broker MQTT déclaré, celui de ce Home Assistant (un rôle par broker) |
 
 Les jetons (PBS, Proxmox VE) ne se copient jamais à la main : **l'agent** de l'hôte les crée, avec des droits minimum, et le secret n'est jamais affiché. Un rôle utilisé par une sonde ne se supprime pas tant que la sonde existe.
 

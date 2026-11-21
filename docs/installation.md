@@ -178,7 +178,7 @@ Par défaut, l'agent joint le hub à l'adresse de **Paramètres → Agent → UR
 
 Le réseau est choisi **par agent, à la création**, et ne se change pas ensuite : pour passer un hôte d'un réseau à l'autre, le supprimer et le réinstaller. La nouvelle commande d'installation d'un hôte existant (**Options** › **Agent**) garde son réseau ; la fiche et la liste affichent un badge **Tailscale**. Le certificat du hub ne change pas : l'agent épingle sa clé, pas son nom.
 
-Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée) et au niveau *Aucun* dans [Home Assistant](home-assistant.md#niveau-de-détail) (non publié). Les deux restent modifiables sur la fiche de l'hôte.
+Un hôte du réseau Tailscale est créé **non géré** (aucune option de [standardisation](standardisation.md) appliquée ni vérifiée), modifiable sur la fiche de l'hôte. Comme tout hôte, il est publié par les [rôles Home Assistant](home-assistant.md#rôles-home-assistant) dont il est dans le périmètre.
 
 #### Hub dans Docker : sidecar Tailscale
 

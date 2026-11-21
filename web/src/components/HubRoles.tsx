@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Save, ScrollText, ShieldCheck, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, type BrokerScheme, type Equipment, type EsphomeHubRole, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
+import { api, type BrokerScheme, type Equipment, type EsphomeHubRole, type HaHubRole, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles, useSites } from '../lib/queries';
 import { ROLE_TYPES, SINGLE_ROLES, lanAddress, siteRoleName, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
@@ -20,6 +20,7 @@ import { ClusterModal } from './PveSettings';
 import { Badge, Button, ConfirmModal, CopyField, Modal, Spinner } from './ui';
 import { EsphomeInventory } from './EsphomeInventory';
 import { HomeAssistantPanel } from './HomeAssistantPanel';
+import { haQueryKey } from '../lib/haDetail';
 import { LogHostsSettings } from './LogHosts';
 import { BrokerCardControls, MqttAccountsModal, type BrokerCardSlots } from './MqttSecurity';
 import { OmadaInventory } from './OmadaInventory';
@@ -1372,6 +1373,217 @@ export function EsphomeWizard({ role, onClose }: { role: EsphomeHubRole | null; 
   );
 }
 
+interface HaForm {
+  name: string;
+  brokerId: string;
+  mode: 'full' | 'site';
+  siteId: string;
+  topic: string;
+  discoveryPrefix: string;
+  publicUrl: string;
+}
+
+const HA_TOPIC = /^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/;
+const HA_URL = /^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/;
+
+// Declares a Home Assistant role, or edits one: the same dialog (homelab#361). Carried by the hub, one per broker. Five
+// steps: the name, the broker its Home Assistant is connected to (MQTT integration), the scope (the whole homelab or one
+// site), the topics and the link of the devices, and the test of the broker. The level of detail is then set from
+// « Publication » on its card.
+export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null; onClose: () => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { data: roles = [] } = useRoles();
+  const { data: sites = [] } = useSites();
+  const [initial] = useState<HaForm>(() => ({
+    name: role?.name ?? '',
+    brokerId: role?.config.brokerId ?? '',
+    mode: role?.config.mode ?? 'full',
+    siteId: role?.config.siteId ?? '',
+    topic: role?.config.topic ?? 'homelab-manager',
+    discoveryPrefix: role?.config.discoveryPrefix ?? 'homeassistant',
+    publicUrl: role?.config.publicUrl ?? '',
+  }));
+  const [form, setForm] = useState<HaForm>(initial);
+  const [busy, setBusy] = useState<'save' | 'test' | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
+  const autoName = (f: Pick<HaForm, 'mode' | 'siteId'>) => (f.mode === 'site' && f.siteId ? `Home Assistant — ${siteName(f.siteId)}` : 'Home Assistant');
+  // the name follows the scope while it is the one given by default (or empty)
+  const setScope = (patch: Partial<Pick<HaForm, 'mode' | 'siteId'>>) => {
+    const next = { ...form, ...patch };
+    setForm({ ...next, name: !form.name.trim() || form.name === autoName(form) ? autoName(next) : form.name });
+  };
+  const name = form.name.trim() || autoName(form);
+  // the other Home Assistant roles: a broker each
+  const others = roles.filter((r): r is HaHubRole => r.type === 'home-assistant' && r.id !== role?.id);
+  const brokerOwner = (id: string) => others.find((r) => r.config.brokerId === id);
+  const brokers = roles.filter((r): r is MqttHubRole => r.type === 'mqtt-broker');
+  const broker = brokers.find((b) => b.id === form.brokerId);
+
+  const brokerOk = !!broker && !brokerOwner(broker.id);
+  const scopeOk = form.mode === 'full' || (!!form.siteId && sites.some((s) => s.id === form.siteId));
+  const topicsOk = HA_TOPIC.test(form.topic) && HA_TOPIC.test(form.discoveryPrefix) && (!form.publicUrl.trim() || HA_URL.test(form.publicUrl.trim()));
+  // the broker must answer to the hub: tested here, and again by the hub when it is saved. An edit that keeps its broker is
+  // not tested again.
+  const [tested, setTested] = useState<{ brokerId: string; check: CheckState } | null>(null);
+  const check = tested && tested.brokerId === form.brokerId ? tested.check : null;
+  const online = check?.level === 'ok' || (!!role && role.config.brokerId === form.brokerId);
+  const ok = brokerOk && scopeOk && topicsOk && online;
+  const [named, brokered, scoped, topics, testedStep] = stepStates([!!name, brokerOk, scopeOk, topicsOk, online]);
+  // what moves the devices: another broker or other prefixes take them out of the Home Assistant of before
+  const moves = !!role && (role.config.brokerId !== form.brokerId || role.config.topic !== form.topic || role.config.discoveryPrefix !== form.discoveryPrefix);
+
+  const runTest = async () => {
+    if (!broker) return;
+    setBusy('test');
+    try {
+      const r = await api.testHomeAssistant(broker.id);
+      setTested({ brokerId: broker.id, check: r.ok ? { level: 'ok', title: 'Connexion réussie', detail: broker.url } : { level: 'error', title: 'Broker injoignable', detail: r.error } });
+    } catch (err) {
+      setTested({ brokerId: broker.id, check: { level: 'error', title: 'Test impossible', detail: (err as Error).message } });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const save = async () => {
+    setBusy('save');
+    try {
+      const body = {
+        name,
+        brokerId: form.brokerId,
+        mode: form.mode,
+        ...(form.mode === 'site' ? { siteId: form.siteId } : {}),
+        topic: form.topic,
+        discoveryPrefix: form.discoveryPrefix,
+        publicUrl: form.publicUrl.trim(),
+      };
+      const saved = role ? await api.saveHomeAssistant(role.id, body) : await api.declareHomeAssistant(body);
+      qc.setQueryData(haQueryKey(saved.id), saved);
+      await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: ['settings', 'homeassistant'] })]);
+      toast.success(role ? `Rôle ${name} modifié` : `Rôle ${name} déclaré : publication dans Home Assistant`);
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <Modal
+        open
+        onClose={requestClose}
+        wide="screen"
+        wider
+        fixed
+        title={role ? `Home Assistant · ${role.name}` : 'Nouveau rôle Home Assistant'}
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy !== null} onClick={requestClose}>Annuler</Button>
+            <Button variant="primary" icon={Save} loading={busy === 'save'} disabled={busy !== null || !ok} onClick={() => void save()}>Enregistrer</Button>
+          </>
+        }
+      >
+        <Steps fill>
+          <Step n={1} title="Nom" state={named} intro="Le nom du rôle, affiché dans Rôles et sur le broker qu'il utilise.">
+            <label className="block">
+              <span className={field}>Nom du rôle</span>
+              <input className="input" maxLength={64} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={autoName(form)} />
+              <span className="mt-1 block text-xs text-muted">Vide : « Home Assistant » (tout le homelab) ou « Home Assistant — &lt;site&gt; ».</span>
+            </label>
+          </Step>
+          <Step
+            n={2}
+            title="Broker"
+            state={brokered}
+            intro={role ? "Changer de broker retire les appareils du Home Assistant d'avant et les publie sur le nouveau." : "Le broker MQTT auquel ce Home Assistant est relié (intégration MQTT). Un broker ne sert qu'à un rôle Home Assistant."}
+          >
+            {!brokers.length ? (
+              <p className="text-sm text-muted">Aucun broker MQTT déclaré : déclarer d'abord un rôle Broker MQTT.</p>
+            ) : (
+              <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+                {brokers.map((b) => {
+                  const owner = brokerOwner(b.id);
+                  return (
+                    <CarrierRow key={b.id} group="ha-broker" on={form.brokerId === b.id} disabled={!!owner} onPick={() => setForm({ ...form, brokerId: b.id })} title={b.name}>
+                      {owner ? `déjà utilisé par ${owner.name}` : `${b.carrier.name || 'porteur introuvable'} · ${b.url || 'adresse inconnue'} · ${b.config.username || 'anonyme'}`}
+                    </CarrierRow>
+                  );
+                })}
+              </div>
+            )}
+          </Step>
+          <Step n={3} title="Périmètre" state={scoped} intro="Ce que ce Home Assistant reçoit : tout le homelab, ou les hôtes et équipements d'un seul site (et leurs commandes).">
+            <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+              <CarrierRow group="ha-scope" on={form.mode === 'full'} onPick={() => setScope({ mode: 'full', siteId: '' })} title="Tout le homelab">
+                tous les sites ; regroupement par site possible dans la publication
+              </CarrierRow>
+              {sites.map((s) => (
+                <CarrierRow key={s.id} group="ha-scope" on={form.mode === 'site' && form.siteId === s.id} onPick={() => setScope({ mode: 'site', siteId: s.id })} title={`Site ${s.name}`}>
+                  seulement les hôtes et équipements de ce site
+                </CarrierRow>
+              ))}
+            </div>
+          </Step>
+          <Step n={4} title="Topics" state={topics} intro={moves ? 'Changer de préfixe retire les appareils publiés sous les anciens.' : 'Valeurs par défaut à confirmer.'}>
+            <label className="block">
+              <span className={field}>Préfixe de découverte</span>
+              <input className="input font-mono text-xs" value={form.discoveryPrefix} onChange={(e) => setForm({ ...form, discoveryPrefix: e.target.value.trim() })} spellCheck={false} />
+              <span className="mt-1 block text-xs text-muted">Celui de l'intégration MQTT de Home Assistant : homeassistant par défaut</span>
+            </label>
+            <label className="block">
+              <span className={field}>Préfixe des topics du hub</span>
+              <input className="input font-mono text-xs" value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value.trim() })} spellCheck={false} />
+              <span className="mt-1 block text-xs text-muted">États et commandes : préfixe/appareil/entité/state</span>
+            </label>
+            <label className="block">
+              <span className={field}>URL de l'interface (facultatif)</span>
+              <input className="input" value={form.publicUrl} onChange={(e) => setForm({ ...form, publicUrl: e.target.value })} placeholder="https://homelab-manager.example.org" />
+              <span className="mt-1 block text-xs text-muted">Lien « Visiter » des appareils dans Home Assistant ; vide : URL du hub (Paramètres &gt; Agent)</span>
+            </label>
+            {!topicsOk && <p className="text-xs text-amber-400">Préfixe : lettres, chiffres, _ et -, niveaux séparés par / ; URL en http(s)://.</p>}
+          </Step>
+          <Step
+            n={5}
+            title="Test"
+            state={testedStep}
+            intro="Le hub se connecte au broker avec le compte du rôle Broker MQTT ; l'enregistrement démarre la publication."
+            footer={
+              <Button className="w-full" variant={testedStep === 'active' ? 'primary' : 'secondary'} icon={Plug} loading={busy === 'test'} disabled={busy !== null || !broker} onClick={() => void runTest()}>
+                {check ? 'Tester à nouveau' : 'Tester le broker'}
+              </Button>
+            }
+          >
+            <DetectedRows
+              rows={[
+                { label: 'Nom', value: name },
+                { label: 'Broker', value: broker ? `${broker.name}${broker.url ? ` · ${broker.url}` : ''}` : '', empty: 'non choisi (étape 2)' },
+                { label: 'Périmètre', value: form.mode === 'full' ? 'tout le homelab' : form.siteId ? `site ${siteName(form.siteId)}` : '', empty: 'site non choisi (étape 3)' },
+                { label: 'Découverte', value: `${form.discoveryPrefix}/…` },
+                { label: 'États', value: `${form.topic}/…` },
+              ]}
+            />
+            <CheckLine label="Broker MQTT" check={check} idle={broker ? (online ? 'inchangé' : 'à tester') : 'broker non choisi'} />
+            {moves && <p className="text-xs text-amber-300">Les appareils publiés seront retirés de l'ancien broker ou des anciens préfixes, puis publiés à nouveau.</p>}
+          </Step>
+        </Steps>
+      </Modal>
+      <ConfirmModal open={confirmDiscard} onClose={() => setConfirmDiscard(false)} onConfirm={onClose} title="Abandonner les modifications ?" confirmLabel="Abandonner" danger>
+        Les paramètres du rôle modifiés ne seront pas enregistrés.
+      </ConfirmModal>
+    </>
+  );
+}
+
 // Why a role of this type cannot be declared now (null: it can).
 // The management of the accounts of a broker (dynamic-security), as an icon beside its name: green when HLM runs it, grey
 // when it is only possible (or loaded but run outside HLM); nothing when unavailable.
@@ -1394,7 +1606,7 @@ function DynsecIcon({ role }: { role: MqttHubRole }) {
 function notNow(t: HubRoleType, roles: HubRole[]) {
   if (SINGLE_ROLES.includes(t) && roles.some((r) => r.type === t)) return 'déjà déclaré : un seul dans le homelab';
   if (t === 'pbs-offsite' && !roles.some((r) => r.type === 'pbs-primary')) return 'déclarer d’abord le PBS principal';
-  if (t === 'esphome' && !roles.some((r) => r.type === 'mqtt-broker')) return 'déclarer d’abord un broker MQTT';
+  if ((t === 'esphome' || t === 'home-assistant') && !roles.some((r) => r.type === 'mqtt-broker')) return 'déclarer d’abord un broker MQTT';
   return null;
 }
 
@@ -1423,6 +1635,7 @@ type Editing =
   | { type: 'omada-controller'; role: OmadaHubRole | null }
   | { type: 'log-server'; role: LogHubRole | null }
   | { type: 'esphome'; role: EsphomeHubRole | null }
+  | { type: 'home-assistant'; role: HaHubRole | null }
   | { type: 'pbs-primary' | 'pbs-offsite' };
 
 // Rôles: every role of the hub, declared, edited and removed here.
@@ -1456,6 +1669,10 @@ export function RolesSettings() {
       } else if (removing.type === 'esphome') {
         await api.deleteEsphome(removing.id);
         toast.success(`Rôle ${removing.name} supprimé`);
+      } else if (removing.type === 'home-assistant') {
+        await api.deleteHomeAssistant(removing.id);
+        toast.success(`Rôle ${removing.name} supprimé : appareils retirés de Home Assistant`);
+        if (page === 'homeassistant') closeOption();
       } else {
         await api.deleteRole(removing.id);
         toast.success(`Rôle ${removing.name} supprimé`);
@@ -1474,8 +1691,6 @@ export function RolesSettings() {
   const { page } = useParams();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const { data: ha } = useQuery({ queryKey: ['settings', 'homeassistant'], queryFn: api.homeAssistant, refetchOnWindowFocus: false });
-  const haBrokerId = ha?.brokerRoleId ?? null;
   const openOption = (id: string, roleId: string) => navigate(`/roles/${id}?role=${encodeURIComponent(roleId)}`);
   const closeOption = () => navigate('/roles', { replace: true });
   const optionRole = roles ? roleOfPage(page, params.get('role'), roles) : undefined;
@@ -1485,7 +1700,7 @@ export function RolesSettings() {
   }, [page, roles, optionRole]); // eslint-disable-line react-hooks/exhaustive-deps
   const optionTitle = (icon: React.ReactNode, label: string) => <span className="flex items-center gap-2">{icon}{label}{optionRole ? <span className="text-muted">· {optionRole.name}</span> : null}</span>;
   const edit = (r: HubRole) =>
-    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : r.type === 'esphome' ? { type: r.type, role: r } : { type: r.type });
+    setEditing(r.type === 'mqtt-broker' ? { type: r.type, role: r } : r.type === 'pve-cluster' ? { type: r.type, role: r } : r.type === 'omada-controller' ? { type: r.type, role: r } : r.type === 'log-server' ? { type: r.type, role: r } : r.type === 'esphome' ? { type: r.type, role: r } : r.type === 'home-assistant' ? { type: r.type, role: r } : { type: r.type });
   // the PBS are disconnected by their own window (what the disconnection does, then its report)
   const [disconnecting, setDisconnecting] = useState<'pbs-primary' | 'pbs-offsite' | null>(null);
   // the main PBS issues the tokens of the hosts: their regeneration at once starts from it (#205)
@@ -1521,6 +1736,8 @@ export function RolesSettings() {
   };
   // the site and the broker of the role of the hub, by name
   const esphomeTarget = (r: Extract<HubRole, { type: 'esphome' }>) => `${homelabSitesAll?.find((s) => s.id === r.config.siteId)?.name ?? r.config.siteId} · ${roles?.find((x) => x.id === r.config.brokerId)?.name ?? r.config.brokerId}`;
+  // the scope and the broker of a Home Assistant role, by name
+  const haTarget = (r: HaHubRole) => `${r.config.mode === 'site' && r.config.siteId ? `site ${homelabSitesAll?.find((s) => s.id === r.config.siteId)?.name ?? r.config.siteId}` : 'tout le homelab'} · ${roles?.find((x) => x.id === r.config.brokerId)?.name ?? r.config.brokerId}`;
   const dot: Record<string, string> = { ok: 'bg-emerald-500', warn: 'bg-amber-500', info: 'bg-sky-500', neutral: 'bg-zinc-500' };
   // one card per role: two a row at most (they share its width), a lone one takes all of it
   const cardOf = (r: HubRole, c?: BrokerCardSlots) => {
@@ -1541,6 +1758,8 @@ export function RolesSettings() {
         </div>
         {r.type === 'esphome' ? (
           <p className="mt-1.5 break-all text-xs text-muted">{esphomeTarget(r)}</p>
+        ) : r.type === 'home-assistant' ? (
+          <p className="mt-1.5 break-all text-xs text-muted">{haTarget(r)}</p>
         ) : (
           <p className="mt-1.5 break-all font-mono text-xs text-muted">{r.url || 'adresse inconnue'}</p>
         )}
@@ -1562,7 +1781,7 @@ export function RolesSettings() {
         {/* what the role unlocks: its options, opened in a window over this screen */}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-line pt-2.5 empty:hidden">
           {c?.buttons}
-          {rolePagesOf(r, haBrokerId).map((p) => (
+          {rolePagesOf(r).map((p) => (
             <Button key={p.id} size="sm" icon={p.icon} onClick={() => openOption(p.id, r.id)}>{p.action}</Button>
           ))}
         </div>
@@ -1580,8 +1799,9 @@ export function RolesSettings() {
           Ce que le hub peut faire grâce à un hôte du homelab : un broker MQTT est écouté par les sondes MQTT et peut servir à l'intégration Home Assistant ; le
           cluster Proxmox VE donne l'inventaire de ses nœuds, VM et CT, relie les hôtes à leur VM ou CT et leur rattache les sauvegardes vzdump ; le PBS principal
           reçoit les sauvegardes, le PBS hors site en copie chaque jour une sélection ; un contrôleur Omada ouvre au hub l'Open API du réseau d'un site ; un serveur
-          de logs reçoit les journaux des hôtes et ouvre la page Logs ; les rôles ESPHome, portés par le hub (un par site), découvrent les appareils ESPHome sur le broker choisi.
-          Les réglages d'un type de rôle (comptes MQTT, Home Assistant, inventaires…) s'ouvrent depuis les boutons de sa section. Un rôle utilisé ne peut pas être
+          de logs reçoit les journaux des hôtes et ouvre la page Logs ; les rôles ESPHome, portés par le hub (un par site), découvrent les appareils ESPHome sur le broker choisi ;
+          les rôles Home Assistant, portés par le hub (un par broker), publient tout le homelab ou un site dans le Home Assistant relié à leur broker.
+          Les réglages d'un type de rôle (comptes MQTT, publication Home Assistant, inventaires…) s'ouvrent depuis les boutons de sa section. Un rôle utilisé ne peut pas être
           supprimé, ni l'hôte ou l'équipement qui le porte.
         </p>
         <Button className="shrink-0 self-start" variant="primary" icon={Plus} onClick={() => setPicking(true)}>Déclarer un rôle</Button>
@@ -1633,9 +1853,9 @@ export function RolesSettings() {
       {rotating && <PbsRotateModal open onClose={() => setRotating(false)} />}
       {disconnecting === 'pbs-offsite' && remote && <PbsDisconnectModal open remote={remote} onClose={() => (setDisconnecting(null), void refresh())} />}
       {optionRole?.type === 'mqtt-broker' && page === 'mqtt' && <MqttAccountsModal role={optionRole} onClose={closeOption} />}
-      {optionRole?.type === 'mqtt-broker' && page === 'homeassistant' && (
+      {optionRole?.type === 'home-assistant' && page === 'homeassistant' && (
         <Modal open onClose={closeOption} wide="screen-wide" title={optionTitle(<Home className="h-4 w-4 text-muted" aria-hidden />, 'Home Assistant')}>
-          <HomeAssistantPanel onLeave={closeOption} />
+          <HomeAssistantPanel roleId={optionRole.id} onLeave={closeOption} onEdit={() => edit(optionRole)} onRemove={() => setRemoving(optionRole)} />
         </Modal>
       )}
       {optionRole?.type === 'pve-cluster' && page === 'pve' && (
@@ -1662,6 +1882,7 @@ export function RolesSettings() {
       {editing?.type === 'omada-controller' && <OmadaWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'log-server' && <LogServerWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'esphome' && <EsphomeWizard role={editing.role} onClose={() => setEditing(null)} />}
+      {editing?.type === 'home-assistant' && <HomeAssistantWizard role={editing.role} onClose={() => setEditing(null)} />}
       {editing?.type === 'pve-cluster' && (!editing.role || cluster) && (
         <ClusterModal
           key={editing.role?.id ?? 'new'}
@@ -1686,6 +1907,11 @@ export function RolesSettings() {
           <>
             Le rôle <b>{removing.name}</b> est retiré du hub : son broker n'est plus écouté pour ESPHome et les appareils découverts sont oubliés. Rien
             n'est changé sur les appareils.
+          </>
+        ) : removing?.type === 'home-assistant' ? (
+          <>
+            Le rôle <b>{removing.name}</b> est retiré du hub, qui cesse de publier : ses appareils sont retirés du Home Assistant relié à son broker (configurations
+            de découverte et états vidés).
           </>
         ) : removing?.type === 'log-server' ? (
           <>

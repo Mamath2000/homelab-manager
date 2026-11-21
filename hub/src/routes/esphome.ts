@@ -5,8 +5,8 @@ import { equipments, parseId, roles } from '../db.js';
 import { DEFAULT_LEVEL, deviceMute, ESPHOME_SILENT_HOURS, esphomeDevices, esphomeShipper, forgetDevices, lastLineOf, LOG_LEVELS, setDeviceLevel, setDeviceLogs, type LogLevel } from '../esphome.js';
 import { logRole } from '../logs.js';
 import { candidatesFor, createEsphomeEquipments, EsphomeLinkError, subKey, syncAllEsphomeEquipments } from '../esphomeEquipments.js';
-import { testConnection } from '../homeassistant/bridge.js';
-import { loadMqttBrokers, probeEngine } from '../probes.js';
+import { brokerOnline } from '../homeassistant/bridge.js';
+import { probeEngine } from '../probes.js';
 import { rolesSaved } from '../roleEvents.js';
 import { allRoles, esphomeRoles, newRoleId, roleConflict } from '../roles.js';
 import type { EquipmentDoc, EsphomeConfig, EsphomeDeviceDoc, EsphomeRole, MqttBrokerRole } from '../types.js';
@@ -38,19 +38,6 @@ export function esphomeError(c: { siteId: string; brokerId: string }, brokerIds:
   if (others.some((r) => r.config.siteId === c.siteId)) return 'un rôle ESPHome est déjà déclaré pour ce site';
   if (others.some((r) => r.config.brokerId === c.brokerId)) return 'ce broker est déjà écouté par un autre rôle ESPHome';
   return null;
-}
-
-// null: the broker answers (a real connection with its account, whether or not the hub listens to it yet), else why not
-export async function brokerOnline(brokerId: string) {
-  const b = (await loadMqttBrokers()).brokers.find((x) => x.id === brokerId);
-  if (!b) return `broker inconnu : ${brokerId}`;
-  if (!b.url) return "adresse du broker inconnue (hôte sans adresse relevée)";
-  try {
-    await testConnection(b.url, b.username, b.password, b.tls);
-    return null;
-  } catch (err) {
-    return `broker injoignable : ${(err as Error).message}`;
-  }
 }
 
 export const toEsphomeConfig = (c: { siteId: string; brokerId: string }, silentHours?: number): EsphomeConfig => ({

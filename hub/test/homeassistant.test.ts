@@ -148,20 +148,46 @@ test('session entities are unavailable when their agent is offline', () => {
   }
 });
 
-test('a host excluded from Home Assistant has no device and is left out of the totals', () => {
-  const kept = host('pve1', { upgradable: [pkg('openssl', true)] });
-  const hidden = { ...host('lab', { upgradable: [pkg('curl')] }), haExcluded: true };
-  const groups = [{ id: 'g1', backupId: 'lab', hostId: hidden._id.toHexString(), state: 'stale', lastBackup: 0 }];
-  const { devices } = build([{ host: kept, online: true, busy: false }, { host: hidden, online: false, busy: false }], {
-    ...opts, backups: { groups, datastores: [] },
+test('a role of a site: only its hosts and equipments, its totals, its commands, the root named after it (homelab#361)', () => {
+  const kept = { ...host('pje1', { upgradable: [pkg('openssl', true)] }), siteId: 'jarsay' };
+  const other = { ...host('pve1', { upgradable: [pkg('curl')] }), siteId: 'vouille' };
+  const none = host('lab', { upgradable: [pkg('vim')] });
+  const groups = [
+    { id: 'g1', backupId: 'pve1', hostId: other._id.toHexString(), state: 'stale', lastBackup: 0 },
+    { id: 'g2', backupId: 'pje1', hostId: kept._id.toHexString(), state: 'ok', lastBackup: Date.now() },
+  ];
+  // the helpers of the equipments are defined further down (const): their own copies here
+  const eqState = (e: EquipmentDoc) => ({ equipment: e, status: evaluateEquipment(e, { now: Date.now(), probes: [] }), probes: [] });
+  const via = (id: string) => (site.devices.find((d) => d.id === id)!.discovery.device as Record<string, unknown>).via_device;
+  const here = { ...equipment('Switch jarsay'), siteId: 'jarsay' };
+  const there = { ...equipment('Switch vouille'), siteId: 'vouille' };
+  const all: HostState[] = [kept, other, none].map((h) => ({ host: h, online: true, busy: false }));
+  const site = build(all, {
+    ...opts, detail: { level: 'full', sections: [] }, siteId: 'jarsay', rootName: 'Homelab Manager — Jarsay', groupBySite: true, sites: [{ id: 'jarsay', name: 'Jarsay' }, { id: 'vouille', name: 'Vouillé' }],
+    backups: { groups, datastores: [{ store: 'main', total: 10, used: 5 }] }, equipments: [eqState(here), eqState(there)],
   });
-  const state = (key: string) => devices.flatMap((d) => d.states).find(([t]) => t === `hm/${ROOT_KEY}/${key}/state`)?.[1];
+  const state = (key: string) => site.devices.flatMap((d) => d.states).find(([t]) => t === `hm/${ROOT_KEY}/${key}/state`)?.[1];
+  const ids = site.devices.map((d) => d.id);
 
-  assert.equal(devices.some((d) => d.id.startsWith(`hm_${hidden._id.toHexString()}`)), false);
+  assert.ok(ids.includes(`hm_${kept._id.toHexString()}`));
+  assert.ok(!ids.some((id) => id.startsWith(`hm_${other._id.toHexString()}`) || id.startsWith(`hm_${none._id.toHexString()}`)));
+  assert.ok(ids.includes(`hm_eq_${here._id.toHexString()}`) && !ids.includes(`hm_eq_${there._id.toHexString()}`));
   assert.equal(state('hosts'), '1');
-  assert.equal(state('hosts_offline'), '0');
   assert.equal(state('updates'), '1');
   assert.equal(state('backups_late'), '0');
+  assert.equal(state('equipments'), '1');
+  // the datastores of the PBS belong to the whole homelab; no device per site (one site)
+  assert.equal(state('datastore_main'), undefined);
+  assert.ok(!ids.some((id) => id.startsWith('hm_site_')));
+  assert.equal(via(`hm_${kept._id.toHexString()}`), ROOT_ID);
+  assert.equal((site.devices.find((d) => d.id === ROOT_ID)!.discovery.device as Record<string, unknown>).name, 'Homelab Manager — Jarsay');
+  // the commands reach the hosts of the site only, « Tout vérifier » included
+  const targets = new Set([...site.commands.values()].flatMap((c) => c.hostIds));
+  assert.deepEqual([...targets], [kept._id.toHexString()]);
+  // same topics as for a role of the whole homelab: the topics of a host never depend on the scope
+  const full = build(all, { ...opts, detail: { level: 'full', sections: [] } });
+  assert.equal(at(full.devices, `hm_${kept._id.toHexString()}`), at(site.devices, `hm_${kept._id.toHexString()}`));
+  assert.equal(full.devices.filter((d) => /^hm_[0-9a-f]{24}$/.test(d.id)).length, 3);
 });
 
 test('update entity and commands map to jobs', () => {
@@ -372,30 +398,25 @@ const withLoad = (h: HostDoc, cpu: number, mem: number, volumes: { mountpoint: s
 const find = (devices: ReturnType<typeof build>['devices'], id: string, key: string, suffix = 'state') =>
   devices.flatMap((d) => d.states).find(([t]) => t === `${at(devices, id)}/${key}/${suffix}`)?.[1];
 
-test('minimal level: host device with connectivity and alerts only, totals still count every host', () => {
+test('minimal level: host device with connectivity and alerts only', () => {
   const a = host('a', { upgradable: [pkg('openssl', true)] });
-  const b = { ...host('b', { upgradable: [pkg('curl')] }), haDetail: 'full' as const };
-  const states: HostState[] = [{ host: a, online: true, busy: false }, { host: b, online: true, busy: false }];
+  const states: HostState[] = [{ host: a, online: true, busy: false }];
   const { devices, commands } = build(states, { ...opts, detail: { level: 'minimal', sections: [] } });
   const ida = `hm_${a._id.toHexString()}`;
-  const idb = `hm_${b._id.toHexString()}`;
   const comps = (id: string) => Object.keys(devices.find((d) => d.id === id)!.discovery.components as object).sort();
 
-  // global minimal: no APT sub-device, no buttons, no diagnostics
+  // minimal: no APT sub-device, no buttons, no diagnostics
   assert.deepEqual(comps(ida), ['alerts', 'etat', 'problem']);
   assert.equal(devices.some((d) => d.id === `${ida}_apt`), false);
   // the alert of the sub-component still rolls up
   assert.equal(find(devices, ida, 'alerts'), '1');
-  // a host set to full keeps its details
-  assert.equal(devices.some((d) => d.id === `${idb}_apt`), true);
-  assert.ok(comps(idb).includes('os'));
   assert.deepEqual([...commands.keys()].filter((k) => k.includes(ida)), []);
   // root: alerts and tops only, no counters
   assert.deepEqual(comps(ROOT_ID), ['alerts', 'problem', 'top_cpu', 'top_disk', 'top_mem']);
 });
 
-test('counters section counts the hosts below the global level too', () => {
-  const a = { ...host('a', { upgradable: [pkg('openssl', true)] }), haDetail: 'minimal' as const };
+test('counters section counts every published host', () => {
+  const a = host('a', { upgradable: [pkg('openssl', true)] });
   const b = host('b', { upgradable: [pkg('curl')] });
   const { devices } = build([{ host: a, online: true, busy: false }, { host: b, online: true, busy: false }], {
     ...opts, detail: { level: 'custom', sections: ['counters'] },
@@ -403,18 +424,6 @@ test('counters section counts the hosts below the global level too', () => {
   assert.equal(find(devices, ROOT_ID, 'updates'), '2');
   assert.equal(find(devices, ROOT_ID, 'security'), '1');
   assert.equal(find(devices, ROOT_ID, 'hosts'), '2');
-});
-
-test('haDetail none behaves like the old exclusion, the legacy flag still works', () => {
-  const kept = host('kept');
-  const none = { ...host('none'), haDetail: 'none' as const };
-  const legacy = { ...host('legacy'), haExcluded: true };
-  const { devices } = build(
-    [kept, none, legacy].map((h) => ({ host: h, online: true, busy: false })),
-    opts,
-  );
-  assert.equal(find(devices, ROOT_ID, 'hosts'), '1');
-  assert.equal(devices.filter((d) => d.id.startsWith('hm_')).length, 1);
 });
 
 test('tops rank online hosts that are not roaming; disk = worst volume', () => {
@@ -451,24 +460,6 @@ test('every attributes topic of a config is one the hub publishes', () => {
     }
   }
   assert.ok(checked >= 5);
-});
-
-test('custom level of a host: its own sections, kept to the host ones', async () => {
-  const { haLevelSchema, normalizeHostDetail } = await import('../src/homeassistant/detail.js');
-  const { Ajv } = await import('ajv');
-  const valid = new Ajv().compile(haLevelSchema);
-  assert.ok(valid(null) && valid('none') && valid({ level: 'custom', sections: ['apt', 'actions'] }));
-  assert.ok(!valid({ level: 'custom', sections: ['tops'] }) && !valid({ level: 'full', sections: [] }) && !valid('custom'));
-  assert.deepEqual(normalizeHostDetail({ level: 'custom', sections: ['actions', 'apt', 'tops'] }), { level: 'custom', sections: ['apt', 'actions'] });
-
-  const h = { ...host('pve1', { upgradable: [pkg('curl')] }), capabilities: ['apt_report', 'apt_update', 'reboot'], haDetail: { level: 'custom' as const, sections: ['actions' as const] } };
-  const { devices } = build([{ host: h, online: true, busy: false }], { ...opts, detail: { level: 'full', sections: [] } });
-  const hid = `hm_${h._id.toHexString()}`;
-  // actions without the APT sub-device, no diagnostics
-  assert.equal(devices.some((d) => d.id === `${hid}_apt`), false);
-  const comps = devices.find((d) => d.id === hid)!.discovery.components as Record<string, unknown>;
-  assert.equal(comps.reboot, undefined);
-  assert.equal(comps.os, undefined);
 });
 
 // --- probes ------------------------------------------------------------------------------------------
@@ -567,12 +558,11 @@ test('probes: a roaming host away makes them unavailable', () => {
   assert.equal(find(off.devices, `hm_${fixed._id.toHexString()}`, `probe_${q._id.toHexString()}_available`), 'ON');
 });
 
-test('probes section: in the standard and full presets, per host, not in minimal', async () => {
-  const { HA_HOST_SECTIONS, HA_PRESETS, normalizeHostDetail } = await import('../src/homeassistant/detail.js');
+test('probes section: in the standard and full presets, not in minimal', async () => {
+  const { HA_PRESETS, normalizeDetail } = await import('../src/homeassistant/detail.js');
   assert.ok(HA_PRESETS.standard.includes('probes') && HA_PRESETS.full.includes('probes'));
   assert.ok(!HA_PRESETS.minimal.includes('probes'));
-  assert.ok(HA_HOST_SECTIONS.includes('probes'));
-  assert.deepEqual(normalizeHostDetail({ level: 'custom', sections: ['probes', 'apt'] }), { level: 'custom', sections: ['apt', 'probes'] });
+  assert.deepEqual(normalizeDetail({ level: 'custom', sections: ['probes', 'apt'] }), { level: 'custom', sections: ['apt', 'probes'] });
 });
 
 // --- equipments and site grouping ---------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { equipments, hosts, probes, roles, settings } from './db.js';
 import { loadSites } from './catalog.js';
-import type { AnyCarrierKind, CarrierKind, EsphomeRole, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
+import type { AnyCarrierKind, CarrierKind, EsphomeRole, HomeAssistantRole, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
 import { openRole, openSettings } from './storedSecrets.js';
 
 export type RoleOf<T extends RoleType> = Extract<RoleDoc, { type: T }>;
@@ -39,9 +39,10 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     carrierError: (host, c) => (host.roleCandidates?.some((x) => x.type === 'mqtt-broker' && x.port === c.port) ? null : "aucun broker détecté par l'agent sur ce port"),
     same: (a, b) => a.port === b.port,
     uses: async (id) => {
-      const [n, ha] = await Promise.all([probes.countDocuments({ 'target.type': 'mqtt', 'target.brokerId': id }), settings.countDocuments({ _id: 'homeassistant', brokerRoleId: id } as never)]);
+      const n = await probes.countDocuments({ 'target.type': 'mqtt', 'target.brokerId': id });
+      const ha = haRoles().filter((r) => r.config.brokerId === id).map((r) => r.name);
       const esphome = esphomeRoles().some((r) => r.config.brokerId === id);
-      return [...(n ? [`${n} sonde${n > 1 ? 's' : ''}`] : []), ...(ha ? ['Home Assistant'] : []), ...(esphome ? ['ESPHome'] : [])];
+      return [...(n ? [`${n} sonde${n > 1 ? 's' : ''}`] : []), ...ha, ...(esphome ? ['ESPHome'] : [])];
     },
   },
   // declared, moved and removed through routes/backups.ts (the token is made and revoked by the agent of the node)
@@ -111,6 +112,16 @@ export const ROLE_DEFS: { [T in RoleType]: RoleTypeDef<RoleOf<T>> } = {
     same: (a, b) => a.siteId === b.siteId,
     uses: async () => [],
   },
+  // carried by the hub, declared and set through routes/homeassistant.ts (homelab#361): a Home Assistant fed by MQTT
+  // discovery on its broker, one role per broker, the whole homelab or one site
+  'home-assistant': {
+    label: 'Home Assistant',
+    carriers: ['hub'],
+    single: false,
+    carrierError: () => null,
+    same: (a, b) => a.brokerId === b.brokerId,
+    uses: async () => [],
+  },
 };
 
 
@@ -147,6 +158,7 @@ async function settingsRoles() {
 export const allRoles = () => cache;
 export const carriedBy = (id: ObjectId) => cache.filter((r) => r.carrier.kind !== 'hub' && r.carrier.id.equals(id));
 export const esphomeRoles = () => cache.filter((r): r is EsphomeRole => r.type === 'esphome');
+export const haRoles = () => cache.filter((r): r is HomeAssistantRole => r.type === 'home-assistant');
 
 // Why a carrier cannot be deleted while it carries roles (null: it carries none): they are moved or removed first.
 export function carrierDeleteError(kind: CarrierKind, carried: Pick<RoleDoc, 'name'>[]) {

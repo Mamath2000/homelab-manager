@@ -20,5 +20,5 @@ export const HA_SECTIONS: { id: HaSection; label: string; hint: string }[] = [
   { id: 'diagnostics', label: 'Diagnostics', hint: 'Système, noyau, IP, dernière vue, alertes des sous-composants' },
 ];
 
-// sections published per host; counters, tops and equipments are on the hub's device and follow the global level only
-export const HA_HOST_SECTIONS: HaSection[] = ['apt', 'docker', 'ups', 'backup', 'probes', 'sessions', 'actions', 'diagnostics'];
+// the screen of a home-assistant role (homelab#361)
+export const haQueryKey = (id: string) => ['settings', 'homeassistant', id] as const;

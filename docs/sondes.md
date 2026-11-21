@@ -87,7 +87,7 @@ Les sondes MQTT écoutent leurs propres brokers, **distincts du broker du pont [
 
 Un rôle porte un nom (l'identifiant que les sondes citent), le schéma (`mqtt://`, `mqtts://`, `ws://` ou `wss://`), le port, une adresse facultative (par défaut la première IP privée de l'hôte) et un compte facultatif (broker anonyme). Les sondes et le pont Home Assistant utilisent **cette connexion**, jamais l'identité d'administration de la [gestion des comptes](roles.md#sécurité-dun-broker-mqtt-dynamic-security) : si le broker refuse les anonymes, le rôle doit porter un compte (pour un broker géré par HLM, le saisir ou le générer dans le rôle le crée sur le broker). Un abonnement que le broker refuse (compte sans droit de lecture sur le topic) est signalé par la sonde : « abonnement refusé par le broker ». Comme pour Home Assistant, l'enregistrement exige un **test de connexion** réussi, et le mot de passe n'est jamais renvoyé par l'API.
 
-**Paramètres › Rôles** donne la vue d'ensemble : état de la connexion de chaque broker (connecté, connexion, injoignable), hôte qui le porte et ce qui l'utilise (sondes, pont Home Assistant). Un broker injoignable met ses sondes en « inconnu ». Un broker utilisé ne peut pas être supprimé : retirer d'abord ce qui l'utilise. Sur la fiche de l'hôte, les rôles qu'il porte s'affichent ; supprimer un hôte porteur est refusé tant que ses rôles existent. Plusieurs brokers peuvent tourner sur un même hôte : l'unicité est par processus : un broker, un rôle.
+**Paramètres › Rôles** donne la vue d'ensemble : état de la connexion de chaque broker (connecté, connexion, injoignable), hôte qui le porte et ce qui l'utilise (sondes, rôles Home Assistant). Un broker injoignable met ses sondes en « inconnu ». Un broker utilisé ne peut pas être supprimé : retirer d'abord ce qui l'utilise. Sur la fiche de l'hôte, les rôles qu'il porte s'affichent ; supprimer un hôte porteur est refusé tant que ses rôles existent. Plusieurs brokers peuvent tourner sur un même hôte : l'unicité est par processus : un broker, un rôle.
 
 ## Alertes et statuts
 
@@ -114,7 +114,7 @@ Lecture des sondes d'un hôte ou d'un équipement : tous les profils. Tout le re
 | `GET /api/settings/mqtt-brokers` | brokers MQTT des sondes, avec état de connexion et nombre de sondes (le mot de passe n'est jamais renvoyé : `hasPassword`) |
 | `GET /api/roles` | rôles du hub avec leur hôte porteur, leur état et ce qui les utilise (voir [API](api.md)) |
 | `POST /api/roles` | déclarer un broker détecté par l'agent d'un hôte (`type: mqtt-broker`) |
-| `PUT`, `DELETE /api/roles/:id` | modifier (ou réaffecter à un autre hôte), supprimer (refusé si une sonde ou le pont Home Assistant l'utilise) |
+| `PUT`, `DELETE /api/roles/:id` | modifier (ou réaffecter à un autre hôte), supprimer (refusé si une sonde ou un rôle Home Assistant l'utilise) |
 | `POST /api/roles/test` | tester la connexion d'un broker |
 
 Corps d'une sonde :

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
-import { Activity, Archive, Cpu, Home, KeyRound, Network, Power, RefreshCw, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import { Activity, Archive, Cpu, KeyRound, Network, Power, RefreshCw, Save, Server, ShieldAlert, ShieldOff, Tag, Trash2, type LucideIcon } from 'lucide-react';
 import { api, type Host, type InstallInfo } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { useUpdateHostCache } from '../lib/queries';
@@ -10,7 +10,6 @@ import { canAutoUpgrade } from '../lib/autoUpgrade';
 import { hostSkills } from '../lib/hostSkills';
 import { BackupAgentSection } from './ManagedBackups';
 import { useToast } from '../lib/toast';
-import { HostHaDetail } from './HostHaDetail';
 import { SiteSelect, TagPicker } from './HostTags';
 import { InstallInstructions } from './InstallInstructions';
 import { RoamingField } from './RoamingField';
@@ -30,12 +29,11 @@ export interface HostDangerActions {
   onDelete: () => void;
 }
 
-type SectionId = 'settings' | 'ha' | 'host' | 'health' | 'agent' | 'backup' | 'danger';
+type SectionId = 'settings' | 'host' | 'health' | 'agent' | 'backup' | 'danger';
 
-// Identity, behavior and Home Assistant are saved together; agent, backup and danger actions apply immediately.
+// Identity and behavior are saved together; agent, backup and danger actions apply immediately.
 const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
   { id: 'settings', label: 'Identité et comportement', icon: Tag },
-  { id: 'ha', label: 'Home Assistant', icon: Home },
   // services hosted here (MQTT broker...), offered from what the agent found; admins only
   { id: 'host', label: 'Éléments de l’hôte', icon: Server },
   // thresholds and alerts of the Health screen, for health-capable agents; applies immediately
@@ -133,7 +131,6 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
   const [roaming, setRoaming] = useState(host.roaming);
   const [critical, setCritical] = useState(host.critical);
   const [autoSecurity, setAutoSecurity] = useState(host.autoSecurityUpdates);
-  const [haDetail, setHaDetail] = useState(host.haDetail);
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [renewing, setRenewing] = useState(false);
@@ -153,7 +150,7 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
     try {
       // sent only when changed (or chosen and not in place yet): saving it starts the job on the host
       const autoChanged = autoSecurity !== host.autoSecurityUpdates || (autoSecurity && !host.apt?.auto?.managed);
-      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, haDetail, ...(autoChanged ? { autoSecurityUpdates: autoSecurity } : {}) }));
+      upsert(await api.updateHost(host.id, { name, siteId, tags, roaming, critical, ...(autoChanged ? { autoSecurityUpdates: autoSecurity } : {}) }));
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -189,7 +186,7 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
   };
 
   const sections = SECTIONS.filter((x) => (x.id !== 'danger' || danger) && (x.id !== 'health' || host.capabilities.includes('health')) && (x.id !== 'backup' || isWindows(host) || backupClient(host.capabilities).supported));
-  const isForm = section === 'settings' || section === 'ha';
+  const isForm = section === 'settings';
 
   if (install) {
     return (
@@ -327,15 +324,6 @@ export function HostOptionsModal({ host, onClose, danger, initialSection }: { ho
             </div>
           </form>
 
-          {section === 'ha' && (
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-sm font-semibold text-zinc-100">Entités publiées dans Home Assistant</h4>
-                <p className="mt-1 text-xs text-muted">Par défaut, l’hôte suit le niveau global ; enregistré avec le reste des options.</p>
-              </div>
-              <HostHaDetail hosts={[host]} value={haDetail} onChange={setHaDetail} />
-            </div>
-          )}
 
 
           {section === 'agent' && (

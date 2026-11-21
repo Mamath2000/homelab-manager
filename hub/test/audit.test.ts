@@ -165,7 +165,8 @@ test('every audited route and every sensitive action exists', async () => {
   const { registerUserRoutes } = await import('../src/routes/users.js');
   const { registerPasskeyRoutes } = await import('../src/routes/passkeys.js');
   const { registerHostRoutes } = await import('../src/routes/hosts.js');
-  const { registerSettingsRoutes, registerAgentSettingsRoutes } = await import('../src/routes/settings.js');
+  const { registerAgentSettingsRoutes } = await import('../src/routes/settings.js');
+  const { registerHomeAssistantRoutes } = await import('../src/routes/homeassistant.js');
   const { registerBackupRoutes } = await import('../src/routes/backups.js');
   const { registerOffsiteRoutes } = await import('../src/routes/offsite.js');
   const { registerRoleRoutes } = await import('../src/routes/roles.js');
@@ -178,7 +179,7 @@ test('every audited route and every sensitive action exists', async () => {
   registerUserRoutes(a);
   registerPasskeyRoutes(a);
   registerHostRoutes(a);
-  registerSettingsRoutes(a, {} as never);
+  registerHomeAssistantRoutes(a, {} as never);
   registerEsphomeRoutes(a);
   registerAgentSettingsRoutes(a, {} as never);
   registerBackupRoutes(a);

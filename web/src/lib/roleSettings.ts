@@ -3,10 +3,11 @@ import type { HubRole, HubRoleType } from './api';
 
 // The options a role unlocks, opened from its card in a window over the Rôles screen: /roles/<id>?role=<role id> (without
 // role: the only role of the type). They used to be tabs of Paramètres, then pages: old links still lead here.
-// mqtt: the accounts of a broker secured by the hub; esphome: the devices found on the broker of the role of a site.
+// mqtt: the accounts of a broker secured by the hub; esphome: the devices found on the broker of the role of a site;
+// homeassistant: what a home-assistant role publishes (level of detail, grouping by site).
 export const ROLE_PAGES = [
   { id: 'mqtt', label: 'Comptes MQTT', action: 'Gérer les comptes', icon: ShieldCheck, type: 'mqtt-broker' },
-  { id: 'homeassistant', label: 'Home Assistant', action: 'Home Assistant', icon: Home, type: 'mqtt-broker' },
+  { id: 'homeassistant', label: 'Home Assistant', action: 'Publication', icon: Home, type: 'home-assistant' },
   { id: 'pve', label: 'Proxmox VE', action: 'Inventaire', icon: Boxes, type: 'pve-cluster' },
   { id: 'omada', label: 'Omada', action: 'Inventaire', icon: Network, type: 'omada-controller' },
   { id: 'esphome', label: 'ESPHome', action: 'Inventaire', icon: Cpu, type: 'esphome' },
@@ -15,10 +16,9 @@ export const ROLE_PAGES = [
 
 export type RolePageId = (typeof ROLE_PAGES)[number]['id'];
 
-// The options shown in the foot of the card of a role (the accounts of a broker have their own button). Home Assistant:
-// on the broker it uses, or on every broker while it uses none.
-export function rolePagesOf(role: HubRole, haBrokerId: string | null) {
-  return ROLE_PAGES.filter((p) => p.type === role.type && p.id !== 'mqtt' && (p.id !== 'homeassistant' || !haBrokerId || haBrokerId === role.id));
+// The options shown in the foot of the card of a role (the accounts of a broker have their own button).
+export function rolePagesOf(role: HubRole) {
+  return ROLE_PAGES.filter((p) => p.type === role.type && p.id !== 'mqtt');
 }
 
 // The role a page of options is opened on: the one asked, else the only one of the type (null: nothing to open).

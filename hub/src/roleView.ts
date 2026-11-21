@@ -1,6 +1,6 @@
 import { securityOf } from './mqttSecurity.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
-import { bridgeStatusOf } from './homeassistant/bridge.js';
+import { bridgeOf, bridgeStatusOf } from './homeassistant/bridge.js';
 import { logPollOf, logTarget } from './logs.js';
 import { omadaPollOf } from './omadaSync.js';
 import { probeEngine, roleUrl } from './probes.js';
@@ -121,6 +121,19 @@ export function roleView(r: RoleDoc, host: Pick<HostDoc, 'name' | 'info' | 'role
         account: '',
         status: worst(states),
         summary: null,
+      };
+    }
+    // its bridge (homeassistant/bridge.ts): the connection to its broker, the devices published
+    case 'home-assistant': {
+      const st = bridgeOf(r._id)?.status();
+      return {
+        ...base,
+        config: r.config,
+        hasSecret: false,
+        url: '',
+        account: '',
+        status: st && st.state !== 'disabled' ? { state: st.state, error: st.error } : null,
+        summary: st?.state === 'connected' ? `${st.devices} appareil${st.devices > 1 ? 's' : ''} publié${st.devices > 1 ? 's' : ''}` : null,
       };
     }
   }

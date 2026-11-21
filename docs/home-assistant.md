@@ -6,38 +6,44 @@ sidebar_position: 4
 
 # Home Assistant
 
-Le hub peut publier l'état du homelab sur un broker MQTT, avec la **découverte automatique** de Home Assistant au format *device-based* : un seul message `homeassistant/device/homelab/OBJET/config` par appareil, qui décrit tous ses composants. Les mises à jour et les vérifications se déclenchent aussi depuis Home Assistant.
+Le hub peut publier l'état du homelab — en entier, ou un site — sur le broker MQTT d'un ou plusieurs Home Assistant, avec la **découverte automatique** au format *device-based* : un seul message `homeassistant/device/homelab/OBJET/config` par appareil, qui décrit tous ses composants. Les mises à jour et les vérifications se déclenchent aussi depuis Home Assistant.
 
-## Relier un broker
+## Rôles Home Assistant
 
-Le pont publie sur un [rôle](roles.md) `Broker MQTT` du hub (déclaré dans **Paramètres › Rôles**), dont il reprend l'adresse et le compte. Dans l'interface : **Paramètres → Home Assistant**. **Sans rôle MQTT sélectionné, le pont est désactivé** et rien n'est publié : l'écran propose de choisir un broker déclaré, ou d'en déclarer un. Le pont se règle ensuite par les préfixes ci-dessous.
+Chaque Home Assistant alimenté par le hub est un [rôle](roles.md) **Home Assistant** (`home-assistant`), **porté par le hub** et déclaré dans **Paramètres › Rôles › Déclarer un rôle** dès qu'un rôle `Broker MQTT` existe. Le rôle ne passe **que par l'intégration MQTT** de Home Assistant : ni API, ni jeton ; le hub publie sur le broker auquel ce Home Assistant est relié, avec l'adresse et le compte du rôle broker.
 
-Au passage à la version avec les rôles, l'ancien broker saisi dans ce panneau est **rattaché automatiquement** au rôle de même adresse et de même compte ; sinon l'écran affiche « Broker saisi avant les rôles » et demande de choisir le rôle correspondant (ou d'en déclarer un).
+- **Un broker par rôle**, et un broker ne sert qu'à **un seul** rôle Home Assistant : deux Home Assistant reliés à deux brokers différents reçoivent chacun leurs appareils, sans se marcher dessus.
+- **Deux modes** :
+  - **Tout le homelab** (`full`) : tous les hôtes et équipements, quel que soit leur site ; la publication peut les **regrouper par site** (voir plus bas) ;
+  - **Un site** (`site`) : seulement les hôtes et équipements de ce site. Les compteurs, alertes et top 5 de l'appareil racine ne portent que sur eux, les datastores du PBS (communs au homelab) n'y sont pas, et l'appareil racine s'appelle **Homelab Manager — &lt;site&gt;**. Les **commandes** reçues ne visent que les hôtes du site.
 
-La fenêtre d'édition a quatre étapes :
+Exemple : un rôle « Home Assistant » (tout le homelab) sur le broker de vouille, et un rôle « Home Assistant — Jarsay » (site jarsay) sur le broker de jarsay.
+
+L'assistant de déclaration (le même pour modifier, crayon de la carte du rôle) a cinq étapes :
 
 | Étape | Rôle |
 |---|---|
-| Broker | le rôle `Broker MQTT` utilisé (son adresse et son compte s'affichent, le mot de passe n'est jamais renvoyé par l'API) |
-| Topics | Préfixe de découverte (`homeassistant` par défaut, celui de l'intégration MQTT de Home Assistant), préfixe des états et commandes du hub (`homelab-manager` par défaut) |
-| Interface | URL de l'interface, facultative : lien « Visiter » des appareils (l'URL publique, par exemple ; vide : URL du hub des paramètres Agent) |
-| Test de connexion | Vérifie que le broker accepte le compte du rôle, sans rien publier |
+| Nom | nom du rôle ; vide : « Home Assistant » ou « Home Assistant — &lt;site&gt; » |
+| Broker | le rôle `Broker MQTT` auquel ce Home Assistant est relié (un broker déjà utilisé par un autre rôle Home Assistant est grisé) |
+| Périmètre | **Tout le homelab**, ou un site |
+| Topics | préfixe de découverte (`homeassistant` par défaut, celui de l'intégration MQTT), préfixe des états et commandes du hub (`homelab-manager` par défaut), URL de l'interface facultative (lien « Visiter » des appareils ; vide : URL du hub des paramètres Agent) |
+| Test | vérifie que le broker accepte le compte du rôle broker, sans rien publier |
 
-**Enregistrer** n'est possible qu'après un test réussi (tout changement de champ l'annule) et démarre la publication. Une fois le broker relié, le haut de l'écran résume le lien : état de la connexion, broker, compte, préfixes, nombre d'appareils publiés et dernière publication, avec **Modifier** (la même fenêtre) et **Retirer**.
+**Enregistrer** demande un test réussi (une modification qui garde son broker n'est pas retestée) et démarre la publication. Le bouton **Publication** de la carte ouvre l'écran du rôle (`/roles/homeassistant?role=<id>`) : en haut, l'état de la connexion, le broker, le compte, le périmètre, les préfixes, le nombre d'appareils publiés et la dernière publication, avec **Modifier** (l'assistant) et **Supprimer** ; en dessous, le niveau de détail.
 
-**Republier la découverte** (en-tête du panneau, intégration connectée) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ». Les configurations et états obsolètes trouvés sur le broker (appareil disparu ou déplacé, ancien format de topic) sont supprimés au passage ; c'est aussi fait à chaque connexion au broker.
+**Republier la découverte** (en-tête de l'écran, rôle connecté) renvoie toutes les configurations de découverte et tous les états, par exemple après la suppression d'un appareil dans Home Assistant ou si des entités restent à « inconnu ». Les configurations et états obsolètes trouvés sur le broker (appareil disparu ou déplacé, ancien format de topic) sont supprimés au passage ; c'est aussi fait à chaque connexion au broker.
 
 :::info Retrait
-Retirer le broker, ou changer de préfixe, **retire les appareils** de Home Assistant (configurations de découverte et états vidés). Le niveau de détail est conservé pour un prochain broker.
+Supprimer le rôle, le passer sur un autre rôle broker ou changer de préfixe **retire les appareils** du Home Assistant concerné (configurations de découverte et états vidés), puis les publie au nouvel endroit. Un changement d'adresse du même rôle broker (son hôte a changé d'IP) ne retire rien. Changer de périmètre retire de Home Assistant ce qui n'est plus publié.
 :::
 
-:::note Stockage
-Les préfixes sont enregistrés dans la base MongoDB du hub ; l'adresse et le mot de passe du broker sont ceux du rôle.
+:::note Migration
+À la mise à jour (homelab#361), le pont unique d'avant (Paramètres › Home Assistant) devient un rôle **Home Assistant**, mode tout le homelab, sur le même broker, avec **les mêmes préfixes**, le même niveau de détail et le même regroupement : les appareils restent tels quels dans Home Assistant. Un pont encore sur un broker saisi avant les rôles est rattaché au rôle broker de même adresse et de même compte ; s'il n'y en a pas, il n'est pas migré (journal du hub) tant qu'un tel rôle n'est pas déclaré. Les niveaux propres aux hôtes et la case « exclu de Home Assistant » disparaissent : tous les hôtes du périmètre d'un rôle sont publiés.
 :::
 
 ## Niveau de détail
 
-Sous le lien, **Paramètres de publication** règle ce qui est créé dans Home Assistant, pour limiter le nombre d'appareils et d'entités. Un tableau montre, par catégorie, ce que publie chaque niveau ; l'aperçu en dessous donne le nombre d'entités et d'appareils qui en résulte, niveaux propres aux hôtes compris.
+Dans l'écran d'un rôle, **Paramètres de publication** règle ce qui est créé dans son Home Assistant, pour limiter le nombre d'appareils et d'entités : un niveau par rôle, pour tout ce qu'il publie. Un tableau montre, par catégorie, ce que publie chaque niveau ; l'aperçu en dessous donne le nombre d'entités et d'appareils qui en résulte.
 
 | Catégorie | Minimal | Standard | Complet |
 |---|:-:|:-:|:-:|
@@ -53,12 +59,10 @@ Sous le lien, **Paramètres de publication** règle ce qui est créé dans Home 
 
 **Personnalisé** coche les catégories une à une (en partant du niveau courant). Les alertes ne dépendent pas du niveau : un sous-composant non publié fait toujours remonter ses alertes sur son hôte et sur Homelab Manager.
 
-**Par hôte**, le niveau global peut être remplacé : onglet **Home Assistant** des options de l'hôte, ou **Niveau Home Assistant** sur une sélection dans la liste des hôtes. Les deux présentent le même tableau, limité aux catégories d'un hôte (APT, Docker, Onduleur, Sauvegardes, Sondes, Sessions Windows, Actions, Diagnostics), avec l'aperçu de ses entités : *Niveau global* (par défaut), *Aucun* (hôte non publié), *Minimal*, *Standard*, *Complet* ou *Personnalisé*. Compteurs, top 5 et équipements, publiés sur Homelab Manager, ne suivent que le niveau global (un équipement n'a pas de niveau propre). Un hôte réglé sur *Aucun* n'a ni appareil, ni alertes, ni place dans les compteurs et les top 5 ; tous les autres comptent dans les totaux de Homelab Manager, quel que soit leur niveau. Les hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale) sont créés au niveau *Aucun*. L'ancienne case « exclu de Home Assistant » est lue comme *Aucun*.
-
 Changer de niveau retire de Home Assistant les appareils et entités qui ne sont plus publiés.
 
 :::warning Mise à jour
-Le niveau global par défaut est **Minimal**, y compris pour une installation existante sans réglage enregistré : à la mise à jour, les sous-composants, compteurs, actions et diagnostics disparaissent de Home Assistant jusqu'à ce qu'un niveau plus riche soit choisi.
+Le niveau par défaut est **Minimal**, y compris pour une installation existante sans réglage enregistré : à la mise à jour, les sous-composants, compteurs, actions et diagnostics disparaissent de Home Assistant jusqu'à ce qu'un niveau plus riche soit choisi.
 :::
 
 ## Appareils créés
@@ -77,7 +81,7 @@ Homelab Manager
 └── …
 ```
 
-La case **Regrouper les entités par site** (Paramètres de publication, désactivée par défaut) intercale un appareil par site entre Homelab Manager et ses hôtes et équipements :
+Pour un rôle **tout le homelab**, la case **Regrouper les entités par site** (Paramètres de publication, désactivée par défaut ; absente pour un rôle de site) intercale un appareil par site entre Homelab Manager et ses hôtes et équipements :
 
 ```text
 Homelab Manager

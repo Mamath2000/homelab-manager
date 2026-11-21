@@ -52,9 +52,11 @@ import { registerUserRoutes } from './routes/users.js';
 import { registerSummaryRoutes } from './routes/summary.js';
 import { registerHealthRoutes } from './health.js';
 import { registerSecurityHealthRoutes } from './securityHealth.js';
-import { loadHaBridgeSettings, migrateHaBroker, registerAgentSettingsRoutes, registerSettingsRoutes } from './routes/settings.js';
+import { registerAgentSettingsRoutes } from './routes/settings.js';
+import { registerHomeAssistantRoutes } from './routes/homeassistant.js';
+import { migrateHaSettings } from './homeassistant/migrate.js';
 import { registerAgentDownloadRoute } from './routes/install.js';
-import { HomeAssistantBridge } from './homeassistant/bridge.js';
+import { HomeAssistantBridges } from './homeassistant/bridge.js';
 import { startScheduler } from './scheduler.js';
 import { startAlerts } from './alerts.js';
 import { startAgentServer } from './agentServer.js';
@@ -109,7 +111,8 @@ try {
 }
 await migrateDynsecIdentity(app.log);
 await loadRoles();
-await migrateHaBroker();
+// Home Assistant, a role of the hub (homelab#361): the bridge of the settings becomes one
+await migrateHaSettings(app.log);
 await recoverJobs();
 await bootstrapSuperadmin();
 // groups of the backup jobs: also covers the definitions stored by an older hub
@@ -150,9 +153,9 @@ registerPasskeyRoutes(app);
 registerSummaryRoutes(app);
 registerHealthRoutes(app);
 registerSecurityHealthRoutes(app);
-const bridge = new HomeAssistantBridge(app.log);
-registerSettingsRoutes(app, bridge);
-registerAgentSettingsRoutes(app, bridge);
+const bridges = new HomeAssistantBridges(app.log);
+registerHomeAssistantRoutes(app, bridges);
+registerAgentSettingsRoutes(app, bridges);
 registerAgentDownloadRoute(app);
 // public: no version, an attacker would only use it to pick a known flaw (homelab#304)
 app.get('/api/health', async () => ({ ok: true }));
@@ -188,10 +191,10 @@ const stopLogPoller = startLogPoller(app.log);
 const stopProbes = startProbes(app.log);
 // after the probes: it listens on the connections of their engine
 const stopEsphome = startEsphome(app.log, async (d) => syncEsphomeEquipments(d, (await brokerSites()).get(d.brokerId)));
-await bridge.apply(await loadHaBridgeSettings());
+await bridges.sync();
 watchSettingsRoles();
-// the broker role of the bridge changed (edited, moved, its host got other IPs): apply does nothing when the address and
-// account are the same
+// a role changed (a home-assistant one, or the broker of one: edited, moved, its host got other IPs): a bridge does nothing
+// when its address, account and settings are the same
 const brokerCheck = startBrokerAnonymousCheck(app.log);
 // the connections refused by the brokers whose accounts the hub manages (refusedLog.ts)
 const watchRefused = () => reconcileRefusedWatch(app.log).catch((err) => app.log.warn({ err }, 'refused connections'));
@@ -199,7 +202,7 @@ void watchRefused();
 subscribe((event) => {
   if (event === 'probe.config') void watchRefused();
   if (event === 'probe.config') brokerCheck.run();
-  if (event === 'probe.config') loadHaBridgeSettings().then((s) => bridge.apply(s), (err) => app.log.error({ err }, 'Home Assistant: broker role'));
+  if (event === 'probe.config') void bridges.sync();
 });
 
 let agentServer: Awaited<ReturnType<typeof startAgentServer>> | null = null;
@@ -220,7 +223,7 @@ async function shutdown() {
   await stopEsphome();
   stopProbes();
   stopRefusedWatch();
-  await bridge.stop(false);
+  await bridges.stop();
   await flushLogs().catch(() => {});
   await flushAudit();
   await uiTlsServer?.close();

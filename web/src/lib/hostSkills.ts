@@ -26,8 +26,8 @@ const tint = {
   cyan: 'bg-cyan-500/15 text-cyan-300 ring-cyan-500/30',
 };
 
-export const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-cluster': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network, 'log-server': ScrollText, esphome: Cpu };
-export const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-cluster': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald, 'log-server': tint.amber, esphome: tint.cyan };
+export const roleIcon: Record<HubRoleType, LucideIcon> = { 'mqtt-broker': Radio, 'pve-cluster': Server, 'pbs-primary': Archive, 'pbs-offsite': Archive, 'omada-controller': Network, 'log-server': ScrollText, esphome: Cpu, 'home-assistant': Home };
+export const roleTint: Record<HubRoleType, string> = { 'mqtt-broker': tint.violet, 'pve-cluster': tint.orange, 'pbs-primary': tint.sky, 'pbs-offsite': tint.sky, 'omada-controller': tint.emerald, 'log-server': tint.amber, esphome: tint.cyan, 'home-assistant': tint.indigo };
 // accent of a role card (top edge) and of the rule after its section title, by type
 export const roleAccent: Record<HubRoleType, { edge: string; rule: string }> = {
   'mqtt-broker': { edge: 'border-t-violet-400', rule: 'from-violet-500/50' },
@@ -37,6 +37,7 @@ export const roleAccent: Record<HubRoleType, { edge: string; rule: string }> = {
   'omada-controller': { edge: 'border-t-emerald-400', rule: 'from-emerald-500/50' },
   'log-server': { edge: 'border-t-amber-400', rule: 'from-amber-500/50' },
   esphome: { edge: 'border-t-cyan-400', rule: 'from-cyan-500/50' },
+  'home-assistant': { edge: 'border-t-indigo-400', rule: 'from-indigo-500/50' },
 };
 
 // jobs: backup view of the host (engines found by its agent, Nextcloud AIO instance), undefined while not loaded

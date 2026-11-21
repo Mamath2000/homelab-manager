@@ -7,7 +7,6 @@ import { agentAhead, agentOutdated, hostBinary, hostOs } from './agentBinaries.j
 import { dockerSummary, dockerView } from './docker.js';
 import { healthWithSilenced } from './healthSilence.js';
 import { sessionSummary } from './sessions.js';
-import { hostLevel } from './homeassistant/detail.js';
 import { carriedBy } from './roles.js';
 import { roleView } from './roleView.js';
 import { hostLogs } from './logs.js';
@@ -51,9 +50,6 @@ export function hostDto(h: HostDoc) {
     roaming: !!h.roaming,
     critical: !!h.critical,
     autoSecurityUpdates: !!h.autoSecurityUpdates,
-    haExcluded: hostLevel(h) === 'none',
-    // null: follows the global level
-    haDetail: hostLevel(h),
     accessNetwork: h.accessNetwork ?? 'lan',
     agentVersion: h.agentVersion ?? null,
     // cert: TLS client certificate; legacy: plain-text token of the first versions, to reinstall

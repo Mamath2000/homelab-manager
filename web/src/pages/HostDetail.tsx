@@ -561,7 +561,6 @@ function HostDetailPage({ id }: { id: string }) {
           >
             {host.roaming && <Tag>Itinérant</Tag>}
             {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
-            {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
           </HeaderTitle>
 
       {/* narrow screens: the bar only keeps the name, the status and the host selector move to the content */}
@@ -570,7 +569,6 @@ function HostDetailPage({ id }: { id: string }) {
         {hostNav}
         {host.roaming && <Tag>Itinérant</Tag>}
         {host.accessNetwork === 'tailscale' && <Tag>Réseau Tailscale</Tag>}
-        {host.haExcluded && <Badge tone="info">Hors Home Assistant</Badge>}
       </div>
 
       <div

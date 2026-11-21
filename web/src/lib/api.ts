@@ -361,10 +361,6 @@ export interface Host {
   critical: boolean;
   // automatic security updates chosen in its options (applied by the agent)
   autoSecurityUpdates: boolean;
-  // not published to Home Assistant
-  haExcluded: boolean;
-  // level of detail in Home Assistant; null: follows the global level
-  haDetail: HaHostDetail | null;
   // network the agent reaches the hub and the PBS through, fixed at creation
   accessNetwork: AccessNetwork;
   agentVersion: string | null;
@@ -739,24 +735,25 @@ export interface AccountSecret {
 }
 
 export type HaLevel = 'minimal' | 'standard' | 'full';
-export type HaHostLevel = HaLevel | 'none';
-// level of a host: a preset or its own sections (host sections only, HA_HOST_SECTIONS)
-export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
 export type HaSection = 'counters' | 'tops' | 'equipments' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
 export interface HaDetail {
   level: HaLevel | 'custom';
   sections: HaSection[];
 }
 
+// A home-assistant role as its screen shows it (homelab#361): the broker its Home Assistant is connected to, the whole
+// homelab (full) or one site, what is published and the state of its bridge.
 export interface HomeAssistantSettings {
-  enabled: boolean;
-  // mqtt-broker role the hub publishes to; legacyBroker: broker typed before the roles, not linked to one yet
-  brokerRoleId: string | null;
-  legacyBroker: string | null;
+  id: string;
+  name: string;
+  brokerId: string;
+  mode: 'full' | 'site';
+  siteId: string | null;
   topic: string;
   discoveryPrefix: string;
   publicUrl: string;
   detail: HaDetail;
+  // full mode only
   groupBySite: boolean;
   // sections of each level
   presets: Record<HaLevel, HaSection[]>;
@@ -768,14 +765,16 @@ export interface HomeAssistantSettings {
   };
 }
 
-// brokerRoleId: absent keeps the broker, "" removes it
+// name empty: « Home Assistant » (full), « Home Assistant — <site> » (site); detail, groupBySite absent: kept
 export interface HomeAssistantInput {
-  enabled: boolean;
-  brokerRoleId?: string;
+  name?: string;
+  brokerId: string;
+  mode: 'full' | 'site';
+  siteId?: string;
   topic: string;
   discoveryPrefix: string;
   publicUrl: string;
-  detail: HaDetail;
+  detail?: HaDetail;
   groupBySite?: boolean;
 }
 
@@ -1809,11 +1808,11 @@ export interface EquipmentInput {
 // A role of the hub (hub/src/roleView.ts): what the hub can do through a host, never a secret. url / account: what the
 // hub reaches and with which account; summary: what it gives; uses: what relies on it (probes, Home Assistant), a
 // role in use is not deleted (absent from the roles of a host).
-export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller' | 'log-server' | 'esphome';
+export type HubRoleType = 'mqtt-broker' | 'pve-cluster' | 'pbs-primary' | 'pbs-offsite' | 'omada-controller' | 'log-server' | 'esphome' | 'home-assistant';
 interface HubRoleBase {
   id: string;
   name: string;
-  // hub: a role the hub carries itself (esphome), id ''
+  // hub: a role the hub carries itself (esphome, home-assistant), id ''
   carrier: { kind: 'host' | 'equipment' | 'hub'; id: string; name: string };
   hasSecret: boolean;
   url: string;
@@ -1837,13 +1836,16 @@ export type HubRole =
   // journals (target: the whole, '' while the address is unknown); silentHours: a sending host silent that long is a drift
   | (HubRoleBase & { type: 'log-server'; config: { url: string; address: string | null; port: number; protocol: 'tcp'; username: string; silentHours: number; dockerPort?: number }; target: string })
   // carried by the hub, one per site: the broker that carries the detection of the ESPHome devices of the site (Rôles › ESPHome)
-  | (HubRoleBase & { type: 'esphome'; config: { siteId: string; brokerId: string; silentHours?: number } });
+  | (HubRoleBase & { type: 'esphome'; config: { siteId: string; brokerId: string; silentHours?: number } })
+  // carried by the hub, one per broker: a Home Assistant fed by MQTT discovery, the whole homelab or one site (Rôles › Home Assistant)
+  | (HubRoleBase & { type: 'home-assistant'; config: { brokerId: string; mode: 'full' | 'site'; siteId?: string; topic: string; discoveryPrefix: string; publicUrl: string; detail: HaDetail; groupBySite?: boolean } });
 
 export type MqttHubRole = Extract<HubRole, { type: 'mqtt-broker' }>;
 export type PveHubRole = Extract<HubRole, { type: 'pve-cluster' }>;
 export type OmadaHubRole = Extract<HubRole, { type: 'omada-controller' }>;
 export type LogHubRole = Extract<HubRole, { type: 'log-server' }>;
 export type EsphomeHubRole = Extract<HubRole, { type: 'esphome' }>;
+export type HaHubRole = Extract<HubRole, { type: 'home-assistant' }>;
 
 // ESPHome (homelab#352, #358, Rôles › ESPHome): one role per site, the devices found on its broker.
 export type EsphomeRoleInput = { siteId: string; brokerId: string; name?: string; silentHours?: number };
@@ -2090,24 +2092,25 @@ export const api = {
   auditActors: () => request<{ actors: string[] }>('GET', '/api/audit/actors'),
 
   hosts: () => request<Host[]>('GET', '/api/hosts'),
-  createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; critical?: boolean; haExcluded: boolean; accessNetwork: AccessNetwork }) =>
+  createHost: (h: { name: string; siteId: string; tags: string[]; roaming: boolean; critical?: boolean; accessNetwork: AccessNetwork }) =>
     request<{ host: Host } & InstallInfo>('POST', '/api/hosts', h),
   // siteId '': no site
-  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; autoSecurityUpdates?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
-  setHostsHaDetail: (ids: string[], haDetail: HaHostDetail | null) => request<Host[]>('POST', '/api/hosts/ha-detail', { ids, haDetail }),
+  updateHost: (id: string, patch: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; autoSecurityUpdates?: boolean }) => request<Host>('PATCH', `/api/hosts/${id}`, patch),
   deleteHost: (id: string) => request<void>('DELETE', `/api/hosts/${id}`),
   enrollHost: (id: string) => request<InstallInfo>('POST', `/api/hosts/${id}/enroll`),
   revokeHost: (id: string) => request<Host>('POST', `/api/hosts/${id}/revoke`),
   renewHostCert: (id: string) => request<{ notAfter: string }>('POST', `/api/hosts/${id}/cert-renew`),
 
-  homeAssistant: () => request<HomeAssistantSettings>('GET', '/api/settings/homeassistant'),
-  saveHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', '/api/settings/homeassistant', s),
-  testHomeAssistant: (brokerRoleId: string) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', { brokerRoleId }),
-  republishHomeAssistant: () => request<{ ok: boolean }>('POST', '/api/settings/homeassistant/republish'),
-  // devices and entities a level of detail would publish (detail: global level being edited, saved one otherwise);
-  // hosts: only the devices of these hosts, with this level for them when given
-  previewHomeAssistant: (body: { detail?: HaDetail; groupBySite?: boolean; hosts?: { ids: string[]; haDetail?: HaHostDetail | null } }) =>
-    request<{ devices: number; entities: number }>('POST', '/api/settings/homeassistant/preview', body),
+  // the home-assistant roles (homelab#361)
+  homeAssistant: (id: string) => request<HomeAssistantSettings>('GET', `/api/settings/homeassistant/${encodeURIComponent(id)}`),
+  declareHomeAssistant: (s: HomeAssistantInput) => request<HomeAssistantSettings>('POST', '/api/settings/homeassistant', s),
+  saveHomeAssistant: (id: string, s: HomeAssistantInput) => request<HomeAssistantSettings>('PUT', `/api/settings/homeassistant/${encodeURIComponent(id)}`, s),
+  deleteHomeAssistant: (id: string) => request<void>('DELETE', `/api/settings/homeassistant/${encodeURIComponent(id)}`),
+  testHomeAssistant: (brokerId: string) => request<{ ok: boolean; error?: string }>('POST', '/api/settings/homeassistant/test', { brokerId }),
+  republishHomeAssistant: (id: string) => request<{ ok: boolean }>('POST', `/api/settings/homeassistant/${encodeURIComponent(id)}/republish`),
+  // devices and entities a level of detail would publish (detail: the level being edited, the saved one otherwise)
+  previewHomeAssistant: (id: string, body: { detail?: HaDetail; groupBySite?: boolean }) =>
+    request<{ devices: number; entities: number }>('POST', `/api/settings/homeassistant/${encodeURIComponent(id)}/preview`, body),
 
   agentSettings: () => request<AgentSettings>('GET', '/api/settings/agents'),
   saveAgentSettings: (patch: Partial<Pick<AgentSettings, 'autoUpdate' | 'hubUrl' | 'checkIntervalHours' | 'agentPort' | 'tailscaleHub'>>) =>

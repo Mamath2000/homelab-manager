@@ -20,8 +20,7 @@ import { equipmentProbes, hostProbes } from '../probes.js';
 import { checkHostLinks } from '../catalog.js';
 import { applySetup, canSetup } from '../setup.js';
 import { canAutoUpgrade, reconcileAutoUpgrade } from '../autoUpgrade.js';
-import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HaHostDetail, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
-import { haLevelSchema, normalizeHostDetail } from '../homeassistant/detail.js';
+import { APT_ACTIONS, DOCKER_ACTIONS, JOB_ACTIONS, SETUP_OPTIONS, hasApt, type AccessNetwork, type HostDoc, type JobAction, type SetupOverrides } from '../types.js';
 import { carriedBy, carrierDeleteError } from '../roles.js';
 import { CERT_FIELDS, renewAgentCert } from '../certRenew.js';
 
@@ -37,9 +36,6 @@ const hostBody = {
     critical: { type: 'boolean' },
     // automatic security updates (unattended-upgrades), applied by the agent
     autoSecurityUpdates: { type: 'boolean' },
-    haExcluded: { type: 'boolean' },
-    // level of detail in Home Assistant; null: the global level
-    haDetail: haLevelSchema,
   },
 } as const;
 
@@ -51,7 +47,7 @@ const createHostBody = {
 } as const;
 
 // Hosts of the Tailscale access network (typically third parties) start unmanaged: every standard
-// option off, and not published to Home Assistant. Both stay editable afterwards.
+// option off. It stays editable afterwards.
 export const UNMANAGED: SetupOverrides = Object.fromEntries(SETUP_OPTIONS.map((k) => [k, { mode: 'off' }]));
 
 // Instant commands of the UPS the UI offers; same list on the agent.
@@ -120,7 +116,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return list.map(hostDto);
   });
 
-  app.post<{ Body: { name: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; haExcluded?: boolean; accessNetwork?: AccessNetwork } }>(
+  app.post<{ Body: { name: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; accessNetwork?: AccessNetwork } }>(
     '/api/hosts',
     { schema: { body: createHostBody } },
     async (req, reply) => {
@@ -138,8 +134,6 @@ export function registerHostRoutes(app: FastifyInstance) {
         tags: req.body.tags?.length ? req.body.tags : undefined,
         roaming: req.body.roaming || undefined,
         critical: req.body.critical || undefined,
-        // Tailscale: excluded unless the request says otherwise
-        haExcluded: (tailscale ? req.body.haExcluded !== false : req.body.haExcluded) || undefined,
         ...(tailscale ? { accessNetwork: 'tailscale' as const, setupOverrides: UNMANAGED } : {}),
         ...enroll.fields,
         createdAt: new Date(),
@@ -160,7 +154,7 @@ export function registerHostRoutes(app: FastifyInstance) {
     return hostDto(host);
   });
 
-  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; autoSecurityUpdates?: boolean; haExcluded?: boolean; haDetail?: HaHostDetail | null } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string; siteId?: string; tags?: string[]; roaming?: boolean; critical?: boolean; autoSecurityUpdates?: boolean } }>(
     '/api/hosts/:id',
     { schema: { body: hostBody } },
     async (req, reply) => {
@@ -169,7 +163,7 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (linkError) return reply.code(400).send({ error: linkError });
       const set: Partial<HostDoc> = {};
       // flags and links: stored only when set
-      const unset: Partial<Record<'roaming' | 'critical' | 'autoSecurityUpdates' | 'haExcluded' | 'haDetail' | 'siteId', ''>> = {};
+      const unset: Partial<Record<'roaming' | 'critical' | 'autoSecurityUpdates' | 'siteId', ''>> = {};
       if (req.body.name !== undefined) set.name = req.body.name.trim();
       if (req.body.siteId) set.siteId = req.body.siteId;
       else if (req.body.siteId === '') unset.siteId = '';
@@ -177,19 +171,9 @@ export function registerHostRoutes(app: FastifyInstance) {
       if (req.body.autoSecurityUpdates && _id && !canAutoUpgrade((await hosts.findOne({ _id }, { projection: { capabilities: 1 } })) ?? {})) {
         return reply.code(400).send({ error: 'mises à jour de sécurité automatiques : agent à mettre à jour (Debian / Ubuntu)' });
       }
-      for (const flag of ['roaming', 'critical', 'autoSecurityUpdates', 'haExcluded'] as const) {
+      for (const flag of ['roaming', 'critical', 'autoSecurityUpdates'] as const) {
         if (req.body[flag]) set[flag] = true;
         else if (req.body[flag] === false) unset[flag] = '';
-      }
-      // haDetail replaces the old "excluded" flag
-      if (req.body.haDetail) {
-        set.haDetail = normalizeHostDetail(req.body.haDetail)!;
-        unset.haExcluded = '';
-        delete set.haExcluded;
-      } else if (req.body.haDetail === null) {
-        unset.haDetail = '';
-        unset.haExcluded = '';
-        delete set.haExcluded;
       }
       const update = Object.keys(unset).length ? { $set: set, $unset: unset } : { $set: set };
       const host = _id && (await hosts.findOneAndUpdate({ _id }, update, { returnDocument: 'after' }));
@@ -199,33 +183,6 @@ export function registerHostRoutes(app: FastifyInstance) {
       const dto = hostDto(host);
       publish('host', dto);
       return dto;
-    },
-  );
-
-  // several hosts at once (hosts list): same level of detail for all
-  app.post<{ Body: { ids: string[]; haDetail: HaHostDetail | null } }>(
-    '/api/hosts/ha-detail',
-    {
-      schema: {
-        body: {
-          type: 'object',
-          required: ['ids', 'haDetail'],
-          additionalProperties: false,
-          properties: { ids: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'string', maxLength: 24 } }, haDetail: haLevelSchema },
-        },
-      },
-    },
-    async (req, reply) => {
-      const _ids = req.body.ids.map(parseId);
-      if (_ids.some((id) => !id)) return reply.code(400).send({ error: 'identifiant invalide' });
-      const filter = { _id: { $in: _ids as ObjectId[] } };
-      await hosts.updateMany(
-        filter,
-        req.body.haDetail ? { $set: { haDetail: normalizeHostDetail(req.body.haDetail)! }, $unset: { haExcluded: '' } } : { $unset: { haDetail: '', haExcluded: '' } },
-      );
-      const list = await hosts.find(filter).toArray();
-      for (const h of list) publish('host', hostDto(h));
-      return list.map(hostDto);
     },
   );
 

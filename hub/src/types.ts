@@ -404,10 +404,6 @@ export interface HostDoc {
   // journals of the containers sent too (homelab#346, #347): always to the log server of the host (its option « Envoi des
   // journaux »), turned on from Rôles › Logs
   dockerLogs?: { enabled: true };
-  // not published to Home Assistant (no device, not counted in the totals); same as haDetail 'none'
-  haExcluded?: boolean;
-  // level of detail published to Home Assistant for this host; absent: the global level (see homeassistant/detail.ts)
-  haDetail?: HaHostDetail;
   // Proxmox VE guest this host is (one of its MAC addresses), recomputed at each PVE poll; see pve.ts
   pve?: HostPveLink | null;
   // link to a guest set aside when it broke (guest gone from the inventory, cluster removed): offered again (candidate,
@@ -789,9 +785,6 @@ export interface AgentSettings {
 }
 
 export type HaLevel = 'minimal' | 'standard' | 'full';
-export type HaHostLevel = HaLevel | 'none';
-// level of a host: a preset, or its sections picked one by one (sections of a host only, see HA_HOST_SECTIONS)
-export type HaHostDetail = HaHostLevel | { level: 'custom'; sections: HaSection[] };
 export type HaSection =
   | 'counters' | 'tops' | 'equipments' | 'apt' | 'docker' | 'ups' | 'backup' | 'probes' | 'sessions' | 'actions' | 'diagnostics';
 // custom: the sections are picked one by one
@@ -800,24 +793,33 @@ export interface HaDetail {
   sections: HaSection[];
 }
 
-export interface HomeAssistantSettings {
+// The Home Assistant bridge as it was before the roles (settings._id 'homeassistant', one for the whole homelab): read
+// once by migrateHaSettings, which makes it a home-assistant role (homelab#361).
+export interface LegacyHomeAssistantSettings {
   _id: 'homeassistant';
   enabled: boolean;
-  // mqtt-broker role the bridge publishes to (roles.ts), with its address and account; absent: none chosen yet
   brokerRoleId?: string;
-  // broker typed before the roles, kept while no role is chosen (migrateHaBroker links it when a role matches);
-  // the bridge is given the address and account of the role here (loadHaBridgeSettings)
+  // broker typed before the roles, kept while no role is chosen (migrateHaBroker links it when a role matches)
+  broker: string;
+  username: string;
+  password: string;
+  topic: string;
+  discoveryPrefix: string;
+  publicUrl: string;
+  detail?: HaDetail;
+  groupBySite?: boolean;
+}
+
+// What one bridge publishes with (homeassistant/bridge.ts): the config of its role, with the address, account and TLS
+// material of its broker role ('' when the broker role is gone or its host has no address yet).
+export interface HaBridgeSettings extends HomeAssistantConfig {
+  roleId: string;
   broker: string; // mqtt://host:1883, mqtts://...
   username: string;
   password: string;
-  // TLS material of the broker role (mqtts, wss), given with the address and account by loadHaBridgeSettings; never stored here
   tls?: MqttTls;
-  topic: string; // prefix of the state / command topics
-  discoveryPrefix: string;
-  publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
-  detail: HaDetail; // entities published; absent from settings saved before 0.4: minimal
-  // hosts and equipments under a device per site (root > site > host / equipment) instead of directly under the root
-  groupBySite?: boolean;
+  // name of the site of a role of a site, for the root device
+  siteName?: string;
 }
 
 // --- Backups (Proxmox Backup Server, see pbs.ts) ------------------------------------------
@@ -1364,7 +1366,7 @@ export type BrokerScheme = (typeof BROKER_SCHEMES)[number];
 
 // --- Roles of the hub (see roles.ts) ------------------------------------------------------------
 
-export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller', 'log-server', 'esphome'] as const;
+export const ROLE_TYPES = ['mqtt-broker', 'pve-cluster', 'pbs-primary', 'pbs-offsite', 'omada-controller', 'log-server', 'esphome', 'home-assistant'] as const;
 export type RoleType = (typeof ROLE_TYPES)[number];
 export const CARRIER_KINDS = ['host', 'equipment'] as const;
 export type CarrierKind = (typeof CARRIER_KINDS)[number];
@@ -1376,7 +1378,8 @@ export interface RoleCarrier {
   id: ObjectId;
 }
 
-// A role the hub carries itself (esphome: what it does through the brokers of other roles), on no host nor equipment.
+// A role the hub carries itself (esphome, home-assistant: what it does through the brokers of other roles), on no host nor
+// equipment.
 export interface HubCarrier {
   kind: 'hub';
 }
@@ -1570,6 +1573,29 @@ export interface EsphomeRole {
   createdAt: Date;
 }
 
+// home-assistant (homelab#361): a Home Assistant fed by MQTT discovery, carried by the hub. brokerId: the mqtt-broker role
+// its MQTT integration is connected to (one Home Assistant role per broker); mode full: the whole homelab, site: only the
+// hosts and equipments of siteId (and the commands they take). groupBySite: full mode only, a device per site under the root.
+export interface HomeAssistantConfig {
+  brokerId: string;
+  mode: 'full' | 'site';
+  siteId?: string;
+  topic: string; // prefix of the state / command topics
+  discoveryPrefix: string;
+  publicUrl: string; // link to the UI in Home Assistant ("Visit"); empty: the hub URL of the agent settings
+  detail: HaDetail; // entities published
+  groupBySite?: boolean;
+}
+
+export interface HomeAssistantRole {
+  _id: string;
+  type: 'home-assistant';
+  name: string;
+  carrier: HubCarrier;
+  config: HomeAssistantConfig;
+  createdAt: Date;
+}
+
 // An ESPHome device as its broker shows it (collection `esphome`, _id = <broker>/<unique_id>): its LWT
 // (esphome/<id>/LWT), what it publishes in esphome/<id>/info (retained, JSON) and its log level (esphome/<id>/log_level).
 // Kept when it is no longer seen: lastSeenAt tells since when.
@@ -1608,11 +1634,11 @@ export interface EsphomeDeviceDoc {
   lastSeenAt: Date;
 }
 
-export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole | LogServerRole | EsphomeRole;
+export type RoleDoc = MqttBrokerRole | PveClusterRole | PbsPrimaryRole | PbsOffsiteRole | OmadaControllerRole | LogServerRole | EsphomeRole | HomeAssistantRole;
 // a role carried by a host or an equipment (every type but the ones of the hub)
-export type CarriedRoleDoc = Exclude<RoleDoc, EsphomeRole>;
+export type CarriedRoleDoc = Exclude<RoleDoc, EsphomeRole | HomeAssistantRole>;
 // the ones of the roles collection
-export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole | LogServerRole | EsphomeRole;
+export type StoredRoleDoc = MqttBrokerRole | PveClusterRole | OmadaControllerRole | LogServerRole | EsphomeRole | HomeAssistantRole;
 
 // Role of a host as stored before the roles were the hub's (hosts[].roles, migrated by migrateHostRoles).
 export interface LegacyHostRole extends MqttBrokerConfig {

@@ -170,7 +170,6 @@ export async function runInstall(clusterId: string, vmids: number[], nodes: stri
         name: t.hostName,
         siteId: t.siteId || undefined,
         tags: t.tags.length ? t.tags : undefined,
-        haExcluded: carrier.haExcluded || undefined,
         ...(carrier.accessNetwork ? { accessNetwork: carrier.accessNetwork } : {}),
         setupOverrides: UNMANAGED,
         ...enroll.fields,

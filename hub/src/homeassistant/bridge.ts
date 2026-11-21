@@ -11,25 +11,32 @@ import { isUnmanaged } from '../docker.js';
 import { backups, equipments, hosts } from '../db.js';
 import { backupState, loadPbsSettings, pbsConnected } from '../pbs.js';
 import { subscribe } from '../events.js';
-import { equipmentProbes, hostProbes } from '../probes.js';
+import { equipmentProbes, hostProbes, loadMqttBrokers } from '../probes.js';
 import { HOME_ASSISTANT, runAs } from '../audit.js';
 import { createJob, hasRunningJob } from '../jobs.js';
 import { tlsKey, tlsOptions } from '../mqttTls.js';
-import type { HaDetail, HaHostDetail, HomeAssistantSettings, MqttTls } from '../types.js';
+import { haRoles } from '../roles.js';
+import type { HaBridgeSettings, MqttTls } from '../types.js';
 import { build, deviceOf, mqttActionAllowed, NODE_ID, parseDiscoveryTopic, type Command } from './discovery.js';
 
 export type BridgeState = 'disabled' | 'connecting' | 'connected' | 'error';
 
-let running: HomeAssistantBridge | null = null;
+let running: HomeAssistantBridges | null = null;
 
-// Connection of the bridge when it uses this broker role (null: it does not, or it is disabled): shown on the role.
-export const bridgeStatusOf = (roleId: string) =>
-  running?.state && running.state !== 'disabled' && running.brokerRoleId === roleId ? { state: running.state, error: running.error } : null;
+// Connection of the bridge that publishes to this broker role (null: none does, or it is stopped): shown on the broker.
+export function bridgeStatusOf(brokerRoleId: string) {
+  const b = running?.list().find((x) => x.brokerRoleId === brokerRoleId && x.state !== 'disabled');
+  return b ? { state: b.state as Exclude<BridgeState, 'disabled'>, error: b.error } : null;
+}
 
-// Publishes the homelab to Home Assistant over MQTT and runs the commands it sends back.
+// The bridge of a home-assistant role (null: not started yet).
+export const bridgeOf = (roleId: string) => running?.get(roleId) ?? null;
+
+// Publishes the homelab (or one site of it) to one Home Assistant over MQTT and runs the commands it sends back: one per
+// home-assistant role (homelab#361), each on its own broker.
 export class HomeAssistantBridge {
   private client: MqttClient | null = null;
-  private settings: HomeAssistantSettings | null = null;
+  private settings: HaBridgeSettings | null = null;
   private sent = new Map<string, string>(); // topic -> last published value
   private known = new Map<string, string>(); // announced devices: id -> discovery topic
   private states = new Set<string>(); // state topics of the current devices
@@ -46,41 +53,42 @@ export class HomeAssistantBridge {
   error: string | null = null;
   lastPublishAt: Date | null = null;
 
-  constructor(private log: FastifyBaseLogger) {
-    running = this;
-  }
+  constructor(private log: FastifyBaseLogger) {}
 
   get brokerRoleId() {
-    return this.settings?.brokerRoleId ?? null;
+    return this.settings?.brokerId ?? null;
   }
 
   status() {
     return { state: this.state, error: this.error, devices: this.known.size, lastPublishAt: this.lastPublishAt };
   }
 
-  async apply(next: HomeAssistantSettings | null) {
+  // next null: the role is gone, its devices are removed from Home Assistant
+  async apply(next: HaBridgeSettings | null) {
     const prev = this.settings;
     const same =
-      prev && next && prev.enabled === next.enabled && prev.broker === next.broker && prev.username === next.username &&
+      prev && next && prev.brokerId === next.brokerId && prev.broker === next.broker && prev.username === next.username &&
       prev.password === next.password && tlsKey(prev.tls) === tlsKey(next.tls) && prev.topic === next.topic && prev.discoveryPrefix === next.discoveryPrefix;
     if (same) {
-      // only the link changed: republish the devices
+      // only what is published changed: republish the devices
       this.settings = next;
-      if (prev.publicUrl !== next.publicUrl || !!prev.groupBySite !== !!next.groupBySite || JSON.stringify(prev.detail) !== JSON.stringify(next.detail)) this.refresh();
+      const shown = (x: HaBridgeSettings) => JSON.stringify([x.publicUrl, !!x.groupBySite, x.detail, x.mode, x.siteId ?? null, x.siteName ?? null]);
+      if (shown(prev) !== shown(next)) this.refresh();
       return;
     }
-    // devices are removed from Home Assistant when the integration is disabled or moved to other topics
-    const removeDevices = !next?.enabled || prev?.topic !== next.topic || prev?.discoveryPrefix !== next.discoveryPrefix;
+    // devices are removed from Home Assistant when the role goes, moves to another broker role or to other topics (the
+    // address of the same broker role may change: its host got another IP, the devices stay)
+    const removeDevices = !next || prev?.brokerId !== next.brokerId || prev?.topic !== next.topic || prev?.discoveryPrefix !== next.discoveryPrefix;
     await this.stop(removeDevices);
     this.settings = next;
     // broker role gone or its host without an address yet: nothing to connect to
-    if (next?.enabled && !next.broker) {
+    if (next && !next.broker) {
       this.state = 'error';
       this.error = "adresse du broker MQTT inconnue (rôle supprimé ou hôte sans adresse)";
-    } else if (next?.enabled) this.start(next);
+    } else if (next) this.start(next);
   }
 
-  private start(s: HomeAssistantSettings) {
+  private start(s: HaBridgeSettings) {
     this.state = 'connecting';
     this.error = null;
     const client = mqtt.connect(s.broker, {
@@ -95,7 +103,7 @@ export class HomeAssistantBridge {
     this.client = client;
 
     client.on('connect', () => {
-      this.log.info({ broker: s.broker }, 'Home Assistant: connected to the MQTT broker');
+      this.log.info({ role: s.roleId, broker: s.broker }, 'Home Assistant: connected to the MQTT broker');
       this.state = 'connected';
       this.error = null;
       this.sent.clear();
@@ -106,7 +114,7 @@ export class HomeAssistantBridge {
       this.schedule(0);
     });
     client.on('error', (err) => {
-      if (this.error !== err.message) this.log.warn({ err: err.message }, 'Home Assistant: MQTT error');
+      if (this.error !== err.message) this.log.warn({ role: s.roleId, err: err.message }, 'Home Assistant: MQTT error');
       this.state = 'error';
       this.error = err.message;
     });
@@ -182,7 +190,7 @@ export class HomeAssistantBridge {
 
   // (re)subscribing makes the broker send the retained discovery configs and states again: the stale ones get
   // removed. The states are only watched for that burst (our own publications would come back otherwise).
-  private watchDiscovery(s: HomeAssistantSettings) {
+  private watchDiscovery(s: HaBridgeSettings) {
     const states = [`${s.topic}/+/+/state`, `${s.topic}/+/+/attributes`];
     this.client?.subscribe([`${s.discoveryPrefix}/device/${NODE_ID}/+/config`, `${s.discoveryPrefix}/device/+/config`, ...states]);
     if (this.watching) clearTimeout(this.watching);
@@ -231,24 +239,8 @@ export class HomeAssistantBridge {
     return true;
   }
 
-  // what would be published with this level of detail (devices and entities), without publishing anything.
-  // hosts: only the devices of these hosts, with this level for them (undefined: their own)
-  async preview(detail: HaDetail, s: HomeAssistantSettings, hostsScope?: { ids: string[]; haDetail?: HaHostDetail | null }) {
-    const override = hostsScope && { ids: new Set(hostsScope.ids), haDetail: hostsScope.haDetail };
-    let { devices } = await this.compute({ ...s, detail }, override);
-    if (hostsScope) devices = devices.filter((d) => hostsScope.ids.some((id) => d.id === `hm_${id}` || d.id.startsWith(`hm_${id}_`)));
-    return {
-      devices: devices.length,
-      entities: devices.reduce((n, d) => n + Object.keys(d.discovery.components as object).length, 0),
-    };
-  }
-
-  private async compute(s: HomeAssistantSettings, override?: { ids: Set<string>; haDetail?: HaHostDetail | null }) {
-    const list = (await hosts.find().sort({ name: 1 }).toArray()).map((h) => {
-      if (override?.haDetail === undefined || !override.ids.has(h._id.toHexString())) return h;
-      const { haDetail: _own, haExcluded: _legacy, ...rest } = h;
-      return override.haDetail === null ? rest : { ...rest, haDetail: override.haDetail };
-    });
+  async compute(s: HaBridgeSettings) {
+    const list = await hosts.find().sort({ name: 1 }).toArray();
     const allProbes = await hostProbes();
     const status = evaluateAll(list, await backups.find({ hostId: { $ne: null } }).toArray(), Date.now(), allProbes);
     const eqList = await equipments.find().sort({ name: 1 }).toArray();
@@ -270,7 +262,8 @@ export class HomeAssistantBridge {
         };
       }),
       { topic: s.topic, discoveryPrefix: s.discoveryPrefix, version: config.version, hubUrl, detail: s.detail, backups: await backupsForHa(),
-        groupBySite: s.groupBySite, sites: (await loadSites()).map(({ id, name }) => ({ id, name })),
+        groupBySite: s.mode === 'full' && s.groupBySite, sites: (await loadSites()).map(({ id, name }) => ({ id, name })),
+        ...(s.mode === 'site' && s.siteId ? { siteId: s.siteId, rootName: `Homelab Manager — ${s.siteName || s.siteId}` } : {}),
         equipments: eqList.map((equipment) => {
           const id = equipment._id.toHexString();
           return { equipment, status: eqStatus[id], probes: eqProbes.filter((p) => p.subject.id.toHexString() === id) };
@@ -327,7 +320,7 @@ export class HomeAssistantBridge {
     this.lastPublishAt = new Date();
   }
 
-  private onMessage(s: HomeAssistantSettings, topic: string, payload: string, retained: boolean) {
+  private onMessage(s: HaBridgeSettings, topic: string, payload: string, retained: boolean) {
     if (this.purging && retained && topic.startsWith(`${s.discoveryPrefix}/device/${NODE_ID}/`)) {
       if (payload) this.purging.add(topic);
       return;
@@ -363,7 +356,7 @@ export class HomeAssistantBridge {
       return;
     }
     // whoever wrote on the broker: MQTT does not say, the topic and the hosts are kept
-    this.log.warn({ topic, action: cmd.action, hosts: cmd.hostIds, stack: cmd.target?.stack }, 'Home Assistant: command received by MQTT');
+    this.log.warn({ role: s.roleId, topic, action: cmd.action, hosts: cmd.hostIds, stack: cmd.target?.stack }, 'Home Assistant: command received by MQTT');
     // its own context: the MQTT client may have been started by a request of an admin, whose context it would inherit
     runAs({ actor: { ...HOME_ASSISTANT, keyName: topic } }, () => this.run(cmd)).catch((err) => this.log.error({ err }, 'Home Assistant: command failed'));
   }
@@ -378,7 +371,93 @@ export class HomeAssistantBridge {
   }
 }
 
-// Checks that a broker accepts the connection, without touching the running bridge.
+// What a role would publish with this level of detail (devices and entities), without publishing anything.
+export async function previewBridge(log: FastifyBaseLogger, s: HaBridgeSettings) {
+  const { devices } = await new HomeAssistantBridge(log).compute(s);
+  return { devices: devices.length, entities: devices.reduce((n, d) => n + Object.keys(d.discovery.components as object).length, 0) };
+}
+
+// What each bridge connects with: the config of its role and the address and account of its broker role.
+export async function loadHaBridgeSettings(): Promise<HaBridgeSettings[]> {
+  const [brokers, sites] = await Promise.all([loadMqttBrokers(), loadSites()]);
+  return haRoles().map((r) => {
+    const b = brokers.brokers.find((x) => x.id === r.config.brokerId);
+    return {
+      ...r.config,
+      roleId: r._id,
+      broker: b?.url ?? '',
+      username: b?.username ?? '',
+      password: b?.password ?? '',
+      ...(b?.tls ? { tls: b.tls } : {}),
+      ...(r.config.siteId ? { siteName: sites.find((x) => x.id === r.config.siteId)?.name ?? r.config.siteId } : {}),
+    };
+  });
+}
+
+// The bridges of the home-assistant roles: started, changed and stopped with the roles (sync, after every change of a
+// role: 'probe.config'). A role removed takes its devices out of its Home Assistant.
+export class HomeAssistantBridges {
+  private bridges = new Map<string, HomeAssistantBridge>();
+  private chain: Promise<void> = Promise.resolve();
+
+  constructor(private log: FastifyBaseLogger) {
+    running = this;
+  }
+
+  list() {
+    return [...this.bridges.values()];
+  }
+
+  get(roleId: string) {
+    return this.bridges.get(roleId) ?? null;
+  }
+
+  // one at a time: two changes in a row are applied in their order
+  sync() {
+    this.chain = this.chain.then(() => this.run(), (err) => this.log.error({ err }, 'Home Assistant: roles'));
+    return this.chain;
+  }
+
+  private async run() {
+    const next = await loadHaBridgeSettings();
+    for (const [id, b] of this.bridges) {
+      if (next.some((s) => s.roleId === id)) continue;
+      await b.apply(null);
+      this.bridges.delete(id);
+      this.log.info({ role: id }, 'Home Assistant: role removed, devices withdrawn');
+    }
+    for (const s of next) {
+      let b = this.bridges.get(s.roleId);
+      if (!b) this.bridges.set(s.roleId, (b = new HomeAssistantBridge(this.log)));
+      await b.apply(s);
+    }
+  }
+
+  // the hub URL changed: the links of the devices
+  refresh() {
+    for (const b of this.bridges.values()) b.refresh();
+  }
+
+  async stop() {
+    await this.chain.catch(() => {});
+    for (const b of this.bridges.values()) await b.stop(false);
+  }
+}
+
+// null: the broker answers (a real connection with its account, whether or not the hub uses it yet), else why not
+export async function brokerOnline(brokerId: string) {
+  const b = (await loadMqttBrokers()).brokers.find((x) => x.id === brokerId);
+  if (!b) return `broker inconnu : ${brokerId}`;
+  if (!b.url) return "adresse du broker inconnue (hôte sans adresse relevée)";
+  try {
+    await testConnection(b.url, b.username, b.password, b.tls);
+    return null;
+  } catch (err) {
+    return `broker injoignable : ${(err as Error).message}`;
+  }
+}
+
+// Checks that a broker accepts the connection, without touching the running bridges.
 export function testConnection(broker: string, username: string, password: string, tls?: MqttTls) {
   return new Promise<void>((resolve, reject) => {
     const client = mqtt.connect(broker, {

@@ -7,7 +7,8 @@
 //   │   └── one device per sub-component, with the details: APT, one per Docker compose stack, UPS
 //   └── one device per equipment (section `equipments`): alerts and its probes
 // With `groupBySite`, a device per site sits between the root and the hosts / equipments of that site (alerts rolled up);
-// those without a known site stay under the root.
+// those without a known site stay under the root. With `siteId` (a home-assistant role of a site), only the hosts and
+// equipments of that site are published, and the root sums them only.
 // The probes of a host are entities of its device, or of the device of its stack.
 // Retained topics: <topic>/lwt, <topic>/<device>/<entity>/state, <topic>/<device>/<entity>/set (commands);
 // <device>: the host name as a slug (topicKeys), `manager` for the root.
@@ -19,7 +20,7 @@ import { upsFlags } from '../ups.js';
 import { sessionSummary } from '../sessions.js';
 import { dockerView } from '../docker.js';
 import { TYPE_LABELS } from '../equipments.js';
-import { hostLevel, hostSections, sectionsOf } from './detail.js';
+import { sectionsOf } from './detail.js';
 
 // Actions Home Assistant may run through MQTT: the updates only (F-03). Whoever can write on the broker may send
 // them (MQTT does not say who), so neither a reboot, a stop or a restart of a stack, nor a cleanup of packages.
@@ -134,8 +135,12 @@ export interface BuildOptions {
   // equipments (published with the section `equipments`) and the sites of the homelab
   equipments?: EquipmentState[];
   sites?: { id: string; name: string }[];
-  // a device per site between the root and its hosts / equipments
+  // a device per site between the root and its hosts / equipments (not with siteId)
   groupBySite?: boolean;
+  // only the hosts and equipments of this site (a role of a site, homelab#361); absent: the whole homelab
+  siteId?: string;
+  // name of the root device; absent: Homelab Manager
+  rootName?: string;
   // backup groups of the PBS (see pbs.ts) and the space of its datastores
   backups?: {
     // source: see BackupDoc (haos: Home Assistant backups, the others are on the PBS)
@@ -147,14 +152,16 @@ export interface BuildOptions {
 type Component = Record<string, unknown>;
 
 export function build(all: HostState[], opts: BuildOptions) {
-  const { topic, discoveryPrefix, version, hubUrl, backups, sites = [], groupBySite = false } = opts;
+  const { topic, discoveryPrefix, version, hubUrl, backups, sites = [], siteId } = opts;
+  const groupBySite = !siteId && !!opts.groupBySite;
   const global = sectionsOf(opts.detail ?? { level: 'full', sections: [] });
-  // hosts excluded from Home Assistant: no device, and left out of the totals and alerts of the root
-  const hosts = all.filter((h) => hostLevel(h.host) !== 'none');
-  const excluded = new Set(all.filter((h) => hostLevel(h.host) === 'none').map((h) => h.host._id.toHexString()));
+  // a role of a site publishes the hosts of that site only: the others have no device and are left out of the totals
+  const inScope = (s?: string) => !siteId || s === siteId;
+  const hosts = all.filter((h) => inScope(h.host.siteId));
+  const published = new Set(hosts.map((h) => h.host._id.toHexString()));
   // followed: groups attached to a published host (gone ones are reported as alerts only)
-  const tracked = (backups?.groups ?? []).filter((g) => g.hostId && !excluded.has(g.hostId));
-  // from every host, published or not: changing the level of one does not move the topics of another
+  const tracked = (backups?.groups ?? []).filter((g) => g.hostId && published.has(g.hostId));
+  // from every host, published or not: the topics of a host do not depend on which hosts a role publishes
   const keys = topicKeys(all.map((h) => h.host));
   const devices: Device[] = [];
   const commands = new Map<string, Command>();
@@ -289,7 +296,7 @@ export function build(all: HostState[], opts: BuildOptions) {
     const hostId = `hm_${hid}`;
     const hostKey = keys.get(hid)!;
     const hostTopic = `${topic}/${hostKey}`;
-    const sec = hostSections(host, global);
+    const sec = global;
     const r = host.apt;
     const status = given ?? evaluate(host, { online: isOnline, groups: [], now: Date.now(), agentOutdated, probes: hostProbes });
 
@@ -520,7 +527,7 @@ export function build(all: HostState[], opts: BuildOptions) {
   }
 
   // --- equipments: alerts and probes, no agent (section `equipments`, global)
-  const equipments = global.has('equipments') ? opts.equipments ?? [] : [];
+  const equipments = global.has('equipments') ? (opts.equipments ?? []).filter((e) => inScope(e.equipment.siteId)) : [];
   for (const { equipment: e, status, probes: own } of equipments) {
     const eid = e._id.toHexString();
     const list = rolledUp(status).map((a) => ({ ...a, host: e.name }));
@@ -553,7 +560,7 @@ export function build(all: HostState[], opts: BuildOptions) {
 
   // --- root
   const root = device(ROOT_ID, ROOT_KEY, {
-    name: 'Homelab Manager', model: 'Hub', sw_version: version, ...(hubUrl ? { configuration_url: hubUrl } : {}),
+    name: opts.rootName || 'Homelab Manager', model: 'Hub', sw_version: version, ...(hubUrl ? { configuration_url: hubUrl } : {}),
   }, [], global);
   const ids = (list: HostState[]) => list.map((h) => h.host._id.toHexString());
   if (global.has('counters')) {
@@ -572,7 +579,8 @@ export function build(all: HostState[], opts: BuildOptions) {
     }
     if (backups) {
       root.sensor('backups_late', 'Sauvegardes en retard', tracked.filter((g) => g.state === 'stale').length, { icon: 'mdi:backup-restore' });
-      for (const ds of backups.datastores) {
+      // the datastores of the PBS belong to the whole homelab: not on a role of a site
+      for (const ds of siteId ? [] : backups.datastores) {
         const key = `datastore_${ds.store.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
         root.sensor(key, `Datastore ${ds.store}`, ds.total ? Math.round((ds.used / ds.total) * 1000) / 10 : null, {
           icon: 'mdi:harddisk', unit_of_measurement: '%', state_class: 'measurement',

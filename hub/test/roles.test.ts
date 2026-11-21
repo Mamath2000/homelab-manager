@@ -7,8 +7,9 @@ import { fromLegacy, newRoleId, pbsRoles, ROLE_DEFS, roleConflict, carrierDelete
 import { clusterOf, roleOf } from '../src/pve.js';
 import { roleView } from '../src/roleView.js';
 import { configError, registerRoleRoutes, toConfig } from '../src/routes/roles.js';
-import { matchHaBroker, registerSettingsRoutes } from '../src/routes/settings.js';
-import type { HomeAssistantBridge } from '../src/homeassistant/bridge.js';
+import { matchHaBroker, roleOfLegacy } from '../src/homeassistant/migrate.js';
+import { haError, haRoleName, registerHomeAssistantRoutes, toHaConfig } from '../src/routes/homeassistant.js';
+import type { HomeAssistantBridges } from '../src/homeassistant/bridge.js';
 import type { MqttBroker, MqttBrokerConfig, OmadaControllerConfig, PbsRemoteSettings, PbsSettings, RoleDoc } from '../src/types.js';
 
 const broker = (name: string, hostId: ObjectId, port = 1883): RoleDoc => ({
@@ -98,14 +99,49 @@ test('roles: the broker of Home Assistant typed before the roles is the role wit
   assert.equal(matchHaBroker(brokers, { broker: '', username: '', password: '' }), null);
 });
 
-test('roles: Home Assistant names its broker by a role id', async () => {
+test('roles: a Home Assistant role is checked by its schema before anything (homelab#361)', async () => {
   const a = Fastify();
-  registerSettingsRoutes(a, {} as HomeAssistantBridge);
-  const put = (payload: unknown) => a.inject({ method: 'PUT', url: '/api/settings/homeassistant', payload });
-  const base = { enabled: true, topic: 'homelab-manager', discoveryPrefix: 'homeassistant' };
-  assert.equal((await put({ ...base, brokerRoleId: 'Bad id' })).statusCode, 400);
-  assert.equal((await put({ ...base, brokerRoleId: 'x/../y' })).statusCode, 400);
+  registerHomeAssistantRoutes(a, {} as HomeAssistantBridges);
+  const post = (payload: unknown) => a.inject({ method: 'POST', url: '/api/settings/homeassistant', payload });
+  const base = { brokerId: 'mqtt-vouille', mode: 'full', topic: 'homelab-manager', discoveryPrefix: 'homeassistant' };
+  assert.equal((await post({ ...base, topic: 'a b' })).statusCode, 400);
+  assert.equal((await post({ ...base, mode: 'all' })).statusCode, 400);
   assert.equal((await a.inject({ method: 'POST', url: '/api/settings/homeassistant/test', payload: {} })).statusCode, 400);
+});
+
+test('roles: Home Assistant, one role per broker, a site for a role of a site, the grouping in full mode only', () => {
+  const brokers = new Set(['vouille', 'jarsay']);
+  const sites = new Set(['vouille', 'jarsay']);
+  const other = { _id: 'home-assistant', type: 'home-assistant' as const, name: 'Home Assistant', carrier: { kind: 'hub' as const }, config: toHaConfig({ brokerId: 'vouille', mode: 'full', topic: 't', discoveryPrefix: 'homeassistant' }), createdAt: new Date() };
+  assert.equal(haError({ brokerId: 'jarsay', mode: 'site', siteId: 'jarsay' }, brokers, sites, [other]), null);
+  assert.match(haError({ brokerId: 'vouille', mode: 'site', siteId: 'jarsay' }, brokers, sites, [other])!, /déjà utilisé par le rôle Home Assistant/);
+  assert.ok(haError({ brokerId: 'jarsay', mode: 'site' }, brokers, sites, []));
+  assert.ok(haError({ brokerId: 'jarsay', mode: 'site', siteId: 'dumani' }, brokers, sites, []));
+  assert.ok(haError({ brokerId: 'nowhere', mode: 'full' }, brokers, sites, []));
+  assert.ok(haError({ brokerId: 'jarsay', mode: 'full', publicUrl: 'javascript:alert(1)' }, brokers, sites, []));
+  const site = toHaConfig({ brokerId: 'jarsay', mode: 'site', siteId: 'jarsay', topic: 't', discoveryPrefix: 'homeassistant', groupBySite: true });
+  assert.equal(site.groupBySite, undefined);
+  assert.equal(site.siteId, 'jarsay');
+  const full = toHaConfig({ brokerId: 'vouille', mode: 'full', siteId: 'jarsay', topic: 't', discoveryPrefix: 'homeassistant', publicUrl: 'https://hlm.lan/' }, { ...site, groupBySite: true });
+  assert.equal(full.siteId, undefined);
+  assert.equal(full.groupBySite, true);
+  assert.equal(full.publicUrl, 'https://hlm.lan');
+  assert.deepEqual(full.detail, { level: 'minimal', sections: [] });
+  assert.equal(haRoleName('site', 'Jarsay'), 'Home Assistant — Jarsay');
+  assert.equal(haRoleName('full'), 'Home Assistant');
+});
+
+test('roles: the bridge of the settings becomes a role of the whole homelab, same topics and level', () => {
+  const r = roleOfLegacy(
+    { _id: 'homeassistant', enabled: true, brokerRoleId: 'mqtt-vouille', broker: '', username: '', password: '', topic: 'hlm', discoveryPrefix: 'ha', publicUrl: 'https://hlm.lan', detail: { level: 'standard', sections: [] }, groupBySite: true },
+    'mqtt-vouille',
+    'home-assistant',
+    new Date(0),
+  );
+  assert.deepEqual(r.config, { brokerId: 'mqtt-vouille', mode: 'full', topic: 'hlm', discoveryPrefix: 'ha', publicUrl: 'https://hlm.lan', detail: { level: 'standard', sections: [] }, groupBySite: true });
+  assert.equal(r.carrier.kind, 'hub');
+  // saved before the levels (0.4): minimal
+  assert.deepEqual(roleOfLegacy({ _id: 'homeassistant', enabled: true, broker: '', username: '', password: '', topic: '', discoveryPrefix: '', publicUrl: '' }, 'b', 'x', new Date(0)).config.detail, { level: 'minimal', sections: [] });
 });
 
 test('roles: a Proxmox VE cluster is a pve-cluster role carried by its node, its id kept', () => {

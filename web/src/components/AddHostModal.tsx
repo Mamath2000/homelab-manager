@@ -7,7 +7,6 @@ import { useHost, useUpdateHostCache } from '../lib/queries';
 import { PLATFORMS, type Platform } from '../lib/platforms';
 import { stepStates } from '../lib/steps';
 import { InstallInstructions } from './InstallInstructions';
-import { HaExcludedField } from './HaExcludedField';
 import { SiteSelect, TagPicker } from './HostTags';
 import { Step, Steps } from './PbsDialog';
 import { RoamingField } from './RoamingField';
@@ -22,7 +21,6 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
   const [siteId, setSiteId] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [roaming, setRoaming] = useState(false);
-  const [haExcluded, setHaExcluded] = useState(false);
   const [network, setNetwork] = useState<AccessNetwork>('lan');
   const [platform, setPlatform] = useState<Platform>('linux');
   const [error, setError] = useState('');
@@ -35,18 +33,14 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
   const { data: agents } = useQuery({ queryKey: ['settings', 'agents'], queryFn: api.agentSettings, enabled: open });
   const tailscale = !!agents?.tailscaleHub;
 
-  // Tailscale hosts start outside Home Assistant (and unmanaged, on the hub side); both stay editable
-  const pickNetwork = (n: AccessNetwork) => {
-    setNetwork(n);
-    setHaExcluded(n === 'tailscale');
-  };
+  // Tailscale hosts start unmanaged, on the hub side; it stays editable
+  const pickNetwork = (n: AccessNetwork) => setNetwork(n);
 
   const reset = () => {
     setName('');
     setSiteId('');
     setTags([]);
     setRoaming(false);
-    setHaExcluded(false);
     setNetwork('lan');
     setPlatform('linux');
     setError('');
@@ -64,7 +58,7 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
     setBusy(true);
     setError('');
     try {
-      const { host, ...install } = await api.createHost({ name, siteId, tags, roaming, haExcluded, accessNetwork: network });
+      const { host, ...install } = await api.createHost({ name, siteId, tags, roaming, accessNetwork: network });
       upsert(host);
       setResult({ hostId: host.id, install });
     } catch (err) {
@@ -137,13 +131,12 @@ export function AddHostModal({ open, onClose }: { open: boolean; onClose: () => 
                 </select>
                 <span className="mt-1 block text-xs text-zinc-500">
                   {network === 'tailscale'
-                    ? `L'agent joint le hub (et le PBS) par Tailscale. Hôte créé ${features.standardisation ? 'non géré (aucune option de standardisation) et ' : ''}exclu de Home Assistant ; modifiable ensuite. Le réseau ne se change pas : il faut réinstaller l'agent.`
+                    ? `L'agent joint le hub (et le PBS) par Tailscale. ${features.standardisation ? 'Hôte créé non géré (aucune option de standardisation), modifiable ensuite. ' : ''}Le réseau ne se change pas : il faut réinstaller l'agent.`
                     : 'Adresse du hub telle que réglée dans Paramètres > Agent.'}
                 </span>
               </label>
             )}
             <RoamingField checked={roaming} onChange={setRoaming} />
-            <HaExcludedField checked={haExcluded} onChange={setHaExcluded} />
           </fieldset>
         </Step>
         <Step

@@ -90,7 +90,6 @@ export const SENSITIVE_ACTIONS = new Set([
   'DELETE /api/account/passkeys',
   'DELETE /api/users/:id/passkeys',
   // settings: credentials of Home Assistant, PBS, Proxmox VE, roles (Omada…), agent distribution
-  'PUT /api/settings/homeassistant',
   'PUT /api/settings/agents',
   'PUT /api/settings/pbs',
   'POST /api/settings/pbs/token',
@@ -112,6 +111,9 @@ export const SENSITIVE_ACTIONS = new Set([
   'POST /api/settings/esphome',
   'PUT /api/settings/esphome/:id',
   'DELETE /api/settings/esphome/:id',
+  // what a Home Assistant may run on the hosts (actions published), on which broker (homelab#361)
+  'POST /api/settings/homeassistant',
+  'PUT /api/settings/homeassistant/:id',
   // standardisation and access manifest
   'PUT /api/settings/setup',
   'PUT /api/hosts/:id/setup',

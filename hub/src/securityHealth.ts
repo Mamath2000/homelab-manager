@@ -6,7 +6,7 @@ import { AGENT_TARGETS, agentBinary, agentOutdated } from './agentBinaries.js';
 import { brokerAnonymous } from './brokerAnonymous.js';
 import { config } from './config.js';
 import { hosts, passkeys, users } from './db.js';
-import { loadHaBridgeSettings } from './routes/settings.js';
+import { haRoles } from './roles.js';
 import { loadMqttBrokers } from './probes.js';
 import { hasMasterKey } from './secrets.js';
 import { cookieSecure, transport } from './transport.js';
@@ -259,7 +259,9 @@ export function containerChecks(f: ContainerFacts): SecurityCheck[] {
 
 export async function securityHealth(req: FastifyRequest) {
   const t = transport(req);
-  const [hostList, { brokers }, bridge] = await Promise.all([hosts.find({}).toArray() as Promise<HostDoc[]>, loadMqttBrokers(), loadHaBridgeSettings()]);
+  const [hostList, { brokers }] = await Promise.all([hosts.find({}).toArray() as Promise<HostDoc[]>, loadMqttBrokers()]);
+  // the brokers of the Home Assistant roles (homelab#361)
+  const haBrokers = new Set(haRoles().map((r) => r.config.brokerId));
   const admins = await users.find({ profile: 'admin' }, { projection: { username: 1 } }).toArray();
   const keyCounts = await passkeys.aggregate<{ _id: ObjectId; n: number }>([{ $group: { _id: '$userId', n: { $sum: 1 } } }]).toArray();
   const mfa = mfaChecks({
@@ -276,8 +278,8 @@ export async function securityHealth(req: FastifyRequest) {
       id: 'mqtt',
       title: 'MQTT',
       checks: mqttChecks(
-        brokers.map((b) => ({ name: b.name, url: b.url, anonymous: brokerAnonymous(b.id), hasAccount: !!b.username, usedByBridge: bridge.brokerRoleId === b.id })),
-        bridge.enabled,
+        brokers.map((b) => ({ name: b.name, url: b.url, anonymous: brokerAnonymous(b.id), hasAccount: !!b.username, usedByBridge: haBrokers.has(b.id) })),
+        haBrokers.size > 0,
       ),
     },
     { id: 'container', title: 'Conteneur du hub', checks: containerChecks(readContainerFacts()) },

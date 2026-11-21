@@ -7,7 +7,7 @@ sidebar_position: 3.95
 
 # Rôles du hub
 
-Un **rôle** est ce que le hub fait au travers d'un élément du homelab : écouter un broker MQTT, relever un cluster Proxmox VE. Chaque rôle est **porté par un hôte** et déclaré par un administrateur dans **Paramètres › Rôles** ; sans rôle, ce qui en dépend est inactif (pas de sonde MQTT, pas de pont Home Assistant, pas d'inventaire Proxmox VE).
+Un **rôle** est ce que le hub fait au travers d'un élément du homelab : écouter un broker MQTT, relever un cluster Proxmox VE. Chaque rôle est **porté par un hôte** (ou par le hub lui-même : ESPHome, Home Assistant) et déclaré par un administrateur dans **Paramètres › Rôles** ; sans rôle, ce qui en dépend est inactif (pas de sonde MQTT, pas de publication dans Home Assistant, pas d'inventaire Proxmox VE).
 
 :::note Rôles et profils
 Les droits d'un compte s'appellent des **profils** (`admin`, `operator`, `viewer`, voir [Comptes et profils](comptes.md)) : le mot « rôle » ne désigne que ce qui est décrit ici.
@@ -17,12 +17,13 @@ Les droits d'un compte s'appellent des **profils** (`admin`, `operator`, `viewer
 
 | Type | Porteur | Plusieurs ? | Utilisé par |
 |---|---|---|---|
-| **Broker MQTT** (`mqtt-broker`) | un hôte dont l'agent a détecté un broker en écoute | oui, un par `(hôte, port)` | [sondes MQTT](sondes.md#brokers-mqtt), pont [Home Assistant](home-assistant.md) |
+| **Broker MQTT** (`mqtt-broker`) | un hôte dont l'agent a détecté un broker en écoute | oui, un par `(hôte, port)` | [sondes MQTT](sondes.md#brokers-mqtt), rôles Home Assistant et ESPHome |
 | **Cluster Proxmox VE** (`pve-cluster`) | un nœud (hôte avec la capacité Proxmox VE) | oui, un par cluster | [inventaire](proxmox-ve.md) et [sauvegardes](sauvegardes.md#clusters-proxmox-ve) |
 | **PBS principal** (`pbs-primary`) | l'hôte du Proxmox Backup Server (son agent, PBS installé ou en conteneur) | non, un seul | les [sauvegardes](sauvegardes.md) : groupes relevés, jobs des agents, montages |
 | **PBS hors site** (`pbs-offsite`) | l'hôte du PBS distant | non, un seul, **après** le PBS principal | la [copie déportée](sauvegardes.md) des sauvegardes choisies |
 | **Contrôleur Omada** (`omada-controller`) | un **hôte** (contrôleur en Docker, détecté par l'agent sur ses ports de service) ou un **équipement** avec une adresse IP (contrôleur dédié, OC200…) | oui, **un par site** lu : le même contrôleur se déclare autant de fois que de sites à suivre | Paramètres › Omada : [équipements](equipements.md#omada) synchronisés et [sondes VPN](sondes.md#sondes-vpn) |
 | **Serveur de logs** (`log-server`) | l'hôte d'un VictoriaLogs (installé à la main ; l'agent signale celui qu'il voit en écoute) | non, un seul pour tout le homelab ([pourquoi](logs.md#un-seul-serveur-de-logs)) | la page [Logs](logs.md) et l'option **Envoi des journaux** de la [standardisation](standardisation.md#envoi-des-journaux) |
+| **Home Assistant** (`home-assistant`) | le **hub** | oui, **un par broker** | la publication par découverte MQTT dans le Home Assistant relié à ce broker : tout le homelab ou un site ([Home Assistant](home-assistant.md#rôles-home-assistant)) |
 
 Le contrôleur Omada est le seul rôle qu'un **équipement** peut porter : il passe par une API (adresse, empreinte du certificat épinglée, application Open API en mode client), sans agent. Sans contrôleur déclaré, l'onglet Paramètres › Omada n'apparaît pas et rien n'est relu.
 
@@ -40,7 +41,7 @@ Un rôle de type broker n'est jamais saisi à la main : l'agent de l'hôte signa
 
 ### Broker MQTT
 
-La même fenêtre sert à déclarer et à modifier un broker : d'abord le **nom du rôle** (son identifiant dans les sondes et le pont Home Assistant), puis quatre étapes :
+La même fenêtre sert à déclarer et à modifier un broker : d'abord le **nom du rôle** (son identifiant dans les sondes et les rôles Home Assistant), puis quatre étapes :
 
 1. **Broker** : les brokers que les agents ont trouvés, un par hôte et par processus (Mosquitto et sa version). Un broker déjà déclaré est grisé (un processus, un rôle).
 2. **Protocole** : **MQTT** (TCP, `mqtt://`), le seul pour l'instant, présélectionné ; TLS et WebSocket viendront plus tard. En dessous, facultatifs : l'**adresse IP** (par défaut celle de l'hôte, relevée par son agent ; à saisir pour une autre IP ou un nom DNS) et le **port** (par défaut celui que l'agent a relevé pour ce protocole, sinon 1883). Le listener TLS que l'agent ajoute pour le hub (8883, voir plus bas) n'est jamais utilisé.
@@ -91,9 +92,9 @@ Le panneau montre les contrôles de l'agent avant toute activation. Elle est ref
 3. il crée le rôle `legacy` (tous les topics) sur le groupe anonyme, le compte `hlm` authentifié par son certificat, et supprime le compte d'initialisation ;
 4. le hub se connecte en TLS mutuel (`mqtts://…:8883`) pour vérifier. S'il n'y arrive pas, l'agent annule tout.
 
-**Le rôle n'est pas la gestion des comptes.** Le hub administre le broker avec **son identité** (port 8883, certificat du compte `hlm`), gardée à part. La **connexion du rôle** (adresse, protocole, port, compte) — celle que les sondes et le pont Home Assistant utilisent — **n'est jamais modifiée** par l'activation : un rôle créé en anonyme sur le port 1883 continue de marcher tel quel. Pour lui donner un compte, modifier le rôle (Paramètres › Rôles) : le compte saisi ou généré est créé sur le broker.
+**Le rôle n'est pas la gestion des comptes.** Le hub administre le broker avec **son identité** (port 8883, certificat du compte `hlm`), gardée à part. La **connexion du rôle** (adresse, protocole, port, compte) — celle que les sondes et les rôles Home Assistant utilisent — **n'est jamais modifiée** par l'activation : un rôle créé en anonyme sur le port 1883 continue de marcher tel quel. Pour lui donner un compte, modifier le rôle (Paramètres › Rôles) : le compte saisi ou généré est créé sur le broker.
 
-Dans le pied de la carte du broker : **Sécuriser ce broker** tant que la gestion n'est pas activée (la confirmation montre les contrôles de l'agent et bloque si le broker n'est pas éligible) ; une fois activée, **Gérer les comptes**, **Anonymes : acceptés/refusés** et **Réinitialiser**. Les options d'un rôle (comptes, Home Assistant, inventaire Proxmox VE ou Omada, hôtes émetteurs des logs) s'ouvrent dans une fenêtre par-dessus l'écran Rôles, adressable par `/roles/<page>?role=<id>` (sans `role` : le seul rôle du type ; plusieurs rôles et aucun choisi : retour à la liste). Home Assistant se règle depuis la carte du broker qu'il utilise (de tous les brokers tant qu'il n'en utilise aucun).
+Dans le pied de la carte du broker : **Sécuriser ce broker** tant que la gestion n'est pas activée (la confirmation montre les contrôles de l'agent et bloque si le broker n'est pas éligible) ; une fois activée, **Gérer les comptes**, **Anonymes : acceptés/refusés** et **Réinitialiser**. Les options d'un rôle (comptes, publication Home Assistant, inventaire Proxmox VE ou Omada, hôtes émetteurs des logs) s'ouvrent dans une fenêtre par-dessus l'écran Rôles, adressable par `/roles/<page>?role=<id>` (sans `role` : le seul rôle du type ; plusieurs rôles et aucun choisi : retour à la liste). La publication Home Assistant se règle depuis la carte de chaque rôle Home Assistant.
 
 :::warning Comptes inconnus refusés
 Une fois dynamic-security actif, **une connexion avec un utilisateur que le broker ne connaît pas est refusée** (un appareil mal configuré ne se connecte plus). Les connexions **anonymes** restent acceptées. Le broker est redémarré : tous ses clients sont déconnectés quelques secondes.
@@ -110,7 +111,7 @@ Le certificat client du hub est valable un an.
 ## Réaffecter, supprimer
 
 - **Réaffecter** : modifier le rôle et choisir un autre hôte porteur, paramètres conservés (pour un cluster Proxmox VE, un autre nœud **du même cluster**). Un hôte porteur hors ligne ne déplace rien tout seul : le relevé passe en erreur, comme avant, et la réaffectation reste manuelle.
-- **Supprimer** : refusé tant qu'une sonde ou le pont Home Assistant utilise le rôle. Supprimer **un hôte ou un équipement porteur** est refusé tant qu'il porte un rôle (la confirmation de suppression le dit et renvoie vers Paramètres › Rôles).
+- **Supprimer** : refusé tant qu'une sonde, un rôle Home Assistant ou ESPHome utilise le rôle. Supprimer un rôle Home Assistant retire ses appareils de son Home Assistant. Supprimer **un hôte ou un équipement porteur** est refusé tant qu'il porte un rôle (la confirmation de suppression le dit et renvoie vers Paramètres › Rôles).
 - Redémarrer ou arrêter un hôte porteur affiche un avertissement qui nomme les rôles concernés.
 
 ## Migration
@@ -119,7 +120,7 @@ Au premier démarrage d'une version avec les rôles, le hub reprend l'existant s
 
 - les brokers MQTT des anciennes options d'hôte deviennent des rôles (**même identifiant** : les sondes qui les citent continuent de marcher) ;
 - les clusters de Paramètres › Sauvegardes deviennent des rôles Cluster Proxmox VE, avec leur jeton ;
-- le broker du pont Home Assistant est rattaché au rôle de même adresse et de même compte, sinon il reste « à rattacher » (voir [Home Assistant](home-assistant.md#relier-un-broker)) ;
+- le pont Home Assistant devient un rôle Home Assistant (tout le homelab, mêmes préfixes, appareils inchangés), son broker rattaché au rôle de même adresse et de même compte (voir [Home Assistant](home-assistant.md#rôles-home-assistant)) ;
 - le champ `role` des comptes devient `profile` (le champ JSON de `/api/users` et du compte connecté suit).
 
 :::warning Pas de retour en arrière
@@ -139,3 +140,5 @@ Administrateurs seulement, sauf mention contraire.
 | `POST /api/roles/test` | tester la connexion d'un rôle en cours de saisie |
 
 `GET /api/settings/pve` et `/api/settings/pve/*` restent les routes des clusters Proxmox VE (relevé, jeton, test, déplacement) et travaillent sur les rôles.
+
+Les rôles Home Assistant, portés par le hub, ont leurs routes (homelab#361) : `POST /api/settings/homeassistant` (déclarer : `name`, `brokerId`, `mode` `full` ou `site`, `siteId`, `topic`, `discoveryPrefix`, `publicUrl`), `GET`, `PUT` et `DELETE /api/settings/homeassistant/:id` (le `PUT` prend aussi `detail` et `groupBySite`), `POST /api/settings/homeassistant/:id/preview` (entités et appareils d'un niveau de détail), `POST /api/settings/homeassistant/:id/republish` et `POST /api/settings/homeassistant/test` (`brokerId`). Déclarer et modifier demandent le passkey ; les trois écritures sont au journal d'audit.
