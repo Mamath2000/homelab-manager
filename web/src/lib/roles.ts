@@ -71,3 +71,11 @@ export function brokerCounts(d?: { accounts: MqttAccount[]; refused: MqttRefused
     refused: (d?.refused ?? []).filter(stillRefused).length + (mute ? anonymousClients.length : 0),
   };
 }
+
+// Name of a role that depends on a site: « <role> — <site> », « <role> — <site> (<host>) » when another role of the type
+// already has that name, « <role> — <host> » without a site (same as the ESPHome roles). '' without a site nor a host.
+export function siteRoleName(prefix: string, siteName?: string | null, hostName?: string | null, taken: string[] = []) {
+  if (!siteName) return hostName ? `${prefix} — ${hostName}` : '';
+  const base = `${prefix} — ${siteName}`;
+  return hostName && taken.some((n) => n.toLowerCase() === base.toLowerCase()) ? `${base} (${hostName})` : base;
+}

@@ -5,7 +5,7 @@ import { Boxes, Cpu, Home, KeyRound, Network, Pencil, Plug, Plus, RefreshCw, Sav
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { api, type BrokerScheme, type Equipment, type EsphomeHubRole, type Host, type HubRole, type HubRoleTest, type HubRoleType, type LogHubRole, type MqttHubRole, type OmadaHubRole, type PresentedFingerprint, type PveHubRole, type RoleCandidate } from '../lib/api';
 import { keys, useEquipments, useHosts, useRoles, useSites } from '../lib/queries';
-import { ROLE_TYPES, SINGLE_ROLES, lanAddress, ofManagedBroker, roleStatus } from '../lib/roles';
+import { ROLE_TYPES, SINGLE_ROLES, lanAddress, siteRoleName, ofManagedBroker, roleStatus } from '../lib/roles';
 import { roleAccent, roleIcon, roleTint } from '../lib/hostSkills';
 import { ROLE_PAGES, roleOfPage, rolePagesOf } from '../lib/roleSettings';
 import { stepStates } from '../lib/steps';
@@ -39,7 +39,6 @@ interface RolePick {
 
 // address and port: optional, '' = the IP of the host (its agent) and the port the agent found (else 1883)
 interface Form {
-  name: string;
   scheme: BrokerScheme;
   address: string;
   port: string;
@@ -113,6 +112,9 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const toast = useToast();
   const { data: hosts = [] } = useHosts();
   const { data: roles = [] } = useRoles();
+  const { data: allSites = [] } = useSites();
+  const brokerName = (h: Host) =>
+    siteRoleName('MQTT', allSites.find((x) => x.id === h.siteId)?.name, h.name, roles.filter((r) => r.id !== role?.id && r.type === 'mqtt-broker').map((r) => r.name));
   const type = 'mqtt-broker' as const;
   const managed = !!role?.security.managed;
   const brokers = brokersOf(hosts, roles, role);
@@ -123,7 +125,6 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const [initial] = useState<Form>(() => {
     const scheme = role?.config.scheme ?? 'mqtt';
     return {
-      name: role?.name ?? startBroker?.host.name ?? '',
       scheme,
       address: role?.config.address ?? '',
       // the stored port is shown only when it is not the one found
@@ -147,8 +148,6 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
   const broker = brokers.find((b) => brokerKey(b) === key);
   const choose = (b: BrokerFound) => {
     setKey(brokerKey(b));
-    // a new role is named after the host of its broker, until the name is typed
-    if (!role && (!form.name.trim() || form.name === broker?.host.name)) setForm({ ...form, name: b.host.name });
     setTest(null);
   };
   const regenerate = () => {
@@ -200,14 +199,16 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
       setBusy(null);
     }
   };
+  // never typed: see brokerName
+  const moved = !!role && !!host && host.id !== role.carrier.id;
+  const roleName = host ? brokerName(host) : '';
   const save = async () => {
     setBusy('save');
     try {
-      const moved = role && host && host.id !== role.carrier.id;
-      if (role) await api.updateRole(role.id, { ...(moved ? { carrier } : {}), name: form.name.trim(), config: config() });
-      else await api.createRole({ type, carrier, name: form.name.trim(), config: config() });
+      if (role) await api.updateRole(role.id, { ...(moved ? { carrier } : {}), name: roleName, config: config() });
+      else await api.createRole({ type, carrier, name: roleName, config: config() });
       await Promise.all([qc.invalidateQueries({ queryKey: keys.roles }), qc.invalidateQueries({ queryKey: keys.mqttBrokers }), qc.invalidateQueries({ queryKey: ['mqtt-accounts'] })]);
-      toast.success(role ? `Rôle ${form.name.trim()} modifié` : `Rôle ${form.name.trim()} déclaré`);
+      toast.success(role ? `Rôle ${roleName} modifié` : `Rôle ${roleName} déclaré`);
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -216,7 +217,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
     }
   };
 
-  const nameOk = form.name.trim().length > 0;
+  const nameOk = roleName.length > 0;
   const addressOk = /^[A-Za-z0-9.:_-]*$/.test(form.address);
   const portOk = !form.port.trim() || (/^\d{1,5}$/.test(form.port.trim()) && +form.port >= 1 && +form.port <= 65535);
   const connectionOk = addressOk && portOk && !!url;
@@ -249,11 +250,6 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
         }
       >
         <div className="flex h-full min-h-0 flex-col gap-4">
-          <label className="block max-w-md shrink-0">
-            <span className={field}>Nom du rôle</span>
-            <input className="input" maxLength={64} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="zigbee2mqtt, esphome…" autoFocus={!role} />
-            <span className="mt-1 block text-xs text-muted">L'identifiant du broker dans les sondes et le pont Home Assistant.</span>
-          </label>
           <div className="min-h-0 flex-1">
             <Steps fill>
               <Step n={1} title="Broker" state={picked} intro={role ? 'Choisir un autre broker déplace le rôle, ses paramètres gardés.' : 'Les brokers que les agents ont trouvés sur leur hôte.'}>
@@ -356,7 +352,7 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
               >
                 <DetectedRows
                   rows={[
-                    { label: 'Nom', value: form.name, empty: 'non renseigné' },
+                    { label: 'Nom', value: roleName, empty: 'broker non choisi' },
                     { label: 'Hôte', value: host?.name, empty: 'non choisi' },
                     { label: 'URL', value: url, empty: host ? "IP de l'hôte inconnue : la saisir" : 'broker non choisi' },
                     { label: 'Utilisateur', value: form.username, empty: 'anonyme' },
@@ -385,7 +381,6 @@ export function BrokerWizard({ role, preset, onClose }: { role: MqttHubRole | nu
 }
 
 interface OmadaForm {
-  name: string;
   address: string;
   port: string;
   fingerprint: string;
@@ -492,10 +487,11 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
   const type = 'omada-controller' as const;
   const [initialCarrier] = useState<OmadaCarrier | null>(() => (role && role.carrier.kind !== 'hub' ? { kind: role.carrier.kind, id: role.carrier.id } : null));
   const [carrier, setCarrier] = useState<OmadaCarrier | null>(initialCarrier);
-  const [initial] = useState<OmadaForm>(() => ({ name: role?.name ?? '', ...(role ? splitUrl(role.config.url) : { address: '', port: String(OMADA_PORT) }), fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '', omadaSite: role?.config.omadaSite ?? '', siteId: role?.config.siteId ?? '' }));
+  const [initial] = useState<OmadaForm>(() => ({ ...(role ? splitUrl(role.config.url) : { address: '', port: String(OMADA_PORT) }), fingerprint: role?.config.fingerprint ?? '', clientId: role?.config.clientId ?? '', omadaSite: role?.config.omadaSite ?? '', siteId: role?.config.siteId ?? '' }));
   const [form, setForm] = useState<OmadaForm>(initial);
   const [secret, setSecret] = useState('');
   const { data: homelabSites = [] } = useSites();
+  const { data: allRoles = [] } = useRoles();
   const [busy, setBusy] = useState<'save' | 'test' | 'read' | 'probe' | 'sites' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
   // the sites of the controller the application sees, read by « Récupérer les sites » (step 3)
@@ -612,14 +608,16 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
       setBusy(null);
     }
   };
+  // never typed: « Omada — <site of the homelab> », with the carrier in brackets when the name is taken
+  const roleName = siteRoleName('Omada', homelabSites.find((x) => x.id === form.siteId)?.name, carrierName, allRoles.filter((r) => r.id !== role?.id && r.type === 'omada-controller').map((r) => r.name));
   const save = async () => {
     setBusy('save');
     try {
       const moved = role && (carrier!.id !== role.carrier.id || carrier!.kind !== role.carrier.kind);
-      if (role) await api.updateRole(role.id, { ...(moved ? { carrier: carrier! } : {}), name: form.name.trim(), config: config() });
-      else await api.createRole({ type, carrier: carrier!, name: form.name.trim(), config: config() });
+      if (role) await api.updateRole(role.id, { ...(moved ? { carrier: carrier! } : {}), name: roleName, config: config() });
+      else await api.createRole({ type, carrier: carrier!, name: roleName, config: config() });
       await qc.invalidateQueries({ queryKey: keys.roles });
-      toast.success(role ? `Rôle ${form.name.trim()} modifié` : `Rôle ${form.name.trim()} déclaré`);
+      toast.success(role ? `Rôle ${roleName} modifié` : `Rôle ${roleName} déclaré`);
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -628,11 +626,10 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
     }
   };
 
-  const nameOk = form.name.trim().length > 0;
   const addressOk = ADDRESS_RE.test(form.address.trim());
   const portOk = portValid(form.port);
   const fingerprintOk = !form.fingerprint.trim() || FINGERPRINT_RE.test(normalizeFingerprint(form.fingerprint));
-  const controllerOk = nameOk && addressOk && portOk && fingerprintOk;
+  const controllerOk = addressOk && portOk && fingerprintOk;
   const appOk = form.clientId.trim().length > 0 && (!!secret || !!role?.hasSecret);
   const siteOk = form.omadaSite.trim().length > 0 && homelabSites.some((x) => x.id === form.siteId);
   const [carried, configured, application, tested] = stepStates([!!carrier, controllerOk, appOk && siteOk, test?.level === 'ok']);
@@ -698,10 +695,6 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
               </Button>
             }
           >
-            <label className="block">
-              <span className={field}>Nom</span>
-              <input className="input" maxLength={64} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Omada Vouillé…" />
-            </label>
             <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
               <label className="block">
                 <span className={field}>Adresse</span>
@@ -809,7 +802,7 @@ export function OmadaWizard({ role, onClose }: { role: OmadaHubRole | null; onCl
           >
             <DetectedRows
               rows={[
-                { label: 'Nom', value: form.name, empty: 'non renseigné' },
+                { label: 'Nom', value: roleName, empty: 'site non choisi (étape 3)' },
                 { label: 'Porteur', value: carrierName, empty: 'non choisi' },
                 { label: 'Open API', value: addressOk && portOk ? url : '', empty: 'non renseignée' },
                 { label: 'Empreinte', value: form.fingerprint && fingerprintOk ? normalizeFingerprint(form.fingerprint) : '', empty: 'aucune (autorités système)' },

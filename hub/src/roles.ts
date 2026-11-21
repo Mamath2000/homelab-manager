@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
-import { hosts, probes, roles, settings } from './db.js';
+import { equipments, hosts, probes, roles, settings } from './db.js';
+import { loadSites } from './catalog.js';
 import type { AnyCarrierKind, CarrierKind, EsphomeRole, HostDoc, LegacyHostRole, MqttBrokerRole, PbsRemoteSettings, PbsSettings, RoleDoc, RoleType } from './types.js';
 import { openRole, openSettings } from './storedSecrets.js';
 
@@ -203,5 +204,56 @@ export async function migrateHostRoles() {
       await roles.updateOne({ _id }, { $setOnInsert: rest }, { upsert: true });
     }
     await hosts.updateOne({ _id: h._id }, { $unset: { roles: '' } } as never);
+  }
+}
+
+// Names of the roles that depend on a site: « <role> — <site> », « <role> — <site> (<carrier>) » when an older role of the
+// type already has that name, « <role> — <host> » without a site (same rule as the dialogs of the web UI). Omada: the site
+// is the one of the role (config.siteId), none: the role is left as it is. Pure: what migrateRoleNames writes.
+export function siteRoleNames(
+  list: Pick<RoleDoc, '_id' | 'type' | 'name' | 'carrier' | 'createdAt' | 'config'>[],
+  hostOf: (id: string) => { name: string; siteId?: string } | undefined,
+  equipmentName: (id: string) => string | undefined,
+  siteName: (id?: string | null) => string | undefined,
+) {
+  const prefixes: Partial<Record<RoleType, string>> = { 'mqtt-broker': 'MQTT', 'pve-cluster': 'PVE', 'omada-controller': 'Omada' };
+  const out = new Map<string, string>();
+  for (const type of Object.keys(prefixes) as RoleType[]) {
+    const taken = new Set<string>();
+    const ofType = list.filter((r) => r.type === type).sort((a, b) => +a.createdAt - +b.createdAt || a.name.localeCompare(b.name));
+    for (const r of ofType) {
+      const carrier = r.carrier as { kind: string; id: ObjectId };
+      const host = carrier.kind === 'host' ? hostOf(String(carrier.id)) : undefined;
+      const carrierName = carrier.kind === 'equipment' ? equipmentName(String(carrier.id)) : host?.name;
+      const site = siteName(type === 'omada-controller' ? (r.config as { siteId?: string }).siteId : host?.siteId);
+      let name: string;
+      if (site) {
+        name = `${prefixes[type]} — ${site}`;
+        if (taken.has(name.toLowerCase()) && carrierName) name = `${name} (${carrierName})`;
+      } else if (type !== 'omada-controller' && carrierName) name = `${prefixes[type]} — ${carrierName}`;
+      else name = r.name;
+      taken.add(name.toLowerCase());
+      out.set(String(r._id), name);
+    }
+  }
+  return out;
+}
+
+// Renames the MQTT, Omada and PVE roles after the rule above (idempotent: a role already named so is not written).
+export async function migrateRoleNames(log: { info: (o: object, m: string) => void }) {
+  const [list, hostList, equipmentList, sites] = await Promise.all([
+    roles.find({ type: { $in: ['mqtt-broker', 'pve-cluster', 'omada-controller'] } } as never).toArray() as Promise<RoleDoc[]>,
+    hosts.find({}, { projection: { name: 1, siteId: 1 } }).toArray(),
+    equipments.find({}, { projection: { name: 1 } }).toArray(),
+    loadSites(),
+  ]);
+  const hostById = new Map(hostList.map((h) => [String(h._id), { name: h.name, siteId: h.siteId }]));
+  const equipmentById = new Map(equipmentList.map((e) => [String(e._id), e.name]));
+  const names = siteRoleNames(list, (id) => hostById.get(id), (id) => equipmentById.get(id), (id) => sites.find((s) => s.id === id)?.name);
+  for (const r of list) {
+    const name = names.get(String(r._id));
+    if (!name || name === r.name) continue;
+    await roles.updateOne({ _id: r._id } as never, { $set: { name } });
+    log.info({ role: r._id, from: r.name, to: name }, 'role renamed');
   }
 }

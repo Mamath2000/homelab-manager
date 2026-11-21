@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Plug, Save } from 'lucide-react';
 import { api, type PveCluster, type PveClusterInput, type PveDetected } from '../lib/api';
-import { useHosts } from '../lib/queries';
+import { useHosts, useSites } from '../lib/queries';
+import { siteRoleName } from '../lib/roles';
 import { stepStates } from '../lib/steps';
 import { useToast } from '../lib/toast';
 import { AgentPicker, TokenButton } from './AgentPicker';
@@ -31,6 +32,7 @@ const clusterOf = (caps: string[]) => caps.find((c) => c.startsWith('pve_cluster
 export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster | null; others: PveCluster[]; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: hosts } = useHosts();
+  const { data: sites = [] } = useSites();
   // nodes of the clusters already followed are not offered again (the hub refuses them as well)
   const followed = new Set(others.flatMap((c) => clusterOf(hosts?.find((h) => h.id === c.agent?.hostId)?.capabilities ?? []) ?? []));
   const followedNode = (h: { capabilities: string[] }) => followed.has(clusterOf(h.capabilities) ?? '');
@@ -47,6 +49,11 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
   const [busy, setBusy] = useState<'save' | 'test' | null>(null);
   const [test, setTest] = useState<CheckState>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // never typed: « PVE — <site of the node> », with the node in brackets when the name is taken
+  const pveName = (hostId?: string) => {
+    const h = hosts?.find((x) => x.id === hostId);
+    return h ? siteRoleName('PVE', sites.find((x) => x.id === h.siteId)?.name, h.name, others.map((c) => c.name)) : '';
+  };
   const set = (patch: Partial<PveClusterInput>) => setForm({ ...form, ...patch });
   const clusterId = saved?.id ?? id;
   const dirty = JSON.stringify(form) !== JSON.stringify(initial) || (!saved && !!id);
@@ -63,7 +70,7 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
   const save = async () => {
     setBusy('save');
     try {
-      await api.savePveCluster(clusterId, form);
+      await api.savePveCluster(clusterId, { ...form, name: pveName(form.agent?.hostId) || form.name });
       refresh();
       toast.success('Enregistré : relevé du cluster en cours');
       onClose();
@@ -80,7 +87,7 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
     setBusy('test');
     setTest(null);
     try {
-      const r = await api.testPveCluster(clusterId, form);
+      const r = await api.testPveCluster(clusterId, { ...form, name: pveName(form.agent?.hostId) || form.name });
       setTest(
         r.ok
           ? { level: 'ok', title: 'Connexion réussie', detail: `${r.cluster ? `cluster ${r.cluster}, ` : ''}nœuds : ${r.nodes?.join(', ')} · ${r.jobs} job(s) de sauvegarde` }
@@ -111,10 +118,6 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
       <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2" title="Fixé à la création du jeton">
             <span className="shrink-0">Identifiant</span>
             <input className="input h-10 w-full lg:h-8 lg:w-36 py-1 font-mono text-xs" value={clusterId} disabled={!!saved} onChange={(e) => setId(slug(e.target.value))} placeholder="vouille" spellCheck={false} />
-          </label>
-          <label className="flex min-w-0 flex-col items-stretch gap-1 text-xs text-muted lg:flex-row lg:items-center lg:gap-2">
-            <span className="shrink-0">Nom affiché</span>
-            <input className="input h-10 w-full lg:h-8 lg:w-44 py-1" value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Vouillé" />
           </label>
     </>
   );
@@ -148,7 +151,7 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
                 setDetected(r);
                 const ips = (r.interfaces ?? []).flatMap((i) => i.ips);
                 const keep = ips.includes(hostOf(form.url));
-                set({ agent: { hostId }, fingerprint: r.fingerprint ?? '', url: keep ? form.url : '', name: form.name || r.cluster || r.node || '' });
+                set({ agent: { hostId }, fingerprint: r.fingerprint ?? '', url: keep ? form.url : '', name: pveName(hostId) || form.name || r.cluster || r.node || '' });
                 if (!saved && !id) setId(slug(r.cluster || r.node || ''));
                 setTest(null);
               }}
@@ -203,7 +206,7 @@ export function ClusterModal({ cluster, others, onClose }: { cluster: PveCluster
               disabled={!form.agent || !form.url || !clusterId}
               primary={token === 'active'}
               create={async () => {
-                const r = await api.createPveToken(clusterId, { hostId: form.agent!.hostId, tokenId, name: form.name, url: form.url, fingerprint: form.fingerprint });
+                const r = await api.createPveToken(clusterId, { hostId: form.agent!.hostId, tokenId, name: pveName(form.agent?.hostId) || form.name, url: form.url, fingerprint: form.fingerprint });
                 setSaved(r.cluster);
                 setInitial(toForm(r.cluster));
                 setForm(toForm(r.cluster));

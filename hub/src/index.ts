@@ -30,7 +30,7 @@ import { registerLogRoutes } from './routes/logs.js';
 import { startLogPoller } from './logs.js';
 import { watchSettingsRoles } from './roleEvents.js';
 import { migrateDynsecIdentity } from './mqttDynsec.js';
-import { loadRoles, migrateHostRoles } from './roles.js';
+import { loadRoles, migrateHostRoles, migrateRoleNames } from './roles.js';
 import { migrateAccessManifest } from './setup.js';
 import { registerEquipmentRoutes } from './routes/equipments.js';
 import { registerSetupRoutes } from './routes/setup.js';
@@ -98,6 +98,7 @@ await migrateHostRoles();
 await migrateAccessManifest(app.log);
 await migratePveRoleType();
 await migratePveClusters(app.log);
+await migrateRoleNames(app.log);
 // before anything reads a secret: a hub without its master key does not run on sealed secrets
 try {
   await prepareStoredSecrets(app.log);
