@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import clsx from 'clsx';
-import { ChevronDown, ChevronUp, type LucideIcon } from 'lucide-react';
+import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { gaugeLevel, type CardInfo, type CardLevel, type CardState, type CardVisual } from '../lib/hostCards';
 import { Badge } from './ui';
 import type { Tone } from '../lib/status';
@@ -103,11 +103,6 @@ export function HostCard({ title, icon: Icon, state, info, text, expanded, onTog
           if (h && h === ref.current?.querySelector('h2')) onToggle();
         }}
       >
-        <div className="mb-1 flex justify-end">
-          <button type="button" aria-expanded onClick={onToggle} className="inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs text-muted transition hover:bg-raised hover:text-zinc-100">
-            <ChevronUp className="h-3.5 w-3.5" />Réduire {title}
-          </button>
-        </div>
         {children}
       </div>
     );
