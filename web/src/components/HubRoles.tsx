@@ -1437,7 +1437,8 @@ export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null;
   const check = tested && tested.brokerId === form.brokerId ? tested.check : null;
   const online = check?.level === 'ok' || (!!role && role.config.brokerId === form.brokerId);
   const ok = brokerOk && scopeOk && topicsOk && online;
-  const [named, brokered, scoped, topics, testedStep] = stepStates([!!name, brokerOk, scopeOk, topicsOk, online]);
+  // the name follows the scope by default: confirmed at the end, beside the summary and the test
+  const [brokered, scoped, topics, testedStep] = stepStates([brokerOk, scopeOk, topicsOk, online]);
   // what moves the devices: another broker or other prefixes take them out of the Home Assistant of before
   const moves = !!role && (role.config.brokerId !== form.brokerId || role.config.topic !== form.topic || role.config.discoveryPrefix !== form.discoveryPrefix);
 
@@ -1494,15 +1495,8 @@ export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null;
         }
       >
         <Steps fill>
-          <Step n={1} title="Nom" state={named} intro="Le nom du rôle, affiché dans Rôles et sur le broker qu'il utilise.">
-            <label className="block">
-              <span className={field}>Nom du rôle</span>
-              <input className="input" maxLength={64} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={autoName(form)} />
-              <span className="mt-1 block text-xs text-muted">Vide : « Home Assistant » (tout le homelab) ou « Home Assistant — &lt;site&gt; ».</span>
-            </label>
-          </Step>
           <Step
-            n={2}
+            n={1}
             title="Broker"
             state={brokered}
             intro={role ? "Changer de broker retire les appareils du Home Assistant d'avant et les publie sur le nouveau." : "Le broker MQTT auquel ce Home Assistant est relié (intégration MQTT). Un broker ne sert qu'à un rôle Home Assistant."}
@@ -1522,7 +1516,7 @@ export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null;
               </div>
             )}
           </Step>
-          <Step n={3} title="Périmètre" state={scoped} intro="Ce que ce Home Assistant reçoit : tout le homelab, ou les hôtes et équipements d'un seul site (et leurs commandes).">
+          <Step n={2} title="Périmètre" state={scoped} intro="Ce que ce Home Assistant reçoit : tout le homelab, ou les hôtes et équipements d'un seul site (et leurs commandes).">
             <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto">
               <CarrierRow group="ha-scope" on={form.mode === 'full'} onPick={() => setScope({ mode: 'full', siteId: '' })} title="Tout le homelab">
                 tous les sites ; regroupement par site possible dans la publication
@@ -1534,7 +1528,7 @@ export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null;
               ))}
             </div>
           </Step>
-          <Step n={4} title="Topics" state={topics} intro={moves ? 'Changer de préfixe retire les appareils publiés sous les anciens.' : 'Valeurs par défaut à confirmer.'}>
+          <Step n={3} title="Topics" state={topics} intro={moves ? 'Changer de préfixe retire les appareils publiés sous les anciens.' : 'Valeurs par défaut à confirmer.'}>
             <label className="block">
               <span className={field}>Préfixe de découverte</span>
               <input className="input font-mono text-xs" value={form.discoveryPrefix} onChange={(e) => setForm({ ...form, discoveryPrefix: e.target.value.trim() })} spellCheck={false} />
@@ -1553,8 +1547,8 @@ export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null;
             {!topicsOk && <p className="text-xs text-amber-400">Préfixe : lettres, chiffres, _ et -, niveaux séparés par / ; URL en http(s)://.</p>}
           </Step>
           <Step
-            n={5}
-            title="Test"
+            n={4}
+            title="Nom et test"
             state={testedStep}
             intro="Le hub se connecte au broker avec le compte du rôle Broker MQTT ; l'enregistrement démarre la publication."
             footer={
@@ -1563,11 +1557,15 @@ export function HomeAssistantWizard({ role, onClose }: { role: HaHubRole | null;
               </Button>
             }
           >
+            <label className="block">
+              <span className={field}>Nom du rôle</span>
+              <input className="input" maxLength={64} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={autoName(form)} />
+              <span className="mt-1 block text-xs text-muted">Affiché dans Rôles et sur le broker ; suit le périmètre tant qu'il n'est pas modifié.</span>
+            </label>
             <DetectedRows
               rows={[
-                { label: 'Nom', value: name },
-                { label: 'Broker', value: broker ? `${broker.name}${broker.url ? ` · ${broker.url}` : ''}` : '', empty: 'non choisi (étape 2)' },
-                { label: 'Périmètre', value: form.mode === 'full' ? 'tout le homelab' : form.siteId ? `site ${siteName(form.siteId)}` : '', empty: 'site non choisi (étape 3)' },
+                { label: 'Broker', value: broker ? `${broker.name}${broker.url ? ` · ${broker.url}` : ''}` : '', empty: 'non choisi (étape 1)' },
+                { label: 'Périmètre', value: form.mode === 'full' ? 'tout le homelab' : form.siteId ? `site ${siteName(form.siteId)}` : '', empty: 'site non choisi (étape 2)' },
                 { label: 'Découverte', value: `${form.discoveryPrefix}/…` },
                 { label: 'États', value: `${form.topic}/…` },
               ]}
