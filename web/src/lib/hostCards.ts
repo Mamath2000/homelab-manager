@@ -151,21 +151,25 @@ export function backupsInfo(host: Host, groups: BackupGroup[] | undefined, days:
   return { summary: `${mine.length} sauvegarde${mine.length > 1 ? 's' : ''} · dernière ${timeAgo(last)}${verified ? '' : ' · vérification en échec'}`, visual: { kind: 'days', levels: days } };
 }
 
-// Expanded cards, remembered by browser (reduced by default)
+// Expanded cards, remembered by browser and by host (reduced by default)
 const STORE = 'hm.hostCards.expanded';
-export function useExpandedCards() {
-  const [open, setOpen] = useState<CardKey[]>(() => {
-    try {
-      const raw = localStorage.getItem(STORE);
-      return raw ? (JSON.parse(raw) as CardKey[]) : [];
-    } catch {
-      return [];
-    }
-  });
+function load(hostId: string): CardKey[] {
+  try {
+    const raw = localStorage.getItem(`${STORE}.${hostId}`);
+    return raw ? (JSON.parse(raw) as CardKey[]) : [];
+  } catch {
+    return [];
+  }
+}
+export function useExpandedCards(hostId: string) {
+  const [state, setState] = useState(() => ({ hostId, open: load(hostId) }));
+  // the page stays mounted when going from one host to another: read the choice of the new one
+  const open = state.hostId === hostId ? state.open : load(hostId);
+  if (state.hostId !== hostId) setState({ hostId, open });
   const save = useCallback((next: CardKey[]) => {
-    setOpen(next);
-    try { localStorage.setItem(STORE, JSON.stringify(next)); } catch { /* private mode: kept until reload */ }
-  }, []);
+    setState({ hostId, open: next });
+    try { localStorage.setItem(`${STORE}.${hostId}`, JSON.stringify(next)); } catch { /* private mode: kept until reload */ }
+  }, [hostId]);
   const toggle = useCallback((key: CardKey) => save(open.includes(key) ? open.filter((k) => k !== key) : [...open, key]), [open, save]);
   return { open, toggle, setAll: save };
 }

@@ -291,7 +291,7 @@ function HostDetailPage({ id }: { id: string }) {
   const { data: status } = useStatus();
   const { data: hostProbes } = useProbes('host', id);
   const { data: alertDays } = useAlertDays('host', id);
-  const cardsOpen = useExpandedCards();
+  const cardsOpen = useExpandedCards(id);
   // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
   const backupsOn = !!backupsData && (backupsData.connected || backupsData.groups.length > 0 || backupsData.clusters.length > 0);
   const [deleting, setDeleting] = useState(false);
