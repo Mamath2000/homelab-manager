@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -66,4 +67,49 @@ func collectHAOSHealthDisks() (*HealthDisks, error) {
 		Used: usedBytes, Total: totalBytes, Percent: *used / *host.DiskTotal * 100,
 	})
 	return r, nil
+}
+
+// healthBlockSysRoot: the block devices as sysfs lists them (replaced in tests).
+var healthBlockSysRoot = "/sys/class/block"
+
+// volumeDisks: the whole disks a volume lives on. A partition gives its disk (sda1 → sda); a device-mapper (LVM,
+// dm-crypt) or md device gives the disks of its slaves, followed down to the bottom. Device names of /dev/mapper are
+// links to /dev/dm-N. Nothing for what is not a block device (ZFS dataset, network share...).
+func volumeDisks(device string) []string {
+	if !strings.HasPrefix(device, "/dev/") {
+		return nil
+	}
+	name := filepath.Base(device)
+	if real, err := filepath.EvalSymlinks(device); err == nil {
+		name = filepath.Base(real)
+	}
+	seen := map[string]bool{}
+	var out []string
+	var walk func(name string, depth int)
+	walk = func(name string, depth int) {
+		dir := filepath.Join(healthBlockSysRoot, name)
+		if depth > 8 {
+			return
+		}
+		if _, err := os.Stat(filepath.Join(dir, "partition")); err == nil {
+			// sysfs puts a partition under its disk: /sys/devices/.../sda/sda1
+			if real, err := filepath.EvalSymlinks(dir); err == nil {
+				walk(filepath.Base(filepath.Dir(real)), depth+1)
+			}
+			return
+		}
+		slaves, _ := os.ReadDir(filepath.Join(dir, "slaves"))
+		if len(slaves) > 0 {
+			for _, s := range slaves {
+				walk(s.Name(), depth+1)
+			}
+			return
+		}
+		if _, err := os.Stat(dir); err == nil && !seen[name] {
+			seen[name] = true
+			out = append(out, "/dev/"+name)
+		}
+	}
+	walk(name, 0)
+	return out
 }

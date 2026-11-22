@@ -93,7 +93,7 @@ Toute la doc en ligne : **[mamath2000.github.io/homelab-manager](https://mamath2
 | Démarrer | [Démarrage rapide](docs/demarrage-rapide.md) · [Installation](docs/installation.md) · [Configuration](docs/configuration.md) |
 | Comprendre | [Notions clés](docs/concepts.md) · [Alertes et statuts](docs/alertes.md) · [Créer des éléments](docs/creer-des-elements.md) |
 | Sauvegardes | [Suivi des sauvegardes](docs/suivi-des-sauvegardes.md) · [Sauvegardes](docs/sauvegardes.md) · [Proxmox VE](docs/proxmox-ve.md) |
-| Surveiller | [Sondes](docs/sondes.md) · [Équipements](docs/equipements.md) · [Docker](docs/docker.md) · [Santé](docs/sante.md) · [Onduleur](docs/onduleur.md) |
+| Surveiller | [Sondes](docs/sondes.md) · [Équipements](docs/equipements.md) · [Docker](docs/docker.md) · [Santé](docs/sante.md) · [Disques](docs/disques.md) · [Onduleur](docs/onduleur.md) |
 | Administrer | [Rôles du hub](docs/roles.md) · [Comptes et profils](docs/comptes.md) · [Standardisation](docs/standardisation.md) · [Sécurité](docs/securite.md) · [Audit de sécurité](docs/audit-securite.md) |
 | Intégrer | [Home Assistant](docs/home-assistant.md) · [API et clés d'API](docs/api.md) |
 | Contribuer | [Développement et architecture](docs/developpement.md) · [Changelog](CHANGELOG.md) |

@@ -126,7 +126,8 @@ function isHealthVolume(v: unknown): v is HealthVolume {
     typeof d.mountpoint === 'string' && d.mountpoint.length <= 1024 &&
     typeof d.fstype === 'string' && d.fstype.length <= 128 &&
     finite(d.used) && d.used >= 0 && finite(d.total) && d.total > 0 &&
-    finite(d.percent) && d.percent >= 0 && d.percent <= 100;
+    finite(d.percent) && d.percent >= 0 && d.percent <= 100 &&
+    (d.disks === undefined || (Array.isArray(d.disks) && d.disks.length <= 64 && d.disks.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 256)));
 }
 
 export function isHealthDisks(v: unknown): v is HealthDisks {
@@ -146,7 +147,11 @@ function isHealthSmartDisk(v: unknown): v is HealthSmartDisk {
     (d.reallocated === undefined || (finite(d.reallocated) && d.reallocated >= 0)) &&
     (d.nvmeWearPercent === undefined || (finite(d.nvmeWearPercent) && d.nvmeWearPercent >= 0 && d.nvmeWearPercent <= 1000)) &&
     (d.standby === undefined || typeof d.standby === 'boolean') &&
-    (d.error === undefined || (typeof d.error === 'string' && d.error.length <= 1024));
+    (d.error === undefined || (typeof d.error === 'string' && d.error.length <= 1024)) &&
+    (d.sizeBytes === undefined || (finite(d.sizeBytes) && d.sizeBytes >= 0)) &&
+    (d.protocol === undefined || (typeof d.protocol === 'string' && d.protocol.length <= 32)) &&
+    (d.rotationRate === undefined || (finite(d.rotationRate) && d.rotationRate >= 0 && d.rotationRate <= 100_000)) &&
+    (d.powerOnHours === undefined || (finite(d.powerOnHours) && d.powerOnHours >= 0));
 }
 
 export function isHealthSmart(v: unknown): v is HealthSmart {
@@ -209,7 +214,8 @@ function isHealthCeph(v: unknown): v is HealthCeph {
       Array.isArray(x.detail) && x.detail.length <= 10 && x.detail.every((d) => shortText(d, 512))) &&
     [c.osdsTotal, c.osdsUp, c.osdsIn, c.pgs, c.pgsClean, c.usedBytes, c.totalBytes].every(count) &&
     Array.isArray(c.osds) && c.osds.length <= 64 &&
-    c.osds.every((o) => !!o && typeof o === 'object' && count(o.id) && shortText(o.name) && typeof o.up === 'boolean' && typeof o.in === 'boolean');
+    c.osds.every((o) => !!o && typeof o === 'object' && count(o.id) && shortText(o.name) && typeof o.up === 'boolean' && typeof o.in === 'boolean' &&
+      optional(o.devices, (d) => Array.isArray(d) && d.length <= 16 && d.every((x) => shortText(x, 256) && x.length > 0)));
 }
 
 export function isHealthRaid(v: unknown): v is HealthRaid {

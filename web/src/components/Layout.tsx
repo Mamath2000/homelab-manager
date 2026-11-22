@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import clsx from 'clsx';
-import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, History, Info, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Radio, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronsUpDown, Container, DatabaseBackup, Globe, HardDrive, History, Info, LayoutDashboard, LogOut, Menu, PanelLeftClose, PanelLeftOpen, PackageCheck, Plus, Radio, Router, ScrollText, Search, Server, Settings, User, UserCog, Users, type LucideIcon } from 'lucide-react';
 import { HeaderSlotContext } from '../lib/headerSlot';
 import { PROFILE_LABELS, useMe } from '../lib/auth';
 import { useLogServers } from '../lib/queries';
@@ -33,6 +33,7 @@ const sections: { title?: string; items: NavItem[] }[] = [
       { to: '/docker', label: 'Docker', icon: Container },
       { to: '/backups', label: 'Sauvegardes', icon: DatabaseBackup },
       { to: '/health', label: 'Santé', icon: Activity },
+      { to: '/disks', label: 'Disques', icon: HardDrive },
       { to: '/probes', label: 'Sondes', icon: Globe },
     ],
   },

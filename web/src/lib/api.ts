@@ -53,6 +53,8 @@ export interface HealthVolume {
   used: number;
   total: number;
   percent: number;
+  // whole disks under the volume (/dev/sda for /dev/sda1, members of an md or LVM volume); absent: unknown
+  disks?: string[];
 }
 
 export function visibleHealthVolumes(volumes: HealthVolume[]): HealthVolume[] {
@@ -90,6 +92,10 @@ export interface HealthSmartDisk {
   nvmeWearPercent?: number;
   standby?: boolean;
   error?: string;
+  sizeBytes?: number;
+  protocol?: string; // ATA, NVMe, SCSI
+  rotationRate?: number; // 0: solid state
+  powerOnHours?: number;
 }
 
 export interface HealthSmart {
@@ -159,7 +165,7 @@ export interface HealthCeph {
   pgsClean: number;
   usedBytes: number;
   totalBytes: number;
-  osds: { id: number; name: string; up: boolean; in: boolean }[];
+  osds: { id: number; name: string; up: boolean; in: boolean; devices?: string[] }[];
 }
 
 export interface HealthRaid {
@@ -208,6 +214,34 @@ export type HealthEnabled = Record<HealthEnabledKey, boolean>;
 export type HealthEffectiveSettings = HealthSettings & HealthEnabled;
 export type HealthOverrides = Partial<Omit<HealthSettings, 'systemIntervalSeconds' | 'diskIntervalSeconds' | 'smartIntervalSeconds' | 'retentionHours'> & HealthEnabled>;
 export interface HealthOverridesResponse { overrides: HealthOverrides; effective: HealthEffectiveSettings }
+
+// GET /api/disks: what the Disks page needs beyond the hosts.
+export interface DiskThresholds {
+  diskWarning: number;
+  diskAlert: number;
+  temperatureWarning: number;
+  temperatureAlert: number;
+  wearWarning: number;
+  wearAlert: number;
+}
+export interface PveStorageUsage {
+  storage: string;
+  node: string | null; // null: shared by the nodes
+  type: string; // rbd, lvmthin, zfspool, dir…
+  used: number;
+  total: number;
+}
+export interface PveGuestDisk {
+  key: string; // scsi0, rootfs, mp0…
+  storage: string;
+  volume: string;
+  sizeBytes?: number;
+}
+export interface DisksInventory {
+  thresholds: Record<string, DiskThresholds>;
+  clusters: { id: string; name: string; nodes: string[]; polledAt: string | null; storages: PveStorageUsage[] }[];
+  guests: { cluster: string; vmid: number; type: 'lxc' | 'qemu'; node: string; name: string; status: string; hostId: string | null; disks: PveGuestDisk[]; diskUsed: number | null }[];
+}
 
 export interface HealthOverviewHost {
   id: string;
@@ -2190,6 +2224,7 @@ export const api = {
   saveHostHealthOverrides: (id: string, overrides: HealthOverrides) => request<HealthOverridesResponse>('PUT', `/api/hosts/${id}/health/overrides`, overrides),
   resetHostHealthOverrides: (id: string) => request<HealthOverridesResponse>('DELETE', `/api/hosts/${id}/health/overrides`),
   healthOverview: () => request<{ hosts: HealthOverviewHost[] }>('GET', '/api/health/overview'),
+  disks: () => request<DisksInventory>('GET', '/api/disks'),
   alerts: () => request<{ days: (HostAlertDay & { hostId: string })[]; equipmentDays: (HostAlertDay & { equipmentId: string })[] }>('GET', '/api/alerts'),
   status: () => request<StatusView>('GET', '/api/status'),
   sites: () => request<{ sites: SiteConfig[] }>('GET', '/api/sites'),

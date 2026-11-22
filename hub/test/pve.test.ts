@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import { alertsOf } from '../src/homeassistant/alerts.js';
 import { backupStatus } from '../src/monitoring.js';
 import { backupState, effectiveThreshold } from '../src/pbs.js';
-import { configMacs, followedCluster, followedStorages, guestResult, jobCovers, matchGuests, nextLink, nodeHosts, parseVzdumpLog, sharedMacGuests, type ApiJob } from '../src/pve.js';
+import { configDisks, configMacs, followedCluster, followedStorages, guestResult, jobCovers, matchGuests, nextLink, nodeHosts, parseVzdumpLog, sharedMacGuests, storageUsage, type ApiJob } from '../src/pve.js';
 import { notCopiable } from '../src/offsite.js';
 import { offPbs } from '../src/pbs.js';
 import { authorize } from '../src/profiles.js';
@@ -218,4 +218,45 @@ test('archives of the other storages of Proxmox VE are not on the PBS', () => {
   assert.equal(offPbs({ source: 'vzdump' }), false);
   assert.equal(offPbs({}), false);
   assert.match(notCopiable({ source: 'pve-storage' }) ?? '', /stockage de Proxmox VE/);
+});
+
+test('disks of a guest config: storage, volume and size; CD-ROMs, bind mounts and other keys left out', () => {
+  assert.deepEqual(
+    configDisks({
+      scsi0: 'ceph-vm:vm-100-disk-0,iothread=1,size=60G',
+      scsi1: 'local-lvm:vm-100-disk-1,size=512M',
+      ide2: 'local:iso/debian.iso,media=cdrom,size=600M',
+      sata0: 'none,media=cdrom',
+      efidisk0: 'local-lvm:vm-100-disk-2,efitype=4m,size=4M',
+      net0: 'virtio=BC:24:11:00:00:01,bridge=vmbr0',
+    }, 'qemu'),
+    [
+      { key: 'scsi0', storage: 'ceph-vm', volume: 'vm-100-disk-0', sizeBytes: 60 * 2 ** 30 },
+      { key: 'scsi1', storage: 'local-lvm', volume: 'vm-100-disk-1', sizeBytes: 512 * 2 ** 20 },
+    ],
+  );
+  assert.deepEqual(
+    configDisks({ rootfs: 'local-zfs:subvol-200-disk-0,size=8G', mp0: '/srv/data,mp=/data', mp1: 'ceph-ct:vm-200-disk-1,mp=/var/lib,size=1.5T' }, 'lxc'),
+    [
+      { key: 'mp1', storage: 'ceph-ct', volume: 'vm-200-disk-1', sizeBytes: Math.round(1.5 * 2 ** 40) },
+      { key: 'rootfs', storage: 'local-zfs', volume: 'subvol-200-disk-0', sizeBytes: 8 * 2 ** 30 },
+    ],
+  );
+});
+
+test('storage usage: a shared storage once, a local one per node, unavailable ones left out', () => {
+  assert.deepEqual(
+    storageUsage([
+      { storage: 'ceph-vm', node: 'pve1', plugintype: 'rbd', shared: 1, status: 'available', disk: 10, maxdisk: 100 },
+      { storage: 'ceph-vm', node: 'pve2', plugintype: 'rbd', shared: 1, status: 'available', disk: 10, maxdisk: 100 },
+      { storage: 'local-lvm', node: 'pve2', plugintype: 'lvmthin', shared: 0, status: 'available', disk: 5, maxdisk: 50 },
+      { storage: 'local-lvm', node: 'pve1', plugintype: 'lvmthin', shared: 0, status: 'available', disk: 7, maxdisk: 50 },
+      { storage: 'nas', node: 'pve1', plugintype: 'nfs', shared: 1, status: 'unknown', disk: 0, maxdisk: 0 },
+    ]),
+    [
+      { storage: 'ceph-vm', node: null, type: 'rbd', used: 10, total: 100 },
+      { storage: 'local-lvm', node: 'pve1', type: 'lvmthin', used: 7, total: 50 },
+      { storage: 'local-lvm', node: 'pve2', type: 'lvmthin', used: 5, total: 50 },
+    ],
+  );
 });

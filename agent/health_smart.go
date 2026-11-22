@@ -36,9 +36,18 @@ type smartctlReport struct {
 		Name string `json:"name"`
 	} `json:"power_mode"`
 	Device struct {
-		Model  string `json:"model_name"`
-		Serial string `json:"serial_number"`
+		Model    string `json:"model_name"`
+		Serial   string `json:"serial_number"`
+		Protocol string `json:"protocol"`
 	} `json:"device"`
+	UserCapacity struct {
+		Bytes uint64 `json:"bytes"`
+	} `json:"user_capacity"`
+	NvmeCapacity *uint64 `json:"nvme_total_capacity"`
+	RotationRate *int    `json:"rotation_rate"`
+	PowerOnTime  struct {
+		Hours *uint64 `json:"hours"`
+	} `json:"power_on_time"`
 	Model       string `json:"model_name"`
 	Serial      string `json:"serial_number"`
 	SmartStatus *struct {
@@ -91,34 +100,46 @@ func collectHealthSmart(ctx context.Context, devices []string) *HealthSmart {
 			r.Disks = append(r.Disks, d)
 			continue
 		}
-		d.Model = report.Model
-		if d.Model == "" {
-			d.Model = report.Device.Model
-		}
-		d.Serial = report.Serial
-		if d.Serial == "" {
-			d.Serial = report.Device.Serial
-		}
-		if report.SmartStatus != nil {
-			d.Healthy = &report.SmartStatus.Passed
-		}
-		d.TemperatureC = report.Temperature.Current
-		if d.TemperatureC == nil {
-			d.TemperatureC = report.Nvme.Temperature
-		}
-		d.NvmeWearPercent = report.Nvme.PercentageUsed
-		for _, attr := range report.Ata.Table {
-			if attr.ID == 5 && attr.Raw.Value != nil {
-				d.Reallocated = attr.Raw.Value
-				break
-			}
-		}
+		applySmartReport(&d, &report)
 		if err != nil && d.Healthy == nil {
 			d.Error = fmt.Sprintf("smartctl: %v", err)
 		}
 		r.Disks = append(r.Disks, d)
 	}
 	return r
+}
+
+// applySmartReport: what the hub keeps of the smartctl output of an awake disk.
+func applySmartReport(d *HealthSmartDisk, report *smartctlReport) {
+	d.Model = report.Model
+	if d.Model == "" {
+		d.Model = report.Device.Model
+	}
+	d.Serial = report.Serial
+	if d.Serial == "" {
+		d.Serial = report.Device.Serial
+	}
+	if report.SmartStatus != nil {
+		d.Healthy = &report.SmartStatus.Passed
+	}
+	d.TemperatureC = report.Temperature.Current
+	if d.TemperatureC == nil {
+		d.TemperatureC = report.Nvme.Temperature
+	}
+	d.NvmeWearPercent = report.Nvme.PercentageUsed
+	for _, attr := range report.Ata.Table {
+		if attr.ID == 5 && attr.Raw.Value != nil {
+			d.Reallocated = attr.Raw.Value
+			break
+		}
+	}
+	d.SizeBytes = report.UserCapacity.Bytes
+	if d.SizeBytes == 0 && report.NvmeCapacity != nil {
+		d.SizeBytes = *report.NvmeCapacity
+	}
+	d.Protocol = report.Device.Protocol
+	d.RotationRate = report.RotationRate
+	d.PowerOnHours = report.PowerOnTime.Hours
 }
 
 // SmartCandidate: a physical disk smartctl can read, offered in the host options.

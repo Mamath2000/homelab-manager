@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -85,5 +86,32 @@ func TestCgroupCPULimit(t *testing.T) {
 		if got := cgroupCPULimit(root); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestApplySmartReport(t *testing.T) {
+	var report smartctlReport
+	raw := `{"device":{"protocol":"ATA"},"model_name":"WDC WD40EFPX","serial_number":"WD-1","user_capacity":{"bytes":4000787030016},
+		"rotation_rate":5400,"power_on_time":{"hours":12345},"smart_status":{"passed":true},"temperature":{"current":38},
+		"ata_smart_attributes":{"table":[{"id":5,"name":"Reallocated_Sector_Ct","raw":{"value":24}}]}}`
+	if err := json.Unmarshal([]byte(raw), &report); err != nil {
+		t.Fatal(err)
+	}
+	var d HealthSmartDisk
+	applySmartReport(&d, &report)
+	if d.Model != "WDC WD40EFPX" || d.SizeBytes != 4000787030016 || d.Protocol != "ATA" || d.RotationRate == nil || *d.RotationRate != 5400 ||
+		d.PowerOnHours == nil || *d.PowerOnHours != 12345 || d.Reallocated == nil || *d.Reallocated != 24 || d.Healthy == nil || !*d.Healthy {
+		t.Fatalf("disk = %+v", d)
+	}
+	// NVMe: capacity from nvme_total_capacity when user_capacity is missing, no rotation rate
+	report = smartctlReport{}
+	if err := json.Unmarshal([]byte(`{"device":{"protocol":"NVMe"},"model_name":"Samsung 980","nvme_total_capacity":1000204886016,
+		"nvme_smart_health_information_log":{"temperature":47,"percentage_used":14}}`), &report); err != nil {
+		t.Fatal(err)
+	}
+	d = HealthSmartDisk{}
+	applySmartReport(&d, &report)
+	if d.SizeBytes != 1000204886016 || d.Protocol != "NVMe" || d.RotationRate != nil || d.NvmeWearPercent == nil || *d.NvmeWearPercent != 14 {
+		t.Fatalf("nvme disk = %+v", d)
 	}
 }

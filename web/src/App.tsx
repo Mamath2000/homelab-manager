@@ -22,6 +22,7 @@ const Equipments = page(() => import('./pages/Equipments'), 'Equipments');
 const HostDetail = page(() => import('./pages/HostDetail'), 'HostDetail');
 const Hosts = page(() => import('./pages/Hosts'), 'Hosts');
 const Health = page(() => import('./pages/Health'), 'Health');
+const Disks = page(() => import('./pages/Disks'), 'Disks');
 const Logs = page(() => import('./pages/Logs'), 'Logs');
 const Probes = page(() => import('./pages/Probes'), 'Probes');
 const JobDetail = page(() => import('./pages/JobDetail'), 'JobDetail');
@@ -111,6 +112,7 @@ export default function App() {
                 <Route path="equipments" element={<Equipments />} />
                 <Route path="equipments/:id" element={<EquipmentDetail />} />
                 <Route path="health" element={<Health />} />
+                <Route path="disks" element={<Disks />} />
                 <Route path="probes" element={<Probes />} />
                 <Route path="updates" element={<Updates />} />
                 <Route path="docker" element={<Docker />} />

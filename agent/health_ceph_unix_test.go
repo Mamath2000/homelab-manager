@@ -21,6 +21,7 @@ var cephAnswers = map[string]string{
 		{"id":-2,"name":"pve1","type":"host","children":[2]},{"id":2,"name":"osd.2","type":"osd","status":"up","reweight":1},
 		{"id":-5,"name":"pve2","type":"host","children":[1]},{"id":1,"name":"osd.1","type":"osd","status":"up","reweight":1},
 		{"id":-7,"name":"pve4","type":"host","children":[3]},{"id":3,"name":"osd.3","type":"osd","status":"down","reweight":0}]}`,
+	"osd metadata": `[{"id":1,"hostname":"pve2","devices":"sdb"},{"id":2,"hostname":"pve1","devices":"nvme0n1"},{"id":3,"hostname":"pve4","devices":"sdc,sdd"}]`,
 }
 
 func cephRun(_ context.Context, bin string, args ...string) (string, error) {
@@ -42,6 +43,9 @@ func TestCollectHealthCeph(t *testing.T) {
 	// only the OSDs of this node
 	if len(c.Osds) != 1 || c.Osds[0].ID != 3 || c.Osds[0].Up || c.Osds[0].In {
 		t.Fatalf("osds = %+v", c.Osds)
+	}
+	if d := c.Osds[0].Devices; len(d) != 2 || d[0] != "/dev/sdc" || d[1] != "/dev/sdd" {
+		t.Fatalf("osd devices = %v", d)
 	}
 	if c := collectHealthCeph(context.Background(), cephRun, "pve3"); len(c.Osds) != 0 {
 		t.Fatalf("pve3 osds = %+v", c.Osds)

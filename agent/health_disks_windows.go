@@ -9,3 +9,6 @@ func isHealthStoragePartition(_, _ string) bool {
 func collectHAOSHealthDisks() (*HealthDisks, error) {
 	return &HealthDisks{Volumes: []HealthVolume{}}, nil
 }
+
+// volumeDisks: not told on Windows (the volumes are drive letters).
+func volumeDisks(string) []string { return nil }
