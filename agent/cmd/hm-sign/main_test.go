@@ -64,3 +64,18 @@ func TestKeygenAndSign(t *testing.T) {
 		t.Fatal("v2 signature does not verify with the public key")
 	}
 }
+
+func TestBinaryTargetArm(t *testing.T) {
+	for file, want := range map[string]string{
+		"dist/homelab-agent-linux-arm":         "linux/arm",
+		"dist/homelab-agent-linux-arm64":       "linux/arm64",
+		"dist/homelab-agent-windows-amd64.exe": "windows/amd64",
+	} {
+		if got, err := binaryTarget(file); err != nil || got != want {
+			t.Fatalf("binaryTarget(%q) = %q, %v; want %q", file, got, err, want)
+		}
+	}
+	if _, err := binaryTarget("homelab-agent-linux-armv7"); err == nil {
+		t.Fatal("unknown arch accepted")
+	}
+}

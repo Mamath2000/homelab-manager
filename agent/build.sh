@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # os/arch -> dist/homelab-agent-<os>-<arch>[.exe]
-TARGETS="linux/amd64 linux/arm64 windows/amd64"
+TARGETS="linux/amd64 linux/arm64 linux/arm windows/amd64"
 bump=${1:-build}
 
 version=$(cat VERSION)
@@ -40,7 +40,7 @@ fi
 # -buildvcs=false: the git revision must not change the binary (its hash marks the agent outdated)
 for t in $TARGETS; do
     echo "agent $version $t"
-    CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -buildvcs=false \
+    CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} GOARM=6 go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X main.version=$version -X main.minVersion=$(cat MIN_VERSION)" -o "$(out "$t")" .
 done
 echo "$version" > VERSION

@@ -26,8 +26,8 @@ RUN --mount=type=secret,id=release_key \
       CGO_ENABLED=0 go build -o /usr/local/bin/hm-sign ./cmd/hm-sign && \
       [ "$(hm-sign pub -key /run/secrets/release_key)" = "$RELEASE_PUB" ] || { echo "release key does not match agent/release.pub" >&2; exit 1; }; \
     else echo "warning: unsigned development agents (no RELEASE_PUB)" >&2; fi && \
-    for arch in amd64 arm64; do \
-      CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -buildvcs=false \
+    for arch in amd64 arm64 arm; do \
+      CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOARM=6 go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X main.version=$version -X main.releasePubKey=$RELEASE_PUB -X main.minVersion=$floor -X main.trustedClientImages=$CLIENT_IMAGES" -o /out/homelab-agent-linux-$arch . ; \
     done && \
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -buildvcs=false \

@@ -10,6 +10,7 @@ export type AgentOs = 'linux' | 'windows';
 export const AGENT_TARGETS: { os: AgentOs; arch: string }[] = [
   { os: 'linux', arch: 'amd64' },
   { os: 'linux', arch: 'arm64' },
+  { os: 'linux', arch: 'arm' },
   { os: 'windows', arch: 'amd64' },
 ];
 

@@ -633,7 +633,7 @@ func freeSpace(dir string) int64 {
 	for d := dir; ; d = filepath.Dir(d) {
 		var st syscall.Statfs_t
 		if err := syscall.Statfs(d, &st); err == nil {
-			return int64(st.Bavail) * st.Bsize
+			return int64(st.Bavail) * int64(st.Bsize)
 		}
 		if d == "/" {
 			return -1

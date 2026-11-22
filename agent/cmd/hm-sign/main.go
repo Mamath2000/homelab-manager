@@ -39,7 +39,7 @@ func signedMessageV2(target, version, sha256hex string) []byte {
 
 var (
 	versionRe = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
-	binaryRe  = regexp.MustCompile(`^homelab-agent-(linux|windows)-(amd64|arm64)(\.exe)?$`)
+	binaryRe  = regexp.MustCompile(`^homelab-agent-(linux|windows)-(amd64|arm64|arm)(\.exe)?$`)
 )
 
 // target of a binary from its name: homelab-agent-linux-arm64 → linux/arm64

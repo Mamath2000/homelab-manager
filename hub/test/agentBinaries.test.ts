@@ -12,7 +12,7 @@ process.env.AGENT_BIN_DIR = dir;
 writeFileSync(join(dir, 'homelab-agent-linux-amd64'), 'agent 1.0.13');
 writeFileSync(join(dir, 'VERSION'), '1.0.13\n');
 writeFileSync(join(dir, 'MIN_VERSION'), '1.0.12\n');
-const { agentAhead, agentBinary, agentOutdated, compareVersions } = await import('../src/agentBinaries.js');
+const { AGENT_TARGETS, agentAhead, agentBinary, agentOutdated, compareVersions } = await import('../src/agentBinaries.js');
 const hash = agentBinary('amd64')!.sha256;
 
 const host = (over: Partial<HostDoc>): HostDoc =>
@@ -71,4 +71,10 @@ test('agentOutdated: older agent or same version with another binary; never an a
   // development agent: version not comparable, the hash decides as before
   assert.equal(agentOutdated(host({ agentVersion: '1.0.14-dev' })), true);
   assert.equal(agentAhead(host({ agentVersion: '1.0.14-dev' })), false);
+});
+
+test('linux/arm (ARMv6/ARMv7) is a served target', () => {
+  assert.ok(AGENT_TARGETS.some((t) => t.os === 'linux' && t.arch === 'arm'));
+  writeFileSync(join(dir, 'homelab-agent-linux-arm'), 'agent arm');
+  assert.ok(agentBinary('arm'));
 });

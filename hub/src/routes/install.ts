@@ -42,7 +42,7 @@ export function registerAgentDownloadRoute(app: FastifyInstance) {
 }
 
 function parseTarget(name: string) {
-  const m = /^(?:(linux|windows)-)?(amd64|arm64)$/.exec(name);
+  const m = /^(?:(linux|windows)-)?(amd64|arm64|arm)$/.exec(name);
   const os = (m?.[1] ?? 'linux') as AgentOs;
   return m && AGENT_TARGETS.some((t) => t.os === os && t.arch === m[2]) ? { os, arch: m[2] } : null;
 }

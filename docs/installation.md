@@ -202,7 +202,7 @@ Vérifier le relais : `docker exec homelab-manager-tailscale tailscale serve sta
 
 | Élément | Emplacement |
 |---|---|
-| Binaire de l'agent (amd64 ou arm64) | `/usr/local/bin/homelab-agent` |
+| Binaire de l'agent (amd64, arm64 ou arm 32 bits ARMv6/v7) | `/usr/local/bin/homelab-agent` |
 | Configuration (adresse du hub), droits 600 | `/etc/homelab-agent/agent.env` |
 | Certificat de l'autorité du hub | `/etc/homelab-agent/ca.pem` |
 | Clé privée de l'agent (droits 600) et son certificat | `/etc/homelab-agent/agent.key`, `/etc/homelab-agent/agent.crt` |

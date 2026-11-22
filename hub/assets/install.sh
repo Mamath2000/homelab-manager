@@ -176,6 +176,7 @@ fi
 case "$(uname -m)" in
   x86_64 | amd64) ARCH=amd64 ;;
   aarch64 | arm64) ARCH=arm64 ;;
+  armv6l | armv7l) ARCH=arm ;;
   *) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
