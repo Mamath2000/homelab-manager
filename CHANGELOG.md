@@ -4,6 +4,12 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/). L'h
 
 ## Non publié
 
+## 1.4.2 - 2026-11-21
+
+### Corrigé
+
+- **Fenêtre « À propos »** : la photo de profil est servie par le hub (`web/public/mamath.jpg`) au lieu d'être chargée depuis l'avatar GitHub.
+
 ## 1.4.1 - 2026-11-21
 
 ### Modifié
