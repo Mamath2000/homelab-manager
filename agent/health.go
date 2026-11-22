@@ -40,6 +40,9 @@ type HealthVolume struct {
 	Used       uint64  `json:"used"`
 	Total      uint64  `json:"total"`
 	Percent    float64 `json:"percent"`
+	// Disks: the whole disks under the volume (/dev/sda for /dev/sda1, the members for an md or an LVM volume), read
+	// from sysfs; empty when it cannot be told (ZFS dataset, network...)
+	Disks []string `json:"disks,omitempty"`
 }
 
 type HealthDisks struct {
@@ -57,6 +60,11 @@ type HealthSmartDisk struct {
 	NvmeWearPercent *float64 `json:"nvmeWearPercent,omitempty"`
 	Standby         bool     `json:"standby,omitempty"` // asleep: not read, so not woken
 	Error           string   `json:"error,omitempty"`
+	// identity of the disk, from the same smartctl output: capacity, ATA / NVMe / SCSI, rotation (0: solid state)
+	SizeBytes    uint64  `json:"sizeBytes,omitempty"`
+	Protocol     string  `json:"protocol,omitempty"`
+	RotationRate *int    `json:"rotationRate,omitempty"`
+	PowerOnHours *uint64 `json:"powerOnHours,omitempty"`
 }
 
 type HealthSmart struct {
@@ -134,6 +142,8 @@ type HealthCephOsd struct {
 	Name string `json:"name"`
 	Up   bool   `json:"up"`
 	In   bool   `json:"in"`
+	// Devices: the disks the OSD lives on (ceph osd metadata), /dev/nvme0n1...
+	Devices []string `json:"devices,omitempty"`
 }
 
 // HealthCeph: state of the whole Ceph cluster as one of its nodes sees it, plus the OSDs it hosts.
@@ -254,6 +264,7 @@ func collectHealthDisks() (*HealthDisks, error) {
 		r.Volumes = append(r.Volumes, HealthVolume{
 			Device: p.Device, Mountpoint: p.Mountpoint, Fstype: p.Fstype,
 			Used: usage.Used, Total: usage.Total, Percent: usage.UsedPercent,
+			Disks: volumeDisks(p.Device),
 		})
 	}
 	return r, nil

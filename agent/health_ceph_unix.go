@@ -151,5 +151,24 @@ func collectHealthCeph(ctx context.Context, run pveRun, node string) *HealthCeph
 			}
 		}
 	}
+	// the disks of each OSD of this node, to tie it to its SMART report; left out when the metadata cannot be read
+	var meta []struct {
+		ID      int    `json:"id"`
+		Devices string `json:"devices"` // "sdb", "nvme0n1", comma separated when several
+	}
+	if len(c.Osds) > 0 && cephJSON(ctx, run, &meta, "osd", "metadata") == nil {
+		for i := range c.Osds {
+			for _, m := range meta {
+				if m.ID != c.Osds[i].ID {
+					continue
+				}
+				for _, d := range strings.Split(m.Devices, ",") {
+					if d = strings.TrimSpace(d); d != "" && !strings.ContainsAny(d, "/ ") {
+						c.Osds[i].Devices = append(c.Osds[i].Devices, "/dev/"+d)
+					}
+				}
+			}
+		}
+	}
 	return c
 }

@@ -7,7 +7,7 @@ import { HISTORY, groupKey, loadPbsSettings } from './pbs.js';
 import { rolesSaved } from './roleEvents.js';
 import { allRoles, loadRoles, newRoleId } from './roles.js';
 import { apiGet, normalizeFingerprint } from './tlsApi.js';
-import type { BackupSnapshot, GuestDoc, HostPveLink, HostPveLost, PbsSettings, PveCluster, PveClusterRole, PveJobRef, PveNode, PveSettings, PveTaskResult } from './types.js';
+import type { BackupSnapshot, GuestDoc, HostPveLink, HostPveLost, PbsSettings, PveCluster, PveClusterRole, PveGuestDisk, PveJobRef, PveNode, PveSettings, PveStorageUsage, PveTaskResult } from './types.js';
 import { openRole } from './storedSecrets.js';
 
 // Proxmox VE clusters, read through their API with a read-only token (PVEAuditor): the inventory (nodes, guests, their
@@ -116,6 +116,17 @@ export interface ApiResource {
   type: 'lxc' | 'qemu';
   status?: string;
   template?: number;
+  maxdisk?: number;
+  disk?: number;
+}
+export interface ApiStorageResource {
+  storage: string;
+  node: string;
+  plugintype?: string;
+  shared?: number | boolean;
+  status?: string;
+  disk?: number;
+  maxdisk?: number;
 }
 export interface ApiStorage {
   storage: string;
@@ -169,6 +180,39 @@ export function configMacs(config: Record<string, unknown>) {
     if (m) out.push(normalizeMac(m[1]));
   }
   return out;
+}
+
+const SIZE_UNITS: Record<string, number> = { K: 2 ** 10, M: 2 ** 20, G: 2 ** 30, T: 2 ** 40 };
+const QEMU_DISK_RE = /^(?:scsi|virtio|sata|ide)\d+$/;
+const LXC_DISK_RE = /^(?:rootfs|mp\d+)$/;
+
+// Disks of a guest config: "ceph-vm:vm-100-disk-0,size=60G,iothread=1". CD-ROMs, "none" and bind mounts ("/srv/x,mp=…")
+// are not disks of a storage.
+export function configDisks(config: Record<string, unknown>, type: 'lxc' | 'qemu'): PveGuestDisk[] {
+  const out: PveGuestDisk[] = [];
+  for (const [key, v] of Object.entries(config)) {
+    if (typeof v !== 'string' || !(type === 'qemu' ? QEMU_DISK_RE : LXC_DISK_RE).test(key)) continue;
+    const [first, ...opts] = v.split(',');
+    if (opts.some((o) => o === 'media=cdrom')) continue;
+    const m = /^([A-Za-z0-9][\w.-]*):(.+)$/.exec(first);
+    if (!m) continue;
+    const size = opts.map((o) => /^size=(\d+(?:\.\d+)?)([KMGT]?)$/.exec(o)).find(Boolean);
+    out.push({ key, storage: m[1], volume: m[2], ...(size ? { sizeBytes: Math.round(Number(size[1]) * (SIZE_UNITS[size[2]] ?? 1)) } : {}) });
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
+}
+
+// Space of the storages: a shared storage is listed once per node with the same values, it is kept once.
+export function storageUsage(list: ApiStorageResource[]): PveStorageUsage[] {
+  const out = new Map<string, PveStorageUsage>();
+  for (const s of list) {
+    if (s.status && s.status !== 'available') continue;
+    if (typeof s.maxdisk !== 'number' || s.maxdisk <= 0) continue;
+    const shared = truthy(s.shared);
+    const k = shared ? s.storage : `${s.storage}@${s.node}`;
+    if (!out.has(k)) out.set(k, { storage: s.storage, node: shared ? null : s.node, type: s.plugintype ?? '', used: s.disk ?? 0, total: s.maxdisk });
+  }
+  return [...out.values()].sort((a, b) => a.storage.localeCompare(b.storage) || (a.node ?? '').localeCompare(b.node ?? ''));
 }
 
 export function normalizeMac(mac: string) {
@@ -323,15 +367,17 @@ const logCache = new Map<string, ReturnType<typeof parseVzdumpLog>>();
 const TASKS_PER_NODE = 50;
 
 async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLogger) {
-  const [resources, storages, jobs, nodes] = await Promise.all([
+  const [resources, storages, jobs, nodes, storageResources] = await Promise.all([
     pveGet<ApiResource[]>(c, '/cluster/resources?type=vm'),
     pveGet<ApiStorage[]>(c, '/storage'),
     pveGet<ApiJob[]>(c, '/cluster/backup'),
     pveGet<{ node: string; status: string }[]>(c, '/nodes'),
+    // space of the storages, for the Disks page: its absence does not stop the poll
+    pveGet<ApiStorageResource[]>(c, '/cluster/resources?type=storage').catch(() => [] as ApiStorageResource[]),
   ]);
   const online = nodes.filter((n) => n.status === 'online').map((n) => n.node);
   // a guest whose config cannot be read (its node offline) keeps the MAC addresses of the last poll, and its link
-  const previous = new Map((await guests.find({ cluster: c.id }, { projection: { macs: 1, hostId: 1, ambiguous: 1 } }).toArray()).map((g) => [g._id, g]));
+  const previous = new Map((await guests.find({ cluster: c.id }, { projection: { macs: 1, hostId: 1, ambiguous: 1, disks: 1 } }).toArray()).map((g) => [g._id, g]));
   const tz = online.length
     ? await pveGet<{ timezone?: string }>(c, `/nodes/${encodeURIComponent(online[0])}/time`).then((t) => t.timezone || 'UTC').catch(() => 'UTC')
     : (c.timezone ?? 'UTC');
@@ -407,6 +453,8 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
       name: r.name ?? '',
       status: r.status ?? 'unknown',
       macs: config ? configMacs(config) : (before?.macs ?? []),
+      disks: config ? configDisks(config, r.type) : (before?.disks ?? []),
+      ...(r.type === 'lxc' && typeof r.disk === 'number' && r.disk > 0 ? { diskUsed: r.disk } : {}),
       ...(typeof config?.ostype === 'string' ? { ostype: config.ostype } : {}),
       ...(typeof config?.arch === 'string' ? { arch: config.arch } : {}),
       jobs: refs,
@@ -427,7 +475,7 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
   for (const k of logCache.keys()) if (k.startsWith(`${c.id}|`) && !listed.has(k)) logCache.delete(k);
   log?.info({ cluster: c.id, guests: docs.length }, 'PVE polled');
   const pveNodes: PveNode[] = nodes.map((n) => ({ node: n.node, online: n.status === 'online' })).sort((a, b) => a.node.localeCompare(b.node));
-  return { tz, guests: docs.length, nodes: pveNodes };
+  return { tz, guests: docs.length, nodes: pveNodes, storages: storageUsage(storageResources) };
 }
 
 let polling: Promise<void> | null = null;
@@ -444,7 +492,7 @@ async function doPoll(log?: FastifyBaseLogger) {
     let set: Partial<PveCluster>;
     try {
       const r = await pollCluster(c, pbs, log);
-      set = { polledAt: new Date(), pollError: null, timezone: r.tz, guests: r.guests, nodes: r.nodes };
+      set = { polledAt: new Date(), pollError: null, timezone: r.tz, guests: r.guests, nodes: r.nodes, storages: r.storages };
     } catch (err) {
       set = { polledAt: new Date(), pollError: (err as Error).message };
       log?.warn({ err, cluster: c.id }, 'PVE poll failed');

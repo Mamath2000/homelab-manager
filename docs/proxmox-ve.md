@@ -14,6 +14,8 @@ Toutes les 15 minutes, le hub relit le cluster : nœuds, VM et CT (hors modèles
 
 L'onglet apparaît dès qu'un rôle `Cluster Proxmox VE` existe (administrateurs). Il montre le cluster (adresse, hôte lecteur, dernier relevé et son erreur éventuelle), puis **par nœud** (avec son agent, ou « non géré ») ses VM et CT : identifiant, nom, état Proxmox, hôte lié ou **non géré**, jobs programmés.
 
+Le relevé lit aussi les **stockages** du cluster (`/cluster/resources?type=storage` : type, espace utilisé et total) et les **disques** de chaque VM et CT (clés `scsiN`, `virtioN`, `sataN`, `ideN`, `rootfs`, `mpN` de leur configuration, hors lecteurs CD et points de montage liés). Ils servent à la page [Disques](disques.md).
+
 L'inventaire est relu à chaque relevé : une ligne n'est ni un hôte ni un équipement. Il ne montre ni santé, ni résultats, ni snapshots : c'est le sujet de la fiche hôte. Une VM ou un CT **non géré** (aucun hôte ne porte une de ses adresses MAC) n'apparaît que dans cet onglet, sans alerte ; ses éventuelles sauvegardes PBS restent dans les [orphelines](sauvegardes.md#sauvegardes-externes--rattachement-manuel).
 
 ## Lien avec un hôte

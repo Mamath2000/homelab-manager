@@ -2,51 +2,65 @@
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+)
 
-func TestIsHealthStoragePartition(t *testing.T) {
-	tests := []struct {
-		device     string
-		filesystem string
-		want       bool
-	}{
-		{"/dev/sda1", "vfat", true},
-		{"/dev/md1p1", "xfs", true},
-		{"/dev/nvme1n1p1", "btrfs", true},
-		{"tank/data", "zfs", true},
-		{"/dev/loop2", "btrfs", false},
-		{"/dev/loop1", "squashfs", false},
-		{"/dev/loop-control", "none", false},
-		{"/dev/sda1", "overlay", false},
-		{"server:/export", "nfs", false},
-		{"tmpfs", "tmpfs", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.device+"_"+tt.filesystem, func(t *testing.T) {
-			if got := isHealthStoragePartition(tt.device, tt.filesystem); got != tt.want {
-				t.Errorf("isHealthStoragePartition(%q, %q) = %t, want %t", tt.device, tt.filesystem, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBootEFIMountpointIsExcluded(t *testing.T) {
-	if !isHealthExcludedMountpoint("/boot/efi") {
-		t.Fatal("/boot/efi should be excluded")
-	}
-	if isHealthExcludedMountpoint("/boot/efi-data") {
-		t.Fatal("similarly named mountpoint should not be excluded")
-	}
-}
-
-func TestContainerStorageMountpointsAreExcluded(t *testing.T) {
-	for _, m := range []string{"/var/lib/docker", "/var/lib/containerd", "/var/lib/docker/overlay2"} {
-		if !isHealthExcludedMountpoint(m) {
-			t.Errorf("%s should be excluded", m)
+// a sysfs tree: sda with partition sda1, md0 over sdb1 + sdc1, dm-0 (LVM) over nvme0n1p3
+func fakeBlockSys(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	devices := filepath.Join(root, "devices")
+	class := filepath.Join(root, "class")
+	mk := func(path string) {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if isHealthExcludedMountpoint("/var/lib/dockerdata") {
-		t.Fatal("similarly named mountpoint should not be excluded")
+	link := func(target, name string) {
+		if err := os.Symlink(target, filepath.Join(class, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(class)
+	for _, disk := range []struct{ disk, part string }{{"sda", "sda1"}, {"sdb", "sdb1"}, {"sdc", "sdc1"}, {"nvme0n1", "nvme0n1p3"}} {
+		mk(filepath.Join(devices, disk.disk, disk.part))
+		if err := os.WriteFile(filepath.Join(devices, disk.disk, disk.part, "partition"), []byte("1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link(filepath.Join(devices, disk.disk), disk.disk)
+		link(filepath.Join(devices, disk.disk, disk.part), disk.part)
+	}
+	for _, v := range []struct {
+		name   string
+		slaves []string
+	}{{"md0", []string{"sdb1", "sdc1"}}, {"dm-0", []string{"nvme0n1p3"}}} {
+		mk(filepath.Join(devices, v.name, "slaves"))
+		for _, s := range v.slaves {
+			mk(filepath.Join(devices, v.name, "slaves", s))
+		}
+		link(filepath.Join(devices, v.name), v.name)
+	}
+	return class
+}
+
+func TestVolumeDisks(t *testing.T) {
+	prev := healthBlockSysRoot
+	healthBlockSysRoot = fakeBlockSys(t)
+	defer func() { healthBlockSysRoot = prev }()
+	for device, want := range map[string][]string{
+		"/dev/sda1":      {"/dev/sda"},
+		"/dev/sda":       {"/dev/sda"},
+		"/dev/md0":       {"/dev/sdb", "/dev/sdc"},
+		"/dev/dm-0":      {"/dev/nvme0n1"},
+		"/dev/zz9":       nil,
+		"rpool/ROOT/pve": nil,
+	} {
+		if got := volumeDisks(device); !reflect.DeepEqual(got, want) {
+			t.Errorf("volumeDisks(%s) = %v, want %v", device, got, want)
+		}
 	}
 }

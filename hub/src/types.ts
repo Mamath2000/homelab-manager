@@ -89,6 +89,8 @@ export interface HealthVolume {
   used: number;
   total: number;
   percent: number;
+  // whole disks under the volume (/dev/sda for /dev/sda1, members of an md or LVM volume); absent: unknown
+  disks?: string[];
 }
 
 export interface HealthDisks {
@@ -107,6 +109,11 @@ export interface HealthSmartDisk {
   // asleep when read: the values are the last ones known
   standby?: boolean;
   error?: string;
+  // identity of the disk (agents >= this version): capacity, ATA / NVMe / SCSI, rotation (0: solid state), hours powered
+  sizeBytes?: number;
+  protocol?: string;
+  rotationRate?: number;
+  powerOnHours?: number;
 }
 
 export interface HealthSmart {
@@ -176,7 +183,8 @@ export interface HealthCeph {
   pgsClean: number;
   usedBytes: number;
   totalBytes: number;
-  osds: { id: number; name: string; up: boolean; in: boolean }[];
+  // devices: the disks the OSD lives on (ceph osd metadata), absent with older agents
+  osds: { id: number; name: string; up: boolean; in: boolean; devices?: string[] }[];
 }
 
 export interface HealthRaid {
@@ -1022,6 +1030,24 @@ export interface PveCluster {
   pollError?: string | null;
   guests?: number;
   nodes?: PveNode[];
+  // space of its storages (/cluster/resources?type=storage): a shared one (Ceph RBD, NFS...) once, a local one per node
+  storages?: PveStorageUsage[];
+}
+
+export interface PveStorageUsage {
+  storage: string;
+  node: string | null; // null: shared by the nodes
+  type: string; // rbd, lvmthin, zfspool, dir, nfs, pbs...
+  used: number; // bytes
+  total: number;
+}
+
+// A disk of a guest, from its config: qemu scsi0 / virtio0 / sata0 / ide0, lxc rootfs / mp0 (bind mounts and CD-ROMs left out)
+export interface PveGuestDisk {
+  key: string; // scsi0, rootfs, mp0...
+  storage: string; // ceph-vm, local-lvm...
+  volume: string; // vm-100-disk-0, subvol-200-disk-0...
+  sizeBytes?: number;
 }
 
 export interface PveNode {
@@ -1115,6 +1141,9 @@ export interface GuestDoc {
   // written by refreshLinks: the host it is (one of its MAC addresses), or a MAC shared with another guest
   hostId?: string | null;
   ambiguous?: boolean;
+  // its disks (config) and, for a container, the space its root file system uses (PVE does not know it for a VM)
+  disks?: PveGuestDisk[];
+  diskUsed?: number;
 }
 
 // Backup of directories defined in the hub and run by the agent of the host (see backupJobs.ts).

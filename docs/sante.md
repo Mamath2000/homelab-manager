@@ -37,7 +37,7 @@ SMART est volontairement **opt-in, hôte par hôte**.
 - Le paquet `smartmontools` doit être installé sur l'hôte et l'agent doit avoir les droits nécessaires.
 - Pour les hôtes que l'agent identifie comme virtualisés, la configuration SMART n'est pas proposée et le hub n'envoie aucun périphérique à interroger.
 
-Les rapports affichent l'état global, la température, les secteurs réalloués et l'usure NVMe quand le disque les fournit. Les VM et LXC sans accès au périphérique physique, et les contrôleurs RAID que `smartctl` n'expose pas, ne remontent pas ces détails.
+Les rapports affichent l'état global, la température, les secteurs réalloués et l'usure NVMe quand le disque les fournit. Ils portent aussi la taille, le protocole (ATA, NVMe, SCSI), la vitesse de rotation et les heures de fonctionnement, que montre la page [Disques](disques.md). Les VM et LXC sans accès au périphérique physique, et les contrôleurs RAID que `smartctl` n'expose pas, ne remontent pas ces détails.
 
 ## RAID
 
