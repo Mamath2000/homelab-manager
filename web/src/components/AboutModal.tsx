@@ -137,7 +137,7 @@ export function AboutModal({ open, onClose, dontShowAtStartup, onDontShowAtStart
               >
                 <img
                   className="h-20 w-20 rounded-full border-2 border-line object-cover shadow-lg shadow-black/20"
-                  src="https://avatars.githubusercontent.com/u/15641879?v=4"
+                  src="/mamath.jpg"
                   alt="Photo de profil de Mamath"
                   width={80}
                   height={80}

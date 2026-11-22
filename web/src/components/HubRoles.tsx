@@ -1714,6 +1714,14 @@ export function RolesSettings() {
   );
   // the carrier, a host or an equipment (an Omada controller)
   const carrierLink = (r: HubRole) => r.carrier.kind === 'hub' ? <span>Hub</span> : <Link className="underline" to={r.carrier.kind === 'equipment' ? `/equipments/${r.carrier.id}` : `/hosts/${r.carrier.id}`}>{r.carrier.name || 'porteur introuvable'}</Link>;
+  // two columns of sections from 2xl up (sections are dealt alternately: 1st left, 2nd right, 3rd left…)
+  const [twoCols, setTwoCols] = useState(() => window.matchMedia('(min-width: 1536px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1536px)');
+    const on = () => setTwoCols(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
   // by type, in the order of the catalog of the types; the two PBS (main and off-site) share one section
   const sections = ROLE_TYPES.filter((t) => t.id !== 'pbs-offsite')
     .map((t) => {
@@ -1829,12 +1837,16 @@ export function RolesSettings() {
         <p className="p-4 text-sm text-muted">Aucun rôle : pas de sauvegarde, de sonde MQTT, d'intégration Home Assistant ni d'inventaire Proxmox VE.</p>
       ) : (
         // two columns of sections on a wide screen, one below; a section is never split
-        <div className="gap-x-8 2xl:columns-2">
-          {sections.map((g) => (
-            <section key={g.type} className="mb-5 break-inside-avoid">
-              {sectionTitle(g)}
-              <div className="flex flex-wrap gap-3">{g.list.map(roleCard)}</div>
-            </section>
+        <div className={twoCols ? 'grid grid-cols-2 items-start gap-x-8' : undefined}>
+          {(twoCols ? [0, 1] : [null]).map((col) => (
+            <div key={col ?? 'all'}>
+              {sections.filter((_, i) => col === null || i % 2 === col).map((g) => (
+                <section key={g.type} className="mb-5">
+                  {sectionTitle(g)}
+                  <div className="flex flex-wrap gap-3">{g.list.map(roleCard)}</div>
+                </section>
+              ))}
+            </div>
           ))}
         </div>
       )}

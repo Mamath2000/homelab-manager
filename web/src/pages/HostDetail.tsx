@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import clsx from 'clsx';
-import { Activity, ArrowLeft, ArrowUpCircle, BatteryCharging, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Container, DatabaseBackup, Globe, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldCheck, ShieldOff, Terminal, Users, X } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowUpCircle, BatteryCharging, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Container, Crosshair, DatabaseBackup, Globe, History, KeyRound, Loader2, Lock, Package, Power, Radio, RefreshCw, RotateCw, ScrollText, Search, Server, Settings, ShieldAlert, ShieldCheck, ShieldOff, Terminal, Users, X } from 'lucide-react';
 import { FloatingAside } from '../components/FloatingAside';
 import { useAsideDocked } from '../lib/asideDocked';
 import { HostOptionsModal } from '../components/HostOptionsModal';
@@ -291,7 +291,7 @@ function HostDetailPage({ id }: { id: string }) {
   const { data: status } = useStatus();
   const { data: hostProbes } = useProbes('host', id);
   const { data: alertDays } = useAlertDays('host', id);
-  const cardsOpen = useExpandedCards();
+  const cardsOpen = useExpandedCards(id);
   // something to follow: the main PBS, backups of Home Assistant, Proxmox VE clusters
   const backupsOn = !!backupsData && (backupsData.connected || backupsData.groups.length > 0 || backupsData.clusters.length > 0);
   const [deleting, setDeleting] = useState(false);
@@ -466,6 +466,8 @@ function HostDetailPage({ id }: { id: string }) {
   // Windows: only once the agent found the backup CLI set in the options of the host (homelab#208)
   if ((backupsOn || !!host.pveLost) && (!isWindows(host) || host.capabilities.includes('backup:cli'))) cards.push({ key: 'backups', title: 'Sauvegardes', icon: DatabaseBackup, info: backupsInfo(host, backupsData?.groups, days('backups')), node: <HostBackups host={host} onStarted={setJobId} /> });
   const allOpen = cards.length > 0 && cards.every((c) => cardsOpen.open.includes(c.key));
+  const problemKeys = cards.filter((c) => { const l = cardState(status?.hosts[host.id], c.key).level; return l === 'warn' || l === 'alert'; }).map((c) => c.key);
+  const onlyProblems = problemKeys.length > 0 && cardsOpen.open.length === problemKeys.length && problemKeys.every((k) => cardsOpen.open.includes(k));
   const cardColumns = [0, 1].map((col) =>
     cards.filter((c) => cardColumn[c.key] === col).map((c) => {
       const state = cardState(status?.hosts[host.id], c.key);
@@ -728,7 +730,12 @@ function HostDetailPage({ id }: { id: string }) {
           )}
 
           {cards.length > 1 && (
-            <div className="mb-2 flex justify-end">
+            <div className="mb-2 flex justify-end gap-2">
+              {problemKeys.length > 0 && (
+                <Button size="sm" icon={Crosshair} onClick={() => cardsOpen.setAll(onlyProblems ? [] : problemKeys)}>
+                  {onlyProblems ? 'Fin du focus' : `Focus (${problemKeys.length})`}
+                </Button>
+              )}
               <Button size="sm" icon={allOpen ? ChevronsDownUp : ChevronsUpDown} onClick={() => cardsOpen.setAll(allOpen ? [] : cards.map((c) => c.key))}>
                 {allOpen ? 'Tout réduire' : 'Tout développer'}
               </Button>
