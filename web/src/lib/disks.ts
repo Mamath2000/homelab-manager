@@ -1,4 +1,4 @@
-import { visibleHealthVolumes, type DisksInventory, type DiskThresholds, type HealthSmartDisk, type Host, type SiteConfig } from './api';
+import { visibleHealthVolumes, type DisksInventory, type DiskThresholds, type HealthSmartDisk, type HealthUnraidDisk, type Host, type PveStorageUsage, type SiteConfig } from './api';
 
 // Model of the Disks page: one row per physical disk, volume, RAID array, Ceph cluster, Proxmox VE storage and guest disk,
 // tied to its parent for the hierarchical view (disk → volumes, array → members, Ceph → OSD disks + RBD storages →
@@ -85,6 +85,10 @@ export function wholeDisk(device: string) {
   return m ? `/dev/${m[1]}` : dev;
 }
 
+// Key of a whole disk: smartctl names an NVMe disk after its controller (/dev/nvme0) while sysfs, RAID and Ceph name its
+// namespace (/dev/nvme0n1); both map to the controller so a volume finds its disk.
+const diskKey = (device: string) => wholeDisk(device).replace(/^\/dev\/(nvme\d+)n\d+$/, '/dev/$1');
+
 export function diskType(d: Pick<HealthSmartDisk, 'protocol' | 'rotationRate' | 'device'>) {
   if (d.protocol === 'NVMe' || /\/nvme\d/.test(d.device)) return 'NVMe';
   if (d.rotationRate === 0) return 'SSD';
@@ -131,6 +135,10 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
   const ceph = new Map<string, { hosts: Host[]; status?: string; error?: string; osdsUp: number; osdsTotal: number; pgs: number; pgsClean: number; used: number; total: number }>();
   // volumes whose parent is the boot disk of the guest their host is, resolved once the guests are known
   const toGuest: { row: DiskRow; host: Host }[] = [];
+  const diskId = (h: Host, dev: string) => `d|${h.id}|${diskKey(dev)}`;
+  // a disk named by a volume, RAID, Unraid, Ceph or LVM but not read in SMART: a row without SMART values, so the tree stays whole
+  const ensureDisk = (h: Host, dev: string) =>
+    rows.get(diskId(h, dev)) ?? add(blank(diskId(h, dev), 'disk', { hostId: h.id, hostName: h.name, siteId: h.siteId, name: dev, sub: 'pas de relevé SMART' }));
 
   for (const h of hostList) {
     const health = h.health;
@@ -139,13 +147,9 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
     const alertsOf = (prefix: string, except?: (key: string) => boolean) => alerts.filter((a) => a.key.startsWith(prefix) && !except?.(a.key));
     const t = thresholdsOf(h.id);
     const base = { hostId: h.id, hostName: h.name, siteId: h.siteId };
-    const diskId = (dev: string) => `d|${h.id}|${dev}`;
-    // a disk named by RAID, Unraid or Ceph but not read in SMART: a row without SMART values, so the tree stays whole
-    const ensureDisk = (dev: string) =>
-      rows.get(diskId(dev)) ?? add(blank(diskId(dev), 'disk', { ...base, name: dev, sub: 'pas de relevé SMART' }));
 
     for (const d of health.smart?.disks ?? []) {
-      const r = add(blank(diskId(d.device), 'disk', {
+      const r = add(blank(diskId(h, d.device), 'disk', {
         ...base,
         name: d.model || d.device,
         sub: [d.device, d.serial].filter(Boolean).join(' · '),
@@ -172,7 +176,7 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
       }));
       raise(arr, alertsOf(`raid:${a.name}:`, (k) => k.startsWith(`raid:${a.name}:member:`)));
       for (const m of a.members) {
-        const disk = ensureDisk(wholeDisk(m.device));
+        const disk = ensureDisk(h, wholeDisk(m.device));
         disk.parent = arr.id;
         disk.hint = `membre de ${a.name}`;
         disk.tags.push({ label: a.name }, ...(m.errors > 0 ? [{ label: `${m.errors} err.`, level: 'warn' as const }] : []));
@@ -182,14 +186,26 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
     if (raid?.unraid) {
       const u = raid.unraid;
       const arr = add(blank(`r|${h.id}|unraid`, 'raid', { ...base, name: 'Array Unraid', sub: `${u.state}${u.syncAction ? ` · ${u.syncAction}` : ''}`, type: 'unraid' }));
-      raise(arr, alertsOf('raid:unraid:', (k) => k.startsWith('raid:unraid:disk:')));
-      for (const [d, pool] of [...u.disks.map((d) => [d, null] as const), ...u.pools.flatMap((p) => p.disks.map((d) => [d, p.name] as const))]) {
-        if (!d.device) continue;
-        const disk = ensureDisk(wholeDisk(d.device));
-        disk.parent = arr.id;
+      raise(arr, alertsOf('raid:unraid:', (k) => k.startsWith('raid:unraid:disk:') || k.startsWith('raid:unraid:pool:')));
+      const member = (d: HealthUnraidDisk, group: DiskRow, tag: string) => {
+        if (!d.device) return;
+        const disk = ensureDisk(h, wholeDisk(d.device));
+        disk.parent = group.id;
         if (d.type === 'Parity') disk.hint = 'parité';
-        disk.tags.push({ label: pool ? `${pool} · ${d.name}` : `Unraid · ${d.name}` });
+        disk.tags.push({ label: tag });
         raise(disk, alertsOf(`raid:unraid:disk:${d.name}:`));
+      };
+      for (const d of u.disks) member(d, arr, `Unraid · ${d.name}`);
+      // a pool (btrfs, ZFS) holds its disks and the volume mounted at /mnt/<pool>
+      for (const p of u.pools) {
+        const pool = add(blank(`r|${h.id}|unraid:${p.name}`, 'raid', {
+          ...base,
+          name: `Pool ${p.name}`,
+          sub: [[p.fsType, p.profile].filter(Boolean).join(' '), `${p.devices}/${p.devicesExpected} disques`, p.health].filter(Boolean).join(' · '),
+          type: p.fsType,
+        }));
+        raise(pool, alertsOf(`raid:unraid:pool:${p.name}:`));
+        for (const d of p.disks) member(d, pool, `${p.name} · ${d.name}`);
       }
     }
     if (raid?.ceph) {
@@ -202,7 +218,7 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
       for (const o of c.osds) {
         const devices = o.devices?.length ? o.devices : [];
         const targets = devices.length
-          ? devices.map((dev) => ensureDisk(wholeDisk(dev)))
+          ? devices.map((dev) => ensureDisk(h, wholeDisk(dev)))
           : [rows.get(`o|${h.id}|${o.name}`) ?? add(blank(`o|${h.id}|${o.name}`, 'disk', { ...base, name: o.name, sub: 'disque non relevé (agent à mettre à jour)' }))];
         for (const disk of targets) {
           disk.parent = cephId;
@@ -220,11 +236,26 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
       }));
       // exact key: a prefix would give "/" the alerts of every other mount point
       raise(r, alerts.filter((a) => a.key === `disks:volume:${v.mountpoint}`));
+      // Unraid: a pool is mounted at /mnt/<pool>; an array disk diskN is mounted from /dev/mdN(p1), not followed in sysfs
+      const unraid = health.raid?.unraid;
+      const unraidPool = unraid?.pools.find((p) => v.mountpoint === `/mnt/${p.name}`);
+      const unraidMd = unraid ? /^\/dev\/md(\d+)(?:p\d+)?$/.exec(v.device) : null;
+      const unraidDisk = unraidMd ? unraid!.disks.find((d) => d.name === `disk${unraidMd[1]}` && d.device) : undefined;
+      if (unraidPool && rows.has(`r|${h.id}|unraid:${unraidPool.name}`)) {
+        r.parent = `r|${h.id}|unraid:${unraidPool.name}`;
+        continue;
+      }
+      if (unraidMd) {
+        if (unraidDisk) r.parent = ensureDisk(h, wholeDisk(unraidDisk.device!)).id;
+        continue;
+      }
       const md = /^\/dev\/(md\w+)$/.exec(v.device);
       const candidates = v.disks ?? (v.device.startsWith('/dev/') && !v.device.startsWith('/dev/mapper/') && !md ? [wholeDisk(v.device)] : []);
       if (md && rows.has(`r|${h.id}|${md[1]}`)) r.parent = `r|${h.id}|${md[1]}`;
-      else if (candidates.length === 1 && rows.has(diskId(candidates[0]))) r.parent = diskId(candidates[0]);
+      else if (candidates.length === 1 && rows.has(diskId(h, candidates[0]))) r.parent = diskId(h, candidates[0]);
       else if (h.pve) toGuest.push({ row: r, host: h });
+      // a host that is not a guest of PVE: its disk, even without SMART reading
+      else if (candidates.length === 1) r.parent = ensureDisk(h, candidates[0]).id;
       if (candidates.length > 1 && !md) r.sub += ` · ${candidates.length} disques`;
     }
   }
@@ -254,6 +285,20 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
     }
   }
 
+  // where a local storage lives on its node: the volume holding its directory (longest mount point), or the disk of its
+  // LVM volume group when it has only one
+  const localParent = (h: Host, s: PveStorageUsage): string | null => {
+    if (s.path) {
+      const under = (m: string) => m === '/' || s.path === m || s.path!.startsWith(`${m}/`);
+      const vol = [...rows.values()]
+        .filter((r) => r.nature === 'volume' && r.hostId === h.id && under(r.name))
+        .sort((a, b) => b.name.length - a.name.length)[0];
+      return vol?.id ?? null;
+    }
+    const vg = s.vgname ? h.health?.disks?.volumeGroups?.find((g) => g.name === s.vgname) : undefined;
+    return vg?.disks.length === 1 ? ensureDisk(h, vg.disks[0]).id : null;
+  };
+
   // PVE storages, then the disks of the guests on them
   const storageId = (cluster: string, storage: string, node: string | null) => `s|${cluster}|${storage}|${node ?? ''}`;
   const usedStorages = new Set((inv?.guests ?? []).flatMap((g) => g.disks.map((d) => `${g.cluster}|${d.storage}`)));
@@ -274,7 +319,7 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
         used: s.used,
         total: s.total,
         thresholds: space,
-        parent: s.type === 'rbd' ? (cephOfCluster.get(c.id) ?? null) : null,
+        parent: s.type === 'rbd' ? (cephOfCluster.get(c.id) ?? null) : node ? localParent(node, s) : null,
       }));
       r.level = pctLevel(s.used, s.total, space);
       if (r.level !== 'ok') r.reasons.push(`${s.storage} utilisé à ${((s.used / s.total) * 100).toFixed(1)} %`);
@@ -308,8 +353,29 @@ export function buildDiskRows(hostList: Host[], inv: DisksInventory | undefined)
   }
   for (const { row, host } of toGuest) {
     const g = inv?.guests.find((x) => x.cluster === host.pve!.cluster && x.vmid === host.pve!.vmid);
-    const boot = g && ([...BOOT_KEYS.map((k) => g.disks.find((d) => d.key === k)), g.disks[0]].find(Boolean));
+    // a CT says where it mounts each disk; otherwise the boot disk
+    const mounted = g?.disks.find((d) => d.mountpoint === row.name);
+    const boot = g && (mounted ?? [...BOOT_KEYS.map((k) => g.disks.find((d) => d.key === k)), g.disks[0]].find(Boolean));
     if (g && boot) row.parent = `g|${g.cluster}|${g.vmid}|${boot.key}`;
+  }
+  // a disk of a guest that holds a single volume (rootfs of a CT, VM on one partition) shows it on its own row: space, state
+  // and file system as the agent measures them inside the guest (the image is a bit larger than its file system)
+  for (const g of [...rows.values()].filter((r) => r.nature === 'guest')) {
+    const children = [...rows.values()].filter((r) => r.parent === g.id);
+    const v = children.length === 1 && children[0].nature === 'volume' ? children[0] : null;
+    if (!v) continue;
+    Object.assign(g, {
+      sub: `${g.sub} → ${v.name}`,
+      type: v.type || g.type,
+      used: v.used,
+      total: v.total,
+      thresholds: v.thresholds,
+      level: v.level,
+      reasons: v.reasons,
+      hint: v.hint,
+    });
+    for (const r of rows.values()) if (r.parent === v.id) r.parent = g.id;
+    rows.delete(v.id);
   }
 
   // parents that do not exist (filtered out, guest gone) are dropped; the space hint counts the volumes of a disk

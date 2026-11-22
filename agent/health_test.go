@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -113,5 +114,25 @@ func TestApplySmartReport(t *testing.T) {
 	applySmartReport(&d, &report)
 	if d.SizeBytes != 1000204886016 || d.Protocol != "NVMe" || d.RotationRate != nil || d.NvmeWearPercent == nil || *d.NvmeWearPercent != 14 {
 		t.Fatalf("nvme disk = %+v", d)
+	}
+}
+
+func TestDiskExtentNames(t *testing.T) {
+	for n, want := range map[int]string{0: "/dev/sda", 2: "/dev/sdc", 25: "/dev/sdz", 26: "/dev/sdaa", 53: "/dev/sdbb"} {
+		if got := smartctlWindowsDiskName(n); got != want {
+			t.Errorf("smartctlWindowsDiskName(%d) = %s, want %s", n, got, want)
+		}
+	}
+	// spanned volume on disks 1, 0, 1: each disk once, in extent order
+	buf := make([]byte, 8+24*3)
+	binary.LittleEndian.PutUint32(buf, 3)
+	for i, d := range []uint32{1, 0, 1} {
+		binary.LittleEndian.PutUint32(buf[8+24*i:], d)
+	}
+	if got := diskExtentNames(buf); !reflect.DeepEqual(got, []string{"/dev/sdb", "/dev/sda"}) {
+		t.Errorf("diskExtentNames = %v", got)
+	}
+	if got := diskExtentNames(buf[:20]); got != nil {
+		t.Errorf("truncated buffer: %v, want nil", got)
 	}
 }

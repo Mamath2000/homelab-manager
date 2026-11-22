@@ -2,7 +2,7 @@ import { ObjectId } from 'mongodb';
 import { HEALTH_OVERRIDE_ENABLED_KEYS, HEALTH_OVERRIDE_NUMBER_KEYS } from './types.js';
 import type { FastifyInstance } from 'fastify';
 import { healthMetrics, hosts, settings } from './db.js';
-import type { HealthCeph, HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthUnraid, HealthUnraidDisk, HealthUnraidPool, HealthSettings, HealthEnabled, HealthOverrides, HealthSmart, HealthSystem, HealthVolume, HealthSmartDisk, HostDoc } from './types.js';
+import type { HealthCeph, HealthDisks, HealthMetricDoc, HealthRaid, HealthRaidArray, HealthRaidMember, HealthUnraid, HealthUnraidDisk, HealthUnraidPool, HealthSettings, HealthEnabled, HealthOverrides, HealthSmart, HealthSystem, HealthVolume, HealthVolumeGroup, HealthSmartDisk, HostDoc } from './types.js';
 import { parseId } from './db.js';
 import { isOnline, sendToAgent } from './agents.js';
 import { healthWithSilenced } from './healthSilence.js';
@@ -127,13 +127,22 @@ function isHealthVolume(v: unknown): v is HealthVolume {
     typeof d.fstype === 'string' && d.fstype.length <= 128 &&
     finite(d.used) && d.used >= 0 && finite(d.total) && d.total > 0 &&
     finite(d.percent) && d.percent >= 0 && d.percent <= 100 &&
-    (d.disks === undefined || (Array.isArray(d.disks) && d.disks.length <= 64 && d.disks.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 256)));
+    (d.disks === undefined || isDiskList(d.disks));
+}
+
+const isDiskList = (v: unknown) => Array.isArray(v) && v.length <= 64 && v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 256);
+
+function isHealthVolumeGroup(v: unknown): v is HealthVolumeGroup {
+  if (!v || typeof v !== 'object') return false;
+  const g = v as HealthVolumeGroup;
+  return typeof g.name === 'string' && g.name.length > 0 && g.name.length <= 128 && isDiskList(g.disks);
 }
 
 export function isHealthDisks(v: unknown): v is HealthDisks {
   if (!v || typeof v !== 'object') return false;
   const r = v as HealthDisks;
-  return checkedAt(r.checkedAt) && Array.isArray(r.volumes) && r.volumes.length <= 512 && r.volumes.every(isHealthVolume);
+  return checkedAt(r.checkedAt) && Array.isArray(r.volumes) && r.volumes.length <= 512 && r.volumes.every(isHealthVolume) &&
+    (r.volumeGroups === undefined || (Array.isArray(r.volumeGroups) && r.volumeGroups.length <= 64 && r.volumeGroups.every(isHealthVolumeGroup)));
 }
 
 function isHealthSmartDisk(v: unknown): v is HealthSmartDisk {

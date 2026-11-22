@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -112,4 +113,62 @@ func volumeDisks(device string) []string {
 	}
 	walk(name, 0)
 	return out
+}
+
+// volumeGroups: the LVM volume groups and their disks, from the active logical volumes sysfs lists (dm/uuid starting
+// with LVM-, dm/name "vg-lv"). A volume group without any active volume is not seen.
+func volumeGroups() []HealthVolumeGroup {
+	entries, err := os.ReadDir(healthBlockSysRoot)
+	if err != nil {
+		return nil
+	}
+	disks := map[string][]string{}
+	var names []string
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "dm-") {
+			continue
+		}
+		uuid, _ := os.ReadFile(filepath.Join(healthBlockSysRoot, e.Name(), "dm", "uuid"))
+		name, _ := os.ReadFile(filepath.Join(healthBlockSysRoot, e.Name(), "dm", "name"))
+		if !strings.HasPrefix(string(uuid), "LVM-") {
+			continue
+		}
+		vg := lvmVolumeGroupName(strings.TrimSpace(string(name)))
+		if vg == "" {
+			continue
+		}
+		if _, known := disks[vg]; !known {
+			names = append(names, vg)
+			disks[vg] = []string{}
+		}
+		for _, d := range volumeDisks("/dev/" + e.Name()) {
+			if !slices.Contains(disks[vg], d) {
+				disks[vg] = append(disks[vg], d)
+			}
+		}
+	}
+	slices.Sort(names)
+	var out []HealthVolumeGroup
+	for _, vg := range names {
+		if len(disks[vg]) > 0 {
+			out = append(out, HealthVolumeGroup{Name: vg, Disks: disks[vg]})
+		}
+	}
+	return out
+}
+
+// lvmVolumeGroupName: the volume group of a device-mapper name, where LVM doubles the dashes of the names and joins
+// volume group and logical volume with a single dash: "pve-data-tpool" → "pve", "my--vg-root" → "my-vg".
+func lvmVolumeGroupName(dmName string) string {
+	for i := 0; i < len(dmName); i++ {
+		if dmName[i] != '-' {
+			continue
+		}
+		if i+1 < len(dmName) && dmName[i+1] == '-' {
+			i++
+			continue
+		}
+		return strings.ReplaceAll(dmName[:i], "--", "-")
+	}
+	return ""
 }

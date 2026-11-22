@@ -45,9 +45,16 @@ type HealthVolume struct {
 	Disks []string `json:"disks,omitempty"`
 }
 
+// HealthVolumeGroup: an LVM volume group and the whole disks of its physical volumes, for the PVE storages on it.
+type HealthVolumeGroup struct {
+	Name  string   `json:"name"`
+	Disks []string `json:"disks"`
+}
+
 type HealthDisks struct {
-	CheckedAt int64          `json:"checkedAt"`
-	Volumes   []HealthVolume `json:"volumes"`
+	CheckedAt    int64               `json:"checkedAt"`
+	Volumes      []HealthVolume      `json:"volumes"`
+	VolumeGroups []HealthVolumeGroup `json:"volumeGroups,omitempty"`
 }
 
 type HealthSmartDisk struct {
@@ -267,6 +274,7 @@ func collectHealthDisks() (*HealthDisks, error) {
 			Disks: volumeDisks(p.Device),
 		})
 	}
+	r.VolumeGroups = volumeGroups()
 	return r, nil
 }
 

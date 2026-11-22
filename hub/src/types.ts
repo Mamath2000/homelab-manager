@@ -93,9 +93,16 @@ export interface HealthVolume {
   disks?: string[];
 }
 
+// An LVM volume group and the whole disks of its physical volumes (agent 1.3.2+)
+export interface HealthVolumeGroup {
+  name: string;
+  disks: string[];
+}
+
 export interface HealthDisks {
   checkedAt: number;
   volumes: HealthVolume[];
+  volumeGroups?: HealthVolumeGroup[];
 }
 
 export interface HealthSmartDisk {
@@ -1040,6 +1047,8 @@ export interface PveStorageUsage {
   type: string; // rbd, lvmthin, zfspool, dir, nfs, pbs...
   used: number; // bytes
   total: number;
+  path?: string; // dir: its directory, under a volume of the node
+  vgname?: string; // lvm, lvmthin: its volume group, on disks of the node
 }
 
 // A disk of a guest, from its config: qemu scsi0 / virtio0 / sata0 / ide0, lxc rootfs / mp0 (bind mounts and CD-ROMs left out)
@@ -1048,6 +1057,7 @@ export interface PveGuestDisk {
   storage: string; // ceph-vm, local-lvm...
   volume: string; // vm-100-disk-0, subvol-200-disk-0...
   sizeBytes?: number;
+  mountpoint?: string; // lxc: where the CT mounts it (/ for rootfs, mp= of a mount point)
 }
 
 export interface PveNode {

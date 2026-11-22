@@ -77,9 +77,16 @@ export interface SmartCandidate {
   sizeBytes?: number;
 }
 
+// An LVM volume group and the whole disks of its physical volumes (agent 1.3.2+)
+export interface HealthVolumeGroup {
+  name: string;
+  disks: string[];
+}
+
 export interface HealthDisks {
   checkedAt: number;
   volumes: HealthVolume[];
+  volumeGroups?: HealthVolumeGroup[];
 }
 
 export interface HealthSmartDisk {
@@ -230,12 +237,15 @@ export interface PveStorageUsage {
   type: string; // rbd, lvmthin, zfspool, dir…
   used: number;
   total: number;
+  path?: string; // dir: its directory, under a volume of the node
+  vgname?: string; // lvm, lvmthin: its volume group, on disks of the node
 }
 export interface PveGuestDisk {
   key: string; // scsi0, rootfs, mp0…
   storage: string;
   volume: string;
   sizeBytes?: number;
+  mountpoint?: string; // lxc: where the CT mounts it (/ for rootfs, mp= of a mount point)
 }
 export interface DisksInventory {
   thresholds: Record<string, DiskThresholds>;

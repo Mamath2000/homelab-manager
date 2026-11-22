@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,4 +195,32 @@ func listSmartCandidates(ctx context.Context) ([]SmartCandidate, error) {
 		list = append(list, c)
 	}
 	return list, nil
+}
+
+// smartctlWindowsDiskName: the name smartctl gives on Windows to \\.\PhysicalDriveN: /dev/sda for 0, /dev/sdz for 25, then
+// /dev/sdaa, /dev/sdab...
+func smartctlWindowsDiskName(n int) string {
+	if n < 26 {
+		return "/dev/sd" + string(rune('a'+n))
+	}
+	return "/dev/sd" + string(rune('a'+n/26-1)) + string(rune('a'+n%26))
+}
+
+// diskExtentNames: the smartctl names of the disks of a Windows VOLUME_DISK_EXTENTS buffer (DWORD count + 4 bytes of
+// padding, then 24-byte DISK_EXTENT entries starting with their DWORD DiskNumber), each disk once.
+func diskExtentNames(buf []byte) []string {
+	if len(buf) < 8 {
+		return nil
+	}
+	count := int(binary.LittleEndian.Uint32(buf))
+	seen := map[uint32]bool{}
+	var out []string
+	for i := 0; i < count && 8+24*(i+1) <= len(buf); i++ {
+		disk := binary.LittleEndian.Uint32(buf[8+24*i:])
+		if !seen[disk] {
+			seen[disk] = true
+			out = append(out, smartctlWindowsDiskName(int(disk)))
+		}
+	}
+	return out
 }

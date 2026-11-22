@@ -137,6 +137,8 @@ export interface ApiStorage {
   fingerprint?: string;
   shared?: number | boolean;
   nodes?: string; // nodes it is enabled on, comma separated; absent: all
+  path?: string; // dir
+  vgname?: string; // lvm, lvmthin
 }
 export interface ApiContent {
   volid: string;
@@ -197,20 +199,33 @@ export function configDisks(config: Record<string, unknown>, type: 'lxc' | 'qemu
     const m = /^([A-Za-z0-9][\w.-]*):(.+)$/.exec(first);
     if (!m) continue;
     const size = opts.map((o) => /^size=(\d+(?:\.\d+)?)([KMGT]?)$/.exec(o)).find(Boolean);
-    out.push({ key, storage: m[1], volume: m[2], ...(size ? { sizeBytes: Math.round(Number(size[1]) * (SIZE_UNITS[size[2]] ?? 1)) } : {}) });
+    // where a CT mounts it: / for its rootfs, mp= for a mount point
+    const mount = key === 'rootfs' ? '/' : opts.map((o) => /^mp=(\/.*)$/.exec(o)?.[1]).find(Boolean);
+    out.push({
+      key, storage: m[1], volume: m[2],
+      ...(size ? { sizeBytes: Math.round(Number(size[1]) * (SIZE_UNITS[size[2]] ?? 1)) } : {}),
+      ...(type === 'lxc' && mount ? { mountpoint: mount } : {}),
+    });
   }
   return out.sort((a, b) => a.key.localeCompare(b.key, undefined, { numeric: true }));
 }
 
-// Space of the storages: a shared storage is listed once per node with the same values, it is kept once.
-export function storageUsage(list: ApiStorageResource[]): PveStorageUsage[] {
+// Space of the storages: a shared storage is listed once per node with the same values, it is kept once. The config
+// gives where a local one lives (directory, LVM volume group), to tie it to a volume or a disk of its node.
+export function storageUsage(list: ApiStorageResource[], config: ApiStorage[] = []): PveStorageUsage[] {
   const out = new Map<string, PveStorageUsage>();
   for (const s of list) {
     if (s.status && s.status !== 'available') continue;
     if (typeof s.maxdisk !== 'number' || s.maxdisk <= 0) continue;
     const shared = truthy(s.shared);
     const k = shared ? s.storage : `${s.storage}@${s.node}`;
-    if (!out.has(k)) out.set(k, { storage: s.storage, node: shared ? null : s.node, type: s.plugintype ?? '', used: s.disk ?? 0, total: s.maxdisk });
+    const conf = config.find((x) => x.storage === s.storage);
+    if (!out.has(k)) {
+      out.set(k, {
+        storage: s.storage, node: shared ? null : s.node, type: s.plugintype ?? '', used: s.disk ?? 0, total: s.maxdisk,
+        ...(conf?.path ? { path: conf.path } : {}), ...(conf?.vgname ? { vgname: conf.vgname } : {}),
+      });
+    }
   }
   return [...out.values()].sort((a, b) => a.storage.localeCompare(b.storage) || (a.node ?? '').localeCompare(b.node ?? ''));
 }
@@ -475,7 +490,7 @@ async function pollCluster(c: PveCluster, pbs: PbsSettings, log?: FastifyBaseLog
   for (const k of logCache.keys()) if (k.startsWith(`${c.id}|`) && !listed.has(k)) logCache.delete(k);
   log?.info({ cluster: c.id, guests: docs.length }, 'PVE polled');
   const pveNodes: PveNode[] = nodes.map((n) => ({ node: n.node, online: n.status === 'online' })).sort((a, b) => a.node.localeCompare(b.node));
-  return { tz, guests: docs.length, nodes: pveNodes, storages: storageUsage(storageResources) };
+  return { tz, guests: docs.length, nodes: pveNodes, storages: storageUsage(storageResources, storages) };
 }
 
 let polling: Promise<void> | null = null;

@@ -238,8 +238,8 @@ test('disks of a guest config: storage, volume and size; CD-ROMs, bind mounts an
   assert.deepEqual(
     configDisks({ rootfs: 'local-zfs:subvol-200-disk-0,size=8G', mp0: '/srv/data,mp=/data', mp1: 'ceph-ct:vm-200-disk-1,mp=/var/lib,size=1.5T' }, 'lxc'),
     [
-      { key: 'mp1', storage: 'ceph-ct', volume: 'vm-200-disk-1', sizeBytes: Math.round(1.5 * 2 ** 40) },
-      { key: 'rootfs', storage: 'local-zfs', volume: 'subvol-200-disk-0', sizeBytes: 8 * 2 ** 30 },
+      { key: 'mp1', storage: 'ceph-ct', volume: 'vm-200-disk-1', sizeBytes: Math.round(1.5 * 2 ** 40), mountpoint: '/var/lib' },
+      { key: 'rootfs', storage: 'local-zfs', volume: 'subvol-200-disk-0', sizeBytes: 8 * 2 ** 30, mountpoint: '/' },
     ],
   );
 });
@@ -257,6 +257,22 @@ test('storage usage: a shared storage once, a local one per node, unavailable on
       { storage: 'ceph-vm', node: null, type: 'rbd', used: 10, total: 100 },
       { storage: 'local-lvm', node: 'pve1', type: 'lvmthin', used: 7, total: 50 },
       { storage: 'local-lvm', node: 'pve2', type: 'lvmthin', used: 5, total: 50 },
+    ],
+  );
+});
+
+test('storage usage: directory and volume group of a local storage, from its config', () => {
+  assert.deepEqual(
+    storageUsage(
+      [
+        { storage: 'data', node: 'pje1', plugintype: 'dir', shared: 0, status: 'available', disk: 5, maxdisk: 50 },
+        { storage: 'local-lvm', node: 'pje1', plugintype: 'lvmthin', shared: 0, status: 'available', disk: 7, maxdisk: 70 },
+      ],
+      [{ storage: 'data', type: 'dir', path: '/mnt/pve/data' }, { storage: 'local-lvm', type: 'lvmthin', vgname: 'pve' }],
+    ),
+    [
+      { storage: 'data', node: 'pje1', type: 'dir', used: 5, total: 50, path: '/mnt/pve/data' },
+      { storage: 'local-lvm', node: 'pje1', type: 'lvmthin', used: 7, total: 70, vgname: 'pve' },
     ],
   );
 });
