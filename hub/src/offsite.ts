@@ -788,11 +788,14 @@ export function lastVerified(b: Pick<BackupDoc, 'times' | 'lastBackup' | 'verify
 export function offsiteState(b: Pick<BackupDoc, 'offsite' | 'lastBackup' | 'times' | 'verify'>, now = Date.now()): OffsiteState | null {
   const o = b.offsite;
   if (!o?.enabled) return null;
-  if (o.error || o.lastRun?.ok === false) return 'failed';
   const want = lastVerified(b);
   const copied = o.lastBackup ?? 0;
+  // what counts is the snapshot on the secondary, not the status of the sync job: a copy that holds the last verified
+  // snapshot is ok, whatever the last run said (an old failure, a refused job since fixed)
+  if (copied && copied >= want) return 'ok';
+  if (o.error || o.lastRun?.ok === false) return 'failed';
   if (want > copied) return now - Math.max(want, o.since ?? 0) > LATE_HOURS * HOUR ? 'late' : 'pending';
-  return copied ? 'ok' : 'pending';
+  return 'pending';
 }
 
 // --- actions ------------------------------------------------------------------------------

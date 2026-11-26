@@ -156,9 +156,12 @@ test('state of a copy: pending, ok, late, failed, from the verified snapshots of
   assert.equal(offsiteState(b({ since: now - 2 * H }, old), now), 'pending');
   // nothing verified on the main PBS yet, nothing copied: pending
   assert.equal(offsiteState(b({}, [{ t: now - 50 * H, verify: null }]), now), 'pending');
-  // last run failed for this group, or job refused by the secondary
-  assert.equal(offsiteState(b({ lastRun: { ...run, ok: false, error: 'x' }, lastBackup: now - 6 * H }), now), 'failed');
+  // last run failed for this group, or job refused by the secondary: failed while the copy is behind...
+  assert.equal(offsiteState(b({ lastRun: { ...run, ok: false, error: 'x' }, lastBackup: now - 30 * H }), now), 'failed');
   assert.equal(offsiteState(b({ error: 'HTTP 403' }), now), 'failed');
+  // ... but not once the last verified snapshot is on the secondary (the snapshot is what counts, not the job)
+  assert.equal(offsiteState(b({ lastRun: { ...run, ok: false, error: 'x' }, lastBackup: now - 6 * H }), now), 'ok');
+  assert.equal(offsiteState(b({ error: 'HTTP 403', lastBackup: now - 6 * H }), now), 'ok');
 });
 
 test('definition of the series for the agent of the secondary', () => {

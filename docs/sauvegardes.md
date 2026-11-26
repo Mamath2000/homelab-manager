@@ -201,7 +201,7 @@ Toutes les 15 minutes, et à la fin de chaque copie, le hub relève sur le PBS d
 | en attente | un snapshot vérifié plus récent que la copie existe sur le PBS principal (ou rien n'est encore copié), depuis moins de 30 h |
 | copie en cours | cette sauvegarde est en cours de transfert |
 | en retard | ce snapshot vérifié (ou l'activation, si elle est plus récente) n'est toujours pas copié après **30 h** : une série quotidienne l'a manqué (agent arrêté, copie trop longue…) |
-| en échec | le dernier passage a échoué pour cette sauvegarde, ou le PBS de secours a refusé son job |
+| en échec | la copie n'est pas à jour **et** le dernier passage a échoué pour cette sauvegarde (ou le PBS de secours a refusé son job). C'est le snapshot présent sur le PBS de secours qui compte : un échec ancien ne maintient plus l'alerte dès que le dernier snapshot vérifié y est |
 
 « En échec » est une alerte, « en retard » un avertissement : ils s'ajoutent à ceux de la sauvegarde. Le détail d'une sauvegarde copiée donne aussi la prochaine série (« prochaine série dans 9 heures »), la copie en cours, ou l'agent hors ligne ou à mettre à jour.
 
