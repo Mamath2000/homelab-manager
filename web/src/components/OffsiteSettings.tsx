@@ -4,7 +4,7 @@ import { Plug, Save } from 'lucide-react';
 import { api, type PbsRemoteInput, type PbsRemoteSettings } from '../lib/api';
 import { useToast } from '../lib/toast';
 import { field } from './ProxmoxServer';
-import { CheckLine, DetectedRows, FingerprintHint, Step, Steps, type CheckState } from './PbsDialog';
+import { CheckLine, DetectedRows, FingerprintHint, Step, Steps, TailscaleAddressField, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
@@ -132,7 +132,7 @@ export function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; 
                 set({
                   agent,
                   url: found.url ?? '',
-                  tailscaleUrl: found.tailscaleUrl ?? '',
+                  tailscaleUrl: found.tailscaleUrl || form.tailscaleUrl || '',
                   ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}),
                 });
                 setStores(found.datastores ?? []);
@@ -142,14 +142,14 @@ export function RemoteModal({ data, open, onClose }: { data: PbsRemoteSettings; 
               }}
             />
           </Step>
-          <Step n={2} title="Détection" state={detected} intro="Donné par l’agent, rien à saisir : relancer Détecter après un changement d’IP.">
+          <Step n={2} title="Détection" state={detected} intro="Donné par l’agent : relancer Détecter après un changement d’IP. Seule l’adresse Tailscale se saisit (PBS joint par un sidecar Tailscale).">
             <DetectedRows
               rows={[
                 { label: 'Adresse', value: form.url, empty: 'non détectée' },
-                { label: 'Adresse Tailscale', value: form.tailscaleUrl, empty: 'non détectée' },
                 { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)', hint: <FingerprintHint command="proxmox-backup-manager cert info" /> },
               ]}
             />
+            <TailscaleAddressField value={form.tailscaleUrl ?? ''} onChange={(tailscaleUrl) => set({ tailscaleUrl })} />
             <p className="text-xs text-muted">Pour un montage, l’adresse Tailscale est choisie automatiquement sur les hôtes configurés pour accéder au réseau Tailscale ; sinon l’adresse normale est utilisée.</p>
             <label className="block">
               <span className={field}>Datastore cible</span>

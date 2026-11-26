@@ -67,6 +67,24 @@ export function DetectedRows({ rows }: { rows: { label: string; value?: string; 
   );
 }
 
+// The Tailscale address of a PBS is read on its host by the agent, which only sees the Tailscale of the host itself.
+// A PBS reached by a Tailscale sidecar (its own node, not the host's) has its address typed here; the agent's detection
+// never erases it.
+export function TailscaleAddressField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="mt-2.5 block" title="Adresse du nœud Tailscale du PBS (sidecar) : à saisir à la main quand l'hôte du PBS n'est pas lui-même sur Tailscale">
+      <span className="text-xs text-muted">Adresse Tailscale (saisie)</span>
+      <input
+        className="input mt-0.5 h-8 w-full py-1 font-mono text-xs"
+        value={value}
+        onChange={(e) => onChange(e.target.value.trim())}
+        placeholder="https://100.x.y.z:8007 (vide : les hôtes du réseau Tailscale ne sauvegardent pas)"
+        spellCheck={false}
+      />
+    </label>
+  );
+}
+
 // The fingerprint of a PBS or a Proxmox VE node is read on the host by its agent, not across the network (homelab#300):
 // what the admin compares it to before saving.
 export function FingerprintHint({ command }: { command: string }) {

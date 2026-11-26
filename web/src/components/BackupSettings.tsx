@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Plug, Save } from 'lucide-react';
 import { api, type PbsSettings, type PbsTestResult, type PbsSettingsInput } from '../lib/api';
 import { useToast } from '../lib/toast';
-import { CheckLine, DetectedRows, FingerprintHint, Step, Steps, type CheckState } from './PbsDialog';
+import { CheckLine, DetectedRows, FingerprintHint, Step, Steps, TailscaleAddressField, type CheckState } from './PbsDialog';
 import { stepStates } from '../lib/steps';
 import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
@@ -126,19 +126,19 @@ export function PbsModal({ data, open, onClose }: { data: PbsSettings; open: boo
               link={form.agent}
               primary={host === 'active'}
               onDetected={(agent, found) => {
-                set({ agent, url: found.url ?? '', tailscaleUrl: found.tailscaleUrl ?? '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
+                set({ agent, url: found.url ?? '', tailscaleUrl: found.tailscaleUrl || form.tailscaleUrl || '', ...(found.fingerprint ? { fingerprint: found.fingerprint } : {}) });
                 setTest(null);
               }}
             />
           </Step>
-          <Step n={2} title="Détection" state={detected} intro="Donné par l’agent, rien à saisir : relancer Détecter après un changement d’IP.">
+          <Step n={2} title="Détection" state={detected} intro="Donné par l’agent : relancer Détecter après un changement d’IP. Seule l’adresse Tailscale se saisit (PBS joint par un sidecar Tailscale).">
             <DetectedRows
               rows={[
                 { label: 'Adresse LAN', value: form.url, empty: 'non détectée' },
-                { label: 'Adresse Tailscale', value: form.tailscaleUrl, empty: 'aucune : les hôtes du réseau Tailscale ne sauvegardent pas' },
                 { label: 'Empreinte du certificat', value: form.fingerprint, empty: 'aucune (autorités système)', hint: <FingerprintHint command="proxmox-backup-manager cert info" /> },
               ]}
             />
+            <TailscaleAddressField value={form.tailscaleUrl ?? ''} onChange={(tailscaleUrl) => set({ tailscaleUrl })} />
           </Step>
           <Step
             n={3}
