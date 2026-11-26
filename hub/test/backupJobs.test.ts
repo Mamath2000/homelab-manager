@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { test } from 'node:test';
 import { ObjectId } from 'mongodb';
-import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, jobArchives, jobDatabase, jobKind, jobView, keepDatabasePassword, normDatabase, pbsPinRefused, pbsServer, runError, sealDatabasePassword, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
+import { buildSpec, checkDatabase, checkJob, clientState, dumpArchives, dumpsOf, heldBack, isExternalGroup, jobArchives, jobDatabase, jobKind, jobView, keepDatabasePassword, normDatabase, pbsPinRefused, pbsServer, runError, sealDatabasePassword, validPath, validWindowsPath, type JobInput } from '../src/backupJobs.js';
 import { backupState } from '../src/pbs.js';
 import { authorize } from '../src/profiles.js';
 import { setMasterKey } from '../src/secrets.js';
@@ -410,4 +410,20 @@ test('PBS refused by the local policy of a host (policy.go, pbsAllowed)', () => 
   // an explicit list wins over the pin
   assert.equal(pbsPinRefused({ policy: { ...policy, pbsFingerprints: [fp], pinnedPbs: 'other' } }, pbs), false);
   assert.equal(pbsPinRefused({ policy: { ...policy, pbsFingerprints: ['BB'] } }, pbs), true);
+});
+
+test('a group is external unless a job manages it, it is gone, or the PBS says the token of the host owns it', () => {
+  const tok = 'host-x4@pbs!backup';
+  // seen on the PBS, nothing manages it
+  assert.equal(isExternalGroup({}, false), true);
+  assert.equal(isExternalGroup({ owner: 'root@pam' }, false, tok), true);
+  assert.equal(isExternalGroup({ owner: 'host-other@pbs!backup' }, false, tok), true);
+  // managed by a job, gone from the PBS, or kept in the cache of the host
+  assert.equal(isExternalGroup({ source: 'managed' }, false), false);
+  assert.equal(isExternalGroup({ gone: true }, false), false);
+  assert.equal(isExternalGroup({}, true), false);
+  // copied by a migration, owned by the token of this very host
+  assert.equal(isExternalGroup({ owner: tok }, false, tok), false);
+  // no token known for the host: an owner proves nothing
+  assert.equal(isExternalGroup({ owner: tok }, false, undefined), true);
 });

@@ -8,7 +8,7 @@ import { publish } from './events.js';
 import { jobDto } from './jobs.js';
 import { groupKey, loadPbsSettings, pollPbs, retryAfterMin } from './pbs.js';
 import { isSealed, open, seal } from './secrets.js';
-import type { BackupArchive, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo, HostDoc, JobDoc, PbsSettings } from './types.js';
+import type { BackupArchive, BackupDoc, BackupJobDoc, BackupJobKind, DatabaseDump, DumpInfo, HostDoc, JobDoc, PbsSettings } from './types.js';
 import { databasePasswordAad, openCredential } from './storedSecrets.js';
 
 // Backups of directories defined here and run by the agent of each host with proxmox-backup-client:
@@ -517,8 +517,19 @@ export async function groupConflict(hostId: ObjectId, store: string, ns: string,
   const g = await backups.findOne({ _id: key });
   if (g?.hostId && !g.hostId.equals(hostId)) return 'ce groupe du PBS est rattaché à un autre hôte';
   // a group left by a job of this host, kept in its cache (job deleted, then restored), is not an external backup
-  if (g && g.source !== 'managed' && !g.gone && !ownCache) return 'ce groupe existe déjà sur le PBS (sauvegarde externe) : choisis un autre identifiant';
+  if (g && isExternalGroup(g, ownCache, g.owner ? await hostTokenId(hostId) : undefined)) return 'ce groupe existe déjà sur le PBS (sauvegarde externe) : choisis un autre identifiant';
   return null;
+}
+
+// A group no job of the hub manages is an external backup, unless the PBS says it belongs to the token of this
+// very host (a datastore merge or a migration copies the groups of the host: its token owns them again).
+export function isExternalGroup(g: Pick<BackupDoc, 'source' | 'gone' | 'owner'>, ownCache: boolean, hostTokenId?: string) {
+  if (g.source === 'managed' || g.gone || ownCache) return false;
+  return !(hostTokenId && g.owner === hostTokenId);
+}
+
+async function hostTokenId(hostId: ObjectId) {
+  return (await hosts.findOne({ _id: hostId }, { projection: { pbsCredential: 1 } }))?.pbsCredential?.tokenId;
 }
 
 export function jobView(j: BackupJobDoc) {
