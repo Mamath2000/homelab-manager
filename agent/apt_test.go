@@ -59,3 +59,12 @@ func TestSelfUpdateChecksum(t *testing.T) {
 		t.Fatal("selfHash must return a sha256")
 	}
 }
+
+func TestKeptBack(t *testing.T) {
+	up := []Package{{Name: "libc6"}, {Name: "libfoo2"}, {Name: "bar"}}
+	sim := "Inst libc6 [2.36-9] (2.36-10 Debian:12/stable [arm64])\nInst newdep (1.0 Debian:12/stable [arm64])\nConf libc6 (2.36-10 Debian:12/stable [arm64])\n"
+	got := keptBack(up, sim)
+	if len(got) != 2 || got[0] != "bar" || got[1] != "libfoo2" {
+		t.Fatalf("keptBack = %v", got)
+	}
+}

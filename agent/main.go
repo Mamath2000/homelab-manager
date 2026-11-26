@@ -62,7 +62,7 @@ func platformCapabilities() []string {
 		caps = append(caps, "raid")
 	}
 	if hasApt() {
-		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_autoremove")
+		caps = append(caps, "apt_report", "apt_update", "apt_upgrade", "apt_full_upgrade", "apt_autoremove")
 		// automatic security updates, host by host (autoupgrade.go)
 		caps = append(caps, "apt_auto")
 	}
@@ -493,6 +493,9 @@ func (s *session) runJob(ctx context.Context, in Inbound) {
 			args = append(args, in.Packages...)
 		}
 		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", args...)
+	case "apt_full_upgrade":
+		// what `apt upgrade` keeps back: may remove or replace installed packages (confirmed in the UI)
+		code, err = runStreaming(jctx, aptEnv(), emit, "apt-get", "-y", "-o", aptLockWait, "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef", "full-upgrade")
 	case "reboot", "shutdown":
 		path, lerr := exec.LookPath("systemctl")
 		if lerr != nil {

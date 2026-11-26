@@ -63,6 +63,7 @@ export function registerJobRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'action Docker par stack : à lancer hôte par hôte' });
       }
       // lock names a session of one host; shutdown is never grouped
+      if (req.body.action === 'apt_full_upgrade') return reply.code(400).send({ error: 'mise à jour complète : à lancer hôte par hôte' });
       if (req.body.action === 'lock' || req.body.action === 'shutdown') return reply.code(400).send({ error: 'action à lancer hôte par hôte' });
       if (req.body.options && req.body.action !== 'setup_apply') return reply.code(400).send({ error: 'options ne concerne que la standardisation' });
       if (req.body.securityOnly && req.body.action !== 'apt_upgrade') return reply.code(400).send({ error: 'securityOnly ne concerne que apt_upgrade' });

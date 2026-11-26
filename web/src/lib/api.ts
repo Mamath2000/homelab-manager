@@ -16,6 +16,9 @@ export interface AptReport {
   rebootRequired: boolean;
   rebootPkgs: string[];
   autoremovable?: string[];
+  // retained by the regular upgrade / removed by a full-upgrade (agents with apt_full_upgrade)
+  keptBack?: string[];
+  fullUpgradeRemoves?: string[];
   // automatic security updates (agent capability apt_auto): real state on the host, whoever configured it
   auto?: { package: boolean; enabled: boolean; managed: boolean };
   // installed by unattended-upgrade over the last 30 days, newest first (from: absent for a new package)
@@ -562,7 +565,7 @@ export interface SetupProfile {
 }
 
 export type StackAction = 'docker_up' | 'docker_stop' | 'docker_restart' | 'docker_update' | 'docker_recreate';
-export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run' | 'db_restore' | 'apt_auto_set';
+export type JobAction = 'apt_report' | 'apt_update' | 'apt_upgrade' | 'apt_full_upgrade' | 'apt_autoremove' | 'reboot' | 'shutdown' | 'lock' | 'agent_update' | 'docker_check' | StackAction | 'setup_apply' | 'backup_run' | 'backup_install' | 'offsite_run' | 'db_restore' | 'apt_auto_set';
 export type JobStatus = 'running' | 'success' | 'failed';
 
 export interface Job {

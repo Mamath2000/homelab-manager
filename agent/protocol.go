@@ -21,6 +21,10 @@ type AptReport struct {
 	RebootPkgs     []string  `json:"rebootPkgs"`
 	// packages "apt-get autoremove" would remove (no longer needed dependencies, old kernels)
 	Autoremovable []string `json:"autoremovable"`
+	// upgradable packages that "apt-get upgrade --with-new-pkgs" keeps back (the upgrade needs to remove or
+	// replace a package), and what "apt-get full-upgrade" would remove (empty when nothing is kept back)
+	KeptBack           []string `json:"keptBack"`
+	FullUpgradeRemoves []string `json:"fullUpgradeRemoves"`
 	// automatic security updates (autoupgrade.go): real state, and what unattended-upgrade installed
 	Auto          *AptAuto        `json:"auto,omitempty"`
 	AutoInstalled []AutoInstalled `json:"autoInstalled"`

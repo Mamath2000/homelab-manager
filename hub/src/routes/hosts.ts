@@ -315,6 +315,9 @@ export function registerHostRoutes(app: FastifyInstance) {
       if ((APT_ACTIONS as readonly string[]).includes(action) && !hasApt(host)) {
         return reply.code(400).send({ error: "pas d'APT sur cet hôte" });
       }
+      if (action === 'apt_full_upgrade' && !host.capabilities?.includes('apt_full_upgrade')) {
+        return reply.code(400).send({ error: "l'agent de cet hôte ne sait pas faire de mise à jour complète : mets-le à jour" });
+      }
       if (action.startsWith('docker_') && !host.capabilities?.includes('docker')) {
         return reply.code(400).send({ error: "Docker (avec compose v2) n'est pas disponible sur cet hôte" });
       }

@@ -87,14 +87,16 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 		return nil, err
 	}
 	r := &AptReport{
-		CheckedAt:      time.Now().UnixMilli(),
-		ListsUpdatedAt: listsUpdatedAt(),
-		Upgradable:     parseUpgradable(out.String()),
-		Held:           []string{},
-		RebootPkgs:     []string{},
-		Autoremovable:  []string{},
-		Auto:           collectAutoUpgrade(ctx),
-		AutoInstalled:  collectAutoInstalled(time.Now()),
+		CheckedAt:          time.Now().UnixMilli(),
+		ListsUpdatedAt:     listsUpdatedAt(),
+		Upgradable:         parseUpgradable(out.String()),
+		Held:               []string{},
+		RebootPkgs:         []string{},
+		Autoremovable:      []string{},
+		KeptBack:           []string{},
+		FullUpgradeRemoves: []string{},
+		Auto:               collectAutoUpgrade(ctx),
+		AutoInstalled:      collectAutoInstalled(time.Now()),
 	}
 	if r.Upgradable == nil {
 		r.Upgradable = []Package{}
@@ -111,6 +113,21 @@ func collectAptReport(ctx context.Context) (*AptReport, error) {
 	ac.Env = aptEnv()
 	if b, err := ac.Output(); err == nil {
 		r.Autoremovable = parseAutoremove(string(b))
+	}
+	// kept back = upgradable but not installed by the regular upgrade (simulations, no lock needed)
+	if len(r.Upgradable) > 0 {
+		uc := exec.CommandContext(ctx, "apt-get", "-s", "upgrade", "--with-new-pkgs")
+		uc.Env = aptEnv()
+		if b, err := uc.Output(); err == nil {
+			r.KeptBack = keptBack(r.Upgradable, string(b))
+		}
+		if len(r.KeptBack) > 0 {
+			fc := exec.CommandContext(ctx, "apt-get", "-s", "full-upgrade")
+			fc.Env = aptEnv()
+			if b, err := fc.Output(); err == nil {
+				r.FullUpgradeRemoves = parseAutoremove(string(b))
+			}
+		}
 	}
 	if _, err := os.Stat("/var/run/reboot-required"); err == nil {
 		r.RebootRequired = true
@@ -138,6 +155,28 @@ func parseAutoremove(out string) []string {
 	}
 	sort.Strings(pkgs)
 	return pkgs
+}
+
+// "Inst libc6 [2.36-9] (2.36-10 Debian:12.5/stable [amd64])" lines of `apt-get -s upgrade`
+var installRe = regexp.MustCompile(`^Inst (\S+)`)
+
+// keptBack: the upgradable packages the simulated upgrade does not install.
+func keptBack(upgradable []Package, simulation string) []string {
+	inst := map[string]bool{}
+	sc := bufio.NewScanner(strings.NewReader(simulation))
+	for sc.Scan() {
+		if m := installRe.FindStringSubmatch(sc.Text()); m != nil {
+			inst[m[1]] = true
+		}
+	}
+	kept := []string{}
+	for _, p := range upgradable {
+		if !inst[p.Name] {
+			kept = append(kept, p.Name)
+		}
+	}
+	sort.Strings(kept)
+	return kept
 }
 
 func validPackages(names []string) bool {

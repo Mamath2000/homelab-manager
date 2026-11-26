@@ -28,6 +28,9 @@ export interface AptReport {
   rebootPkgs: string[];
   // absent with agents older than 0.1.1
   autoremovable?: string[];
+  // upgradable packages the regular upgrade keeps back, and what apt full-upgrade would remove (agents with apt_full_upgrade)
+  keptBack?: string[];
+  fullUpgradeRemoves?: string[];
   // automatic security updates (agent capability apt_auto): real state, and what unattended-upgrade installed
   auto?: AptAuto;
   autoInstalled?: AutoInstalled[];
@@ -581,7 +584,7 @@ export interface SetupState {
   access?: AccessReport;
 }
 
-export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_autoremove'] as const;
+export const APT_ACTIONS = ['apt_report', 'apt_update', 'apt_upgrade', 'apt_full_upgrade', 'apt_autoremove'] as const;
 // hosts without APT (Unraid...) do not announce apt_update
 export const hasApt = (h: { capabilities?: string[] }) => !!h.capabilities?.includes('apt_update');
 // docker_recreate: compose up --force-recreate (capability docker_recreate), for the containers to take the log settings
@@ -590,6 +593,7 @@ export const JOB_ACTIONS = [
   'apt_report',
   'apt_update',
   'apt_upgrade',
+  'apt_full_upgrade',
   'apt_autoremove',
   'reboot',
   'shutdown',

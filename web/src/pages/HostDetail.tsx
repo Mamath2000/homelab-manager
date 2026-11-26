@@ -85,7 +85,8 @@ function useScrolled() {
 // running: a job of the host is in progress; onStarted: the job started here (its console opens)
 function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; upgrading: Job | undefined; running: boolean; onStarted: (jobId: string) => void }) {
   const run = useRunJob();
-  const start = (action: 'apt_update' | 'apt_upgrade') => run.mutate({ hostId: host.id, action }, { onSuccess: (j) => onStarted(j.id) });
+  const [confirmFull, setConfirmFull] = useState(false);
+  const start = (action: 'apt_update' | 'apt_upgrade' | 'apt_full_upgrade') => run.mutate({ hostId: host.id, action }, { onSuccess: (j) => onStarted(j.id) });
   const { canWrite } = useMe();
   const [picked, setSelected] = useState<Set<string>>(new Set());
   const pkgs = host.apt?.upgradable ?? [];
@@ -95,6 +96,8 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
   // drop selections that are no longer upgradable after a refresh
   const selected = new Set([...picked].filter((n) => pkgs.some((p) => p.name === n)));
   const rebootPkgs = pkgs.filter((p) => p.reboot).map((p) => p.name);
+  const kept = host.apt?.keptBack ?? [];
+  const removes = host.apt?.fullUpgradeRemoves ?? [];
   const auto = autoUpgradeState(host);
   const autoInstalled = host.apt?.autoInstalled ?? [];
 
@@ -148,8 +151,22 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
         </div>
       }
     >
-      {(rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host)) && (
+      {(rebootPkgs.length > 0 || (host.apt?.held.length ?? 0) > 0 || listsStale(host) || kept.length > 0) && (
         <div className="space-y-2 border-b border-line px-4 py-3 text-sm">
+          {kept.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-amber-300">
+              <ShieldAlert className="h-4 w-4" />
+              <span>{kept.length} paquet(s) retenus par la mise à jour normale (elle devrait en supprimer ou en remplacer) :</span>
+              {kept.map((p) => <Tag key={p}>{p}</Tag>)}
+              {host.capabilities?.includes('apt_full_upgrade') ? (
+                <Button size="sm" icon={ArrowUpCircle} disabled={!canWrite || !host.online || running} onClick={() => setConfirmFull(true)}>
+                  Mise à jour complète
+                </Button>
+              ) : (
+                <span className="text-xs text-muted">mets l'agent à jour pour lancer un full-upgrade d'ici</span>
+              )}
+            </div>
+          )}
           {rebootPkgs.length > 0 && (
             <p className="flex flex-wrap items-center gap-2 text-amber-300">
               <RotateCw className="h-4 w-4" /> Redémarrage à prévoir après la mise à jour de : {rebootPkgs.join(', ')}
@@ -247,6 +264,26 @@ function PackagesPanel({ host, upgrading, running, onStarted }: { host: Host; up
           </table>
         </details>
       )}
+      <ConfirmModal
+        open={confirmFull}
+        onClose={() => setConfirmFull(false)}
+        title={`Mise à jour complète de ${host.name}`}
+        confirmLabel="Lancer apt-get full-upgrade"
+        danger
+        loading={run.isPending}
+        onConfirm={() => run.mutate({ hostId: host.id, action: 'apt_full_upgrade' }, { onSuccess: (j) => { setConfirmFull(false); onStarted(j.id); } })}
+      >
+        <p className="mb-3">{kept.length} paquet(s) retenus seront mis à jour :</p>
+        <div className="flex max-h-32 flex-wrap gap-1.5 overflow-auto">{kept.map((p) => <Tag key={p}>{p}</Tag>)}</div>
+        {removes.length > 0 ? (
+          <>
+            <p className="mb-3 mt-4 text-amber-300">{removes.length} paquet(s) seront supprimés :</p>
+            <div className="flex max-h-32 flex-wrap gap-1.5 overflow-auto">{removes.map((p) => <Tag key={p}>{p}</Tag>)}</div>
+          </>
+        ) : (
+          <p className="mt-4 text-xs text-muted">Aucune suppression prévue d'après la simulation.</p>
+        )}
+      </ConfirmModal>
     </Panel>
   );
 }
