@@ -122,10 +122,14 @@ export interface OffsiteCheck {
   error?: string;
   // namespace to create first on the secondary
   namespace?: { ns: string; store: string; missing: string[]; commands: string[] };
+  // datastore the copy of the same group (namespace + type/id) is taken over from: enabling it stops the other one
+  replaces?: string;
 }
 
-// Can this group be copied now: copiable, secondary ready, not copied from another datastore, its namespace
-// on the target datastore. Asked as soon as the copy is enabled in the interface, checked again on save.
+// Can this group be copied now: copiable, secondary ready, its namespace on the target datastore. The same group
+// copied from another datastore (moved, datastore full or merged) is not an obstacle: the copy is taken over from
+// the new one (`replaces`), only one source per target group. Asked as soon as the copy is enabled in the
+// interface, checked again on save.
 export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
   const why = notCopiable(b);
   if (why) return { ok: false, error: why };
@@ -133,8 +137,8 @@ export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
   if (!remoteReady(r)) return { ok: false, error: 'PBS hors site non connecté (Rôles)' };
   const others = await backups.find({ 'offsite.enabled': true }, { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1 } }).toArray();
   const twin = sameGroupElsewhere(b, others);
-  if (twin) return { ok: false, error: `${b.ns || 'racine'}/${b.type}/${b.backupId} est déjà copié depuis le datastore ${twin.store} : une seule copie par groupe` };
-  if (!b.ns) return { ok: true };
+  const replaces = twin ? { replaces: twin.store } : {};
+  if (!b.ns) return { ok: true, ...replaces };
   let present: string[];
   try {
     present = await targetNamespaces(r);
@@ -142,7 +146,7 @@ export async function checkOffsite(b: BackupDoc): Promise<OffsiteCheck> {
     return { ok: false, error: `PBS de secours : ${(err as Error).message}` };
   }
   const missing = missingLevels(b.ns, present);
-  if (!missing.length) return { ok: true };
+  if (!missing.length) return { ok: true, ...replaces };
   return {
     ok: false,
     error: `namespace ${b.ns} absent du datastore ${r.store} du PBS de secours`,
@@ -282,6 +286,9 @@ export function registerOffsiteRoutes(app: FastifyInstance) {
     const offsite = await offsiteOf(b, req.body);
     if (typeof offsite === 'string') return reply.code(409).send({ error: offsite });
     await backups.updateOne({ _id: b._id }, { $set: { offsite } });
+    // a group copied from another datastore (moved, datastore full or merged) hands its copy over: one source per
+    // target group; the sync job of the old one drops it at the reconciliation below
+    if (offsite.enabled) await backups.updateMany({ _id: { $ne: b._id }, ns: b.ns, type: b.type, backupId: b.backupId, 'offsite.enabled': true }, { $set: { 'offsite.enabled': false } });
     // the sync job follows (reconciliation, then the state): published when done
     pollOffsite(req.log).catch(() => {});
     publish('backups', {});

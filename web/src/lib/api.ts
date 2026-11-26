@@ -1246,6 +1246,8 @@ export interface OffsiteCheck {
   error?: string;
   // namespace to create first on the secondary: the levels missing and the commands creating them
   namespace?: { ns: string; store: string; missing: string[]; commands: string[] };
+  // datastore the copy is taken over from (same group copied from another datastore)
+  replaces?: string;
 }
 
 export interface BackupOffsiteInput {

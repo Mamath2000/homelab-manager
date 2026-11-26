@@ -74,7 +74,14 @@ function OffsiteCheckMessage({ check }: { check: ReturnType<typeof useOffsiteChe
   if (check.isPending) return <p className="text-xs text-muted">Vérification du PBS de secours…</p>;
   if (check.error) return <p className="text-xs text-red-400">Vérification impossible : {(check.error as Error).message}</p>;
   const c = check.data;
-  if (c.ok) return <p className="text-xs text-emerald-400">Copiable : le PBS de secours est prêt pour cette sauvegarde.</p>;
+  if (c.ok) {
+    return (
+      <p className="text-xs text-emerald-400">
+        Copiable : le PBS de secours est prêt pour cette sauvegarde.
+        {c.replaces && <> La copie du même groupe depuis le datastore <span className="font-mono">{c.replaces}</span> sera arrêtée : une seule source par groupe.</>}
+      </p>
+    );
+  }
   const retry = (
     <Button size="sm" icon={RefreshCw} loading={check.isFetching} onClick={() => check.refetch()}>
       Revérifier
