@@ -6,7 +6,7 @@ import { sha256 } from './crypto.js';
 import { backups, hosts, parseId, settings } from './db.js';
 import { publish } from './events.js';
 import { appendJobLog, finishJob, startHubJob } from './jobs.js';
-import { HISTORY, loadPbsSettings, pbsCall, retryAfterMin } from './pbs.js';
+import { HISTORY, SNAPSHOT_LIST_TIMEOUT_MS, loadPbsSettings, pbsCall, retryAfterMin } from './pbs.js';
 import { recordUsage } from './pbsStats.js';
 import type { BackupDoc, BackupOffsite, BackupSnapshot, JobDoc, OffsiteSeriesReport, PbsRemoteSettings } from './types.js';
 import { openSettings } from './storedSecrets.js';
@@ -51,7 +51,7 @@ export const startOf = (r: Pick<PbsRemoteSettings, 'startTime'>) => (r.startTime
 export const remoteReady = (r: PbsRemoteSettings) => !!(r.url && r.store && r.tokenId && r.tokenSecret && r.readerTokenId && r.readerTokenSecret);
 
 const ROLE = 'DatastoreBackup + DatastoreAudit sur le datastore cible et RemoteAdmin sur /remote';
-const call = <T>(r: PbsRemoteSettings, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown) => pbsCall<T>(r, method, path, body, ROLE);
+const call = <T>(r: PbsRemoteSettings, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown, timeoutMs?: number) => pbsCall<T>(r, method, path, body, ROLE, timeoutMs);
 
 // --- what can be copied -------------------------------------------------------------------
 
@@ -477,7 +477,7 @@ async function doPoll(log?: FastifyBaseLogger) {
       // a namespace missing on the secondary: its groups show as never copied
       const [list, snaps] = await Promise.all([
         call<ApiGroup[]>(r, 'GET', `/admin/datastore/${e}/groups${q}`).catch(() => []),
-        call<ApiSnapshot[]>(r, 'GET', `/admin/datastore/${e}/snapshots${q}`).catch(() => []),
+        call<ApiSnapshot[]>(r, 'GET', `/admin/datastore/${e}/snapshots${q}`, undefined, SNAPSHOT_LIST_TIMEOUT_MS).catch(() => []),
       ]);
       for (const [k, c] of copiedGroups(list, snaps)) seen.set(`${ns}/${k}`, c);
     }

@@ -48,6 +48,10 @@ const apiConn = (c: Conn, role = 'DatastoreAudit') => ({
 });
 
 // GET on the PBS API (see tlsApi.ts).
+// Listing the snapshots of a namespace reads every manifest on the datastore: minutes on a cold, busy disk (the first
+// call after a restart of the PBS), where the usual 20 s of silence made the whole poll fail ("le PBS ne répond pas").
+export const SNAPSHOT_LIST_TIMEOUT_MS = 180_000;
+
 export function pbsGet<T>(c: Conn, path: string, timeoutMs = 20_000): Promise<T> {
   return apiGet<T>(apiConn(c), path, timeoutMs);
 }
@@ -404,7 +408,7 @@ async function doPoll(log?: FastifyBaseLogger) {
         const q = ns ? `?ns=${encodeURIComponent(ns)}` : '';
         const [groups, snapshots] = await Promise.all([
           pbsGet<ApiGroup[]>(s, `/admin/datastore/${e}/groups${q}`),
-          pbsGet<ApiSnapshot[]>(s, `/admin/datastore/${e}/snapshots${q}`),
+          pbsGet<ApiSnapshot[]>(s, `/admin/datastore/${e}/snapshots${q}`, SNAPSHOT_LIST_TIMEOUT_MS),
         ]);
         found.push(...mergeGroups(store, ns, groups, snapshots));
       }
