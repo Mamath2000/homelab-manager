@@ -94,9 +94,9 @@ func TestEnsurePbsTokenCreates(t *testing.T) {
 
 func TestEnsurePbsTokenExisting(t *testing.T) {
 	f := newFakePbs()
-	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!hub"}
 	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
-		User: "homelab@pbs", Token: "monitor", ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
+		User: "homelab@pbs", Token: "hub", ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,9 +113,9 @@ func TestEnsurePbsTokenExisting(t *testing.T) {
 
 func TestEnsurePbsTokenRotates(t *testing.T) {
 	f := newFakePbs()
-	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!hub"}
 	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
-		User: "homelab@pbs", Token: "monitor", Rotate: true, ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
+		User: "homelab@pbs", Token: "hub", Rotate: true, ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,22 +124,22 @@ func TestEnsurePbsTokenRotates(t *testing.T) {
 		t.Fatalf("rotated token must return a new secret: %+v", r)
 	}
 	got := strings.Join(f.calls, "\n")
-	if !strings.Contains(got, "user delete-token homelab@pbs monitor\nuser generate-token homelab@pbs monitor") {
+	if !strings.Contains(got, "user delete-token homelab@pbs hub\nuser generate-token homelab@pbs hub") {
 		t.Fatalf("token not created again:\n%s", got)
 	}
 }
 
 func TestEnsurePbsTokenPrunesTokenACLs(t *testing.T) {
 	f := newFakePbs()
-	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor"}
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!hub"}
 	f.acls = [][3]string{
-		{"/", "DatastoreAudit", "homelab@pbs!monitor"},          // former right: removed
-		{"/datastore", "DatastoreAudit", "homelab@pbs!monitor"}, // still asked for: kept
-		{"/", "DatastoreAudit", "homelab@pbs"},                  // user's: left alone
-		{"/", "DatastoreAudit", "homelab@pbs!other"},            // another token: left alone
+		{"/", "DatastoreAudit", "homelab@pbs!hub"},          // former right: removed
+		{"/datastore", "DatastoreAudit", "homelab@pbs!hub"}, // still asked for: kept
+		{"/", "DatastoreAudit", "homelab@pbs"},              // user's: left alone
+		{"/", "DatastoreAudit", "homelab@pbs!other"},        // another token: left alone
 	}
 	r, err := ensurePbsToken(context.Background(), f.run, &PbsTokenSpec{
-		User: "homelab@pbs", Token: "monitor", ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
+		User: "homelab@pbs", Token: "hub", ACLs: []PbsACL{{Path: "/datastore", Role: "DatastoreAudit"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestEnsurePbsTokenPrunesTokenACLs(t *testing.T) {
 			deletes = append(deletes, c)
 		}
 	}
-	if len(deletes) != 1 || deletes[0] != "acl update / DatastoreAudit --auth-id homelab@pbs!monitor --delete true" {
+	if len(deletes) != 1 || deletes[0] != "acl update / DatastoreAudit --auth-id homelab@pbs!hub --delete true" {
 		t.Fatalf("deletes %q", deletes)
 	}
 	if len(r.Removed) != 1 {
@@ -160,13 +160,13 @@ func TestEnsurePbsTokenPrunesTokenACLs(t *testing.T) {
 
 func TestDeletePbsTokenKeepsUserWithOtherToken(t *testing.T) {
 	f := newFakePbs()
-	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!monitor", "homelab@pbs!reader"}
+	f.users, f.tokens = []string{"homelab@pbs"}, []string{"homelab@pbs!hub", "homelab@pbs!reader"}
 	f.acls = [][3]string{
-		{"/datastore", "DatastoreAudit", "homelab@pbs!monitor"}, // the token's: removed
+		{"/datastore", "DatastoreAudit", "homelab@pbs!hub"},     // the token's: removed
 		{"/datastore", "DatastoreAudit", "homelab@pbs"},         // user's: kept (other token)
 		{"/datastore", "DatastoreReader", "homelab@pbs!reader"}, // other token: kept
 	}
-	r, err := deletePbsToken(context.Background(), f.run, &PbsTokenSpec{User: "homelab@pbs", Token: "monitor"})
+	r, err := deletePbsToken(context.Background(), f.run, &PbsTokenSpec{User: "homelab@pbs", Token: "hub"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestDeletePbsTokenKeepsUserWithOtherToken(t *testing.T) {
 		t.Fatalf("result %+v", r)
 	}
 	got := strings.Join(f.calls, "\n")
-	if !strings.Contains(got, "acl update /datastore DatastoreAudit --auth-id homelab@pbs!monitor --delete true") || !strings.Contains(got, "user delete-token homelab@pbs monitor") {
+	if !strings.Contains(got, "acl update /datastore DatastoreAudit --auth-id homelab@pbs!hub --delete true") || !strings.Contains(got, "user delete-token homelab@pbs hub") {
 		t.Fatalf("calls:\n%s", got)
 	}
 	if strings.Contains(got, "user remove") || strings.Contains(got, "--auth-id homelab@pbs --delete") {
@@ -203,7 +203,7 @@ func TestDeletePbsTokenRemovesLastUser(t *testing.T) {
 
 func TestDeletePbsTokenAlreadyGone(t *testing.T) {
 	f := newFakePbs()
-	r, err := deletePbsToken(context.Background(), f.run, &PbsTokenSpec{User: "homelab@pbs", Token: "monitor"})
+	r, err := deletePbsToken(context.Background(), f.run, &PbsTokenSpec{User: "homelab@pbs", Token: "hub"})
 	if err != nil || r.Deleted || r.UserDeleted {
 		t.Fatalf("result %+v, %v", r, err)
 	}

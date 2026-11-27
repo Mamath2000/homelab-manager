@@ -9,7 +9,7 @@ import { PbsAgentPicker, TokenButton } from './AgentPicker';
 import { useSettingsDraft } from './settingsDraft';
 import { Button, ConfirmModal, Modal } from './ui';
 
-const DEFAULT_TOKEN = 'homelab@pbs!monitor';
+const DEFAULT_TOKEN = 'homelab@pbs!hub';
 
 // the PBS filters the list by permission instead of answering 403
 function outcome(r: PbsTestResult): CheckState {

@@ -166,7 +166,7 @@ test('roles: a Proxmox VE cluster is a pve-cluster role carried by its node, its
 test('roles: the PBS of the backups are roles once connected, carried by the host of their agent, never a secret shown', () => {
   const node = new ObjectId();
   const copy = new ObjectId();
-  const pbs = { _id: 'pbs', url: 'https://pbs:8007', fingerprint: '', tokenId: 'homelab@pbs!monitor', tokenSecret: 'SECRET-MAIN', mountRoot: '/srv/pbs-restore', agent: { hostId: node.toHexString(), mode: 'native' }, datastores: [{ store: 'main', total: 1, used: 0, avail: 1 }] } as PbsSettings;
+  const pbs = { _id: 'pbs', url: 'https://pbs:8007', fingerprint: '', tokenId: 'homelab@pbs!hub', tokenSecret: 'SECRET-MAIN', mountRoot: '/srv/pbs-restore', agent: { hostId: node.toHexString(), mode: 'native' }, datastores: [{ store: 'main', total: 1, used: 0, avail: 1 }] } as PbsSettings;
   const remote = { _id: 'pbs-remote', url: 'https://copy:8007', fingerprint: '', store: 'copy', tokenId: 'hub@pbs!copy', tokenSecret: 'SECRET-COPY', readerTokenId: 'r@pbs!r', readerTokenSecret: 'SECRET-READER', agent: { hostId: copy.toHexString(), mode: 'container', container: 'pbs' } } as PbsRemoteSettings;
   const list = pbsRoles(pbs, remote);
   assert.deepEqual(list.map((r) => [r._id, r.carrier.id.toHexString()]), [['pbs-primary', node.toHexString()], ['pbs-offsite', copy.toHexString()]]);

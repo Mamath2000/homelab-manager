@@ -120,7 +120,7 @@ test('rights of the tokens of the hosts: the new datastores, all of them when ne
 test('server change: another agent or certificate, the first server kept until the admin answers', () => {
   const agent = { hostId: new ObjectId().toHexString(), mode: 'native' as const };
   const other = { hostId: new ObjectId().toHexString(), mode: 'native' as const };
-  const before = { agent, url: 'https://pbs:8007', fingerprint: 'AA', tokenId: 'homelab@pbs!monitor' };
+  const before = { agent, url: 'https://pbs:8007', fingerprint: 'AA', tokenId: 'homelab@pbs!hub' };
   assert.equal(serverChangeOf(before, { agent, fingerprint: 'AA' }), null);
   assert.equal(serverChangeOf({ ...before, url: '' }, { agent: other, fingerprint: 'AA' }), null);
   const byAgent = serverChangeOf(before, { agent: other, fingerprint: 'AA' });

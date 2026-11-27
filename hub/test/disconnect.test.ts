@@ -22,8 +22,8 @@ const job = (name: string, _id = new ObjectId()): CachedBackupJob => ({
 });
 
 test('main PBS connected: address and monitoring token', () => {
-  assert.equal(pbsConnected({ url: 'https://pbs:8007', tokenId: 'homelab@pbs!monitor', tokenSecret: 's' }), true);
-  assert.equal(pbsConnected({ url: 'https://pbs:8007', tokenId: 'homelab@pbs!monitor', tokenSecret: '' }), false);
+  assert.equal(pbsConnected({ url: 'https://pbs:8007', tokenId: 'homelab@pbs!hub', tokenSecret: 's' }), true);
+  assert.equal(pbsConnected({ url: 'https://pbs:8007', tokenId: 'homelab@pbs!hub', tokenSecret: '' }), false);
   assert.equal(pbsConnected({ url: '', tokenId: '', tokenSecret: '' }), false);
 });
 

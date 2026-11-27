@@ -46,7 +46,7 @@ Le PBS lancé dans Docker n'a été testé qu'avec l'image `ayufan/proxmox-backu
 
 | Jeton | Utilisateur (défaut) | Rôle et chemin | Permet | Ne permet pas |
 |---|---|---|---|---|
-| supervision du PBS | `homelab@pbs!monitor` | `DatastoreAudit` sur `/datastore` + `Audit` sur `/system/tasks` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune ; lire la liste et le journal des tâches de sauvegarde ([volume transféré et durée](#volume-transféré-et-durée)) | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
+| supervision du PBS | `homelab@pbs!hub` | `DatastoreAudit` sur `/datastore` + `Audit` sur `/system/tasks` | lister les datastores, leur occupation, les groupes et snapshots, les tâches de prune ; lire la liste et le journal des tâches de sauvegarde ([volume transféré et durée](#volume-transféré-et-durée)) | lire le contenu d'une sauvegarde, écrire ou supprimer quoi que ce soit |
 | écriture d'un hôte | `host-<hôte>@pbs!backup` | `DatastoreBackup` sur `/datastore/<chaque datastore>/Hosts` | créer des sauvegardes dans le namespace `Hosts`, voir et relire **ses propres** groupes | voir ou relire les groupes des autres hôtes, écrire hors de `Hosts` (namespaces de Proxmox VE) |
 | lecteur (PBS principal) | `homelab@pbs!reader` | `DatastoreReader` sur `/datastore` | lire toutes les sauvegardes du PBS principal : c'est avec lui que le [PBS de secours](#copie-déportée-pbs-de-secours) les tire | écrire, supprimer, modifier quoi que ce soit |
 | montage (volatil) | `homelab-mount@pbs!m<horodatage>` | `DatastoreReader` sur `/datastore/<datastore>/<namespace du groupe>` | lire les sauvegardes de ce namespace, le temps d'un [montage](#monter-une-sauvegarde-lecture-seule) : créé au montage, révoqué au démontage | écrire, supprimer, lire hors de ce namespace ; il n'est jamais conservé par le hub |
@@ -92,7 +92,7 @@ Jeton déjà existant, rollback en cas d'échec et retrait des droits en trop **
 | Adresse | `https://192.168.100.8:8007` |
 | Empreinte du certificat | lue sur l'hôte par l'agent du PBS (**Détecter**) ; à comparer avec `proxmox-backup-manager cert info` ou **Tableau de bord › Afficher l'empreinte** |
 | Hôte du PBS | l'hôte dont l'agent administre le PBS (**Détecter** : PBS installé ou conteneur) |
-| Jeton | `homelab@pbs!monitor` (créé par l'agent du PBS) |
+| Jeton | `homelab@pbs!hub` (créé par l'agent du PBS) |
 | Image du client | `mathmath350/pbs-client:latest` (hôtes sans client installé, voir plus bas) |
 
 **Adresse du PBS sur Tailscale** (détectée avec l'IP Tailscale de l'hôte du PBS ; saisie à la main seulement tant que le PBS n'est pas relié à son agent) : adresse que reçoivent les agents des hôtes du [réseau d'accès Tailscale](installation.md#réseau-daccès-lan-ou-tailscale), avec la même empreinte de certificat. Elle est vide par défaut : ces hôtes ne reçoivent alors aucune définition de sauvegarde, ils ne basculent jamais sur l'adresse du LAN.
@@ -309,11 +309,11 @@ Cette procédure n'est pas testée par Homelab Manager : la valider une premièr
 
 Homelab Manager revient à un état **sans** ce serveur : il retire ce qu'il y a créé (ses jetons, l'utilisateur d'un jeton quand il n'en porte plus d'autre, et sur le PBS de secours ses sync jobs `hlm-*` et la remote `hlm-main`) et ses propres données. Il ne supprime **jamais** un snapshot, un groupe, un namespace ou un datastore. Chaque action passe par une confirmation qui liste ce qui part.
 
-Avant toute étape, le hub vérifie que chaque agent nécessaire est **en ligne et à jour** (capacités « pbs_token_delete », « pve_token_delete ») : sinon la déconnexion est refusée, rien n'est touché. Un jeton est révoqué par l'agent du serveur : ses droits, le jeton, puis l'utilisateur et ses droits s'il n'a plus de jeton (`homelab@pbs` porte à la fois `!monitor` et `!reader` sur le PBS principal).
+Avant toute étape, le hub vérifie que chaque agent nécessaire est **en ligne et à jour** (capacités « pbs_token_delete », « pve_token_delete ») : sinon la déconnexion est refusée, rien n'est touché. Un jeton est révoqué par l'agent du serveur : ses droits, le jeton, puis l'utilisateur et ses droits s'il n'a plus de jeton (`homelab@pbs` porte à la fois `!hub` et `!reader` sur le PBS principal).
 
 | Action | Où | Ce qui part |
 |---|---|---|
-| **Déconnecter le PBS principal** (Supprimer le rôle) | Paramètres › Rôles, ligne du PBS principal | le PBS de secours d'abord (il tire du principal, ligne suivante) ; les agents des hôtes reçoivent une définition vide et arrêtent leurs sauvegardes ; les jetons des hôtes et `homelab@pbs!monitor` sont révoqués ; les réglages du PBS et les groupes relevés sont oubliés |
+| **Déconnecter le PBS principal** (Supprimer le rôle) | Paramètres › Rôles, ligne du PBS principal | le PBS de secours d'abord (il tire du principal, ligne suivante) ; les agents des hôtes reçoivent une définition vide et arrêtent leurs sauvegardes ; les jetons des hôtes et `homelab@pbs!hub` sont révoqués ; les réglages du PBS et les groupes relevés sont oubliés |
 | **Déconnecter le PBS de secours** (Supprimer le rôle) | Paramètres › Rôles, ligne du PBS hors site | la série quotidienne de son agent, les sync jobs `hlm-*`, la remote `hlm-main`, les jetons `homelab@pbs!hub` (secours) et `homelab@pbs!reader` (principal), ses réglages ; les copies restent sur le PBS de secours, les choix de copie des sauvegardes sont gardés |
 | **Retirer un cluster Proxmox VE** (Supprimer le rôle) | Paramètres › Rôles, ligne du cluster | son jeton (`homelab@pve!monitor`), révoqué par l'agent du nœud relié ; ses guests, leurs liens aux hôtes et le rattachement automatique de leurs sauvegardes (orphelines) |
 | **Retirer le jeton d'un hôte** | API seulement (`DELETE /api/hosts/:id/pbs-credential`) | ce jeton, révoqué sur le PBS (plus seulement oublié par le hub) |

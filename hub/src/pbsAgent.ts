@@ -54,7 +54,7 @@ export interface PbsDetected {
 const CONTAINER_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'host';
 
-export const defaultMonitorTokenId = 'homelab@pbs!monitor';
+export const defaultMonitorTokenId = 'homelab@pbs!hub';
 export const defaultHostTokenId = (hostName: string) => `host-${slug(hostName)}@pbs!backup`;
 
 // The host whose agent administers the PBS: known, able to (agent recent enough), connected.
