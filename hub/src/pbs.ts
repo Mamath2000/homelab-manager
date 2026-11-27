@@ -3,6 +3,7 @@ import { backups, settings } from './db.js';
 import { publish } from './events.js';
 import { describeCalendar, nextRun, parseCalendar, previousRun } from './calendar.js';
 import { adhocBlocker, offsiteState } from './offsite.js';
+import { extendHostTokens, storesToGrant } from './pbsChanges.js';
 import { collectBackupStats, recordUsage } from './pbsStats.js';
 import { ApiError, apiGet, apiRequest, FINGERPRINT_RE, SERVER_URL_RE, fetchFingerprint, normalizeFingerprint } from './tlsApi.js';
 import { OFF_PBS_SOURCES, type BackupDoc, type BackupSnapshot, type HostDoc, type PbsDatastoreUsage, type PbsSettings } from './types.js';
@@ -437,8 +438,11 @@ async function doPoll(log?: FastifyBaseLogger) {
     // placeholders of PVE jobs (never backed up yet), the backups of Home Assistant and the archives of the other
     // storages of Proxmox VE are not on the PBS
     await backups.updateMany({ seenAt: { $lt: now }, placeholder: { $ne: true }, source: { $nin: [...OFF_PBS_SOURCES] } }, { $set: { gone: true } });
-    await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores, prune } }, { upsert: true });
+    const names = stores.map((d) => d.store).sort();
+    await settings.updateOne({ _id: 'pbs' }, { $set: { polledAt: now, pollError: null, datastores, stores: names, prune } }, { upsert: true });
     log?.info({ groups: found.length }, 'PBS polled');
+    // a new datastore: the tokens of the hosts get their rights on it (#378, in the background)
+    if (storesToGrant(names, s.aclStores).length) void extendHostTokens(log).catch((err) => log?.warn({ err }, 'rights of the PBS tokens of the hosts not extended'));
     // fill level of the day, for the history of the datastores (never fails the poll)
     await recordUsage('main', datastores).catch((err) => log?.warn({ err }, 'datastore usage not recorded'));
     // what each backup uploaded and its duration (never fails the poll)

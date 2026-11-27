@@ -41,6 +41,8 @@ const ACTIONS: Record<string, string> = {
   'settings.pbs': 'PBS principal',
   'settings.pbs.token': 'Jeton du PBS principal',
   'settings.pbs.disconnect': 'PBS principal déconnecté',
+  'settings.pbs.serverChange': 'Changement de serveur PBS traité',
+  'settings.pbs.changes': 'Changements du PBS appliqués',
   'settings.pbsRemote': 'PBS de secours',
   'settings.pbsRemote.token': 'Jeton du PBS de secours',
   'settings.pbsRemote.disconnect': 'PBS de secours déconnecté',

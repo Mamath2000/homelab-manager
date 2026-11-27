@@ -232,14 +232,19 @@ async function ensureRemote(r: PbsRemoteSettings) {
 
 type Copied = Pick<BackupDoc, '_id' | 'store' | 'ns' | 'type' | 'backupId' | 'comment' | 'offsite' | 'hostId' | 'managed'>;
 
+// A group whose copy is enabled is copied while it is on the main PBS: gone (pruned, datastore removed, moved to
+// another datastore, other server), its sync job would only fail; its choice is kept (#378: the changes of the PBS
+// offer to carry it to the group it moved to).
+export const copied = (g: Pick<BackupDoc, 'source' | 'placeholder' | 'gone' | 'offsite'>) => !!g.offsite?.enabled && !g.gone && !notCopiable(g);
+
 async function enabledGroups(): Promise<Copied[]> {
   const list = await backups
     .find(
-      { 'offsite.enabled': true },
-      { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1, comment: 1, offsite: 1, source: 1, placeholder: 1, hostId: 1, managed: 1 } },
+      { 'offsite.enabled': true, gone: { $ne: true } },
+      { projection: { _id: 1, store: 1, ns: 1, type: 1, backupId: 1, comment: 1, offsite: 1, source: 1, placeholder: 1, hostId: 1, managed: 1, gone: 1 } },
     )
     .toArray();
-  return list.filter((g) => !notCopiable(g as BackupDoc));
+  return list.filter((g) => copied(g as BackupDoc));
 }
 
 // Remote entry, then the hlm-* sync jobs made to match the groups copied. An error on one job is kept on

@@ -177,9 +177,10 @@ export function backupStatus(h: Pick<HostDoc, 'roaming' | 'pve'>, ctx: Pick<Cont
   ]);
 }
 
-// Copy of the groups to the secondary PBS: only the groups whose copy is enabled.
+// Copy of the groups to the secondary PBS: only the groups whose copy is enabled and that are still on the main PBS
+// (a gone one is not copied: its backup check says so, #378).
 export function offsiteStatus(h: Pick<HostDoc, 'roaming'>, ctx: Pick<Context, 'online' | 'groups' | 'now'>): DomainReport {
-  const copied = ctx.groups.filter((b) => b.offsite?.enabled);
+  const copied = ctx.groups.filter((b) => b.offsite?.enabled && !b.gone);
   if (!copied.length) return null;
   const gone = away(h, ctx);
   return known(

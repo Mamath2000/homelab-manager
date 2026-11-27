@@ -206,6 +206,8 @@ route('settings', 'settings.agents', 'PUT /api/settings/agents');
 route('settings', 'settings.pbs', 'PUT /api/settings/pbs');
 route('settings', 'settings.pbs.token', 'POST /api/settings/pbs/token');
 route('settings', 'settings.pbs.disconnect', 'POST /api/settings/pbs/disconnect');
+route('settings', 'settings.pbs.serverChange', 'POST /api/settings/pbs/server-change');
+route('settings', 'settings.pbs.changes', 'POST /api/backups/changes');
 route('settings', 'settings.pbsRemote', 'PUT /api/settings/pbs-remote');
 route('settings', 'settings.pbsRemote.token', 'POST /api/settings/pbs-remote/token', 'POST /api/settings/pbs-remote/reader-token');
 route('settings', 'settings.pbsRemote.disconnect', 'POST /api/settings/pbs-remote/disconnect');

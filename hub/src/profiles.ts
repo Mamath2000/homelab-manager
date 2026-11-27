@@ -93,6 +93,8 @@ export const SENSITIVE_ACTIONS = new Set([
   'PUT /api/settings/agents',
   'PUT /api/settings/pbs',
   'POST /api/settings/pbs/token',
+  // a new main PBS: the tokens of the hosts and of the secondary created on it (#378)
+  'POST /api/settings/pbs/server-change',
   'PUT /api/settings/pbs-remote',
   'POST /api/settings/pbs-remote/token',
   'PUT /api/settings/pve/clusters/:id',

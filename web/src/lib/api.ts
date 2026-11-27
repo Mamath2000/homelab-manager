@@ -1199,6 +1199,47 @@ export interface PbsTokenOutcome {
   removed: string[];
 }
 
+// Changes of the main PBS (hub pbsChanges.ts, homelab#378): what the admin decides after datastores were removed, groups
+// moved from a datastore to another or the server replaced.
+type HostRef = { id: string; name: string };
+export interface PbsChanges {
+  stores: string[]; // datastores of the main PBS at its last poll
+  removedStores: string[]; // datastores no longer there that the hub still knows something of
+  server: { at: number; url: string; currentUrl: string; agentChanged: boolean; certChanged: boolean } | null;
+  moved: {
+    id: string; // old group (gone)
+    to: string;
+    label: string;
+    ns: string;
+    fromStore: string;
+    toStore: string;
+    fromHost: HostRef | null;
+    toHost: HostRef | null;
+    carry: { hostId: boolean; staleHours: boolean; offsite: boolean; conflict: string | null };
+  }[];
+  vanished: { id: string; label: string; store: string; ns: string; storeRemoved: boolean; host: HostRef | null; lastBackup: number; count: number; candidates: number }[];
+  jobs: { id: string; name: string; store: string; ns: string; backupId: string; host: HostRef }[];
+  nextcloud: { host: HostRef; stores: string[] }[];
+  pve: { cluster: string; job: string; storage: string; store: string; guests: number }[];
+}
+export interface PbsChangesApply {
+  move?: string[];
+  forget?: string[];
+  jobs?: { id: string; store: string }[];
+}
+export interface PbsChangesReport {
+  moved: number;
+  forgotten: number;
+  jobs: number;
+  errors: string[];
+}
+export interface PbsServerReport {
+  hosts: string[];
+  reader: boolean;
+  revoked: string[];
+  errors: string[];
+}
+
 export interface PbsSettings {
   connected: boolean; // address and monitoring token
   // hosts whose local policy refuses this PBS (another one pinned): their backups fail until unlocked on the host
@@ -2287,6 +2328,9 @@ export const api = {
   updateBackup: (id: string, patch: { hostId?: string | null; staleHours?: number | null }) =>
     request<BackupGroup>('PATCH', `/api/backups/${encodeURIComponent(id)}`, patch),
   forgetBackup: (id: string) => request<void>('DELETE', `/api/backups/${encodeURIComponent(id)}`),
+  pbsChanges: () => request<PbsChanges>('GET', '/api/backups/changes'),
+  applyPbsChanges: (b: PbsChangesApply) => request<PbsChangesReport>('POST', '/api/backups/changes', b),
+  resolvePbsServerChange: (sameServer: boolean) => request<PbsServerReport>('POST', '/api/settings/pbs/server-change', { sameServer }),
   pbsSettings: () => request<PbsSettings>('GET', '/api/settings/pbs'),
   savePbsSettings: (s: PbsSettingsInput) => request<PbsSettings>('PUT', '/api/settings/pbs', s),
   testPbsSettings: (s: PbsSettingsInput) => request<PbsTestResult>('POST', '/api/settings/pbs/test', s),

@@ -26,6 +26,7 @@ import { hasAgent, planInstall, runInstall } from '../pveInstallRun.js';
 import { PveAgentError, deletePveToken, detectPveOn, ensurePveToken } from '../pveAgent.js';
 import { disconnectMain, remoteConfigured } from '../disconnect.js';
 import { loadRemoteSettings, pollOffsite, remoteReady, seriesView, syncOffsiteAgent } from '../offsite.js';
+import { applyChanges, changesView, resolveServerChange, serverChangeOf, type ApplyBody } from '../pbsChanges.js';
 import { OFF_PBS_SOURCES, type PbsAgentLink, type PbsSettings, type PveCluster } from '../types.js';
 
 // the token secret never leaves the hub
@@ -134,6 +135,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
     const before = await loadPbsSettings();
     const next = await resolve(req.body);
     if (typeof next === 'string') return reply.code(400).send({ error: next });
+    // another certificate: the same server or another one, asked in the changes of the PBS (#378)
+    const change = serverChangeOf(before, next);
+    if (change) next.serverChange = change;
     await settings.replaceOne({ _id: 'pbs' }, next, { upsert: true });
     req.auditNote = { details: settingsDiff(before, next) };
     if (pbsConnected(next)) pollPbs(req.log).catch(() => {});
@@ -195,7 +199,9 @@ export function registerBackupRoutes(app: FastifyInstance) {
         if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
         throw err;
       }
-      await settings.updateOne({ _id: 'pbs' }, { $set: { agent, tokenId: t.tokenId, tokenSecret: t.tokenSecret } }, { upsert: true });
+      // another agent: the same server or another one, asked in the changes of the PBS (#378)
+      const change = serverChangeOf(current, { agent, fingerprint: current.fingerprint });
+      await settings.updateOne({ _id: 'pbs' }, { $set: { agent, tokenId: t.tokenId, tokenSecret: t.tokenSecret, ...(change ? { serverChange: change } : {}) } }, { upsert: true });
       req.auditNote = { details: { tokenId: t.tokenId, agent, created: t.created, rotated: !!t.rotated } };
       req.log.info({ tokenId: t.tokenId, created: t.created, rotated: t.rotated, applied: t.applied, removed: t.removed }, 'PBS monitoring token set by the agent');
       pollPbs(req.log).catch(() => {});
@@ -373,6 +379,55 @@ export function registerBackupRoutes(app: FastifyInstance) {
     publish('backups', {});
     return reply.code(204).send();
   });
+
+  // --- changes of the main PBS (#378): datastores removed, groups moved, server replaced (pbsChanges.ts)
+  app.get('/api/backups/changes', async () => changesView());
+
+  // the choices of the admin, applied at once for every item
+  const idList = { type: 'array', maxItems: 2000, items: { type: 'string', maxLength: 512 } };
+  app.post<{ Body: ApplyBody }>(
+    '/api/backups/changes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            move: idList,
+            forget: idList,
+            jobs: {
+              type: 'array',
+              maxItems: 500,
+              items: { type: 'object', required: ['id', 'store'], additionalProperties: false, properties: { id: { type: 'string', maxLength: 24 }, store: { type: 'string', maxLength: 64 } } },
+            },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const report = await applyChanges(req.body, req.log);
+      req.auditNote = { details: { moved: report.moved, forgotten: report.forgotten, jobs: report.jobs, errors: report.errors.length } };
+      return report;
+    },
+  );
+
+  // another agent or certificate for the main PBS: the same server (nothing to do) or a new one (tokens created on it,
+  // the old ones revoked)
+  app.post<{ Body: { sameServer: boolean } }>(
+    '/api/settings/pbs/server-change',
+    { schema: { body: { type: 'object', required: ['sameServer'], additionalProperties: false, properties: { sameServer: { type: 'boolean' } } } } },
+    async (req, reply) => {
+      if (!(await loadPbsSettings()).serverChange) return reply.code(409).send({ error: 'aucun changement de serveur à traiter' });
+      try {
+        const report = await resolveServerChange(req.body.sameServer, req.log);
+        req.auditNote = { details: { sameServer: req.body.sameServer, hosts: report.hosts.length, reader: report.reader, revoked: report.revoked.length, errors: report.errors.length } };
+        return report;
+      } catch (err) {
+        if (err instanceof PbsAgentError) return reply.code(409).send({ error: err.message });
+        throw err;
+      }
+    },
+  );
 
   // --- Proxmox VE clusters (admin: /api/settings/*); the token secrets never leave the hub. A cluster is
   // declared from one of its nodes, whose agent creates the token (POST …/token): nothing is pasted.

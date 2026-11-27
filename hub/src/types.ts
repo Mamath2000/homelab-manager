@@ -858,6 +858,13 @@ export interface PbsAgentLink {
   container?: string;
 }
 
+// The main PBS before its agent or its certificate changed: what the hub compares with, and revokes on when it is
+// another server.
+export interface PbsServerChange {
+  at: Date;
+  from: { agent?: PbsAgentLink; url: string; fingerprint: string; tokenId: string };
+}
+
 export interface PbsSettings {
   _id: 'pbs';
   // agent that creates the tokens on this PBS (all of them: monitoring, hosts)
@@ -874,6 +881,13 @@ export interface PbsSettings {
   pollError?: string | null;
   statsError?: string | null; // collection of the backup statistics (pbsStats.ts)
   datastores?: PbsDatastoreUsage[];
+  // datastores listed by the last poll that succeeded (the usage above may miss one); the changes of the PBS
+  // compare with them (pbsChanges.ts)
+  stores?: string[];
+  // datastores the rights of the tokens of the hosts were last set on (pbsChanges.ts extendHostTokens)
+  aclStores?: string[];
+  // agent or certificate changed: same server or another one, the admin says (pbsChanges.ts)
+  serverChange?: PbsServerChange | null;
   // retention applied by the PBS (prune jobs, options of the datastores), see pbs.ts
   prune?: { store: string; ns: string; schedule: string | null; keep: Record<string, number> }[];
   // backups run by the agents: client image where proxmox-backup-client is not installed (the default

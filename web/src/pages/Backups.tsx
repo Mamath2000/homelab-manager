@@ -10,6 +10,7 @@ import { BackupJobEditModal, type JobTab } from '../components/ManagedBackups';
 import { DetailPill, OffsiteCell } from '../components/OffsiteCopy';
 import { DbRestoreDialog } from '../components/DbRestore';
 import { MountBanner, MountDialog } from '../components/PbsMount';
+import { PbsChangesBanner } from '../components/PbsChanges';
 import { HeaderTitle } from '../components/HeaderSlot';
 import { Badge, Button, Empty, IconGroup, Modal, ResponsiveList, Spinner } from '../components/ui';
 import { api, type BackupGroup, type BackupsView, type Host } from '../lib/api';
@@ -217,6 +218,7 @@ export function Backups() {
       ) : (
         <>
           <div className="mb-5 empty:hidden"><MountBanner hosts={hostList} /></div>
+          <div className="mb-5 empty:hidden"><PbsChangesBanner /></div>
           {data.pollError && (
             <div className="panel mb-5 border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-200">Dernier relevé en échec : {data.pollError}</div>
           )}
