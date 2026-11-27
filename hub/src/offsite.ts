@@ -745,9 +745,13 @@ export async function runAdhoc(r: PbsRemoteSettings, b: BackupDoc, log?: Fastify
   try {
     await ensureRemote(r);
     const [base] = desiredJobs([b], r);
-    // a leftover of a previous process (not running: the route checked) goes first
-    await removeAdhoc(r, id, log);
-    adhocActive.add(id);
+    // a leftover of a previous process (not running: the route checked) goes first; only when there, as PBS
+    // logs the DELETE of a missing job as an error
+    const existing = await call<Partial<SyncJobConfig>[]>(r, 'GET', '/config/sync');
+    if (existing.some((j) => j.id === id)) {
+      await removeAdhoc(r, id, log);
+      adhocActive.add(id);
+    }
     await call(r, 'POST', '/config/sync', { ...base, id, comment: `Homelab Manager : copie immédiate ${jobLabel(b.store, b.ns)} › ${groupKey(b)}` });
     let upid: string;
     try {
