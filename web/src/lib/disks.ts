@@ -431,7 +431,9 @@ export function compareRows(a: DiskRow, b: DiskRow, sort: Sort) {
 }
 
 export interface TreeRow {
-  row: DiskRow;
+  row: DiskRow | null;
+  hostId: string | null;
+  hostName: string;
   depth: number;
   // for each ancestor level, whether a sibling follows (draws the vertical lines), and whether this row is the last child
   rails: boolean[];
@@ -444,7 +446,7 @@ export interface TreeRow {
 export function arrange(all: DiskRow[], shown: Set<string>, sort: Sort, tree: boolean): TreeRow[] {
   if (!tree) {
     return all.filter((r) => shown.has(r.id)).sort((a, b) => compareRows(a, b, sort))
-      .map((row) => ({ row, depth: 0, rails: [], last: true, hasChildren: false }));
+      .map((row) => ({ row, hostId: row.hostId, hostName: row.hostName, depth: 0, rails: [], last: true, hasChildren: false }));
   }
   const byId = new Map(all.map((r) => [r.id, r]));
   const keep = new Set<string>();
@@ -472,10 +474,27 @@ export function arrange(all: DiskRow[], shown: Set<string>, sort: Sort, tree: bo
     list.forEach((row, i) => {
       const last = i === list.length - 1;
       const hasChildren = (children.get(row.id)?.length ?? 0) > 0;
-      out.push({ row, depth, rails, last, hasChildren });
-      if (hasChildren) walk(row.id, depth + 1, depth === 0 ? [] : [...rails, !last]);
+      out.push({ row, hostId: row.hostId, hostName: row.hostName, depth, rails, last, hasChildren });
+      if (hasChildren) walk(row.id, depth + 1, [...rails, !last]);
     });
   };
-  walk(null, 0, []);
+  const roots = children.get(null) ?? [];
+  const hosts = new Map<string, { hostId: string | null; hostName: string; rows: DiskRow[] }>();
+  for (const row of roots) {
+    const key = row.hostId ? `id:${row.hostId}` : `name:${row.hostName}`;
+    const group = hosts.get(key) ?? { hostId: row.hostId, hostName: row.hostName, rows: [] };
+    group.rows.push(row);
+    hosts.set(key, group);
+  }
+  for (const group of [...hosts.values()].sort((a, b) => a.hostName.localeCompare(b.hostName, 'fr', { numeric: true }))) {
+    out.push({ row: null, hostId: group.hostId, hostName: group.hostName, depth: 0, rails: [], last: true, hasChildren: true });
+    const hostRoots = group.rows.sort(cmp);
+    hostRoots.forEach((row, i) => {
+      const last = i === hostRoots.length - 1;
+      const hasChildren = (children.get(row.id)?.length ?? 0) > 0;
+      out.push({ row, hostId: row.hostId, hostName: row.hostName, depth: 1, rails: [], last, hasChildren });
+      if (hasChildren) walk(row.id, 2, [!last]);
+    });
+  }
   return out;
 }

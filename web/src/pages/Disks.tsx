@@ -43,7 +43,7 @@ export function Disks() {
   const host = params.get('host') ?? '';
   const nature = (params.get('n') ?? '') as NatureFilter;
   const level = (params.get('l') ?? '') as '' | DiskLevel;
-  const tree = params.get('tree') === '1';
+  const tree = params.get('tree') !== '0';
   const sort = parseSort(params.get('sort'));
   const setMany = (values: Record<string, string>) => {
     const next = new URLSearchParams(params);
@@ -117,7 +117,7 @@ export function Disks() {
               ))}
             </div>
             <label className="ml-auto inline-flex items-center gap-2 text-xs text-muted">
-              <Switch checked={tree} onChange={(v) => setMany({ tree: v ? '1' : '' })} label="Vue hiérarchique" />
+              <Switch checked={tree} onChange={(v) => setMany({ tree: v ? '1' : '0' })} label="Vue hiérarchique" />
               Vue hiérarchique
             </label>
           </div>
@@ -143,7 +143,9 @@ export function Disks() {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.map((t) => <DiskTableRow key={t.row.id} t={t} tree={tree} link={linkOf(t.row)} />)}
+                  {list.map((t) => t.row
+                    ? <DiskTableRow key={t.row.id} t={t} tree={tree} link={linkOf(t.row)} />
+                    : <HostGroupRow key={t.hostId ?? t.hostName} t={t} link={t.hostId ? `/hosts/${t.hostId}` : null} />)}
                 </tbody>
               </table>
             </div>
@@ -179,6 +181,21 @@ function TreeLines({ t }: { t: TreeRow }) {
   );
 }
 
+function HostGroupRow({ t, link }: { t: TreeRow; link: string | null }) {
+  return (
+    <tr className="border-b border-line/70 bg-raised/60">
+      <td className="w-1 p-0" />
+      <td colSpan={12} className="py-0 pl-1 pr-2.5">
+        <div className="flex min-h-[44px] items-center gap-2 font-semibold text-zinc-100">
+          <TreeLines t={t} />
+          <Server className="h-4 w-4 shrink-0 text-emerald-400" />
+          {link ? <Link className="hover:text-emerald-300" to={link}>{t.hostName}</Link> : <span>{t.hostName}</span>}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function SpaceBar({ r }: { r: DiskRow }) {
   if (r.used === null || !r.total) return <span className="text-xs text-muted">{r.hint ?? '—'}</span>;
   const pct = (r.used / r.total) * 100;
@@ -202,6 +219,7 @@ const levelText = (l: DiskLevel) => (l === 'ok' ? 'text-zinc-100' : LEVEL_TEXT[l
 
 function DiskTableRow({ t, tree, link }: { t: TreeRow; tree: boolean; link: string | null }) {
   const r = t.row;
+  if (!r) return null;
   const Icon = NATURE_ICON[r.nature];
   const child = tree && t.depth > 0;
   const free = r.used !== null && r.total ? r.total - r.used : null;
