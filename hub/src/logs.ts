@@ -5,6 +5,7 @@ import { isOnline } from './agents.js';
 import { hosts } from './db.js';
 import { publish } from './events.js';
 import { lanAddress } from './hostAddress.js';
+import { loadIgnores } from './logIgnores.js';
 import { hostDto } from './hostDto.js';
 import { allRoles } from './roles.js';
 import type { HostDoc, LogServerConfig, LogServerRole, SetupCheck } from './types.js';
@@ -69,12 +70,28 @@ export interface LogFilters {
   // history hidden by host (homelab#355): the journals of `hostname` older than `since` (ISO) are left out. Set by the
   // routes that show journals, never by the poll that watches silent hosts (it reads the raw lines).
   cutoffs?: LogCutoff[];
+  // benign messages left out (homelab#379), set by the same routes; ignored: the lines of that rule only
+  ignores?: LogIgnore[];
+  ignored?: LogIgnore;
 }
 
 export interface LogCutoff {
   hostname: string;
   since: string;
 }
+
+// A benign message (logIgnores.ts): pattern, a text looked for as it is written (case included), or a regular expression
+// (RE2) when regex; hostnames and apps narrow it, none: everywhere. No (?i) for the text: a pattern the server cannot
+// match without its case reads every line (no bloom filter), 30 s and more over a week.
+export interface LogIgnore {
+  pattern: string;
+  regex: boolean;
+  hostnames?: string[];
+  apps?: string[];
+}
+
+// the characters of a text read as a regular expression, escaped: nothing of the text is a pattern
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // The beginning of the range of a hidden history: no journal is older.
 const EPOCH = '2000-01-01T00:00:00Z';
@@ -90,6 +107,14 @@ const sourceCondition = (values: string[]) => {
   if (!values.includes(NO_SOURCE)) return anyOf('source', named);
   return named.length ? `(${anyOf('source', named)} or source:"")` : 'source:""';
 };
+
+// The lines of a rule, as one LogsQL condition (in parentheses: it can be negated).
+export function ignoreCondition(r: LogIgnore) {
+  const parts = [`_msg:~${quote(r.regex ? r.pattern : escapeRe(r.pattern))}`];
+  if (r.hostnames?.length) parts.push(anyOf('hostname', r.hostnames));
+  if (r.apps?.length) parts.push(anyOf('app_name', r.apps));
+  return `(${parts.join(' ')})`;
+}
 
 // The filter part of a query: every condition must hold. '*' when there is none.
 export function filterQuery(f: LogFilters) {
@@ -109,9 +134,11 @@ export function filterQuery(f: LogFilters) {
     if (f.hostnames?.length && !f.hostnames.includes(c.hostname)) continue;
     parts.push(`!(hostname:=${quote(c.hostname)} _time:[${EPOCH},${c.since}))`);
   }
+  for (const r of f.ignores ?? []) parts.push(`!${ignoreCondition(r)}`);
+  if (f.ignored) parts.push(ignoreCondition(f.ignored));
   const text = f.text?.trim();
   // a part of a word matches too ("err" finds "error"): a regular expression of the text itself, nothing of it a pattern
-  if (text) parts.push(`_msg:~${quote(`(?i)${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)}`);
+  if (text) parts.push(`_msg:~${quote(`(?i)${escapeRe(text)}`)}`);
   return parts.length ? parts.join(' ') : '*';
 }
 
@@ -121,6 +148,8 @@ export class LogServerError extends Error {
   constructor(
     message: string,
     public status = 502,
+    // what the server answered (400: it refused the query, a pattern of a rule it cannot read)
+    public upstream?: number,
   ) {
     super(message);
   }
@@ -153,7 +182,7 @@ async function call(c: Server, path: string, params: Record<string, string | num
     throw failure(err);
   }
   if (res.status === 401 || res.status === 403) throw new LogServerError('le serveur de logs refuse le compte du rôle');
-  if (!res.ok) throw new LogServerError(`le serveur de logs répond ${res.status} : ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  if (!res.ok) throw new LogServerError(`le serveur de logs répond ${res.status} : ${(await res.text().catch(() => '')).slice(0, 200)}`, 502, res.status);
   return res;
 }
 
@@ -297,13 +326,13 @@ export async function queryFieldValues(c: Server, field: LogField, f: LogFilters
 }
 
 // What surrounds a journal on its host: the rows just before and just after it, oldest first, the row itself included.
-export async function queryContext(c: Server, hostname: string, time: string, before: number, after: number, cutoffs?: LogCutoff[]): Promise<LogRow[]> {
+export async function queryContext(c: Server, hostname: string, time: string, before: number, after: number, cutoffs?: LogCutoff[], ignores?: LogIgnore[]): Promise<LogRow[]> {
   const t = Date.parse(time);
   if (!Number.isFinite(t)) throw new LogServerError('date invalide', 400);
   const hour = 3600_000;
   const [prev, next] = await Promise.all([
-    queryLogs(c, { hostnames: [hostname], cutoffs }, { start: new Date(t - hour).toISOString(), end: time }, before),
-    queryLogs(c, { hostnames: [hostname], cutoffs }, { start: time, end: new Date(t + hour).toISOString() }, after + 1, true),
+    queryLogs(c, { hostnames: [hostname], cutoffs, ignores }, { start: new Date(t - hour).toISOString(), end: time }, before),
+    queryLogs(c, { hostnames: [hostname], cutoffs, ignores }, { start: time, end: new Date(t + hour).toISOString() }, after + 1, true),
   ]);
   return [...prev.reverse(), ...next];
 }
@@ -427,13 +456,15 @@ export interface LogSender {
 }
 
 // Who sent journals in the range (and matches the filters): the last one of each, how many, and how many errors
-// (severity err and worse).
-export async function querySenders(c: Server, start: string, f: LogFilters = {}, end?: string): Promise<LogSender[]> {
+// (severity err and worse). ignores: benign messages left out of the errors only, the last journal and the count stay
+// the raw ones (what the poll that watches silent hosts reads).
+export async function querySenders(c: Server, start: string, f: LogFilters = {}, end?: string, ignores: LogIgnore[] = []): Promise<LogSender[]> {
   const only = filterQuery(f);
+  const errors = ['severity:<=3', ...ignores.map((r) => `!${ignoreCondition(r)}`)].join(' ');
   const res = await call(
     c,
     '/select/logsql/query',
-    { query: `${only === '*' ? '' : `${only} `}!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (severity:<=3) errors, max(remote_ip) ip`, start, end, timeout: '15s' },
+    { query: `${only === '*' ? '' : `${only} `}!app_name:=${quote(TEST_APP)} | stats by (hostname) max(_time) last, count() n, count() if (${errors}) errors, max(remote_ip) ip`, start, end, timeout: '15s' },
     17_000,
   );
   return jsonLines(await res.text())
@@ -446,6 +477,24 @@ export async function countByHost(c: Server, f: LogFilters): Promise<Map<string,
   const only = filterQuery(f);
   const res = await call(c, '/select/logsql/query', { query: `${only === '*' ? '' : `${only} `}| stats by (hostname) count() n`, start: EPOCH, timeout: `${QUERY_TIMEOUT_MS / 1000}s` }, QUERY_TIMEOUT_MS + 2000);
   return new Map(jsonLines(await res.text()).filter((o) => o.hostname).map((o) => [o.hostname, Number(o.n) || 0]));
+}
+
+// Lines of each rule over the range, whatever the other filters, in the order of the rules; a rule left out of the
+// queries still counts what it would hide. One query per rule, a few at a time: its condition as the filter lets the
+// server skip the blocks that cannot hold it (a week in 0.3 s), a counter `if` over every line reads them all (30 s).
+export async function countIgnored(c: Server, rules: LogIgnore[], range: LogRange): Promise<number[]> {
+  const out: number[] = [];
+  for (let i = 0; i < rules.length; i += 4) {
+    out.push(
+      ...(await Promise.all(
+        rules.slice(i, i + 4).map(async (r) => {
+          const res = await call(c, '/select/logsql/query', { query: `${ignoreCondition(r)} | stats count() n`, start: range.start, end: range.end, timeout: `${QUERY_TIMEOUT_MS / 1000}s` }, QUERY_TIMEOUT_MS + 2000);
+          return Number(jsonLines(await res.text())[0]?.n) || 0;
+        }),
+      )),
+    );
+  }
+  return out;
 }
 
 // The categories the server received over the range, whatever the other filters: the columns of the matrix, the same
@@ -553,10 +602,12 @@ export async function pollLogServers(log?: FastifyBaseLogger) {
   for (const id of [...lastPolls.keys()]) if (!roles.some((r) => r._id === id)) lastPolls.delete(id);
   if (!roles.length) return;
   const before = JSON.stringify([...lastPolls].map(([id, p]) => [id, !!p.pollError, p.senders.length]));
+  // the errors of a host leave the benign messages out (homelab#379)
+  const ignores = await loadIgnores().catch(() => []);
   await Promise.all(
     roles.map(async (r) => {
       try {
-        lastPolls.set(r._id, { polledAt: new Date(), senders: await querySenders(r.config, '1d') });
+        lastPolls.set(r._id, { polledAt: new Date(), senders: await querySenders(r.config, '1d', {}, undefined, ignores) });
       } catch (err) {
         log?.warn({ role: r._id, err: (err as Error).message }, 'log server poll failed');
         lastPolls.set(r._id, { polledAt: new Date(), pollError: (err as Error).message, senders: lastPolls.get(r._id)?.senders ?? [] });

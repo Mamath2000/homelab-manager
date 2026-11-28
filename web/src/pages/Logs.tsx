@@ -2,12 +2,15 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUp, ChevronDown, ChevronRight, Copy, EyeOff, Filter, FilterX, ListCollapse, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
+import { ArrowUp, ChevronDown, ChevronRight, Copy, EyeOff, Filter, FilterX, ListCollapse, MessageSquareOff, Pause, Radio, RefreshCw, ScrollText, Search, X } from 'lucide-react';
 import { HeaderTitle } from '../components/HeaderSlot';
+import { IgnoreBar, IgnoreRuleEditor, IgnoreRulesModal } from '../components/LogIgnoreRules';
 import { Badge, Button, ConfirmModal, Empty, Modal, Spinner } from '../components/ui';
 import { api, logParams, type LogHits, type LogLevel, type LogMatrix, type LogQuery, type LogRow, type LogSelection } from '../lib/api';
 import { useMe } from '../lib/auth';
 import { timeAgo } from '../lib/format';
+import { useIgnoreRules, type RuleDraft } from '../lib/logIgnores';
+import { suggestPattern } from '../lib/logPattern';
 import { useHosts, useLogServers, useSites, useTags } from '../lib/queries';
 import { toneBadge, type Tone } from '../lib/status';
 import { useToast } from '../lib/toast';
@@ -100,6 +103,9 @@ function useLogFilters() {
       live: params.get('live') === '1',
       // read the history hidden by host too (homelab#355)
       masked: params.get('masked') === '1',
+      // read the benign messages too (homelab#379); rule: the lines of that rule only
+      ignored: params.get('ignored') === '1',
+      rule: params.get('rule') ?? '',
     };
   }, [params]);
   const set = (patch: Partial<Record<keyof typeof filters, string | number | boolean | string[]>>) => {
@@ -136,7 +142,11 @@ const toQuery = (f: Filters): LogQuery => ({
   ...(f.device.length ? { device: f.device, ...(f.deviceSystem ? { deviceSystem: true } : {}) } : {}),
   ...(f.q ? { q: f.q } : {}),
   ...(f.masked ? { showMasked: true } : {}),
+  ...ignoredOf(f),
 });
+
+// The benign messages (homelab#379): left out, read too, or the lines of one rule only.
+const ignoredOf = (f: Filters): Pick<LogQuery, 'showIgnored' | 'ignoreRule'> => (f.rule ? { ignoreRule: f.rule } : f.ignored ? { showIgnored: true } : {});
 
 // History hidden by host (homelab#355): nothing is deleted on the log server, the hub leaves out what is older than the
 // cutoff of the host. Hiding is for admins (passkey), reading hidden lines is for everyone who reads the journals.
@@ -365,8 +375,8 @@ function Matrix({ matrix, source, level, onSource, onLevel, onCell }: { matrix: 
 }
 
 // What surrounds a journal on its host, the journal itself highlighted.
-function ContextModal({ row, role, masked, onClose }: { row: LogRow; role: string; masked: boolean; onClose: () => void }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ['logs', 'context', role, row.hostname, row.time, masked], queryFn: () => api.logContext(role || undefined, row.hostname, row.time, masked || undefined) });
+function ContextModal({ row, role, masked, ignored, onClose }: { row: LogRow; role: string; masked: boolean; ignored: boolean; onClose: () => void }) {
+  const { data, isLoading, error } = useQuery({ queryKey: ['logs', 'context', role, row.hostname, row.time, masked, ignored], queryFn: () => api.logContext(role || undefined, row.hostname, row.time, masked || undefined, ignored || undefined) });
   const target = useRef<HTMLLIElement>(null);
   useEffect(() => {
     target.current?.scrollIntoView({ block: 'center' });
@@ -397,7 +407,7 @@ function ContextModal({ row, role, masked, onClose }: { row: LogRow; role: strin
   );
 }
 
-function Row({ row, open, onToggle, onFilter, onContext }: { row: LogRow; open: boolean; onToggle: () => void; onFilter: (patch: Parameters<ReturnType<typeof useLogFilters>[1]>[0]) => void; onContext: () => void }) {
+function Row({ row, open, onToggle, onFilter, onContext, onIgnore }: { row: LogRow; open: boolean; onToggle: () => void; onFilter: (patch: Parameters<ReturnType<typeof useLogFilters>[1]>[0]) => void; onContext: () => void; onIgnore?: () => void }) {
   const toast = useToast();
   const meta = LEVEL_META[row.level];
   const fields: [string, string][] = [
@@ -443,6 +453,7 @@ function Row({ row, open, onToggle, onFilter, onContext }: { row: LogRow; open: 
             >
               Copier
             </Button>
+            {onIgnore && <Button size="sm" icon={MessageSquareOff} title="Une règle pré-remplie : ce message (ses nombres, dates et identifiants rendus génériques), cet hôte, cette application" onClick={onIgnore}>Ignorer ce message</Button>}
             {row.hostId && <Link to={`/hosts/${row.hostId}`} className="inline-flex items-center px-2 text-emerald-400 hover:underline">Fiche de l'hôte</Link>}
           </div>
         </div>
@@ -530,6 +541,9 @@ export function Logs() {
   const [opened, setOpened] = useState<string | null>(null);
   const [context, setContext] = useState<LogRow | null>(null);
   const [custom, setCustom] = useState(false);
+  const { canManage } = useMe();
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [editing, setEditing] = useState<RuleDraft | null>(null);
 
   const query = toQuery(f);
   const range = { from: f.from, ...(f.to ? { to: f.to } : {}) };
@@ -539,7 +553,7 @@ export function Logs() {
   // The head of the page cascades, the period over all of it: the sites narrow the matrix, the sites and the matrix (source,
   // criticity) the senders, the sites, the matrix and the sender the histogram. The filters above the list touch the list
   // only.
-  const head: LogQuery = { ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.masked ? { showMasked: true } : {}), ...range };
+  const head: LogQuery = { ...(f.role ? { role: f.role } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.masked ? { showMasked: true } : {}), ...ignoredOf(f), ...range };
   const picked: LogQuery = { ...head, ...(f.source.length ? { source: f.source } : {}), ...(f.level || f.severity !== DEFAULT_SEVERITY ? severityOf(f) : {}) };
   const sender: LogQuery = { ...picked, ...severityOf(f), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}) };
   const matrix = useQuery({ queryKey: ['logs', 'matrix', head], queryFn: () => api.logMatrix(head), enabled: hasServer, placeholderData: keepPreviousData });
@@ -555,6 +569,7 @@ export function Logs() {
     placeholderData: keepPreviousData,
   });
   const live = useLiveTail(hasServer && f.live, query);
+  const ignoreRules = useIgnoreRules(f.role, range);
 
   if (loadingServers) return <div className="flex justify-center p-20"><Spinner /></div>;
   if (!hasServer) {
@@ -578,7 +593,7 @@ export function Logs() {
   if (current && sources.isSuccess && !cloud.some((o) => o.key === current)) cloud.push({ key: current, label: f.host ? (hosts.find((h) => h.id === f.host)?.name ?? f.host) : f.hostname, count: 0, errors: 0 });
   // the server received nothing at all over the period, whatever the sites
   const nothing = matrix.isSuccess && !matrix.data.sources.length;
-  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.device.length || f.q || f.level || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
+  const filtered = !!(f.host || f.hostname || f.site.length || f.tag || f.app.length || f.notApp.length || f.source.length || f.device.length || f.q || f.rule || f.level || f.severity !== DEFAULT_SEVERITY || f.from !== DEFAULT_PERIOD || f.to);
   const appChoices = [...new Set([...f.app, ...(apps.data?.values.map((v) => v.value) ?? [])])];
 
   const field = 'mb-1 block text-xs text-muted';
@@ -686,6 +701,7 @@ export function Logs() {
         masked={f.masked}
         onMasked={(on) => set({ masked: on })}
       />
+      <IgnoreBar role={f.role} range={range} show={f.ignored} onShow={(on) => set({ ignored: on })} rule={f.rule} onRule={(rule) => set({ rule })} onOpen={() => setRulesOpen(true)} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {current && (
@@ -715,6 +731,7 @@ export function Logs() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-2">
+          {(canManage || !!ignoreRules.data?.rules.length) && <Button size="sm" icon={MessageSquareOff} title="Règles des messages bénins écartés des journaux" onClick={() => setRulesOpen(true)}>Ignorés</Button>}
           <MaskButton selection={{ ...(f.role ? { role: f.role } : {}), ...(f.host ? { host: [f.host] } : {}), ...(f.hostname ? { hostname: [f.hostname] } : {}), ...(f.site.length ? { site: f.site } : {}), ...(f.tag ? { tag: f.tag } : {}) }} />
           {!f.live && <Button size="sm" icon={RefreshCw} loading={rows.isRefetching || hits.isRefetching} onClick={() => void refresh()}>Actualiser</Button>}
           <Button size="sm" variant={f.live ? 'primary' : 'secondary'} icon={f.live ? Pause : Radio} onClick={() => set({ live: !f.live })}>{f.live ? 'Arrêter le direct' : 'Direct'}</Button>
@@ -766,6 +783,7 @@ export function Logs() {
                         setOpened(null);
                       }}
                       onContext={() => setContext(r)}
+                      onIgnore={canManage ? () => setEditing({ pattern: suggestPattern(r.message), regex: true, hostnames: r.hostname ? [r.hostname] : [], apps: r.app ? [r.app] : [], comment: '', enabled: true }) : undefined}
                     />
                   </Fragment>
                 ))}
@@ -780,7 +798,9 @@ export function Logs() {
           )}
         </>
       )}
-      {context && <ContextModal row={context} role={f.role} masked={f.masked} onClose={() => setContext(null)} />}
+      {context && <ContextModal row={context} role={f.role} masked={f.masked} ignored={f.ignored || !!f.rule} onClose={() => setContext(null)} />}
+      <IgnoreRulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} role={f.role} range={range} onRule={(rule) => set({ rule, ignored: false })} onEdit={(r) => setEditing(r)} />
+      {editing && <IgnoreRuleEditor key={editing.id ?? 'new'} initial={editing} role={f.role} onClose={() => setEditing(null)} />}
     </>
   );
 }

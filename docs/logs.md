@@ -188,6 +188,7 @@ Réservée aux profils `admin` et `operator` : un journal peut contenir un secre
 - **Une ligne dépliée** montre le message entier et ses champs (facility, PID, adresse d'origine…), avec :
   - **Voir le contexte** : les 20 lignes d'avant et d'après sur le même hôte, toutes applications et criticités confondues ;
   - **Cet hôte**, **Cette application**, **Exclure** l'application : ajoute le filtre ;
+  - **Ignorer ce message** (administrateurs) : crée une [règle d'ignore](#messages-ignorés) pré-remplie ;
   - **Copier**, et le lien vers la fiche de l'hôte.
 - Les filtres sont dans l'adresse de la page : elle se partage et se retrouve avec le retour arrière du navigateur.
 
@@ -207,10 +208,26 @@ Une fois l'investigation faite et les actions décidées, **Masquer** (administr
 - La détection d'hôte muet ([ci-dessous](#hôte-muet)) lit les lignes brutes : masquer un hôte ne le fait pas passer en « rien reçu ».
 - Pose et retrait sont inscrits au journal d'audit. Un repère plus ancien que la rétention du serveur n'a plus d'effet (il reste en base, inoffensif).
 
+### Messages ignorés
+
+Certains messages connus et bénins sortent en warning ou en erreur et faussent la lecture de la matrice. Exemple : `EXT4-fs (rbdN): write access unavailable, skipping orphan cleanup`, émis par le noyau des nœuds Proxmox VE (niveau error) à chaque sauvegarde vzdump `--mode snapshot` d'un CT sur Ceph, quand le snapshot RBD est monté en lecture seule. Une **règle d'ignore** les écarte de la lecture.
+
+- Rien n'est supprimé sur le serveur et rien ne change sur les hôtes : le hub ajoute une condition par règle active aux requêtes. Liste, histogramme, matrice, émetteurs, valeurs des filtres, contexte, direct et **erreurs de la fiche d'un hôte** les écartent. La détection d'hôte muet lit toujours les lignes brutes.
+- Une règle comprend :
+  - un **motif** : un texte cherché tel qu'il est écrit (casse comprise, n'importe où dans le message), ou une **expression régulière** (syntaxe RE2, celle de VictoriaLogs) ;
+  - une **portée** facultative : des **hôtes** (noms bruts, comme les journaux les portent, séparés par des virgules) et des **applications** (`kernel`…). Vide : tous ;
+  - un **commentaire**, obligatoire : pourquoi le message est bénin.
+- **Ignorer ce message**, sur une ligne dépliée, pré-remplit une expression régulière tirée du message : les nombres deviennent `\d+` (une date, une heure, un PID, le `0` de `rbd0`), un UUID ou une longue valeur hexadécimale deviennent génériques. Seuls les 200 premiers caractères sont repris. L'hôte et l'application de la ligne servent de portée, à élargir au besoin (tous les nœuds PVE par exemple).
+- Pendant la saisie, la boîte compte les lignes que la règle écarterait sur 7 jours et montre les plus récentes. Un motif que le serveur ne sait pas lire (syntaxe hors RE2, `(?<=…)` par exemple) est refusé à l'enregistrement.
+- **Casse** : pas de `(?i)` dans une règle. Un motif insensible à la casse empêche le serveur de sauter les blocs qui ne le contiennent pas : il relit chaque ligne, plus de 30 s sur une semaine, et toutes les requêtes de la page ralentissent.
+- Une pastille « N messages ignorés · X lignes sur la période » rappelle les règles actives (détail au survol, un clic ouvre la liste). **Afficher les ignorés** lit tout, sans toucher aux règles.
+- Le bouton **Ignorés**, à côté de **Masquer**, ouvre la liste des règles. Pour chacune : motif, portée, commentaire, auteur, et nombre de lignes sur la période de la page. Actions : **Voir ses lignes** (la page ne montre plus que celles-là, une pastille permet d'en sortir), **Désactiver** / **Activer**, **Modifier**, **Supprimer**. Les opérateurs voient la liste ; les administrateurs écrivent les règles (sans passkey : rien n'est supprimé). Création, modification et suppression sont inscrites au journal d'audit.
+- Les règles valent pour tous les serveurs de logs ; leurs compteurs sont lus sur le serveur choisi.
+
 ## Sur la fiche d'un hôte
 
 - Le bouton **Logs** de l'en-tête ouvre la page filtrée sur l'hôte.
-- La ligne **Journaux** indique le dernier journal reçu et le nombre d'erreurs sur 24 h (lien vers ces erreurs). Ces valeurs sont relevées toutes les 5 minutes.
+- La ligne **Journaux** indique le dernier journal reçu et le nombre d'erreurs sur 24 h, hors [messages ignorés](#messages-ignorés) (lien vers ces erreurs). Ces valeurs sont relevées toutes les 5 minutes.
 
 ### Hôte muet
 
@@ -240,12 +257,17 @@ Profils `admin` et `operator`, session seulement (pas de clé d'API). `404` sans
 | `GET /api/logs/cutoffs` | repères d'historique masqué ; avec `preview=true` et une sélection (`host`, `hostname`, `site`, `tag`), le nombre de lignes que masquer cette sélection écarterait, par hôte |
 | `PUT /api/logs/cutoffs` | masque l'historique de la sélection jusqu'à maintenant, 400 si elle ne contient aucun hôte (administrateurs) |
 | `DELETE /api/logs/cutoffs` | réaffiche l'historique de la sélection, de tous les hôtes sans sélection (administrateurs) |
+| `GET /api/logs/ignore-rules` | règles d'ignore, avec `count`, le nombre de lignes de chacune sur la période (`from`, `to`) ; `countError` si le serveur n'a pas répondu |
+| `POST /api/logs/ignore-rules/preview` | ce qu'une règle en cours de saisie écarterait (`pattern`, `regex`, `hostnames`, `apps`, période) : `count` et les 5 lignes les plus récentes ; 400 si le serveur refuse le motif (administrateurs) |
+| `POST /api/logs/ignore-rules` | crée une règle : `{ "pattern", "regex", "hostnames": [], "apps": [], "comment", "enabled" }` ; 400 si le motif est invalide ou le commentaire vide (administrateurs) |
+| `PUT /api/logs/ignore-rules/:id` | modifie une règle, mêmes champs (administrateurs) |
+| `DELETE /api/logs/ignore-rules/:id` | supprime une règle (administrateurs) |
 | `POST /api/roles/log-reception` | test de réception d'un serveur en cours de déclaration : ligne syslog de test envoyée, puis cherchée par l'API (administrateurs) |
 | `GET /api/settings/logs/:role/hosts` | hôtes qui envoient au serveur, avec leur état (administrateurs) |
 | `POST /api/settings/logs/:role/hosts` | fait envoyer un hôte (`hostId`) et applique l'option (administrateurs, passkey) |
 | `DELETE /api/settings/logs/:role/hosts/:hostId` | arrête l'envoi d'un hôte, et celui de ses conteneurs (administrateurs, passkey) |
 | `PUT /api/hosts/:id/docker-logs` | journaux des conteneurs : `{ "enabled": true, "recreate": ["stack"…] }` les met en place (et recrée ces stacks), `{ "enabled": false }` les arrête (administrateurs, passkey) ; `202 { jobId }` |
 
-Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname`, `showMasked` (lit aussi l'historique masqué) ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
+Filtres communs : `role`, `host` (identifiants d'hôtes), `hostname` (noms bruts), `site`, `tag`, `severity` (0 à 7, criticité la moins grave gardée), `app`, `facility`, `source` (`_none` : sans source), `q`, `notApp`, `notHostname`, `showMasked` (lit aussi l'historique masqué), `showIgnored` (lit aussi les messages ignorés), `ignoreRule` (identifiant : les seules lignes de cette règle) ; listes séparées par des virgules. Période : `from` (date ISO ou durée `15m`, `1h`, `7d`) et `to` (date ISO).
 
 Le hub construit lui-même la requête envoyée au serveur : aucune requête LogsQL n'est acceptée du navigateur.

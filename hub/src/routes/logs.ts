@@ -11,7 +11,8 @@ import { hasRunningJob } from '../jobs.js';
 import { applySetup, canSetup, effectiveValues, loadSetupProfile, overridesError } from '../setup.js';
 import { trackStream } from '../events.js';
 import { loadCutoffs, removeCutoffs, setCutoffs } from '../logCutoffs.js';
-import { countByHost, hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, querySources, tailLogs, type LogField, type LogFilters, type LogRange, type LogRow } from '../logs.js';
+import { createRule, deleteRule, InvalidRule, listRules, loadIgnores, MAX_COMMENT, MAX_PATTERN, normalizeMatch, normalizeRule, ruleById, ruleDto, toIgnore, updateRule, type LogIgnoreInput } from '../logIgnores.js';
+import { countByHost, countIgnored, hostKey, LOG_FIELDS, logRole, logRoles, LogServerError, MAX_LIMIT, queryContext, queryFieldValues, queryHits, queryLogs, queryMatrix, querySenders, querySources, tailLogs, type LogField, type LogFilters, type LogIgnore, type LogRange, type LogRow } from '../logs.js';
 import type { HostDoc, LogServerRole, SetupOverrides, SetupProfile } from '../types.js';
 
 // Journals of the hosts, read on a log server (logs.ts). Admins and operators (profiles.ts), never an API key: a journal
@@ -47,6 +48,9 @@ const filterProps = {
   deviceSystem: { type: 'boolean' },
   // read the history hidden by host too (homelab#355)
   showMasked: { type: 'boolean' },
+  // read the benign messages too (homelab#379); ignoreRule: the lines of that rule only
+  showIgnored: { type: 'boolean' },
+  ignoreRule: { type: 'string', maxLength: 24 },
 } as const;
 const rangeProps = { from: { type: 'string', maxLength: 40 }, to: { type: 'string', maxLength: 40 } } as const;
 
@@ -67,6 +71,8 @@ interface FilterQuery {
   device?: string;
   deviceSystem?: boolean;
   showMasked?: boolean;
+  showIgnored?: boolean;
+  ignoreRule?: string;
 }
 interface RangeQuery {
   from?: string;
@@ -76,6 +82,7 @@ interface RangeQuery {
 const split = (v: string | undefined) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 200) : []);
 
 class BadRequest extends Error {}
+class NotFound extends Error {}
 
 // The range of a request: from a date or a time back from now (default: one hour), to a date (default: now).
 export function rangeOf(q: RangeQuery, now = Date.now()): LogRange & { startMs: number; endMs: number } {
@@ -190,8 +197,13 @@ export function filtersOf(q: FilterQuery, known: KnownHost[], senders: Located[]
 async function resolveFilters(role: LogServerRole, q: FilterQuery & RangeQuery, known: KnownHost[], range: LogRange) {
   const senders = split(q.site).length ? await locatedSenders(role, range, `${q.from ?? '1h'}|${q.to ?? ''}`, known) : [];
   const filters = filtersOf(q, known, senders);
-  // the history hidden by host is left out, unless the page asks for it
-  return filters && !q.showMasked ? { ...filters, cutoffs: await loadCutoffs() } : filters;
+  if (!filters) return filters;
+  // the history hidden by host and the benign messages are left out, unless the page asks for them; the lines of one
+  // rule are the ones it hides (whether it is active or not), the other rules left aside
+  const [cutoffs, ignores] = await Promise.all([q.showMasked ? undefined : loadCutoffs(), q.showIgnored || q.ignoreRule ? undefined : loadIgnores()]);
+  const rule = q.ignoreRule ? await ruleById(q.ignoreRule) : null;
+  if (q.ignoreRule && !rule) throw new NotFound('règle inconnue');
+  return { ...filters, ...(cutoffs ? { cutoffs } : {}), ...(ignores?.length ? { ignores } : {}), ...(rule ? { ignored: toIgnore(rule) } : {}) };
 }
 
 // Each row with the host of the hub that sent it (null: a sender the hub does not know).
@@ -255,7 +267,8 @@ export function registerLogRoutes(app: FastifyInstance) {
     return role;
   };
   const fail = (reply: FastifyReply, err: unknown) => {
-    if (err instanceof BadRequest) return reply.code(400).send({ error: err.message });
+    if (err instanceof BadRequest || err instanceof InvalidRule) return reply.code(400).send({ error: err.message });
+    if (err instanceof NotFound) return reply.code(404).send({ error: err.message });
     if (err instanceof LogServerError) return reply.code(err.status).send({ error: err.message });
     throw err;
   };
@@ -440,8 +453,113 @@ export function registerLogRoutes(app: FastifyInstance) {
     },
   );
 
+  // Benign messages left out of the journals (homelab#379). The rules are the same for every log server; their counts are
+  // read on the server of the request, over its range. Written by admins (profiles.ts), audited; nothing is deleted.
+  const ruleProps = {
+    pattern: { type: 'string', maxLength: MAX_PATTERN },
+    regex: { type: 'boolean' },
+    hostnames: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 253 } },
+    apps: { type: 'array', maxItems: 50, items: { type: 'string', maxLength: 253 } },
+  } as const;
+  const ruleBody = { type: 'object', required: ['pattern', 'comment'], additionalProperties: false, properties: { role: filterProps.role, ...ruleProps, comment: { type: 'string', maxLength: MAX_COMMENT }, enabled: { type: 'boolean' } } } as const;
+  type RuleBody = Partial<LogIgnoreInput> & { role?: string };
+
+  // A pattern the server cannot read is refused here rather than breaking every query of the page: a query of the
+  // rule over a short range. A server that does not answer lets it through (checked again by the first query).
+  const checkOnServer = async (role: LogServerRole, rule: LogIgnore) => {
+    try {
+      await countIgnored(role.config, [rule], { start: '5m' });
+    } catch (err) {
+      if (err instanceof LogServerError && err.upstream === 400) throw new InvalidRule(`motif refusé par le serveur de logs (syntaxe RE2) : ${err.message.replace(/^.*?répond 400 : /, '')}`);
+    }
+  };
+
+  // The rules, with the lines each one matches over the range (countError: the counts could not be read).
+  app.get<{ Querystring: { role?: string } & RangeQuery }>(
+    '/api/logs/ignore-rules',
+    { schema: { querystring: { type: 'object', additionalProperties: false, properties: { role: filterProps.role, ...rangeProps } } } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.query.role);
+      if (!role) return reply;
+      try {
+        const range = rangeOf(req.query);
+        const rules = await listRules();
+        let counts: number[] = [];
+        let countError: string | null = null;
+        try {
+          counts = await countIgnored(role.config, rules.map(toIgnore), { start: range.start, end: range.end });
+        } catch (err) {
+          countError = (err as Error).message;
+        }
+        return { rules: rules.map((r, i) => ({ ...ruleDto(r), count: counts[i] ?? null })), countError };
+      } catch (err) {
+        return fail(reply, err);
+      }
+    },
+  );
+
+  // What a rule being typed would hide over the range: its count and its newest lines (and whether the server reads it).
+  app.post<{ Body: Omit<RuleBody, 'comment' | 'enabled'> & RangeQuery }>(
+    '/api/logs/ignore-rules/preview',
+    { schema: { body: { type: 'object', required: ['pattern'], additionalProperties: false, properties: { role: filterProps.role, ...ruleProps, ...rangeProps } } } },
+    async (req, reply) => {
+      const role = serverOf(req, reply, req.body.role);
+      if (!role) return reply;
+      try {
+        const range = rangeOf(req.body);
+        const rule = toIgnore(normalizeMatch(req.body));
+        const at = { start: range.start, end: range.end };
+        const [[count], rows] = await Promise.all([countIgnored(role.config, [rule], at), queryLogs(role.config, { ignored: rule }, at, 5)]);
+        return { count, rows: withHosts(rows, await knownHosts()) };
+      } catch (err) {
+        if (err instanceof LogServerError && err.upstream === 400) return reply.code(400).send({ error: `motif refusé par le serveur de logs (syntaxe RE2) : ${err.message.replace(/^.*?répond 400 : /, '')}` });
+        return fail(reply, err);
+      }
+    },
+  );
+
+  app.post<{ Body: RuleBody }>('/api/logs/ignore-rules', { schema: { body: ruleBody } }, async (req, reply) => {
+    const role = serverOf(req, reply, req.body.role);
+    if (!role) return reply;
+    try {
+      const input = normalizeRule(req.body);
+      await checkOnServer(role, toIgnore(input));
+      const doc = await createRule(input, req.user?.username ?? null);
+      req.auditNote = { details: { id: doc._id.toHexString(), pattern: input.pattern, regex: input.regex, hostnames: input.hostnames, apps: input.apps } };
+      reply.code(201);
+      return ruleDto(doc);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: RuleBody }>('/api/logs/ignore-rules/:id', { schema: { body: ruleBody } }, async (req, reply) => {
+    const role = serverOf(req, reply, req.body.role);
+    if (!role) return reply;
+    try {
+      const old = await ruleById(req.params.id);
+      if (!old) throw new NotFound('règle inconnue');
+      const input = normalizeRule(req.body);
+      await checkOnServer(role, toIgnore(input));
+      const doc = await updateRule(old._id, input, req.user?.username ?? null);
+      if (!doc) throw new NotFound('règle inconnue');
+      req.auditNote = { details: { id: req.params.id, pattern: input.pattern, regex: input.regex, hostnames: input.hostnames, apps: input.apps, enabled: input.enabled } };
+      return ruleDto(doc);
+    } catch (err) {
+      return fail(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/logs/ignore-rules/:id', async (req, reply) => {
+    if (req.apiKey) return reply.code(403).send({ error: "les journaux ne sont pas lisibles avec une clé d'API" });
+    const old = await ruleById(req.params.id);
+    if (!old || !(await deleteRule(old._id))) return reply.code(404).send({ error: 'règle inconnue' });
+    req.auditNote = { details: { id: req.params.id, pattern: old.pattern, comment: old.comment } };
+    return { ok: true };
+  });
+
   // What surrounds a journal on its host: the rows before and after it, oldest first.
-  app.get<{ Querystring: { role?: string; hostname: string; time: string; before?: number; after?: number; showMasked?: boolean } }>(
+  app.get<{ Querystring: { role?: string; hostname: string; time: string; before?: number; after?: number; showMasked?: boolean; showIgnored?: boolean } }>(
     '/api/logs/context',
     {
       schema: {
@@ -449,7 +567,7 @@ export function registerLogRoutes(app: FastifyInstance) {
           type: 'object',
           required: ['hostname', 'time'],
           additionalProperties: false,
-          properties: { role: filterProps.role, hostname: { type: 'string', minLength: 1, maxLength: 253 }, time: { type: 'string', maxLength: 40 }, before: { type: 'integer', minimum: 0, maximum: 200 }, after: { type: 'integer', minimum: 0, maximum: 200 }, showMasked: filterProps.showMasked },
+          properties: { role: filterProps.role, hostname: { type: 'string', minLength: 1, maxLength: 253 }, time: { type: 'string', maxLength: 40 }, before: { type: 'integer', minimum: 0, maximum: 200 }, after: { type: 'integer', minimum: 0, maximum: 200 }, showMasked: filterProps.showMasked, showIgnored: filterProps.showIgnored },
         },
       },
     },
@@ -458,7 +576,8 @@ export function registerLogRoutes(app: FastifyInstance) {
       if (!role) return reply;
       try {
         if (!TIME_RE.test(req.query.time)) throw new BadRequest('time invalide');
-        const rows = await queryContext(role.config, req.query.hostname, req.query.time, req.query.before ?? 20, req.query.after ?? 20, req.query.showMasked ? undefined : await loadCutoffs());
+        const [cutoffs, ignores] = await Promise.all([req.query.showMasked ? undefined : loadCutoffs(), req.query.showIgnored ? undefined : loadIgnores()]);
+        const rows = await queryContext(role.config, req.query.hostname, req.query.time, req.query.before ?? 20, req.query.after ?? 20, cutoffs, ignores);
         return { rows: withHosts(rows, await knownHosts()) };
       } catch (err) {
         return fail(reply, err);

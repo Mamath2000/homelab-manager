@@ -2041,6 +2041,9 @@ export interface LogQuery {
   deviceSystem?: boolean;
   // read the history hidden by host too (homelab#355)
   showMasked?: boolean;
+  // read the benign messages too (homelab#379); ignoreRule: the lines of that rule only
+  showIgnored?: boolean;
+  ignoreRule?: string;
   // a date (ISO) or a time back from now ("15m", "1h", "7d")
   from?: string;
   to?: string;
@@ -2049,6 +2052,24 @@ export interface LogQuery {
 export interface LogCutoff {
   hostname: string;
   since: string;
+}
+// A benign message left out of the journals (homelab#379): a text as written, or a regular expression (RE2) when regex;
+// hostnames and apps narrow it (none: everywhere). count: its lines over the range asked, null when it could not be read.
+export interface LogIgnoreRuleInput {
+  pattern: string;
+  regex: boolean;
+  hostnames: string[];
+  apps: string[];
+  comment: string;
+  enabled: boolean;
+}
+export interface LogIgnoreRule extends LogIgnoreRuleInput {
+  id: string;
+  by: string | null;
+  at: string;
+  updatedBy?: string | null;
+  updatedAt?: string;
+  count: number | null;
 }
 export type LogSelection = Pick<LogQuery, 'role' | 'host' | 'hostname' | 'site' | 'tag'> & { all?: boolean };
 export interface LogHits {
@@ -2260,7 +2281,12 @@ export const api = {
   logCutoffPreview: (sel: LogSelection) => request<{ cutoffs: LogCutoff[]; hosts: { hostname: string; count: number }[] }>('GET', `/api/logs/cutoffs?${logParams(sel, { preview: 'true' })}`),
   maskLogs: (sel: LogSelection) => request<{ cutoffs: LogCutoff[] }>('PUT', '/api/logs/cutoffs', { ...sel, host: sel.host?.join(','), hostname: sel.hostname?.join(','), site: sel.site?.join(',') }),
   unmaskLogs: (sel: LogSelection) => request<{ cutoffs: LogCutoff[] }>('DELETE', `/api/logs/cutoffs?${logParams(sel)}`),
-  logContext: (role: string | undefined, hostname: string, time: string, showMasked?: boolean) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role, showMasked }, { hostname, time })}`),
+  logContext: (role: string | undefined, hostname: string, time: string, showMasked?: boolean, showIgnored?: boolean) => request<{ rows: LogRow[] }>('GET', `/api/logs/context?${logParams({ role, showMasked, showIgnored }, { hostname, time })}`),
+  logIgnoreRules: (q: Pick<LogQuery, 'role' | 'from' | 'to'>) => request<{ rules: LogIgnoreRule[]; countError: string | null }>('GET', `/api/logs/ignore-rules?${logParams(q)}`),
+  previewLogIgnore: (r: Pick<LogIgnoreRuleInput, 'pattern' | 'regex' | 'hostnames' | 'apps'> & Pick<LogQuery, 'role' | 'from' | 'to'>) => request<{ count: number; rows: LogRow[] }>('POST', '/api/logs/ignore-rules/preview', r),
+  createLogIgnore: (r: LogIgnoreRuleInput & { role?: string }) => request<LogIgnoreRule>('POST', '/api/logs/ignore-rules', r),
+  updateLogIgnore: (id: string, r: LogIgnoreRuleInput & { role?: string }) => request<LogIgnoreRule>('PUT', `/api/logs/ignore-rules/${id}`, r),
+  deleteLogIgnore: (id: string) => request<{ ok: boolean }>('DELETE', `/api/logs/ignore-rules/${id}`),
   hostAlerts: (id: string) => request<{ days: HostAlertDay[] }>('GET', `/api/hosts/${id}/alerts`),
   equipments: () => request<{ equipments: Equipment[] }>('GET', '/api/equipments'),
   createEquipment: (e: EquipmentInput) => request<Equipment>('POST', '/api/equipments', e),

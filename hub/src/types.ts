@@ -687,6 +687,24 @@ export interface LogCutoffDoc {
   at: Date;
 }
 
+// A benign message left out of the journals (homelab#379): a condition on the queries, nothing is deleted. pattern: words
+// looked for whatever the case, or a regular expression (RE2, the syntax of VictoriaLogs) when regex; hostnames and apps
+// narrow it (raw names as the journals carry them; none: every host, every application).
+export interface LogIgnoreRuleDoc {
+  _id: ObjectId;
+  pattern: string;
+  regex: boolean;
+  hostnames: string[];
+  apps: string[];
+  // why the message is benign
+  comment: string;
+  enabled: boolean;
+  by: string | null;
+  at: Date;
+  updatedBy?: string | null;
+  updatedAt?: Date;
+}
+
 // One key action on the hub (audit.ts): only added, never changed nor removed; Mongo drops it after a year.
 export interface AuditDoc {
   _id: ObjectId;
